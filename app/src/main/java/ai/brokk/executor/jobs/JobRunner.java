@@ -378,6 +378,7 @@ public final class JobRunner {
                                 || mode == Mode.LITE_PLAN)
                         ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                         : null;
+
                 final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT
                                 || mode == Mode.LUTZ
                                 || mode == Mode.ISSUE

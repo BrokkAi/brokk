@@ -6,7 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.AbstractProject;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
-public class PythonLanguage implements Language {
+public class PythonLanguage implements DependencyImportable {
     public static final Pattern PY_SITE_PKGS = Pattern.compile("^python\\d+\\.\\d+$");
     private final Set<String> extensions = Set.of("py");
 
@@ -49,12 +49,12 @@ public class PythonLanguage implements Language {
     }
 
     @Override
-    public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+    public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         return new PythonAnalyzer(project, listener);
     }
 
     @Override
-    public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+    public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
         return TreeSitterStateIO.load(storage)
                 .map(state -> {
@@ -82,7 +82,7 @@ public class PythonLanguage implements Language {
                     "\\bimport\\s+.*\\.$ident\\b" // import statements
                     );
         }
-        return Language.super.getSearchPatterns(type);
+        return DependencyImportable.super.getSearchPatterns(type);
     }
 
     @Override
@@ -158,7 +158,7 @@ public class PythonLanguage implements Language {
     }
 
     @Override
-    public List<Path> getDependencyCandidates(IProject project) {
+    public List<Path> getDependencyCandidates(ICoreProject project) {
         logger.debug("Scanning for Python virtual environments in project: {}", project.getRoot());
         List<Path> venvs = findVirtualEnvs(project.getRoot());
         if (venvs.isEmpty()) {
@@ -176,7 +176,7 @@ public class PythonLanguage implements Language {
     }
 
     @Override
-    public List<DependencyCandidate> listDependencyPackages(IProject project) {
+    public List<DependencyCandidate> listDependencyPackages(ICoreProject project) {
         var sitePackagesDirs = getDependencyCandidates(project); // already scans venvs
         var rows = new ArrayList<DependencyCandidate>();
         var seen = new LinkedHashSet<String>();
@@ -268,7 +268,7 @@ public class PythonLanguage implements Language {
     }
 
     @Override
-    public boolean isAnalyzed(IProject project, Path pathToImport) {
+    public boolean isAnalyzed(ICoreProject project, Path pathToImport) {
         assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
         Path projectRoot = project.getRoot();
         Path normalizedPathToImport = pathToImport.normalize();

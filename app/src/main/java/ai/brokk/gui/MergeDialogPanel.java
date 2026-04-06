@@ -2,6 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -53,7 +54,7 @@ public class MergeDialogPanel extends BaseThemedDialog {
     private final MainProject mainProject;
 
     private @Nullable FuzzyComboBox<String> targetBranchComboBox;
-    private final JComboBox<GitRepo.MergeMode> mergeModeComboBox = new JComboBox<>(GitRepo.MergeMode.values());
+    private final JComboBox<IGitRepo.MergeMode> mergeModeComboBox = new JComboBox<>(IGitRepo.MergeMode.values());
 
     private final JLabel conflictStatusLabel = new JLabel(" ");
     private final JLabel dirtyWorkingTreeLabel = new JLabel(" ");
@@ -68,7 +69,7 @@ public class MergeDialogPanel extends BaseThemedDialog {
             boolean confirmed,
             String sourceBranch,
             String targetBranch,
-            GitRepo.MergeMode mergeMode,
+            IGitRepo.MergeMode mergeMode,
             boolean deleteWorktree,
             boolean deleteBranch) {}
 
@@ -206,7 +207,7 @@ public class MergeDialogPanel extends BaseThemedDialog {
     }
 
     private void initializeMergeMode() {
-        var lastMergeMode = mainProject.getLastMergeMode().orElse(GitRepo.MergeMode.MERGE_COMMIT);
+        var lastMergeMode = mainProject.getLastMergeMode().orElse(IGitRepo.MergeMode.MERGE_COMMIT);
         mergeModeComboBox.setSelectedItem(lastMergeMode);
 
         // Remove any pre-existing listeners to avoid duplicates if dialog reused
@@ -214,7 +215,7 @@ public class MergeDialogPanel extends BaseThemedDialog {
             mergeModeComboBox.removeActionListener(l);
         }
         mergeModeComboBox.addActionListener(e -> {
-            var selectedMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
+            var selectedMode = (IGitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
             if (selectedMode != null) {
                 mainProject.setLastMergeMode(selectedMode);
             }
@@ -321,7 +322,7 @@ public class MergeDialogPanel extends BaseThemedDialog {
             return;
         }
         var selectedTargetBranch = targetBranchComboBox.getSelectedItem();
-        var selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
+        var selectedMergeMode = (IGitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
 
         if (selectedTargetBranch == null) {
             conflictStatusLabel.setText("Please select a valid target branch.");
@@ -367,7 +368,7 @@ public class MergeDialogPanel extends BaseThemedDialog {
 
             final String finalResult = conflictResultString;
             final String targetForMessage = selectedTargetBranch;
-            final GitRepo.MergeMode modeForMessage = selectedMergeMode;
+            final IGitRepo.MergeMode modeForMessage = selectedMergeMode;
             SwingUtilities.invokeLater(() -> {
                 if (finalResult != null && !finalResult.isBlank()) {
                     conflictStatusLabel.setText(finalResult);
@@ -392,7 +393,7 @@ public class MergeDialogPanel extends BaseThemedDialog {
         setVisible(true);
 
         var target = targetBranchComboBox != null ? targetBranchComboBox.getSelectedItem() : null;
-        var mode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
+        var mode = (IGitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
         boolean deleteWorktree = deleteWorktreeCb.isSelected();
         boolean deleteBranch = deleteBranchCb.isSelected();
 

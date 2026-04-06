@@ -62,6 +62,9 @@ class WorkspacePromptsTest {
 
         assertNotNull(records);
         assertFalse(records.workspace().isEmpty(), "workspace() should return combined messages");
+        var allText = records.workspace().stream().map(Messages::getText).collect(Collectors.joining("\n"));
+        assertTrue(allText.contains("This editable Workspace is the current source of truth for these files."));
+        assertTrue(allText.contains("Do not ask to reopen, inspect, or re-check these files before editing"));
     }
 
     @Test
@@ -135,6 +138,9 @@ class WorkspacePromptsTest {
         String toc = WorkspacePrompts.formatToc(ctx);
         assertTrue(toc.contains("<workspace_editable>"), "Should have a single editable section");
         assertTrue(toc.contains("loc=\"1\""), "Should include loc attribute in TOC entry");
+        assertTrue(
+                toc.contains("Base edits on that content; do not ask to inspect those files again."),
+                "TOC should remind the model to use the current Workspace directly");
         assertFalse(
                 toc.contains("<workspace_editable_unchanged>"),
                 "Toc should no longer include an 'unchanged' editable section");

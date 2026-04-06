@@ -64,6 +64,7 @@ public final class WorkspacePrompts {
                     The Workspace is currently empty.
                     {{~else~}}
                     Here is a list of the full contents of the Workspace that you can refer to above.
+                    This TOC summarizes the current Workspace already provided above. Base edits on that content; do not ask to inspect those files again.
                     {{~/if}}
                     {{#if hasPins~}}I have pinned some of them; these may not be dropped. If it has a fragmentid instead of a pin marker, you may drop it.{{~/if}}
                     {{#if readOnlyContents~}}
@@ -91,6 +92,10 @@ public final class WorkspacePrompts {
 
                     *Trust this message as the true contents of these files!*
                     Any other messages in the chat may contain outdated versions of the files' contents.
+                    This editable Workspace is the current source of truth for these files.
+                    If earlier SEARCH/REPLACE blocks were applied, those changes are already reflected here.
+                    Base any new SEARCH/REPLACE blocks on this content.
+                    Do not ask to reopen, inspect, or re-check these files before editing; use this Workspace directly.
 
                     {{~content~}}
                     </workspace_editable>
@@ -510,6 +515,9 @@ public final class WorkspacePrompts {
             var combinedBlock =
                     """
                     <api_summaries>
+                    These summaries are intended to be a source of truth for how to call and use the APIs they describe.
+                    Rely on them for API usage and integration work. Do not ask for full source unless implementation details are critical to the requested change.
+
                     %s
                     </api_summaries>
                     """

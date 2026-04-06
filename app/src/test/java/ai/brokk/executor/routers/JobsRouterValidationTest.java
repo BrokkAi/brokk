@@ -73,7 +73,8 @@ class JobsRouterValidationTest {
         CompletableFuture<Void> headlessInit = new CompletableFuture<>();
         headlessInit.complete(null);
 
-        jobsRouter = new JobsRouter(contextManager, jobStore, jobRunner, jobReservation, headlessInit);
+        var agentStore = contextManager.getAgentStore();
+        jobsRouter = new JobsRouter(contextManager, jobStore, jobRunner, jobReservation, headlessInit, agentStore);
 
         // Snapshot filesystem state after construction; invalid requests must not create anything new.
         fsSnapshotBefore = snapshotTree(jobStoreDir);
@@ -204,7 +205,8 @@ class JobsRouterValidationTest {
     void postJobs_withSessionHeader_waitsForHeadlessInit_beforeUnknownSessionValidation() throws Exception {
         var failingInit = new CompletableFuture<Void>();
         failingInit.completeExceptionally(new IllegalStateException("init failed"));
-        var routerWithFailingInit = new JobsRouter(contextManager, jobStore, jobRunner, jobReservation, failingInit);
+        var routerWithFailingInit = new JobsRouter(
+                contextManager, jobStore, jobRunner, jobReservation, failingInit, contextManager.getAgentStore());
 
         Map<String, Object> body = Map.of("taskInput", "unknown session test", "plannerModel", "gpt-4");
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);

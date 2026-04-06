@@ -6,6 +6,7 @@ import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.JobReservation;
+import ai.brokk.executor.agents.AgentStore;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
@@ -55,18 +56,21 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
     private final JobRunner jobRunner;
     private final JobReservation jobReservation;
     private final CompletableFuture<Void> headlessInit;
+    private final AgentStore agentStore;
 
     public JobsRouter(
             ContextManager contextManager,
             JobStore jobStore,
             JobRunner jobRunner,
             JobReservation jobReservation,
-            CompletableFuture<Void> headlessInit) {
+            CompletableFuture<Void> headlessInit,
+            AgentStore agentStore) {
         this.contextManager = contextManager;
         this.jobStore = jobStore;
         this.jobRunner = jobRunner;
         this.jobReservation = jobReservation;
         this.headlessInit = headlessInit;
+        this.agentStore = agentStore;
     }
 
     @Override
@@ -151,6 +155,20 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (sessionIdHeader != null) tags.put("session_id", sessionIdHeader.toString());
         if (githubToken != null && !githubToken.isBlank()) tags.put("github_token", githubToken);
 
+        // If an agent is specified, validate it exists and route to SEARCH mode with an instruction
+        String effectiveTaskInput = request.taskInput();
+        if (request.agent() != null && !request.agent().isBlank()) {
+            var agentName = request.agent().strip();
+            var agentDef = agentStore.get(agentName);
+            if (agentDef.isEmpty()) {
+                RouterUtil.sendValidationError(exchange, "Unknown agent: " + agentName);
+                return;
+            }
+            tags.putIfAbsent("mode", "SEARCH");
+            effectiveTaskInput = "Use the callCustomAgent tool to invoke the '%s' agent for the following task:\n\n%s"
+                    .formatted(agentName, request.taskInput());
+        }
+
         var overrides = validateModelOverrides(exchange, request);
         if (overrides == null) return;
 
@@ -162,7 +180,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         boolean autoCommitFlag = isIssueMode || request.autoCommit();
 
         var jobSpec = new JobSpec(
-                request.taskInput(),
+                effectiveTaskInput,
                 autoCommitFlag,
                 request.autoCompress(),
                 plannerModel,
@@ -711,7 +729,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             @Nullable String reasoningLevelCode,
             @Nullable Double temperature,
             @Nullable Double temperatureCode,
-            @Nullable Boolean skipVerification) {}
+            @Nullable Boolean skipVerification,
+            @Nullable String agent) {}
 
     private record ContextPayload(@Nullable List<String> text) {}
 

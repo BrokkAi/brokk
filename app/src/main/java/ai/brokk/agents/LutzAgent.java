@@ -17,6 +17,7 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.executor.agents.CustomAgentTools;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcpclient.McpUtils;
@@ -283,6 +284,9 @@ public class LutzAgent {
             tools.add("callMcpTool");
         }
 
+        // Custom agents
+        tools.add("callCustomAgent");
+
         // Filter out analyzer-required tools at the very end
         return WorkspaceTools.filterByAnalyzerAvailability(tools, project);
     }
@@ -526,7 +530,8 @@ public class LutzAgent {
                 .register(searchTools)
                 .register(wst)
                 .register(toolProvider)
-                .register(parallelSearch);
+                .register(parallelSearch)
+                .register(new CustomAgentTools(cm, model));
         if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(new DependencyTools(cm));
         }

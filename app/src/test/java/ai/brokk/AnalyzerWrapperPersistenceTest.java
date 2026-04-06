@@ -47,11 +47,16 @@ class AnalyzerWrapperPersistenceTest {
 
     @Test
     void testDeletePersistedAnalyzerStateFilesWithNoFiles() throws Exception {
+        // Construct with Languages.NONE so the background analyzer build creates a lightweight
+        // DisabledAnalyzer (no file scanning). Then set JAVA before calling delete so the
+        // deletion logic iterates over the Java storage path. This avoids the @TempDir cleanup
+        // race on macOS where file handles from a real analyzer build linger after close().
         TestProject project = new TestProject(tempDir);
-        project.setAnalyzerLanguages(Set.of(Languages.JAVA));
+        project.setAnalyzerLanguages(Set.of(Languages.NONE));
 
         try (NoopWatchService stubWatchService = new NoopWatchService();
                 AnalyzerWrapper wrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), stubWatchService)) {
+            project.setAnalyzerLanguages(Set.of(Languages.JAVA));
             // This should not throw any exceptions even if files don't exist
             wrapper.deletePersistedAnalyzerStateFiles();
         }
