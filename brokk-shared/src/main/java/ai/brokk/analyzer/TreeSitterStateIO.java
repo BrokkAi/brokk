@@ -51,7 +51,7 @@ public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     // Current analyzer snapshot schema version. Bump MAJOR for incompatible changes.
-    static final SemVer CURRENT_SCHEMA = SemVer.parse("2.2.0");
+    static final SemVer CURRENT_SCHEMA = SemVer.parse("3.0.0");
 
     // Dedicated Smile ObjectMapper
     private static final ObjectMapper SMILE_MAPPER =
@@ -473,8 +473,9 @@ public final class TreeSitterStateIO {
      * <p>Version semantics:
      * <ul>
      *   <li>If major versions differ -> incompatible: return Optional.empty().
-     *   <li>For strict languages (JAVA, TYPESCRIPT): if snapshot < CURRENT_SCHEMA, return empty.
-     *   <li>For other languages: allow minor/patch differences and migrate.
+     *   <li>For strict languages (JAVA, TYPESCRIPT, RUST): {@link TreeSitterAnalyzerStateMigrator} may force a rebuild
+     *       to drop stale snapshots.
+     *   <li>For other languages: allow minor/patch differences and migrate (still subject to major-version check).
      * </ul>
      */
     @Blocking
