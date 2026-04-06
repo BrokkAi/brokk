@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -53,6 +54,9 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
     private final Map<ProjectFile, TemplateAnalysisResult> results = Collections.synchronizedMap(new HashMap<>());
     private final Map<CodeUnit, String> hostClassToInlineTemplate = Collections.synchronizedMap(new HashMap<>());
     private final Map<CodeUnit, String> hostClassToTemplateUrl = Collections.synchronizedMap(new HashMap<>());
+    /** Normalized project-relative path of external template file -> host component class(es). */
+    private final Map<Path, Set<CodeUnit>> templateRelPathToHostClasses =
+            Collections.synchronizedMap(new HashMap<>());
 
     @Override
     public boolean isApplicable(ICoreProject project) {
@@ -113,7 +117,47 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
         Object templateUrl = payload.get("templateUrl");
         if (templateUrl instanceof String url) {
             hostClassToTemplateUrl.put(hostClass, url);
+            // Map by normalized relative path only; do not require ProjectFile.exists() here so we stay consistent
+            // even when host CodeUnit root and ICoreProject.getRoot() differ (same on-disk file).
+            resolvedExternalTemplateRelPath(hostClass, url).ifPresent(relPath -> templateRelPathToHostClasses
+                    .computeIfAbsent(relPath, k -> Collections.synchronizedSet(new HashSet<>()))
+                    .add(hostClass));
         }
+    }
+
+    /**
+     * Resolves {@code templateUrl} relative to the host component file to a normalized project-relative path.
+     */
+    private static Optional<Path> resolvedExternalTemplateRelPath(CodeUnit hostClass, String templateUrl) {
+        try {
+            Path hostPath = hostClass.source().getRelPath();
+            Path hostDir = hostPath.getParent();
+            return Optional.of((hostDir == null ? Path.of("") : hostDir).resolve(templateUrl).normalize());
+        } catch (Exception e) {
+            log.warn("Failed to resolve template path {} for {}: {}", templateUrl, hostClass, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Resolves {@code templateUrl} relative to the host component file to a project-root {@link ProjectFile}, if the
+     * file exists.
+     */
+    private static Optional<ProjectFile> resolveExternalTemplateFile(
+            CodeUnit hostClass, Path projectRoot, String templateUrl) {
+        Optional<Path> relPath = resolvedExternalTemplateRelPath(hostClass, templateUrl);
+        if (relPath.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            ProjectFile pf = new ProjectFile(projectRoot, relPath.get());
+            if (pf.exists()) {
+                return Optional.of(pf);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve template file {} for {}: {}", templateUrl, hostClass, e.getMessage());
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -122,26 +166,34 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
         if (templateUrl == null) {
             return Set.of();
         }
+        return resolveExternalTemplateFile(hostClass, project.getRoot(), templateUrl)
+                .map(Set::of)
+                .orElseGet(Set::of);
+    }
 
-        try {
-            // Angular template URLs are relative to the component file
-            Path hostPath = hostClass.source().getRelPath();
-            Path hostDir = hostPath.getParent();
-            // If hostDir is null (file in root), resolve against empty path
-            Path resolvedRelPath = (hostDir == null ? Path.of("") : hostDir)
-                    .resolve(templateUrl)
-                    .normalize();
-
-            // ProjectFile requires a path relative to the project root
-            ProjectFile pf = new ProjectFile(project.getRoot(), resolvedRelPath);
-            if (pf.exists()) {
-                return Set.of(pf);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to resolve template file {} for {}: {}", templateUrl, hostClass, e.getMessage());
+    @Override
+    public Set<CodeUnit> getHostClassesForTemplate(ProjectFile templateFile, ICoreProject project) {
+        Set<CodeUnit> hosts = templateRelPathToHostClasses.get(templateFile.getRelPath().normalize());
+        if (hosts == null || hosts.isEmpty()) {
+            return Set.of();
         }
+        synchronized (hosts) {
+            return Set.copyOf(hosts);
+        }
+    }
 
-        return Set.of();
+    @Override
+    public List<CodeUnit> getTopLevelDeclarations(ProjectFile file, ICoreProject project) {
+        if (!getSupportedExtensions().contains(file.extension())) {
+            return List.of();
+        }
+        try {
+            AngularHtmlParser parser = new AngularHtmlParser(project);
+            return parser.getTopLevelDeclarations(file);
+        } catch (Exception e) {
+            log.warn("Failed to get top-level declarations for template {}: {}", file, e.getMessage());
+            return List.of();
+        }
     }
 
     @Override

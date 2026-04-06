@@ -91,8 +91,20 @@ public class ContextFragments {
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         Set<ContextFragment> supporting = new LinkedHashSet<>();
 
+        Collection<CodeUnit> unitsToResolve = units;
+        if (analyzer instanceof MultiAnalyzer multi) {
+            LinkedHashSet<CodeUnit> expanded = new LinkedHashSet<>(units);
+            var project = contextManager.getProject();
+            for (CodeUnit unit : units) {
+                for (var templateAnalyzer : multi.getTemplateAnalyzers()) {
+                    expanded.addAll(templateAnalyzer.getHostClassesForTemplate(unit.source(), project));
+                }
+            }
+            unitsToResolve = expanded;
+        }
+
         // 1. Resolve Ancestors
-        units.stream()
+        unitsToResolve.stream()
                 .filter(CodeUnit::isClass)
                 .flatMap(cu ->
                         analyzer
@@ -106,12 +118,29 @@ public class ContextFragments {
                         contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
                 .forEach(supporting::add);
 
-        // 2. Resolve Templates (Angular/Guest DSLs)
+        // 2. Host files for external templates (inverse of getTemplateFiles: e.g. .html -> component .ts)
+        if (analyzer instanceof MultiAnalyzer multi) {
+            var project = contextManager.getProject();
+            for (CodeUnit unit : units) {
+                for (var templateAnalyzer : multi.getTemplateAnalyzers()) {
+                    for (CodeUnit host : templateAnalyzer.getHostClassesForTemplate(unit.source(), project)) {
+                        if (asSummary) {
+                            supporting.add(new SummaryFragment(
+                                    contextManager, host.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON));
+                        } else {
+                            supporting.add(new ProjectPathFragment(host.source(), contextManager));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Resolve Templates (Angular/Guest DSLs)
         if (analyzer instanceof MultiAnalyzer multi) {
             var templateAnalyzers = multi.getTemplateAnalyzers();
             logger.debug(
                     "Resolving templates using MultiAnalyzer with {} template analyzers", templateAnalyzers.size());
-            for (var unit : units) {
+            for (var unit : unitsToResolve) {
                 boolean foundAny = false;
                 for (var templateAnalyzer : templateAnalyzers) {
                     var files = templateAnalyzer.getTemplateFiles(unit, contextManager.getProject());

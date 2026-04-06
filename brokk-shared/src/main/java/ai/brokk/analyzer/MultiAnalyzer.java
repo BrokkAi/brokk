@@ -184,7 +184,17 @@ public class MultiAnalyzer
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
         return delegateFor(file)
                 .map(delegate -> delegate.getTopLevelDeclarations(file))
-                .orElse(List.of());
+                .orElseGet(() -> templateTopLevelDeclarations(file));
+    }
+
+    private List<CodeUnit> templateTopLevelDeclarations(ProjectFile file) {
+        for (var ta : templateAnalyzers) {
+            List<CodeUnit> tlds = ta.getTopLevelDeclarations(file, getProject());
+            if (!tlds.isEmpty()) {
+                return tlds;
+            }
+        }
+        return List.of();
     }
 
     @Override

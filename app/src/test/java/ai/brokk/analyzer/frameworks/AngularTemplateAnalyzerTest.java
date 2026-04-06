@@ -13,6 +13,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TemplateAnalysisResult;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextFragments.ProjectPathFragment;
+import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -162,6 +164,97 @@ class AngularTemplateAnalyzerTest {
                     .anyMatch(pf -> pf.file().getFileName().equals("test.component.html"));
 
             assertTrue(hasTemplate, "Supporting fragments should include the external template file");
+        }
+    }
+
+    @Test
+    void testProjectPathFragmentForTemplateIncludesHostTs_Integration() {
+        String tsCode =
+                """
+                import { Component } from '@angular/core';
+
+                @Component({
+                  selector: 'app-test',
+                  templateUrl: './test.component.html'
+                })
+                export class TestComponent {}
+                """;
+        String htmlCode = "<p>External Template Content</p>";
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(tsCode, "src/app/test.component.ts")
+                .addFileContents(htmlCode, "src/app/test.component.html")
+                .addFileContents("{}", "angular.json")
+                .build()) {
+
+            IAnalyzer tsAnalyzer = Languages.TYPESCRIPT.createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
+            AngularTemplateAnalyzer angularTemplateAnalyzer = new AngularTemplateAnalyzer();
+            MultiAnalyzer multi =
+                    new MultiAnalyzer(Map.of(Languages.TYPESCRIPT, tsAnalyzer), List.of(angularTemplateAnalyzer));
+
+            multi.snapshotState();
+
+            ProjectFile htmlFile = project.getAllFiles().stream()
+                    .filter(pf -> pf.getFileName().equals("test.component.html"))
+                    .findFirst()
+                    .orElseThrow();
+
+            TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), project.getAllFiles(), multi);
+
+            var fragment = new ProjectPathFragment(htmlFile, cm);
+            Set<ContextFragment> supporting = fragment.supportingFragments();
+
+            boolean hasHostTs = supporting.stream()
+                    .filter(f -> f instanceof ProjectPathFragment)
+                    .map(f -> ((ProjectPathFragment) f).file().getFileName())
+                    .anyMatch(fn -> fn.equals("test.component.ts"));
+
+            assertTrue(hasHostTs, "Supporting fragments should include the host TypeScript component file");
+        }
+    }
+
+    @Test
+    void testSummaryFragmentForTemplateIncludesHostClassSkeleton_Integration() {
+        String tsCode =
+                """
+                import { Component } from '@angular/core';
+
+                @Component({
+                  selector: 'app-test',
+                  templateUrl: './test.component.html'
+                })
+                export class TestComponent {}
+                """;
+        String htmlCode = "<p>External Template Content</p>";
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(tsCode, "src/app/test.component.ts")
+                .addFileContents(htmlCode, "src/app/test.component.html")
+                .addFileContents("{}", "angular.json")
+                .build()) {
+
+            IAnalyzer tsAnalyzer = Languages.TYPESCRIPT.createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
+            AngularTemplateAnalyzer angularTemplateAnalyzer = new AngularTemplateAnalyzer();
+            MultiAnalyzer multi =
+                    new MultiAnalyzer(Map.of(Languages.TYPESCRIPT, tsAnalyzer), List.of(angularTemplateAnalyzer));
+
+            multi.snapshotState();
+
+            TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), project.getAllFiles(), multi);
+
+            var fragment = new SummaryFragment(
+                    cm, "src/app/test.component.html", ContextFragment.SummaryType.FILE_SKELETONS);
+            Set<ContextFragment> supporting = fragment.supportingFragments();
+
+            boolean hasHostSkeleton = supporting.stream()
+                    .filter(f -> f instanceof SummaryFragment)
+                    .map(f -> (SummaryFragment) f)
+                    .anyMatch(sf -> sf.getSummaryType() == ContextFragment.SummaryType.CODEUNIT_SKELETON
+                            && sf.getTargetIdentifier().endsWith("TestComponent"));
+
+            assertTrue(
+                    hasHostSkeleton,
+                    "Supporting fragments should include a class skeleton summary for the host component");
         }
     }
 

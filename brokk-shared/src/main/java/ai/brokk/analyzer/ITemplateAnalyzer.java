@@ -84,6 +84,28 @@ public interface ITemplateAnalyzer {
     }
 
     /**
+     * Returns host language class(es) that own the given external template file, if known.
+     *
+     * <p>This is the inverse of {@link #getTemplateFiles(CodeUnit, ICoreProject)} for templates backed by a file (e.g.
+     * Angular {@code templateUrl}). Inline-only templates typically have no file and yield an empty set.
+     *
+     * @param templateFile a template file on disk (same project root as {@code project})
+     * @param project the core project
+     * @return host component/class code units associated with that template file
+     */
+    default Set<CodeUnit> getHostClassesForTemplate(ProjectFile templateFile, ICoreProject project) {
+        return Set.of();
+    }
+
+    /**
+     * Top-level declarations for a template file when the host language delegate does not handle this extension (e.g.
+     * Angular HTML alongside a TypeScript-only delegate map).
+     */
+    default List<CodeUnit> getTopLevelDeclarations(ProjectFile file, ICoreProject project) {
+        return List.of();
+    }
+
+    /**
      * Provides a summary (skeletons/definitions) of the template file itself.
      *
      * @param templateFile   The template file to summarize.
