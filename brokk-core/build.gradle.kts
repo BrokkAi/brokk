@@ -2,7 +2,6 @@ import net.ltgt.gradle.errorprone.errorprone
 
 plugins {
     `java-library`
-    application
     alias(libs.plugins.errorprone)
     alias(libs.plugins.shadow)
     alias(libs.plugins.spotless)
@@ -17,13 +16,10 @@ java {
     }
 }
 
-application {
-    mainClass.set("ai.brokk.mcpserver.BrokkCoreMcpServer")
-    applicationDefaultJvmArgs = buildList {
-        add("--enable-native-access=ALL-UNNAMED")
-        add("-Djava.awt.headless=true")
-    }
-}
+val coreMcpJvmArgs = listOf(
+    "--enable-native-access=ALL-UNNAMED",
+    "-Djava.awt.headless=true"
+)
 
 // Force Jackson version alignment (same as app)
 configurations.all {
@@ -128,6 +124,14 @@ tasks.withType<Test> {
     filter {
         isFailOnNoMatchingTests = false
     }
+}
+
+tasks.register<JavaExec>("runCoreMcp") {
+    group = "application"
+    description = "Runs the Brokk Core MCP server"
+    mainClass.set("ai.brokk.mcpserver.BrokkCoreMcpServer")
+    classpath = sourceSets.main.get().runtimeClasspath
+    jvmArgs(coreMcpJvmArgs)
 }
 
 tasks.shadowJar {
