@@ -897,8 +897,7 @@ public class TreeSitterStateIOTest {
 
         var loaded = TreeSitterStateIO.load(rust210);
         assertTrue(
-                loaded.isEmpty(),
-                "Rust should REJECT schema 2.1.0 because it is below RUST_REBUILD_THRESHOLD (3.0.0)");
+                loaded.isEmpty(), "Rust should REJECT schema 2.1.0 because it is below RUST_REBUILD_THRESHOLD (3.0.0)");
 
         Path rust220 = tempDir.resolve("rust_new" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(rust220, "2.2.0", 220L, "RUST");
