@@ -274,36 +274,17 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     .filter(l -> l != Languages.NONE)
                     .collect(Collectors.toSet());
 
-            if (currentLangs.equals(projectLangs)) {
-                logger.info(
-                        "External rebuild requested but languages match; clearing persisted state and performing update.");
-                deletePersistedAnalyzerStateFiles(projectLangs);
-                return prev.update();
-            }
+            Set<Language> languagesToDelete = new HashSet<>(currentLangs);
+            languagesToDelete.addAll(projectLangs);
+            logger.info(
+                    "External rebuild requested; recreating analyzers from scratch for {} after clearing persisted state for {}.",
+                    projectLangs,
+                    languagesToDelete);
+            deletePersistedAnalyzerStateFiles(languagesToDelete);
 
-            logger.info("External rebuild requested: language set changed from {} to {}.", currentLangs, projectLangs);
-
-            // 1. Identify and delete state for removed languages
-            Set<Language> removedLangs = new HashSet<>(currentLangs);
-            removedLangs.removeAll(projectLangs);
-            deletePersistedAnalyzerStateFiles(removedLangs);
-
-            // 2. Compose the next analyzer
             Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
             for (Language lang : projectLangs) {
-                Optional<IAnalyzer> existingSub = prev.subAnalyzer(lang);
-                if (existingSub.isPresent()) {
-                    // Language was already present, perform incremental update
-                    nextDelegates.put(lang, existingSub.get().update());
-                } else {
-                    // New language added, try to load from disk or create fresh
-                    try {
-                        nextDelegates.put(lang, lang.loadAnalyzer(project, progressListener));
-                    } catch (Throwable t) {
-                        logger.debug("Failed to load cached analyzer for new language {}, creating fresh", lang, t);
-                        nextDelegates.put(lang, lang.createAnalyzer(project, progressListener));
-                    }
-                }
+                nextDelegates.put(lang, lang.createAnalyzer(project, progressListener));
             }
 
             if (nextDelegates.isEmpty()) {
