@@ -447,7 +447,8 @@ def install_claude_mcp_workspace_skill(*, skills_path: Path | None = None) -> Pa
 def _build_claude_summaries_skill_markdown() -> str:
     return f"""---
 name: {_BROKK_CLAUDE_SUMMARIES_SKILL_NAME}
-description: Use getFileSummaries for class skeletons and framework DSL summaries (e.g. Angular templates).
+description: Use getFileSummaries for class skeletons and framework DSL summaries (e.g. Angular
+             templates).
 ---
 
 # Brokk File Summaries
