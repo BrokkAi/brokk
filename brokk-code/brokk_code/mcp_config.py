@@ -380,7 +380,8 @@ def install_codex_mcp_workspace_skill(*, skills_path: Path | None = None) -> Pat
 def _build_codex_summaries_skill_markdown() -> str:
     return f"""---
 name: {_BROKK_CODEX_SUMMARIES_SKILL_NAME}
-description: Use getFileSummaries for class skeletons and framework DSL summaries (e.g. Angular templates).
+description: Use getFileSummaries for class skeletons and framework DSL summaries (e.g. Angular
+             templates).
 ---
 
 # Brokk File Summaries
