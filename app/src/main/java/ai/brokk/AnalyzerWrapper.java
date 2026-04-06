@@ -894,5 +894,20 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 .toArray(CompletableFuture[]::new);
 
         LoggingFuture.allOf(futures).join();
+
+        if (analyzer instanceof MultiAnalyzer multi) {
+            // Materialize template analysis (Angular, etc.) into template analyzers before persisting;
+            // host-only TreeSitter saves do not populate FrameworkTemplate snapshot maps.
+            multi.snapshotState();
+            for (var ta : multi.getTemplateAnalyzers()) {
+                if (ta instanceof FrameworkTemplate ft) {
+                    try {
+                        FrameworkTemplates.saveTemplateAnalyzerState(ft, project, ta.snapshotState());
+                    } catch (Throwable t) {
+                        logger.debug("Failed persisting template analyzer state for {}: {}", ft.name(), t.toString());
+                    }
+                }
+            }
+        }
     }
 }

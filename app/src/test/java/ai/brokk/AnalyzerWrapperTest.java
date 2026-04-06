@@ -712,8 +712,6 @@ class AnalyzerWrapperTest {
                 .addFileContents(templateHtml, "app.component.html")
                 .build()) {
 
-            ProjectFile tsFile =
-                    testProject.getFileByRelPath(Path.of("app.component.ts")).orElseThrow();
             ProjectFile htmlFile =
                     testProject.getFileByRelPath(Path.of("app.component.html")).orElseThrow();
 
@@ -724,6 +722,18 @@ class AnalyzerWrapperTest {
             // Verify Angular analyzer is active and has results
             assertTrue(firstAnalyzer instanceof MultiAnalyzer);
             MultiAnalyzer multi = (MultiAnalyzer) firstAnalyzer;
+
+            Path tsCache = Languages.TYPESCRIPT.getStoragePath(testProject);
+            Path angularCache = new AngularTemplateAnalyzer().getStoragePath(testProject.getRoot());
+            // Background refresh persists TS + framework templates on the analyzer executor; do not call
+            // multi.snapshotState() here (would race concurrent persist and the same MultiAnalyzer).
+            long deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(15);
+            while (System.currentTimeMillis() < deadline && (!Files.exists(tsCache) || !Files.exists(angularCache))) {
+                Thread.sleep(50);
+            }
+            assertTrue(Files.exists(tsCache), "TS cache should exist after background persist");
+            assertTrue(Files.exists(angularCache), "Angular cache should exist after background persist");
+
             AngularTemplateAnalyzer angular = multi.getTemplateAnalyzers().stream()
                     .filter(ta -> ta instanceof AngularTemplateAnalyzer)
                     .map(ta -> (AngularTemplateAnalyzer) ta)
@@ -734,12 +744,6 @@ class AnalyzerWrapperTest {
 
             // 2. Shut down and manipulate caches
             analyzerWrapper.close();
-
-            Path tsCache = Languages.TYPESCRIPT.getStoragePath(testProject);
-            Path angularCache = angular.getStoragePath(testProject.getRoot());
-
-            assertTrue(Files.exists(tsCache), "TS cache should exist");
-            assertTrue(Files.exists(angularCache), "Angular cache should exist");
 
             // Delete TS cache but KEEP Angular cache
             Files.delete(tsCache);
