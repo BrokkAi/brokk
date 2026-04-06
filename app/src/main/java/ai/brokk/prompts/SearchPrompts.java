@@ -83,17 +83,6 @@ public class SearchPrompts {
                 return EnumSet.of(Terminal.WORKSPACE);
             }
         },
-        SLOP_SCAN(
-                "slop_scan",
-                "Your goal is to perform a forensic audit of code quality, identifying high-complexity methods and redundant comments.",
-                "a slop scan report and recommended refactorings",
-                "",
-                true) {
-            @Override
-            public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.ANSWER, Terminal.TASK_LIST);
-            }
-        },
         ISSUE_DESCRIPTION(
                 "problem_report",
                 "Your goal is to gather enough context to describe the issue and produce a formal issue report with evidence from the repo.",

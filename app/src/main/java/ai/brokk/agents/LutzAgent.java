@@ -32,7 +32,6 @@ import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.SearchTools;
-import ai.brokk.tools.SlopScanTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -232,7 +231,7 @@ public class LutzAgent {
         this.terminalTools = List.copyOf(calculateTerminalTools());
         this.terminalToolNames = Set.copyOf(terminalTools);
 
-        this.staticTools = initStaticTools(cm.getProject(), mcpTools, objective);
+        this.staticTools = initStaticTools(cm.getProject(), mcpTools);
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
@@ -248,16 +247,10 @@ public class LutzAgent {
         return tools;
     }
 
-    private static List<String> initStaticTools(
-            IProject project, List<McpPrompts.McpTool> mcpTools, Objective objective) {
+    private static List<String> initStaticTools(IProject project, List<McpPrompts.McpTool> mcpTools) {
         var tools = new ArrayList<String>();
 
         tools.add("callSearchAgent");
-
-        if (objective == Objective.SLOP_SCAN) {
-            tools.add("computeCyclomaticComplexity");
-            tools.add("analyzeCommentSemantics");
-        }
 
         // Direct anchored-lookup tools. These cover cheap one-hop discovery when the agent already has
         // concrete symbols, filenames, or string anchors and only needs exact locations.
@@ -534,9 +527,6 @@ public class LutzAgent {
                 .register(new CustomAgentTools(cm, model));
         if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(new DependencyTools(cm));
-        }
-        if (objective == Objective.SLOP_SCAN) {
-            builder.register(new SlopScanTools(cm));
         }
         return builder.build();
     }

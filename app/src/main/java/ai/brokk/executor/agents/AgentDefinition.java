@@ -63,6 +63,9 @@ public record AgentDefinition(
             "runShellCommand",
             // DependencyTools
             "importDependency",
+            // CodeQualityTools
+            "computeCyclomaticComplexity",
+            "analyzeCommentSemantics",
             // Terminal
             "answer",
             "abortSearch",

@@ -420,9 +420,4 @@ public record JobSpec(
     public String getBuildSettingsJson() {
         return tags.get("build_settings");
     }
-
-    @JsonIgnore
-    public boolean isSlopScan() {
-        return "SLOP_SCAN".equalsIgnoreCase(tags.get("mode"));
-    }
 }

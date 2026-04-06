@@ -9,6 +9,7 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.CodeQualityTools;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
@@ -59,7 +60,9 @@ public class CustomAgentExecutor {
             "explainCommit",
             "xmlSkim",
             "xmlSelect",
-            "jq");
+            "jq",
+            "computeCyclomaticComplexity",
+            "analyzeCommentSemantics");
 
     private final IContextManager cm;
     private final AgentDefinition agentDef;
@@ -99,6 +102,7 @@ public class CustomAgentExecutor {
         if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(new DependencyTools(cm));
         }
+        builder.register(new CodeQualityTools(cm));
         var toolRegistry = builder.build();
         var allowedTools = agentDef.effectiveTools(cm.getProject());
         var toolContext = new ToolContext(toolRegistry.getTools(allowedTools), ToolChoice.REQUIRED, toolRegistry);
