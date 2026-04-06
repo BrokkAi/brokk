@@ -242,8 +242,8 @@ class AngularTemplateAnalyzerTest {
 
             TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), project.getAllFiles(), multi);
 
-            var fragment = new SummaryFragment(
-                    cm, "src/app/test.component.html", ContextFragment.SummaryType.FILE_SKELETONS);
+            var fragment =
+                    new SummaryFragment(cm, "src/app/test.component.html", ContextFragment.SummaryType.FILE_SKELETONS);
             Set<ContextFragment> supporting = fragment.supportingFragments();
 
             boolean hasHostSkeleton = supporting.stream()

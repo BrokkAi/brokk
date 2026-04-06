@@ -55,8 +55,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
     private final Map<CodeUnit, String> hostClassToInlineTemplate = Collections.synchronizedMap(new HashMap<>());
     private final Map<CodeUnit, String> hostClassToTemplateUrl = Collections.synchronizedMap(new HashMap<>());
     /** Normalized project-relative path of external template file -> host component class(es). */
-    private final Map<Path, Set<CodeUnit>> templateRelPathToHostClasses =
-            Collections.synchronizedMap(new HashMap<>());
+    private final Map<Path, Set<CodeUnit>> templateRelPathToHostClasses = Collections.synchronizedMap(new HashMap<>());
 
     @Override
     public boolean isApplicable(ICoreProject project) {
@@ -132,7 +131,9 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
         try {
             Path hostPath = hostClass.source().getRelPath();
             Path hostDir = hostPath.getParent();
-            return Optional.of((hostDir == null ? Path.of("") : hostDir).resolve(templateUrl).normalize());
+            return Optional.of((hostDir == null ? Path.of("") : hostDir)
+                    .resolve(templateUrl)
+                    .normalize());
         } catch (Exception e) {
             log.warn("Failed to resolve template path {} for {}: {}", templateUrl, hostClass, e.getMessage());
             return Optional.empty();
@@ -173,7 +174,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
 
     @Override
     public Set<CodeUnit> getHostClassesForTemplate(ProjectFile templateFile, ICoreProject project) {
-        Set<CodeUnit> hosts = templateRelPathToHostClasses.get(templateFile.getRelPath().normalize());
+        Set<CodeUnit> hosts =
+                templateRelPathToHostClasses.get(templateFile.getRelPath().normalize());
         if (hosts == null || hosts.isEmpty()) {
             return Set.of();
         }
