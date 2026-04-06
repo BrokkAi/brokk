@@ -24,6 +24,7 @@ import java.nio.file.FileSystemLoopException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -79,7 +80,10 @@ public interface IProject extends ICoreProject {
     @Blocking
     @Override
     default Set<ProjectFile> getAllFiles() {
-        return Set.of();
+        Set<ProjectFile> files = new HashSet<>();
+        files.addAll(getRepo().getFilesForAnalysis());
+        getLiveDependencies().forEach(dep -> files.addAll(dep.files()));
+        return filterExcludedFiles(files);
     }
 
     /**

@@ -14,6 +14,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import ai.brokk.util.HistoryIo;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -54,7 +55,7 @@ class SessionSyncExecutorTest {
 
         sessionManager = new SessionManager(sessionsDir);
 
-        projectStub = new IProject() {
+        projectStub = new TestProject(tempDir) {
             @Override
             public SessionManager getSessionManager() {
                 return sessionManager;
