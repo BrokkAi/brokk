@@ -291,8 +291,7 @@ public class JavaScriptImportTest {
                             && cu.source().getRelPath().toString().contains("lib/helpers/readBlob.js"));
 
             assertTrue(
-                    foundReadBlob,
-                    "Should resolve default import from variable-assigned function expression export");
+                    foundReadBlob, "Should resolve default import from variable-assigned function expression export");
         }
     }
 

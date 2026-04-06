@@ -358,7 +358,8 @@ class GoImportTest {
         ProjectFile mainFile = new ProjectFile(project.getRoot(), "context.go");
 
         Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
-        boolean foundInternalFs = resolved.stream().anyMatch(cu -> cu.source().getRelPath().toString().equals("internal/fs/fs.go"));
+        boolean foundInternalFs = resolved.stream()
+                .anyMatch(cu -> cu.source().getRelPath().toString().equals("internal/fs/fs.go"));
         assertFalse(foundInternalFs, "stdlib import io/fs should not resolve to project internal/fs");
     }
 
@@ -388,8 +389,8 @@ class GoImportTest {
         ProjectFile mainFile = new ProjectFile(project.getRoot(), "gin.go");
 
         Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
-        boolean foundInternalFs =
-                resolved.stream().anyMatch(cu -> cu.source().getRelPath().toString().equals("internal/fs/fs.go"));
+        boolean foundInternalFs = resolved.stream()
+                .anyMatch(cu -> cu.source().getRelPath().toString().equals("internal/fs/fs.go"));
         assertTrue(foundInternalFs, "module-prefixed project import should resolve to internal/fs");
     }
 

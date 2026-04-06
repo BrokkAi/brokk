@@ -120,8 +120,7 @@ class MostRelevantFilesCliTest {
             Files.createDirectories(storage.getParent());
             Files.writeString(storage, "stale");
 
-            MostRelevantFilesCli.deletePersistedAnalyzerStateForCli(
-                    project, List.of(new ProjectFile(tempDir, "A.ts")));
+            MostRelevantFilesCli.deletePersistedAnalyzerStateForCli(project, List.of(new ProjectFile(tempDir, "A.ts")));
 
             assertTrue(Files.notExists(storage), storage.toString());
         }

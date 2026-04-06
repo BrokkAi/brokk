@@ -891,9 +891,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
             try {
                 if (info.isWildcard()) {
-                    String wildcardModule = raw.startsWith("from ") ? raw.substring(5, raw.indexOf(" import ")).trim() : "";
+                    String wildcardModule = raw.startsWith("from ")
+                            ? raw.substring(5, raw.indexOf(" import ")).trim()
+                            : "";
                     if (wildcardModule.startsWith(".")) {
-                        wildcardModule = resolveRelativeImport(file, wildcardModule).orElse("");
+                        wildcardModule =
+                                resolveRelativeImport(file, wildcardModule).orElse("");
                     }
                     if (!wildcardModule.isEmpty()) {
                         var moduleFile = resolveModuleFile(wildcardModule);
@@ -916,7 +919,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
                     String currentModule = raw.substring(5, importIdx).trim();
                     if (currentModule.startsWith(".")) {
-                        currentModule = resolveRelativeImport(file, currentModule).orElse("");
+                        currentModule =
+                                resolveRelativeImport(file, currentModule).orElse("");
                     }
                     if (currentModule.isEmpty()) {
                         continue;

@@ -39,6 +39,7 @@ import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.TreeWalk;
+import org.eclipse.jgit.treewalk.filter.PathFilter;
 import org.eclipse.jgit.util.SystemReader;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Blocking;
@@ -2947,12 +2948,15 @@ public class GitRepo implements Closeable, IGitRepo {
                                             || de.getChangeType() == DiffEntry.ChangeType.COPY)
                                     ? toProjectFile(de.getNewPath())
                                     : Optional.<ProjectFile>empty();
-                            if (de.getChangeType() != DiffEntry.ChangeType.RENAME || oldOpt.isEmpty() || newOpt.isEmpty()) {
+                            if (de.getChangeType() != DiffEntry.ChangeType.RENAME
+                                    || oldOpt.isEmpty()
+                                    || newOpt.isEmpty()) {
                                 continue;
                             }
                             if (de.getScore() < GitRepoData.RENAME_SCORE
                                     || !nativeRenameReplacesPath(parent, commit, oldOpt.get(), newOpt.get())
-                                    || !nativeRenameIsSafe(oldOpt.get(), newOpt.get(), parent.getName(), commit.getName())) {
+                                    || !nativeRenameIsSafe(
+                                            oldOpt.get(), newOpt.get(), parent.getName(), commit.getName())) {
                                 continue;
                             }
                             if (edgesForThisCommit == null) {
