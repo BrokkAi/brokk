@@ -30,8 +30,6 @@ public class MultiAnalyzer
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates, Collection<ITemplateAnalyzer> templateAnalyzers) {
         this.delegates = delegates; // Store the live map directly
         this.templateAnalyzers = List.copyOf(templateAnalyzers);
-        // Emit signals to template analyzers immediately upon creation
-        snapshotState();
     }
 
     private <R> Optional<R> findFirst(Function<IAnalyzer, Optional<R>> extractor) {
@@ -353,6 +351,17 @@ public class MultiAnalyzer
         NavigableSet<String> mergedSymbolKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         long maxEpochNanos = 0;
 
+        if (delegates.isEmpty()) {
+            return new TreeSitterAnalyzer.AnalyzerState(
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty(),
+                    new TreeSitterAnalyzer.SymbolKeyIndex(
+                            Collections.unmodifiableNavigableSet(new TreeSet<>(String.CASE_INSENSITIVE_ORDER))),
+                    HashTreePMap.empty(),
+                    System.nanoTime());
+        }
+
         for (var delegate : delegates.values()) {
             if (delegate instanceof TreeSitterAnalyzer ts) {
                 var state = ts.snapshotState();
@@ -381,11 +390,10 @@ public class MultiAnalyzer
         }
 
         // Trigger analysis for all discovered templates
-        ICoreProject project = getProject();
         for (var templateAnalyzer : templateAnalyzers) {
             // Use the symbol index to find host classes that might have templates
             for (var hostClass : mergedCodeUnitState.keySet()) {
-                Set<ProjectFile> templateFiles = templateAnalyzer.getTemplateFiles(hostClass, project);
+                Set<ProjectFile> templateFiles = templateAnalyzer.getTemplateFiles(hostClass, getProject());
                 for (var templateFile : templateFiles) {
                     analyzeTemplates(templateFile, hostClass);
                 }
@@ -395,8 +403,8 @@ public class MultiAnalyzer
         // Aggregate results from template analyzers
         Map<ProjectFile, List<TemplateAnalysisResult>> aggregatedTemplateResults = new HashMap<>();
         for (var templateAnalyzer : templateAnalyzers) {
-            var results = templateAnalyzer.snapshotState();
-            for (var result : results) {
+            var snapshot = templateAnalyzer.snapshotState();
+            for (var result : snapshot) {
                 aggregatedTemplateResults
                         .computeIfAbsent(result.templateFile(), k -> new ArrayList<>())
                         .add(result);

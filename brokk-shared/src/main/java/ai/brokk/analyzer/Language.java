@@ -222,9 +222,10 @@ public interface Language {
                 if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             var templates = FrameworkTemplates.discoverTemplateAnalyzers(project, languages);
-            return (delegates.size() == 1 && templates.isEmpty())
-                    ? delegates.values().iterator().next()
-                    : new MultiAnalyzer(delegates, templates);
+            if (delegates.size() == 1 && templates.isEmpty()) {
+                return delegates.values().iterator().next();
+            }
+            return new MultiAnalyzer(delegates, templates);
         }
 
         @Override
@@ -235,9 +236,10 @@ public interface Language {
                 if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             var templates = FrameworkTemplates.discoverTemplateAnalyzers(project, languages);
-            return (delegates.size() == 1 && templates.isEmpty())
-                    ? delegates.values().iterator().next()
-                    : new MultiAnalyzer(delegates, templates);
+            if (delegates.size() == 1 && templates.isEmpty()) {
+                return delegates.values().iterator().next();
+            }
+            return new MultiAnalyzer(delegates, templates);
         }
 
         @Override

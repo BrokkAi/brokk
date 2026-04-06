@@ -413,7 +413,16 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     delegate = lang.loadAnalyzer(project, progressListener);
                 } catch (Throwable th) {
                     logger.warn("Failed to load cached analyzer for {}, creating fresh", lang.name(), th);
-                    delegate = lang.createAnalyzer(project, progressListener);
+                    try {
+                        delegate = lang.createAnalyzer(project, progressListener);
+                    } catch (Throwable t2) {
+                        logger.error(
+                                "Critical failure creating analyzer for language {}: {}",
+                                lang.name(),
+                                t2.toString(),
+                                t2);
+                        continue;
+                    }
                     needsRebuild = true;
                 }
                 nextDelegates.put(lang, delegate);
@@ -437,7 +446,8 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     }
                 }
             } catch (Throwable th) {
-                logger.error("Critical failure building analyzer for language {}: {}", lang.name(), th.toString(), th);
+                logger.error(
+                        "Unexpected failure during analyzer setup for language {}: {}", lang.name(), th.toString(), th);
             }
         }
 
