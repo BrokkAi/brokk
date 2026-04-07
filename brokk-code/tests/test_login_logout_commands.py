@@ -74,9 +74,9 @@ async def test_handle_logout_command_logic():
         # Trigger /logout
         app._handle_command("/logout")
 
-        # Await the actual do_logout task instead of sleeping
+        # Await the actual do_logout task with a timeout to prevent hangs
         assert len(created_tasks) == 1, "Expected exactly one worker task to be created"
-        await created_tasks[0]
+        await asyncio.wait_for(created_tasks[0], timeout=5.0)
 
         mock_write.assert_called_once_with({"brokkApiKey": None})
         assert app.executor.brokk_api_key is None
