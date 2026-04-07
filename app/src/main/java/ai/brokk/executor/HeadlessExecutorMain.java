@@ -6,6 +6,8 @@ import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.executor.http.SimpleHttpServer;
+import ai.brokk.executor.agents.AgentDefinition;
+import ai.brokk.executor.agents.AgentStore;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.executor.routers.ActivityRouter;
@@ -36,6 +38,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -278,6 +281,7 @@ public final class HeadlessExecutorMain {
 
         this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
         var agentStore = this.contextManager.getAgentStore();
+        logAgentStoreLoadSnapshot(agentStore.loadSnapshot());
         var jobsRouter = new JobsRouter(
                 this.contextManager, this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit, agentStore);
         this.server.registerAuthenticatedContext("/v1/jobs", jobsRouter);
@@ -327,6 +331,21 @@ public final class HeadlessExecutorMain {
         this.server.registerAuthenticatedContext("/v1/settings", settingsRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
+    }
+
+    private void logAgentStoreLoadSnapshot(AgentStore.LoadSnapshot snapshot) {
+        var loadedNames = snapshot.agents().stream().map(AgentDefinition::name).toList();
+        logger.info(
+                "Loaded {} custom agents from layered store: {}",
+                loadedNames.size(),
+                loadedNames);
+        List<String> skipped = snapshot.skippedInvalidFiles().stream().map(Path::toString).toList();
+        if (!skipped.isEmpty()) {
+            logger.warn(
+                    "Skipped {} invalid custom agent files while loading agent store: {}",
+                    skipped.size(),
+                    skipped);
+        }
     }
 
     private void handleHealthLive(HttpExchange exchange) throws IOException {

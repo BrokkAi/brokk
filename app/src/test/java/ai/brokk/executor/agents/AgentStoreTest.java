@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -170,6 +171,27 @@ class AgentStoreTest {
         // Deterministic merge order: user scope first (sorted), then project scope (sorted).
         assertEquals(List.of("a-user", "z-user", "b-project", "m-project"), first);
         assertEquals(first, second);
+    }
+
+    @Test
+    void loadSnapshot_reportsLoadedAgentsAndSkippedInvalidFiles() throws IOException {
+        store.save(testAgent("good-agent", "project"));
+        Files.createDirectories(projectDir);
+        var invalidFile = projectDir.resolve("broken-agent.md");
+        Files.writeString(
+                invalidFile,
+                """
+                ---
+                description: Missing required name
+                ---
+
+                Prompt
+                """);
+
+        var snapshot = store.loadSnapshot();
+
+        assertEquals(List.of("good-agent"), snapshot.agents().stream().map(AgentDefinition::name).toList());
+        assertTrue(snapshot.skippedInvalidFiles().contains(invalidFile));
     }
 
     @Test
