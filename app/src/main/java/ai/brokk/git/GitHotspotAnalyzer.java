@@ -28,7 +28,9 @@ import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.revwalk.filter.AndRevFilter;
 import org.eclipse.jgit.revwalk.filter.CommitTimeRevFilter;
+import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
@@ -39,6 +41,9 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public class GitHotspotAnalyzer {
     private static final Logger logger = LogManager.getLogger(GitHotspotAnalyzer.class);
+
+    /** Maximum rows returned when {@code maxFiles > 0} is passed to {@link #analyze}. */
+    public static final int MAX_FILES_IN_REPORT_HARD_CAP = 500;
 
     public enum HotspotCategory {
         HOTSPOT, // High activity, high complexity
@@ -59,7 +64,12 @@ public class GitHotspotAnalyzer {
             String lastModified) {}
 
     public record HotspotReport(
-            String repository, int analyzedCommits, String timeframe, List<FileHotspotInfo> files) {}
+            String repository,
+            int analyzedCommits,
+            String timeframe,
+            int totalUniqueFiles,
+            boolean truncated,
+            List<FileHotspotInfo> files) {}
 
     private final GitRepo repo;
     private final IAnalyzer analyzer;
@@ -70,23 +80,43 @@ public class GitHotspotAnalyzer {
     }
 
     /**
-     * Analyzes hotspots in the repository.
+     * Analyzes hotspots in the repository (no limit on the number of files in the report).
      *
      * @param since inclusive start time for the analysis
      * @param maxCommits maximum number of commits to traverse
      */
     public HotspotReport analyze(Instant since, int maxCommits) throws GitAPIException, IOException {
+        return analyze(since, null, maxCommits, 0);
+    }
+
+    /**
+     * Analyzes hotspots with an optional end time and optional cap on returned files (after sorting by churn).
+     *
+     * @param since inclusive start of commit time window
+     * @param until exclusive end of commit time window, or null for no upper bound
+     * @param maxCommits maximum commits to traverse from HEAD
+     * @param maxFiles if positive, return at most this many files (capped at {@link #MAX_FILES_IN_REPORT_HARD_CAP});
+     *     if zero or negative, return all files (no truncation)
+     */
+    public HotspotReport analyze(Instant since, @Nullable Instant until, int maxCommits, int maxFiles)
+            throws GitAPIException, IOException {
         Repository jgitRepo = repo.getRepository();
         Map<ProjectFile, FileStats> statsMap = new HashMap<>();
         int commitCount = 0;
+        String timeframe = formatTimeframe(since, until);
 
         try (RevWalk walk = new RevWalk(jgitRepo)) {
             ObjectId head = jgitRepo.resolve(Constants.HEAD);
             if (head == null) {
-                return new HotspotReport(repo.getWorkTreeRoot().toString(), 0, since.toString(), List.of());
+                return new HotspotReport(
+                        repo.getWorkTreeRoot().toString(), 0, timeframe, 0, false, List.of());
             }
             walk.markStart(walk.parseCommit(head));
-            walk.setRevFilter(CommitTimeRevFilter.after(since));
+            RevFilter timeFilter = CommitTimeRevFilter.after(since);
+            if (until != null) {
+                timeFilter = AndRevFilter.create(timeFilter, CommitTimeRevFilter.before(until));
+            }
+            walk.setRevFilter(timeFilter);
 
             try (DiffFormatter df = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
                 df.setRepository(jgitRepo);
@@ -116,7 +146,26 @@ public class GitHotspotAnalyzer {
                     .collect(Collectors.toList());
         }
 
-        return new HotspotReport(repo.getWorkTreeRoot().toString(), commitCount, since.toString(), hotspotInfos);
+        int totalUnique = hotspotInfos.size();
+        boolean truncated = false;
+        List<FileHotspotInfo> filesOut = hotspotInfos;
+        if (maxFiles > 0) {
+            int cap = Math.min(maxFiles, MAX_FILES_IN_REPORT_HARD_CAP);
+            if (hotspotInfos.size() > cap) {
+                truncated = true;
+                filesOut = List.copyOf(hotspotInfos.subList(0, cap));
+            }
+        }
+
+        return new HotspotReport(
+                repo.getWorkTreeRoot().toString(), commitCount, timeframe, totalUnique, truncated, filesOut);
+    }
+
+    private static String formatTimeframe(Instant since, @Nullable Instant until) {
+        if (until == null) {
+            return "since " + since;
+        }
+        return "since " + since + " until " + until;
     }
 
     void processCommit(RevCommit commit, DiffFormatter df, Map<ProjectFile, FileStats> statsMap) throws IOException {

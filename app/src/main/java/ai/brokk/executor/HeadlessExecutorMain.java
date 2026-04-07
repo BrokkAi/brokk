@@ -642,7 +642,8 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/jobs/{jobId}/cancel      - cancel job execution");
             System.out.println("    GET  /v1/jobs/{jobId}/diff        - get git diff for job");
             System.out.println("    GET  /v1/context                  - get current context state");
-            System.out.println("    GET  /v1/context/analytics/git-hotspots - get git churn and complexity hotspots");
+            System.out.println(
+                    "    GET  /v1/context/analytics/git-hotspots - git churn and complexity hotspots (?since=&until=&maxCommits=&maxFiles=)");
             System.out.println("    POST /v1/context/drop             - drop fragments by ID");
             System.out.println("    POST /v1/context/pin              - toggle fragment pin status");
             System.out.println("    POST /v1/context/readonly         - toggle fragment readonly status");

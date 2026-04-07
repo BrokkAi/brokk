@@ -56,7 +56,7 @@ If you do **not** need wall-clock parallelism, a single `POST /v1/jobs` with **`
 
 ## Related endpoints
 
-- **`GET /v1/context/analytics/git-hotspots`**: Optional data source for prioritizing files (churn vs complexity). Use from the client or from agent prompts that reference hotspot output gathered out-of-band.
+- **`GET /v1/context/analytics/git-hotspots`**: Same analysis as tool `analyzeGitHotspots` (JSON). Query parameters: `since` (e.g. `180d` or ISO-8601 instant), optional `until` (ISO-8601 exclusive end), `maxCommits`, optional `maxFiles` (0 = unlimited file rows in JSON).
 
 For parallel custom-agent workflows, **mode stays `SEARCH`** (or whatever your orchestrator uses); behavior is encoded in stored agent definitions plus client orchestration.
 
@@ -113,7 +113,7 @@ These names are validated against `AgentDefinition.KNOWN_TOOL_NAMES`. Actual ava
 **Other**
 
 - `runShellCommand`, `importDependency`
-- `computeCyclomaticComplexity`, `analyzeCommentSemantics` (code quality)
+- `computeCyclomaticComplexity`, `analyzeCommentSemantics`, `analyzeGitHotspots` (code quality; git hotspots take `sinceDays` / optional ISO `sinceIso` and `untilIso`, plus `maxCommits` and `maxFiles` with a hard cap of 500 files)
 - `answer`, `abortSearch` (always added if missing when resolving effective tools)
 - `think` (always added if missing)
 

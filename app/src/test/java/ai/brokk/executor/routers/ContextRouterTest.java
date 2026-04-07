@@ -292,6 +292,8 @@ class ContextRouterTest {
             assertTrue(body.containsKey("repository"));
             assertTrue(body.containsKey("analyzedCommits"));
             assertTrue(body.containsKey("files"));
+            assertTrue(body.containsKey("totalUniqueFiles"));
+            assertTrue(body.containsKey("truncated"));
         }
     }
 

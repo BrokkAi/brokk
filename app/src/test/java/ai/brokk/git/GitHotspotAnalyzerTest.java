@@ -9,6 +9,7 @@ import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
@@ -17,6 +18,7 @@ import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -90,6 +92,8 @@ public class GitHotspotAnalyzerTest {
         assertTrue(info.topAuthors().get(0).name().startsWith("dev"));
         assertTrue(info.topAuthors().get(0).email().contains("@example.com"));
         assertEquals(GitHotspotAnalyzer.HotspotCategory.HOTSPOT, info.category());
+        assertEquals(1, report.totalUniqueFiles());
+        assertFalse(report.truncated());
     }
 
     @Test
@@ -114,6 +118,65 @@ public class GitHotspotAnalyzerTest {
         assertFalse(report.files().isEmpty());
         assertEquals(
                 GitHotspotAnalyzer.HotspotCategory.STABLE, report.files().get(0).category());
+        assertFalse(report.truncated());
+        assertEquals(1, report.totalUniqueFiles());
+    }
+
+    @Test
+    void testMaxFilesTruncates() throws Exception {
+        GitHotspotAnalyzer hotspotAnalyzer = new GitHotspotAnalyzer(repo, analyzer);
+        for (int i = 0; i < 5; i++) {
+            String name = "F" + i + ".java";
+            Path p = tempDir.resolve(name);
+            ProjectFile pf = new ProjectFile(tempDir, name);
+            Files.writeString(p, "class F" + i + " {}");
+            repo.add(pf);
+            repo.getGit().commit().setSign(false).setMessage("add " + name).call();
+        }
+
+        Instant since = Instant.now().minus(1, ChronoUnit.DAYS);
+        GitHotspotAnalyzer.HotspotReport report = hotspotAnalyzer.analyze(since, null, 50, 2);
+
+        assertEquals(5, report.totalUniqueFiles());
+        assertTrue(report.truncated());
+        assertEquals(2, report.files().size());
+    }
+
+    @Test
+    void testUntilExcludesCommitsAfterEnd() throws Exception {
+        Path filePath = tempDir.resolve("Dated.java");
+        ProjectFile pf = new ProjectFile(tempDir, "Dated.java");
+        Files.writeString(filePath, "class Dated {}");
+        repo.add(pf);
+
+        Instant commitInstant = Instant.parse("2020-06-01T12:00:00Z");
+        var pid = new PersonIdent("t", "t@example.com", commitInstant, ZoneId.of("UTC"));
+        repo.getGit()
+                .commit()
+                .setSign(false)
+                .setAuthor(pid)
+                .setCommitter(pid)
+                .setMessage("dated")
+                .call();
+
+        GitHotspotAnalyzer hotspotAnalyzer = new GitHotspotAnalyzer(repo, analyzer);
+        GitHotspotAnalyzer.HotspotReport beforeWindow =
+                hotspotAnalyzer.analyze(
+                        Instant.parse("2010-01-01T00:00:00Z"),
+                        Instant.parse("2019-01-01T00:00:00Z"),
+                        100,
+                        0);
+        assertEquals(0, beforeWindow.analyzedCommits());
+        assertTrue(beforeWindow.files().isEmpty());
+
+        GitHotspotAnalyzer.HotspotReport inWindow =
+                hotspotAnalyzer.analyze(
+                        Instant.parse("2010-01-01T00:00:00Z"),
+                        Instant.parse("2021-01-01T00:00:00Z"),
+                        100,
+                        0);
+        assertEquals(1, inWindow.analyzedCommits());
+        assertFalse(inWindow.files().isEmpty());
     }
 
     @Test

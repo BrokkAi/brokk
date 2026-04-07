@@ -185,7 +185,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
 
     /**
      * Handles GET /v1/context/analytics/git-hotspots.
-     * Parses 'since' (duration string) and 'maxCommits' (integer) query parameters.
+     * Query parameters: {@code since} (duration like {@code 180d} or ISO-8601 instant), optional {@code until}
+     * (ISO-8601 exclusive end), {@code maxCommits} (default 1000), {@code maxFiles} (optional cap on returned
+     * files; default 0 means unlimited).
      */
     private void handleGetGitHotspots(HttpExchange exchange) throws IOException {
         if (!RouterUtil.ensureMethod(exchange, "GET")) {
@@ -205,11 +207,21 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                     long days = Long.parseLong(sinceStr.substring(0, sinceStr.length() - 1));
                     since = Instant.now().minus(Duration.ofDays(days));
                 } else {
-                    // Try standard ISO duration or fallback to 6 months
-                    since = Instant.now().minus(Duration.ofDays(180));
+                    since = Instant.parse(sinceStr);
                 }
             } catch (Exception e) {
                 since = Instant.now().minus(Duration.ofDays(180));
+            }
+
+            @Nullable Instant until = null;
+            var untilStr = queryParams.get("until");
+            if (untilStr != null && !untilStr.isBlank()) {
+                try {
+                    until = Instant.parse(untilStr.strip());
+                } catch (Exception e) {
+                    RouterUtil.sendValidationError(exchange, "until must be an ISO-8601 instant");
+                    return;
+                }
             }
 
             // Parse maxCommits, default to 1000
@@ -224,6 +236,17 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 }
             }
 
+            int maxFiles = 0;
+            var maxFilesStr = queryParams.get("maxFiles");
+            if (maxFilesStr != null) {
+                try {
+                    maxFiles = Integer.parseInt(maxFilesStr);
+                } catch (NumberFormatException e) {
+                    RouterUtil.sendValidationError(exchange, "maxFiles must be an integer");
+                    return;
+                }
+            }
+
             var repo = contextManager.getProject().getRepo();
             if (!(repo instanceof GitRepo jgitRepo)) {
                 RouterUtil.sendValidationError(exchange, "Git analysis requires a valid Git repository");
@@ -233,7 +256,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             var analyzer = contextManager.getAnalyzerUninterrupted();
             var hotspotAnalyzer = new GitHotspotAnalyzer(jgitRepo, analyzer);
 
-            var report = hotspotAnalyzer.analyze(since, maxCommits);
+            var report = hotspotAnalyzer.analyze(since, until, maxCommits, maxFiles);
             SimpleHttpServer.sendJsonResponse(exchange, report);
 
         } catch (Exception e) {

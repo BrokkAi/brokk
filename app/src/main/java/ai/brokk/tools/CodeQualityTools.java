@@ -5,10 +5,18 @@ import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitHotspotAnalyzer;
+import ai.brokk.git.GitRepo;
+import java.io.IOException;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 
 /**
  * Read-only static analysis helpers for code quality (complexity, comment heuristics).
@@ -104,5 +112,74 @@ public class CodeQualityTools {
         }
 
         return anyFile ? String.join("\n", lines) : "No redundant 'how'-style comments detected.";
+    }
+
+    @Blocking
+    @Tool(
+            """
+            Git churn and complexity hotspots: correlates recent commit activity with cyclomatic complexity per file.
+            Bounded to control context size: use maxFiles and maxCommits, and an optional time window (sinceDays or ISO instants).
+            Returns a compact markdown summary.""")
+    public String analyzeGitHotspots(
+            @P("Days back from now for the window start when sinceIso is empty; values <= 0 default to 7.") int sinceDays,
+            @P("Optional ISO-8601 start instant; when non-blank, overrides sinceDays.") String sinceIso,
+            @P("Optional ISO-8601 exclusive end instant; empty means no upper bound.") String untilIso,
+            @P("Maximum commits to walk; values <= 0 default to 500.") int maxCommits,
+            @P("Maximum files to return (top by churn); values <= 0 default to 75; hard cap 500.") int maxFiles)
+            throws GitAPIException, IOException {
+
+        var repo = contextManager.getProject().getRepo();
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return "Git hotspot analysis requires a JGit-backed repository.";
+        }
+
+        Instant since;
+        if (sinceIso != null && !sinceIso.isBlank()) {
+            since = Instant.parse(sinceIso.strip());
+        } else {
+            int days = sinceDays > 0 ? sinceDays : 7;
+            since = Instant.now().minus(days, ChronoUnit.DAYS);
+        }
+
+        Instant until = null;
+        if (untilIso != null && !untilIso.isBlank()) {
+            until = Instant.parse(untilIso.strip());
+        }
+
+        int commits = maxCommits > 0 ? maxCommits : 500;
+        int filesCap = maxFiles > 0 ? maxFiles : 75;
+
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        var report = new GitHotspotAnalyzer(gitRepo, analyzer).analyze(since, until, commits, filesCap);
+
+        return formatHotspotReportMarkdown(report);
+    }
+
+    private static String formatHotspotReportMarkdown(GitHotspotAnalyzer.HotspotReport report) {
+        var lines = new ArrayList<String>();
+        lines.add("## Git hotspots");
+        lines.add("");
+        lines.add("- Repository: `%s`".formatted(report.repository()));
+        lines.add("- Timeframe: %s".formatted(report.timeframe()));
+        lines.add("- Analyzed commits: %d".formatted(report.analyzedCommits()));
+        lines.add("- Unique files (before cap): %d".formatted(report.totalUniqueFiles()));
+        lines.add("- Truncated: %s".formatted(report.truncated()));
+        lines.add("");
+
+        if (report.files().isEmpty()) {
+            lines.add("No file hotspots in this window.");
+            return String.join("\n", lines);
+        }
+
+        lines.add("| Path | Churn | Complexity | Category | Authors |");
+        lines.add("|------|-------|------------|----------|---------|");
+        for (var f : report.files()) {
+            String authors = f.topAuthors().stream()
+                    .map(a -> a.name() + "(" + a.commits() + ")")
+                    .collect(Collectors.joining(", "));
+            lines.add("| `%s` | %d | %d | %s | %s |"
+                    .formatted(f.path(), f.churn(), f.complexity(), f.category(), authors));
+        }
+        return String.join("\n", lines);
     }
 }
