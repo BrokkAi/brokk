@@ -46,20 +46,8 @@ public class CustomAgentExecutor {
     private record TerminalStopOutput(String llmText, TaskResult.StopDetails stopDetails) implements ToolOutput {}
 
     private static final Set<String> TERMINAL_TOOL_NAMES = Set.of("answer", "abortSearch");
-    private static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES = Set.of(
-            "searchSymbols",
-            "scanUsages",
-            "getSymbolLocations",
-            "skimFiles",
-            "findFilesContaining",
-            "findFilenames",
-            "searchFileContents",
-            "searchGitCommitMessages",
-            "getGitLog",
-            "explainCommit",
-            "xmlSkim",
-            "xmlSelect",
-            "jq");
+    private static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES =
+            AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES;
 
     private final IContextManager cm;
     private final AgentDefinition agentDef;
