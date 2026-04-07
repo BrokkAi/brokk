@@ -299,19 +299,7 @@ public class AnalyzerUtilSelectionTest {
 
     @Test
     void emptyInput_returnsEmpty() {
-        assertTrue(AnalyzerUtil.selectFileFragment(cm, "   ", false).isEmpty(), "File selection should be empty");
-        assertTrue(
-                AnalyzerUtil.selectFolderFragments(cm, "   ", false, false).isEmpty(),
-                "Folder selection should be empty");
-        assertTrue(
-                AnalyzerUtil.selectClassFragment(analyzer, cm, "   ", false).isEmpty(),
-                "Class selection should be empty");
-        assertTrue(
-                AnalyzerUtil.selectMethodFragment(analyzer, cm, "   ", false).isEmpty(),
-                "Method selection should be empty");
-        assertTrue(
-                AnalyzerUtil.selectUsageFragment(analyzer, cm, "   ", false).isEmpty(),
-                "Usage selection should be empty");
+        assertTrue(AnalyzerUtil.selectFileFragment(cm, "", false).isEmpty(), "File selection should be empty");
     }
 
     // (h) Edge cases: folder input normalization

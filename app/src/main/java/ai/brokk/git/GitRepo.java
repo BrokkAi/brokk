@@ -39,6 +39,7 @@ import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.TreeWalk;
+import org.eclipse.jgit.treewalk.filter.PathFilter;
 import org.eclipse.jgit.util.SystemReader;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Blocking;
@@ -53,6 +54,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class GitRepo implements Closeable, IGitRepo {
     private static final Logger logger = LogManager.getLogger(GitRepo.class);
+    private static final double NATIVE_RENAME_TOKEN_OVERLAP_THRESHOLD = 0.90;
 
     private final Path projectRoot; // The root directory for ProjectFile instances this GitRepo deals with
     private final Path gitTopLevel; // The actual top-level directory of the git repository
@@ -2050,7 +2052,7 @@ public class GitRepo implements Closeable, IGitRepo {
         try (var revWalk = new RevWalk(repository);
                 var diffFmt = new DiffFormatter(new ByteArrayOutputStream())) {
             diffFmt.setRepository(repository);
-            diffFmt.setDetectRenames(true);
+            GitRepoData.configureRenameDetection(diffFmt);
 
             for (var commitInfo : commits) {
                 // record current path for this commit
@@ -2160,7 +2162,7 @@ public class GitRepo implements Closeable, IGitRepo {
             revWalk.markStart(head);
 
             df.setRepository(repository);
-            df.setDetectRenames(true);
+            GitRepoData.configureRenameDetection(df);
 
             for (var commit : revWalk) {
                 if (active.isEmpty()) break;
@@ -2818,7 +2820,9 @@ public class GitRepo implements Closeable, IGitRepo {
 
         /**
          * Returns the canonical (current-as-of-HEAD) ProjectFile for {@code pathAtCommit},
-         * by applying any renames that occur AFTER {@code commitId} within the window.
+         * by applying any accepted continuation edges that occur at or after {@code commitId}
+         * within the window. This means a rename commit itself counts under the new lineage,
+         * matching the changed-file semantics used by bifrost.
          */
         public ProjectFile canonicalize(String commitId, ProjectFile pathAtCommit) {
             Integer startIdx = indexByCommit.get(commitId);
@@ -2831,7 +2835,7 @@ public class GitRepo implements Closeable, IGitRepo {
             // Iterate renames from oldest to newest (highest to lowest index within the range)
             // to correctly follow the rename chain in chronological order
             for (var entry :
-                    renamesByIndex.headMap(startIdx, false).descendingMap().entrySet()) {
+                    renamesByIndex.headMap(startIdx, true).descendingMap().entrySet()) {
                 for (var edge : entry.getValue()) {
                     if (edge.old().equals(current)) {
                         current = edge.newPath();
@@ -2888,7 +2892,7 @@ public class GitRepo implements Closeable, IGitRepo {
         try (var revWalk = new RevWalk(repository);
                 var df = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
             df.setRepository(repository);
-            df.setDetectRenames(true);
+            GitRepoData.configureRenameDetection(df);
 
             var headId = resolveToCommit("HEAD");
             var head = revWalk.parseCommit(headId);
@@ -2934,12 +2938,27 @@ public class GitRepo implements Closeable, IGitRepo {
 
                         List<Canonicalizer.RenameEdge> edgesForThisCommit = null;
                         for (var de : diffs) {
-                            if (de.getChangeType() != DiffEntry.ChangeType.RENAME) continue;
-
-                            var oldOpt = toProjectFile(de.getOldPath());
-                            var newOpt = toProjectFile(de.getNewPath());
-                            if (oldOpt.isEmpty() || newOpt.isEmpty()) continue;
-
+                            var oldOpt = (de.getChangeType() == DiffEntry.ChangeType.DELETE
+                                            || de.getChangeType() == DiffEntry.ChangeType.RENAME
+                                            || de.getChangeType() == DiffEntry.ChangeType.COPY)
+                                    ? toProjectFile(de.getOldPath())
+                                    : Optional.<ProjectFile>empty();
+                            var newOpt = (de.getChangeType() == DiffEntry.ChangeType.ADD
+                                            || de.getChangeType() == DiffEntry.ChangeType.RENAME
+                                            || de.getChangeType() == DiffEntry.ChangeType.COPY)
+                                    ? toProjectFile(de.getNewPath())
+                                    : Optional.<ProjectFile>empty();
+                            if (de.getChangeType() != DiffEntry.ChangeType.RENAME
+                                    || oldOpt.isEmpty()
+                                    || newOpt.isEmpty()) {
+                                continue;
+                            }
+                            if (de.getScore() < GitRepoData.RENAME_SCORE
+                                    || !nativeRenameReplacesPath(parent, commit, oldOpt.get(), newOpt.get())
+                                    || !nativeRenameIsSafe(
+                                            oldOpt.get(), newOpt.get(), parent.getName(), commit.getName())) {
+                                continue;
+                            }
                             if (edgesForThisCommit == null) {
                                 edgesForThisCommit = new ArrayList<>();
                             }
@@ -2967,5 +2986,89 @@ public class GitRepo implements Closeable, IGitRepo {
         // Sort rename indices for efficient forward walking
         var sorted = new TreeMap<>(renamesByIndex);
         return new Canonicalizer(indexByCommit, sorted);
+    }
+
+    boolean nativeRenameReplacesPath(RevCommit oldCommit, RevCommit newCommit, ProjectFile oldFile, ProjectFile newFile)
+            throws GitAPIException {
+        return !pathExistsInCommit(newCommit, oldFile) && !pathExistsInCommit(oldCommit, newFile);
+    }
+
+    boolean nativeRenameIsSafe(ProjectFile oldFile, ProjectFile newFile) throws GitAPIException {
+        return nativeRenameIsSafe(oldFile, newFile, "HEAD", "HEAD");
+    }
+
+    boolean nativeRenameIsSafe(ProjectFile oldFile, ProjectFile newFile, String oldCommitId, String newCommitId)
+            throws GitAPIException {
+        return nativeRenameTokenOverlapRatio(oldCommitId, oldFile, newCommitId, newFile).stream()
+                .anyMatch(ratio -> ratio >= NATIVE_RENAME_TOKEN_OVERLAP_THRESHOLD);
+    }
+
+    private OptionalDouble nativeRenameTokenOverlapRatio(
+            String oldCommitId, ProjectFile oldFile, String newCommitId, ProjectFile newFile) throws GitAPIException {
+        var oldContent = getNativeRenameContent(oldCommitId, oldFile);
+        if (oldContent.isEmpty()) {
+            return OptionalDouble.empty();
+        }
+        var newContent = getNativeRenameContent(newCommitId, newFile);
+        if (newContent.isEmpty()) {
+            return OptionalDouble.empty();
+        }
+
+        var oldTokens = contentTokenSet(oldContent.get());
+        var newTokens = contentTokenSet(newContent.get());
+        int maxTokens = Math.max(oldTokens.size(), newTokens.size());
+        if (maxTokens == 0) {
+            return OptionalDouble.of(1.0);
+        }
+        long overlap = oldTokens.stream().filter(newTokens::contains).count();
+        return OptionalDouble.of((double) overlap / maxTokens);
+    }
+
+    private Optional<String> getNativeRenameContent(String ref, ProjectFile file) throws GitAPIException {
+        if ("WORKING".equals(ref)) {
+            return file.exists() ? Optional.of(file.read().orElse("")) : Optional.empty();
+        }
+        try {
+            return Optional.of(data.getFileContent(ref, file));
+        } catch (GitAPIException e) {
+            if (isMissingObjectException(e)) {
+                return Optional.empty();
+            }
+            String message = e.getMessage();
+            if (message != null && message.toLowerCase(Locale.ROOT).contains("not found")) {
+                return Optional.empty();
+            }
+            throw e;
+        }
+    }
+
+    private Set<String> contentTokenSet(String content) {
+        var tokens = new HashSet<String>();
+        var current = new StringBuilder();
+        for (int i = 0; i < content.length(); i++) {
+            char ch = content.charAt(i);
+            if (Character.isLetterOrDigit(ch)) {
+                current.append(Character.toLowerCase(ch));
+            } else if (!current.isEmpty()) {
+                tokens.add(current.toString());
+                current.setLength(0);
+            }
+        }
+        if (!current.isEmpty()) {
+            tokens.add(current.toString());
+        }
+        return tokens;
+    }
+
+    private boolean pathExistsInCommit(RevCommit commit, ProjectFile file) throws GitAPIException {
+        var targetPath = toRepoRelativePath(file);
+        try (var treeWalk = new TreeWalk(repository)) {
+            treeWalk.addTree(commit.getTree());
+            treeWalk.setRecursive(true);
+            treeWalk.setFilter(PathFilter.create(targetPath));
+            return treeWalk.next();
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
     }
 }

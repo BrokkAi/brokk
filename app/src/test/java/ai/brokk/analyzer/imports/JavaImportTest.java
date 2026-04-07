@@ -947,4 +947,110 @@ public class JavaImportTest {
                     "Bar.java should be a referencing file of Foo.java since they're in the same package");
         }
     }
+
+    @Test
+    public void testReferencingFilesOfDoesNotReturnPartialWarmCache() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package pkg;
+                public class Target {}
+                """,
+                "pkg/Target.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                        package pkg;
+                        import pkg.Target;
+
+                        public class Warmup {
+                            private Target target;
+                        }
+                        """,
+                        "pkg/Warmup.java")
+                .addFileContents(
+                        """
+                        package pkg;
+                        import pkg.Target;
+
+                        public class Other {
+                            private Target target;
+                        }
+                        """,
+                        "pkg/Other.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
+            var targetFile = AnalyzerUtil.getFileFor(analyzer, "pkg.Target").orElseThrow();
+            var warmupFile = AnalyzerUtil.getFileFor(analyzer, "pkg.Warmup").orElseThrow();
+            var otherFile = AnalyzerUtil.getFileFor(analyzer, "pkg.Other").orElseThrow();
+
+            var warmupImports = provider.importedCodeUnitsOf(warmupFile);
+            assertEquals(1, warmupImports.size(), "Warmup should resolve exactly one import");
+
+            var referencingFiles = provider.referencingFilesOf(targetFile);
+
+            assertEquals(
+                    Set.of(warmupFile, otherFile),
+                    referencingFiles,
+                    "referencingFilesOf should compute the full reverse set even after a partial warmup");
+        }
+    }
+
+    @Test
+    public void testReferencingFilesOfDoesNotReusePartialReverseCacheFromOtherLookup() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package seedpkg;
+                public class Seed {}
+                """,
+                "seedpkg/Seed.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                        package targetpkg;
+                        public class Target {}
+                        """,
+                        "targetpkg/Target.java")
+                .addFileContents(
+                        """
+                        package client;
+                        import seedpkg.Seed;
+                        import targetpkg.Target;
+
+                        public class WarmedBySeedLookup {
+                            private Seed seed;
+                            private Target target;
+                        }
+                        """,
+                        "client/WarmedBySeedLookup.java")
+                .addFileContents(
+                        """
+                        package client;
+                        import targetpkg.Target;
+
+                        public class OnlyTargetsTarget {
+                            private Target target;
+                        }
+                        """,
+                        "client/OnlyTargetsTarget.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
+            var seedFile = AnalyzerUtil.getFileFor(analyzer, "seedpkg.Seed").orElseThrow();
+            var targetFile =
+                    AnalyzerUtil.getFileFor(analyzer, "targetpkg.Target").orElseThrow();
+            var warmedFile = AnalyzerUtil.getFileFor(analyzer, "client.WarmedBySeedLookup")
+                    .orElseThrow();
+            var targetOnlyFile = AnalyzerUtil.getFileFor(analyzer, "client.OnlyTargetsTarget")
+                    .orElseThrow();
+
+            var seedReferencingFiles = provider.referencingFilesOf(seedFile);
+            assertEquals(Set.of(warmedFile), seedReferencingFiles, "Seed should only be referenced by the warmed file");
+
+            var targetReferencingFiles = provider.referencingFilesOf(targetFile);
+
+            assertEquals(
+                    Set.of(warmedFile, targetOnlyFile),
+                    targetReferencingFiles,
+                    "referencingFilesOf should not treat reverse entries warmed during another lookup as complete");
+        }
+    }
 }

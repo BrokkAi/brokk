@@ -131,9 +131,12 @@ public final class ImportPageRanker {
         // - Normal (reversed=false): Rank flows from Importer to Imported (Forward).
         // - Importers (reversed=true): Rank flows from Imported back to Importer (Reverse).
         Map<ProjectFile, Set<ProjectFile>> adjacency = reversed ? graph.reverse() : graph.forward();
+        Comparator<ProjectFile> fileOrder =
+                Comparator.comparing(pf -> pf.toString().toLowerCase(Locale.ROOT));
 
         // Index nodes
         List<ProjectFile> nodes = new ArrayList<>(adjacency.keySet());
+        nodes.sort(fileOrder);
         Map<ProjectFile, Integer> indexByFile = new HashMap<>();
         for (int i = 0; i < nodes.size(); i++) {
             indexByFile.put(nodes.get(i), i);
@@ -165,6 +168,7 @@ public final class ImportPageRanker {
             ProjectFile pf = nodes.get(i);
             Set<ProjectFile> outs = adjacency.getOrDefault(pf, Set.of());
             int[] outIdx = outs.stream()
+                    .sorted(fileOrder)
                     .map(indexByFile::get)
                     .filter(Objects::nonNull)
                     .mapToInt(Integer::intValue)

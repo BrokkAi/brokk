@@ -313,6 +313,35 @@ public class ContextNoGitFallbackTest {
     }
 
     @Test
+    public void testTrackedSeedCanReturnUntrackedImportNeighbor() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                        "package test; import test.B; public class A { }", "test/A.java")
+                .addFileContents("package test; public class B { }", "test/B.java")
+                .addFileContents("package test; public class C { }", "test/C.java")
+                .withMockGit()
+                .addCommit("test/A.java", "test/C.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
+                    .map(CodeUnit::source)
+                    .distinct()
+                    .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
+
+            ProjectFile a = files.get("A.java");
+            ProjectFile b = files.get("B.java");
+
+            IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+            Context ctx = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(a, cm));
+
+            List<ProjectFile> results = ctx.getMostRelevantFiles(2);
+
+            assertFalse(results.contains(a), "Seed A should be excluded");
+            assertTrue(results.contains(b), "Untracked imported file B should be discoverable via analyzer imports");
+        }
+    }
+
+    @Test
     public void testGitDistanceFastPathForUntrackedSeeds() throws Exception {
         try (var project = InlineTestProjectCreator.code("public class A {}", "A.java")
                 .withMockGit()

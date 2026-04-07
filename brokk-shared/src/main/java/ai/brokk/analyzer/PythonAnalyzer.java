@@ -878,114 +878,139 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
      * This means a wildcard import that comes after an explicit import will shadow the explicit import
      * if both provide the same name.
      * <p>
-     * Wildcard imports include public classes and functions (those without leading underscore).
+     * Wildcard imports include public top-level declarations (those without leading underscore).
      */
-    // TODO: Performance optimization opportunity - This method re-parses each import line with
-    // TreeSitter, even though the full AST was available during analyzeFileContent. A cleaner
-    // approach would collect structured ImportInfo during the initial pass (while processing
-    // import_statement/import_from_statement nodes) and store it in FileProperties. This would
-    // eliminate redundant parsing. However, TreeSitter parsing is fast (~microseconds per line)
-    // and Python files typically have few imports, so this is low priority unless profiling
-    // shows it's a bottleneck.
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         // Use a map to track resolved names - later imports overwrite earlier ones (Python semantics)
         Map<String, CodeUnit> resolvedByName = new LinkedHashMap<>();
 
-        for (String importLine : importStatements) {
-            if (importLine.isBlank()) continue;
+        for (ImportInfo info : importInfoOf(file)) {
+            String raw = info.rawSnippet();
+            if (raw.isBlank()) continue;
 
-            // Re-parse the import statement with TreeSitter (see TODO above)
-            var parser = getTSParser();
-            try (var tree = parser.parseStringOrThrow(null, importLine)) {
-                var rootNode = tree.getRootNode();
-                if (rootNode == null) continue;
-                SourceContent importSc = SourceContent.of(importLine);
-                withCachedQuery(QueryType.IMPORTS, query -> {
-                    try (var cursor = new TSQueryCursor()) {
-                        cursor.exec(query, rootNode, importSc.text());
-
-                        var match = new TSQueryMatch();
-                        String currentModule = null;
-                        String wildcardModule = null;
-
-                        // Collect all captures from this import statement
-                        while (cursor.nextMatch(match)) {
-                            // Reset per-match state
-                            currentModule = null;
-                            wildcardModule = null;
-
-                            for (var cap : match.getCaptures()) {
-                                var capName = query.getCaptureNameForId(cap.getIndex());
-                                var node = cap.getNode();
-                                if (node == null) continue;
-
-                                var text = importSc.substringFrom(node);
-
-                                switch (capName) {
-                                    case IMPORT_MODULE -> currentModule = text;
-                                    case IMPORT_RELATIVE -> {
-                                        // Resolve relative import to absolute package path
-                                        var absolutePath = resolveRelativeImport(file, text);
-                                        currentModule = absolutePath.orElse(null);
-                                    }
-                                    case IMPORT_MODULE_WILDCARD -> wildcardModule = text;
-                                    case IMPORT_RELATIVE_WILDCARD -> {
-                                        // Resolve relative wildcard import to absolute package path
-                                        var absolutePath = resolveRelativeImport(file, text);
-                                        wildcardModule = absolutePath.orElse(null);
-                                    }
-                                    case IMPORT_WILDCARD -> {
-                                        // Wildcard import - expand and add all public symbols (may overwrite
-                                        // previous imports)
-                                        if (wildcardModule != null && !wildcardModule.isEmpty()) {
-                                            var moduleFile = resolveModuleFile(wildcardModule);
-                                            if (moduleFile != null) {
-                                                var decls = getDeclarations(moduleFile);
-                                                for (CodeUnit child : decls) {
-                                                    // Import public classes and functions (no underscore prefix)
-                                                    if ((child.isClass() || child.isFunction())
-                                                            && !child.identifier()
-                                                                    .startsWith("_")) {
-                                                        resolvedByName.put(child.identifier(), child);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    case IMPORT_NAME -> {
-                                        if (currentModule != null) {
-                                            // from X import Y
-                                            var moduleFile = resolveModuleFile(currentModule);
-                                            if (moduleFile != null) {
-                                                var decls = getDeclarations(moduleFile);
-                                                decls.stream()
-                                                        .filter(cu ->
-                                                                cu.identifier().equals(text)
-                                                                        && (cu.isClass() || cu.isFunction()))
-                                                        .findFirst()
-                                                        .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
-                                            }
-                                        } else if (wildcardModule == null) {
-                                            // import X
-                                            var definitions = getDefinitions(text);
-                                            definitions.stream()
-                                                    .filter(cu -> cu.isClass() || cu.isFunction())
-                                                    .findFirst()
-                                                    .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
-                                        }
-                                    }
+            try {
+                if (info.isWildcard()) {
+                    String wildcardModule = raw.startsWith("from ")
+                            ? raw.substring(5, raw.indexOf(" import ")).trim()
+                            : "";
+                    if (wildcardModule.startsWith(".")) {
+                        wildcardModule =
+                                resolveRelativeImport(file, wildcardModule).orElse("");
+                    }
+                    if (!wildcardModule.isEmpty()) {
+                        var moduleFile = resolveModuleFile(wildcardModule);
+                        if (moduleFile != null) {
+                            for (CodeUnit child : getDeclarations(moduleFile)) {
+                                if (!child.isModule() && !child.identifier().startsWith("_")) {
+                                    resolvedByName.put(child.identifier(), child);
                                 }
                             }
                         }
                     }
-                });
+                    continue;
+                }
+
+                if (raw.startsWith("from ")) {
+                    int importIdx = raw.indexOf(" import ");
+                    if (importIdx == -1) {
+                        continue;
+                    }
+
+                    String currentModule = raw.substring(5, importIdx).trim();
+                    if (currentModule.startsWith(".")) {
+                        currentModule =
+                                resolveRelativeImport(file, currentModule).orElse("");
+                    }
+                    if (currentModule.isEmpty()) {
+                        continue;
+                    }
+
+                    String importedName = info.alias() != null ? extractImportedName(raw) : info.identifier();
+                    if (importedName == null || importedName.isBlank()) {
+                        continue;
+                    }
+
+                    String bindingName = info.alias() != null ? info.alias() : importedName;
+                    String importedFqName = currentModule + "." + importedName;
+
+                    var definitions = getDefinitions(importedFqName);
+                    if (!definitions.isEmpty()) {
+                        resolvedByName.put(bindingName, definitions.getFirst());
+                        continue;
+                    }
+
+                    var moduleFile = resolveModuleFile(importedFqName);
+                    if (moduleFile != null) {
+                        getDeclarations(moduleFile).stream()
+                                .filter(CodeUnit::isModule)
+                                .findFirst()
+                                .ifPresent(cu -> resolvedByName.put(bindingName, cu));
+                        continue;
+                    }
+
+                    moduleFile = resolveModuleFile(currentModule);
+                    if (moduleFile != null) {
+                        getDeclarations(moduleFile).stream()
+                                .filter(cu -> cu.identifier().equals(importedName) && !cu.isModule())
+                                .findFirst()
+                                .ifPresent(cu -> resolvedByName.put(bindingName, cu));
+                    }
+                    continue;
+                }
+
+                if (raw.startsWith("import ")) {
+                    String importedModule = extractImportedModule(raw);
+                    if (importedModule == null || importedModule.isBlank()) {
+                        continue;
+                    }
+
+                    String bindingName = info.alias() != null ? info.alias() : info.identifier();
+                    var definitions = getDefinitions(importedModule);
+                    if (!definitions.isEmpty()) {
+                        resolvedByName.put(bindingName, definitions.getFirst());
+                        continue;
+                    }
+
+                    var moduleFile = resolveModuleFile(importedModule);
+                    if (moduleFile != null) {
+                        getDeclarations(moduleFile).stream()
+                                .filter(CodeUnit::isModule)
+                                .findFirst()
+                                .ifPresent(cu -> resolvedByName.put(bindingName, cu));
+                    }
+                }
             } catch (Exception e) {
-                log.warn("Error parsing import statement: {}", importLine, e);
+                log.warn("Error resolving import: {}", raw, e);
             }
         }
 
         return Collections.unmodifiableSet(new LinkedHashSet<>(resolvedByName.values()));
+    }
+
+    private static @Nullable String extractImportedName(String rawImport) {
+        int importIdx = rawImport.indexOf(" import ");
+        if (importIdx == -1) {
+            return null;
+        }
+        String imported = rawImport.substring(importIdx + " import ".length()).trim();
+        int aliasIdx = imported.indexOf(" as ");
+        if (aliasIdx != -1) {
+            imported = imported.substring(0, aliasIdx).trim();
+        }
+        return imported.isEmpty() ? null : imported;
+    }
+
+    private static @Nullable String extractImportedModule(String rawImport) {
+        if (!rawImport.startsWith("import ")) {
+            return null;
+        }
+        String imported = rawImport.substring("import ".length()).trim();
+        int aliasIdx = imported.indexOf(" as ");
+        if (aliasIdx != -1) {
+            imported = imported.substring(0, aliasIdx).trim();
+        }
+        return imported.isEmpty() ? null : imported;
     }
 
     @Override

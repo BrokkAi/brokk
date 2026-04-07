@@ -333,6 +333,68 @@ class GoImportTest {
     }
 
     @Test
+    void testResolveImports_DoesNotMatchStdlibByLastSegmentAlone() throws IOException {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package demo
+
+                import "io/fs"
+
+                type Context struct {
+                    FS fs.FS
+                }
+                """,
+                        "context.go")
+                .addFileContents(
+                        """
+                package fs
+
+                type FileSystem struct{}
+                """,
+                        "internal/fs/fs.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "context.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+        boolean foundInternalFs = resolved.stream()
+                .anyMatch(cu -> cu.source().getRelPath().toString().equals("internal/fs/fs.go"));
+        assertFalse(foundInternalFs, "stdlib import io/fs should not resolve to project internal/fs");
+    }
+
+    @Test
+    void testResolveImports_ModulePrefixedProjectImport() throws IOException {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package fs
+
+                type FileSystem struct{}
+                """,
+                        "internal/fs/fs.go")
+                .addFileContents(
+                        """
+                package main
+
+                import filesystem "github.com/gin-gonic/gin/internal/fs"
+
+                type Engine struct {
+                    FS filesystem.FileSystem
+                }
+                """,
+                        "gin.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "gin.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+        boolean foundInternalFs = resolved.stream()
+                .anyMatch(cu -> cu.source().getRelPath().toString().equals("internal/fs/fs.go"));
+        assertTrue(foundInternalFs, "module-prefixed project import should resolve to internal/fs");
+    }
+
+    @Test
     void testSingleImport() throws IOException {
         String code =
                 """

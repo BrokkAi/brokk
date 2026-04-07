@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -22,12 +23,37 @@ public final class GitDistance {
     private static final Logger logger = LogManager.getLogger(GitDistance.class);
     private static final int COMMITS_TO_PROCESS = 1_000;
     private static final int LARGE_SEED_THRESHOLD = 100;
+    private static final double SCORE_TIE_EPSILON = 1.0e-9;
 
     /** Represents an edge between two CodeUnits in the co-occurrence graph. */
     public record FileEdge(ProjectFile src, ProjectFile dst) {}
 
     /**
-     * Given seed files and weights, return related files from the most recent COMMITS_TO_PROCESS commits.
+     * Given seed files and weights, return related files from the most recent {@value #COMMITS_TO_PROCESS} commits.
+     *
+     * <p>This method is one of the cross-repo parity entry points. Keep its behavior in sync with bifrost's
+     * {@code related_files_by_git}. The parity harness depends on the following choices matching exactly:
+     *
+     * <ul>
+     *   <li>the baseline commit walk must preserve topology as well as time ordering so the canonicalizer never sees
+     *       an older pre-rename commit before the later rename edge that should rewrite it; rename commits themselves
+     *       count under the accepted new lineage rather than the old path</li>
+     *   <li>native Git rename detection uses a 50% similarity threshold with a high rename limit, and only native
+     *       {@code RENAME} labels contribute lineage. If Git does not label an edge as {@code RENAME}, this scorer
+     *       treats the old/new paths as unrelated for canonicalization purposes</li>
+     *   <li>canonicalization follows only those native rename labels that actually replace the old path with the new
+     *       path across the commit boundary; if both paths survive across that boundary, treat the change as
+     *       ordinary path churn instead of lineage</li>
+     *   <li>accepted native rename labels also pass one cheap synchronizer shared with bifrost: compact filename
+     *       stems must match and the directly compared old/new contents must retain near-exact token overlap. This
+     *       keeps JGit/libgit2 aligned on borderline rename scores without reintroducing add/delete continuation
+     *       scoring</li>
+     *   <li>copy/split history is intentionally not recovered by extra add/delete blob-similarity heuristics</li>
+     *   <li>near-equal scores are treated as ties using a relative epsilon of
+     *       {@code 1e-9 * max(1, |score|)} and are then ordered by normalized path</li>
+     * </ul>
+     *
+     * <p>If any of those rules change here, change bifrost in the same way and rerun the external parity fixtures.
      *
      * <p>Ranking formula:
      * score(y) = sum_over_seeds [ weight(seed) * P(y|seed) * idf(y) ]
@@ -165,9 +191,28 @@ public final class GitDistance {
         // Build and sort results
         return scores.entrySet().stream()
                 .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
-                .sorted((a, b) -> Double.compare(b.score(), a.score()))
+                .sorted(GitDistance::compareFileRelevance)
                 .limit(k)
                 .toList();
+    }
+
+    private static int compareFileRelevance(IAnalyzer.FileRelevance a, IAnalyzer.FileRelevance b) {
+        double scoreGap = b.score() - a.score();
+        double scoreScale = Math.max(1.0, Math.max(Math.abs(a.score()), Math.abs(b.score())));
+        if (Math.abs(scoreGap) <= SCORE_TIE_EPSILON * scoreScale) {
+            return a.file()
+                    .toString()
+                    .toLowerCase(Locale.ROOT)
+                    .compareTo(b.file().toString().toLowerCase(Locale.ROOT));
+        }
+
+        int byScore = Double.compare(b.score(), a.score());
+        return byScore != 0
+                ? byScore
+                : a.file()
+                        .toString()
+                        .toLowerCase(Locale.ROOT)
+                        .compareTo(b.file().toString().toLowerCase(Locale.ROOT));
     }
 
     @VisibleForTesting

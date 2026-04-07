@@ -761,28 +761,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Nullable
     private volatile Map<Path, ProjectFile> filesByRelPathCache;
 
-    private Set<ProjectFile> getAllFilesRaw() {
-        // Use getFilesForAnalysis() which handles fallback to filesystem scan for empty Git repos
-        var trackedFiles = repo.getFilesForAnalysis();
-
-        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
-        if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
-            return trackedFiles;
-        }
-
-        var allFiles = new HashSet<>(trackedFiles);
-        for (var live : getLiveDependencies()) {
-            allFiles.addAll(live.files());
-        }
-
-        return allFiles;
-    }
-
     @Override
     @Blocking
     public final synchronized Set<ProjectFile> getAllFiles() {
         if (filesByRelPathCache == null) {
-            var files = filterExcludedFiles(getAllFilesRaw());
+            var files = filterExcludedFiles(IProject.super.getAllFiles());
             filesByRelPathCache = files.stream()
                     .collect(Collectors.toMap(ProjectFile::getRelPath, f -> f, (existing, replacement) -> existing));
         }

@@ -1,5 +1,7 @@
 package ai.brokk.git;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo.ModifiedFile;
 import java.io.ByteArrayInputStream;
@@ -10,8 +12,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -21,6 +26,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.AbstractTreeIterator;
@@ -42,6 +48,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public class GitRepoData {
     private static final Logger logger = LogManager.getLogger(GitRepoData.class);
+    static final int RENAME_SCORE = 50;
+    static final int RENAME_LIMIT = 10_000;
 
     public static final String BINARY_FILE_MARKER = "[Binary file";
 
@@ -318,7 +326,7 @@ public class GitRepoData {
         if (!"WORKING".equals(newRef)) {
             try (var diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
                 diffFormatter.setRepository(repository);
-                diffFormatter.setDetectRenames(true);
+                configureRenameDetection(diffFormatter);
 
                 return scanWithFallback(
                         diffFormatter, () -> prepareTreeParser(oldRef), () -> prepareTreeParser(newRef), "scanDiffs");
@@ -335,7 +343,7 @@ public class GitRepoData {
         if (!oldRef.equals("HEAD")) {
             try (var diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
                 diffFormatter.setRepository(repository);
-                diffFormatter.setDetectRenames(true);
+                configureRenameDetection(diffFormatter);
                 List<DiffEntry> diffs = scanWithFallback(
                         diffFormatter,
                         () -> prepareTreeParser(oldRef),
@@ -375,7 +383,7 @@ public class GitRepoData {
 
         try (var diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
             diffFormatter.setRepository(repository);
-            diffFormatter.setDetectRenames(true);
+            configureRenameDetection(diffFormatter);
             diffFormatter.setPathFilter(filterGroup);
 
             return scanWithFallback(
@@ -396,13 +404,17 @@ public class GitRepoData {
             throw new IllegalArgumentException("newCommitId must not be blank");
         }
 
-        var diffs = scanDiffs(oldCommitId, newCommitId);
-        return extractFilesFromDiffEntries(diffs);
+        var pathResolver = createPathExistenceResolver();
+        var diffs = scanActualDiffs(oldCommitId, newCommitId, pathResolver);
+        if ("WORKING".equals(oldCommitId) || "WORKING".equals(newCommitId)) {
+            return extractFilesFromDiffEntries(diffs);
+        }
+        return extractFilesFromDiffEntriesWithAcceptedNativeRenames(oldCommitId, newCommitId, diffs, pathResolver);
     }
 
     /** Returns structured diffs between two references, including content and rename detection. */
     public List<FileDiff> getFileDiffs(String oldRef, String newRef) throws GitAPIException {
-        var diffs = scanDiffs(oldRef, newRef);
+        var diffs = scanActualDiffs(oldRef, newRef, createPathExistenceResolver());
         var result = new ArrayList<FileDiff>();
 
         for (var entry : diffs) {
@@ -439,6 +451,65 @@ public class GitRepoData {
             result.add(new FileDiff(oldFile, newFile, oldText, newText, isBinary));
         }
         return result;
+    }
+
+    private List<DiffEntry> scanActualDiffs(String oldRef, String newRef, PathExistenceResolver pathResolver)
+            throws GitAPIException {
+        return filterDiffEntriesToActualPaths(oldRef, newRef, scanDiffs(oldRef, newRef), pathResolver);
+    }
+
+    private List<DiffEntry> filterDiffEntriesToActualPaths(
+            String oldRef, String newRef, List<DiffEntry> diffs, PathExistenceResolver pathResolver)
+            throws GitAPIException {
+        if (diffs.isEmpty()) {
+            return diffs;
+        }
+
+        var filtered = new ArrayList<DiffEntry>(diffs.size());
+        for (var diff : diffs) {
+            var oldPath = diff.getOldPath();
+            var newPath = diff.getNewPath();
+            boolean keep =
+                    switch (diff.getChangeType()) {
+                        case ADD ->
+                            !pathResolver.existsAtRef(oldRef, newPath) && pathResolver.existsAtRef(newRef, newPath);
+                        case COPY, RENAME ->
+                            pathResolver.existsAtRef(oldRef, oldPath)
+                                    && !pathResolver.existsAtRef(oldRef, newPath)
+                                    && pathResolver.existsAtRef(newRef, newPath);
+                        case MODIFY -> {
+                            var oldExistsInOld = pathResolver.existsAtRef(oldRef, oldPath);
+                            var modifyPath = oldPath.equals(newPath) ? oldPath : newPath;
+                            yield oldExistsInOld && pathResolver.existsAtRef(newRef, modifyPath);
+                        }
+                        case DELETE ->
+                            pathResolver.existsAtRef(oldRef, oldPath) && !pathResolver.existsAtRef(newRef, oldPath);
+                        default -> true;
+                    };
+            if (keep) {
+                filtered.add(diff);
+            }
+        }
+        return filtered;
+    }
+
+    PathExistenceResolver createPathExistenceResolver() {
+        return new PathExistenceResolver();
+    }
+
+    boolean workingPathExists(String path) {
+        return repo.toProjectFile(path).filter(ProjectFile::exists).isPresent();
+    }
+
+    boolean pathExistsInTree(ObjectId treeId, String path) throws GitAPIException {
+        try (var treeWalk = new TreeWalk(repository)) {
+            treeWalk.addTree(treeId);
+            treeWalk.setRecursive(true);
+            treeWalk.setFilter(PathFilter.create(path));
+            return treeWalk.next();
+        } catch (IOException e) {
+            throw new GitRepo.GitWrappedIOException(e);
+        }
     }
 
     public String getRefContent(String ref, ProjectFile file) throws GitAPIException {
@@ -501,6 +572,14 @@ public class GitRepoData {
         return it != null ? it : new EmptyTreeIterator();
     }
 
+    static void configureRenameDetection(DiffFormatter diffFormatter) {
+        diffFormatter.setDetectRenames(true);
+        if (diffFormatter.getRenameDetector() != null) {
+            diffFormatter.getRenameDetector().setRenameScore(RENAME_SCORE);
+            diffFormatter.getRenameDetector().setRenameLimit(RENAME_LIMIT);
+        }
+    }
+
     private static RuntimeException wrapException(String context, Exception e) throws GitAPIException {
         if (e instanceof GitAPIException gae) throw gae;
         if (e instanceof IOException io) throw new GitRepo.GitWrappedIOException("Scan failed in " + context, io);
@@ -525,6 +604,153 @@ public class GitRepoData {
             }
         } catch (IOException e) {
             throw new GitRepo.GitWrappedIOException(e);
+        }
+    }
+
+    private List<ModifiedFile> extractFilesFromDiffEntriesWithAcceptedNativeRenames(
+            String oldCommitId, String newCommitId, List<DiffEntry> diffs, PathExistenceResolver pathResolver)
+            throws GitAPIException {
+        if (diffs.isEmpty()) {
+            return List.of();
+        }
+
+        Map<ProjectFile, ProjectFile> acceptedEdges = Map.of();
+
+        for (var diff : diffs) {
+            var oldOpt = (diff.getChangeType() == DiffEntry.ChangeType.DELETE
+                            || diff.getChangeType() == DiffEntry.ChangeType.RENAME
+                            || diff.getChangeType() == DiffEntry.ChangeType.COPY)
+                    ? repo.toProjectFile(diff.getOldPath())
+                    : Optional.<ProjectFile>empty();
+            var newOpt = (diff.getChangeType() == DiffEntry.ChangeType.ADD
+                            || diff.getChangeType() == DiffEntry.ChangeType.RENAME
+                            || diff.getChangeType() == DiffEntry.ChangeType.COPY)
+                    ? repo.toProjectFile(diff.getNewPath())
+                    : Optional.<ProjectFile>empty();
+            if (diff.getChangeType() == DiffEntry.ChangeType.RENAME
+                    && oldOpt.isPresent()
+                    && newOpt.isPresent()
+                    && diff.getScore() >= RENAME_SCORE
+                    && nativeRenameReplacesPath(oldCommitId, newCommitId, oldOpt.get(), newOpt.get(), pathResolver)
+                    && repo.nativeRenameIsSafe(oldOpt.get(), newOpt.get(), oldCommitId, newCommitId)) {
+                if (acceptedEdges.isEmpty()) {
+                    acceptedEdges = new HashMap<>();
+                }
+                acceptedEdges.put(oldOpt.get(), newOpt.get());
+            }
+        }
+
+        var result = new ArrayList<ModifiedFile>();
+        for (var diff : diffs) {
+            switch (diff.getChangeType()) {
+                case ADD, COPY ->
+                    repo.toProjectFile(diff.getNewPath())
+                            .ifPresent(projectFile ->
+                                    result.add(new ModifiedFile(projectFile, IGitRepo.ModificationType.NEW)));
+                case MODIFY ->
+                    repo.toProjectFile(diff.getNewPath())
+                            .ifPresent(projectFile ->
+                                    result.add(new ModifiedFile(projectFile, IGitRepo.ModificationType.MODIFIED)));
+                case DELETE ->
+                    repo.toProjectFile(diff.getOldPath())
+                            .ifPresent(projectFile ->
+                                    result.add(new ModifiedFile(projectFile, IGitRepo.ModificationType.DELETED)));
+                case RENAME -> {
+                    var oldOpt = repo.toProjectFile(diff.getOldPath());
+                    var newOpt = repo.toProjectFile(diff.getNewPath());
+                    if (oldOpt.isPresent() && newOpt.isPresent()) {
+                        var acceptedNew = acceptedEdges.get(oldOpt.get());
+                        if (acceptedNew != null && acceptedNew.equals(newOpt.get())) {
+                            result.add(new ModifiedFile(newOpt.get(), IGitRepo.ModificationType.MODIFIED));
+                        } else {
+                            result.add(new ModifiedFile(oldOpt.get(), IGitRepo.ModificationType.DELETED));
+                            result.add(new ModifiedFile(newOpt.get(), IGitRepo.ModificationType.NEW));
+                        }
+                    } else {
+                        oldOpt.ifPresent(projectFile ->
+                                result.add(new ModifiedFile(projectFile, IGitRepo.ModificationType.DELETED)));
+                        newOpt.ifPresent(projectFile ->
+                                result.add(new ModifiedFile(projectFile, IGitRepo.ModificationType.NEW)));
+                    }
+                }
+                default -> throw new IllegalStateException("Unexpected value: " + diff.getChangeType());
+            }
+        }
+
+        result.sort((a, b) -> a.file().toString().compareTo(b.file().toString()));
+        return result;
+    }
+
+    private boolean nativeRenameReplacesPath(
+            String oldCommitId,
+            String newCommitId,
+            ProjectFile oldFile,
+            ProjectFile newFile,
+            PathExistenceResolver pathResolver)
+            throws GitAPIException {
+        return !pathResolver.existsAtRef(newCommitId, oldFile) && !pathResolver.existsAtRef(oldCommitId, newFile);
+    }
+
+    private record RefState(boolean working, @Nullable ObjectId treeId) {}
+
+    private record RefPathKey(String ref, String path) {}
+
+    class PathExistenceResolver {
+        private final Map<String, RefState> refStates = new HashMap<>();
+        private final Map<RefPathKey, Boolean> existenceCache = new HashMap<>();
+
+        boolean existsAtRef(String ref, String path) throws GitAPIException {
+            if (path.isBlank() || "/dev/null".equals(path)) {
+                return false;
+            }
+
+            var cacheKey = new RefPathKey(ref, path);
+            var cached = existenceCache.get(cacheKey);
+            if (cached != null) {
+                return cached;
+            }
+
+            var exists = computeExists(ref, path);
+            existenceCache.put(cacheKey, exists);
+            return exists;
+        }
+
+        boolean existsAtRef(String ref, ProjectFile file) throws GitAPIException {
+            return existsAtRef(ref, repo.toRepoRelativePath(file));
+        }
+
+        private boolean computeExists(String ref, String path) throws GitAPIException {
+            var refState = getRefState(ref);
+            if (refState.working()) {
+                return workingPathExists(path);
+            }
+
+            return pathExistsInTree(requireNonNull(refState.treeId()), path);
+        }
+
+        private RefState getRefState(String ref) throws GitAPIException {
+            var refState = refStates.get(ref);
+            if (refState != null) {
+                return refState;
+            }
+
+            var loaded = loadRefState(ref);
+            refStates.put(ref, loaded);
+            return loaded;
+        }
+
+        private RefState loadRefState(String ref) throws GitAPIException {
+            if ("WORKING".equals(ref)) {
+                return new RefState(true, null);
+            }
+
+            var objId = repo.resolveToCommit(ref);
+            try (var revWalk = new RevWalk(repository)) {
+                var commit = revWalk.parseCommit(objId);
+                return new RefState(false, commit.getTree().getId());
+            } catch (IOException e) {
+                throw new GitRepo.GitWrappedIOException(e);
+            }
         }
     }
 }

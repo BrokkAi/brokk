@@ -872,13 +872,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     /**
      * Resolves Go import statements into a set of {@link CodeUnit}s.
      * <p>
-     * Go imports are package-based. This method extracts the import paths,
-     * identifies the package name (usually the last segment), and resolves
-     * it to the package's exported members.
+     * Go imports are package-path based. This method extracts the import paths and
+     * resolves them against project directories, accepting exact matches, module-prefix
+     * matches, and nested sub-package matches.
      * Blank imports ('_') are skipped as they are for side-effects only.
      * <p>
      * Unlike Java, Go does not have explicit module CodeUnits. Instead, we find
-     * all CodeUnits whose packageName matches the imported package.
+     * all CodeUnits declared in files whose parent directory matches the import path.
      * <p>
      * Handles both double-quoted ("path") and backtick-quoted (`path`) import paths,
      * and ignores paths that appear inside comments.
@@ -894,7 +894,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             return Set.of();
         }
 
-        Set<String> importedPackageNames = new LinkedHashSet<>();
+        Set<CodeUnit> resolved = new LinkedHashSet<>();
 
         for (String statement : importStatements) {
             String trimmed = statement.trim();
@@ -909,18 +909,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 if (!isBlankImport(withoutComments, m.start())) {
                     // group(1) is double-quoted, group(2) is backtick-quoted
                     String path = m.group(1) != null ? m.group(1) : m.group(2);
-                    importedPackageNames.add(resolveImportPathToPackageName(path));
-                }
-            }
-        }
-
-        // Go doesn't create module CodeUnits like Java does.
-        // Instead, find all CodeUnits whose packageName matches the imported package.
-        Set<CodeUnit> resolved = new LinkedHashSet<>();
-        if (!importedPackageNames.isEmpty()) {
-            for (CodeUnit cu : snapshotState().codeUnitState().keySet()) {
-                if (!cu.isModule() && importedPackageNames.contains(cu.packageName())) {
-                    resolved.add(cu);
+                    resolved.addAll(resolveImportPathToCodeUnits(path));
                 }
             }
         }
@@ -928,43 +917,38 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         return Collections.unmodifiableSet(resolved);
     }
 
-    private String resolveImportPathToPackageName(String importPath) {
-        GoAnalyzerCache goCache = (GoAnalyzerCache) getCache();
-        return goCache.importPathToPackageNameCache().get(importPath, path -> {
-            // 1. Try to find actual source files in the project that match this import path.
-            // Go import paths always use forward slashes.
-            Set<ProjectFile> goFiles = getProject().getAnalyzableFiles(Languages.GO);
-
-            for (ProjectFile pf : goFiles) {
-                // Normalize the relative path to use forward slashes for comparison
-                String relPath = pf.getRelPath().toString().replace('\\', '/');
-                // We check if the file is inside a directory matching the import path.
-                // e.g., import "mymodule/pkg" matches "vendor/mymodule/pkg/file.go"
-                if (relPath.contains("/" + path + "/") || relPath.startsWith(path + "/")) {
-
-                    // Read the file and determine its package name
-                    Optional<SourceContent> content = SourceContent.read(pf);
-                    if (content.isPresent()) {
-                        String pkgName = withTreeOf(
-                                pf,
-                                tree -> Optional.ofNullable(tree.getRootNode())
-                                        .map(rootNode -> determinePackageName(pf, rootNode, rootNode, content.get()))
-                                        .orElse(""),
-                                "");
-                        if (!pkgName.isEmpty()) {
-                            return pkgName;
-                        }
-                    }
-                }
+    private Set<CodeUnit> resolveImportPathToCodeUnits(String importPath) {
+        Set<ProjectFile> matchingFiles = new LinkedHashSet<>();
+        for (ProjectFile pf : getProject().getAnalyzableFiles(Languages.GO)) {
+            if (matchesImportPath(pf, importPath)) {
+                matchingFiles.add(pf);
             }
+        }
 
-            // 2. Fallback to last segment heuristic if no source found
-            int lastSlash = path.lastIndexOf('/');
-            if (lastSlash != -1) {
-                return path.substring(lastSlash + 1);
+        if (matchingFiles.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<CodeUnit> resolved = new LinkedHashSet<>();
+        for (CodeUnit cu : snapshotState().codeUnitState().keySet()) {
+            if (!cu.isModule() && matchingFiles.contains(cu.source())) {
+                resolved.add(cu);
             }
-            return path;
-        });
+        }
+        return resolved;
+    }
+
+    private boolean matchesImportPath(ProjectFile target, String importPath) {
+        String targetPath = target.getRelPath().toString().replace('\\', '/');
+        int lastSlash = targetPath.lastIndexOf('/');
+        String targetDir = lastSlash == -1 ? "" : targetPath.substring(0, lastSlash);
+        if (targetDir.isEmpty()) {
+            return importPath.equals(".") || targetPath.contains("/" + importPath + "/");
+        }
+        return importPath.equals(targetDir)
+                || importPath.endsWith("/" + targetDir)
+                || targetDir.endsWith("/" + importPath)
+                || targetPath.contains("/" + importPath + "/");
     }
 
     private boolean isBlankImport(String text, int quoteStart) {

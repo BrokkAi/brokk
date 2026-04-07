@@ -44,14 +44,6 @@ class SqlAnalyzerTest {
                 // SqlAnalyzer will then filter these based on .sql extension and exclusions.
                 return filesSet;
             }
-
-            @Override
-            public Set<ProjectFile> getAnalyzableFiles(Language language) {
-                var extensions = language.getExtensions();
-                return getAllFiles().stream()
-                        .filter(pf -> extensions.contains(pf.extension()))
-                        .collect(Collectors.toSet());
-            }
         };
     }
 
