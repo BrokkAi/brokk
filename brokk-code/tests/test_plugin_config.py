@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from brokk_code import __version__
 from brokk_code.plugin_config import install_plugin
 

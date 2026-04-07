@@ -214,7 +214,7 @@ tools until a workspace is activated.
 
 | Tool | Purpose |
 |---|---|
-| `activateWorkspace` | Set the active workspace directory (must be an absolute path; normalizes to the nearest git root) |
+| `activateWorkspace` | Set the active workspace directory (absolute path; normalizes to git root) |
 | `getActiveWorkspace` | Return the current workspace root path |
 
 ## Parameters
