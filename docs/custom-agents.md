@@ -29,10 +29,10 @@ You are an expert code reviewer. When given a task:
 1. Search for the relevant code using the available tools
 2. Read the full source of classes and methods you need to review
 3. Analyze for:
-   - Correctness bugs and logic errors
-   - Security vulnerabilities (injection, auth bypass, data exposure)
-   - Performance issues (N+1 queries, unnecessary allocations, blocking calls)
-   - Code style and maintainability
+    - Correctness bugs and logic errors
+    - Security vulnerabilities (injection, auth bypass, data exposure)
+    - Performance issues (N+1 queries, unnecessary allocations, blocking calls)
+    - Code style and maintainability
 4. Provide your findings as a structured answer with severity levels
 ```
 
@@ -99,6 +99,37 @@ maxTurns: <number>              # optional — defaults to 20
 
 <system prompt — this is what the agent "is" and how it should behave>
 ```
+
+## Recommended Response Contract For Aggregation
+
+When running multiple agents in parallel and merging their outputs, enforce a machine-readable response contract so downstream synthesis can be deterministic.
+
+Required first payload from each sub-agent:
+
+```json
+{
+  "role": "Complexity Specialist",
+  "tried": [
+    "Computed complexity for top-level classes in src/core",
+    "Compared hotspots against recent git churn"
+  ],
+  "found": [
+    "High branching complexity in src/core/mapper.ts::map",
+    "Ownership risk in src/service/auth.ts due to concentrated churn"
+  ],
+  "looked": [
+    "src/core/mapper.ts",
+    "src/service/auth.ts",
+    "ElasticsearchMetadataFilterMapper.map"
+  ]
+}
+```
+
+Guidelines:
+- Emit this JSON object first, with no markdown before it.
+- Keep all keys present; use empty arrays when no items exist.
+- Keep `looked` tied to concrete repository paths or symbols inspected.
+- After the JSON object, include optional markdown narrative for humans.
 
 ### Frontmatter Fields
 
@@ -355,11 +386,11 @@ Process:
 2. Find existing tests by searching for test files (look for *Test.java, *Spec.java, test_*.py, etc.)
 3. Read both the production code and existing tests
 4. Identify untested code paths:
-   - Public methods with no corresponding test
-   - Branch conditions (if/else, switch) not covered
-   - Error handling paths (catch blocks, edge cases)
-   - Boundary conditions (null, empty, max values)
-   - Integration points (API calls, database queries)
+    - Public methods with no corresponding test
+    - Branch conditions (if/else, switch) not covered
+    - Error handling paths (catch blocks, edge cases)
+    - Boundary conditions (null, empty, max values)
+    - Integration points (API calls, database queries)
 
 For each gap, suggest:
 - **What to test**: the specific behavior or path
@@ -393,11 +424,11 @@ When analyzing dependencies:
 1. Find build files (pom.xml, build.gradle, package.json, requirements.txt, Cargo.toml, etc.)
 2. Read them to understand current dependency versions
 3. Check for:
-   - Outdated major versions that may have breaking changes
-   - Multiple versions of the same library (version conflicts)
-   - Unused dependencies (declared but never imported)
-   - Dependencies that overlap in functionality
-   - Dependencies with known security issues (based on your training data)
+    - Outdated major versions that may have breaking changes
+    - Multiple versions of the same library (version conflicts)
+    - Unused dependencies (declared but never imported)
+    - Dependencies that overlap in functionality
+    - Dependencies with known security issues (based on your training data)
 
 Present findings as a prioritized list with:
 - **Dependency**: name and current version
