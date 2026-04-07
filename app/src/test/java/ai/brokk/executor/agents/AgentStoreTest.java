@@ -190,7 +190,9 @@ class AgentStoreTest {
 
         var snapshot = store.loadSnapshot();
 
-        assertEquals(List.of("good-agent"), snapshot.agents().stream().map(AgentDefinition::name).toList());
+        assertEquals(
+                List.of("good-agent"),
+                snapshot.agents().stream().map(AgentDefinition::name).toList());
         assertTrue(snapshot.skippedInvalidFiles().contains(invalidFile));
     }
 

@@ -63,7 +63,8 @@ public class CustomAgentExecutor {
             "jq",
             "computeCyclomaticComplexity",
             "reportCommentDensityForCodeUnit",
-            "reportCommentDensityForFiles");
+            "reportCommentDensityForFiles",
+            "analyzeGitHotspots");
 
     private final IContextManager cm;
     private final AgentDefinition agentDef;

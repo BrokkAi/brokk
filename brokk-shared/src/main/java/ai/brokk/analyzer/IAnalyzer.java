@@ -688,9 +688,9 @@ public interface IAnalyzer {
         return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
     }
 
-    // Heuristic for cyclomatic complexity: count control flow keywords
-    Pattern COMPLEXITY_KEYWORDS =
-            Pattern.compile("\\b(if|else|while|for|switch|case|catch|&&|\\|\\||\\?|break|continue)\\b");
+    // Heuristic for cyclomatic complexity: count keyword and symbolic decision points.
+    Pattern COMPLEXITY_KEYWORDS = Pattern.compile("\\b(if|while|for|switch|case|catch)\\b");
+    Pattern COMPLEXITY_OPERATORS = Pattern.compile("&&|\\|\\||\\?");
 
     /**
      * Computes the heuristic cyclomatic complexity for the given code unit.
@@ -699,8 +699,12 @@ public interface IAnalyzer {
         if (!cu.isFunction()) return 0;
         String source = getSource(cu, false).orElse("");
         int complexity = 1; // Base complexity
-        Matcher matcher = COMPLEXITY_KEYWORDS.matcher(source);
-        while (matcher.find()) {
+        Matcher keywordMatcher = COMPLEXITY_KEYWORDS.matcher(source);
+        while (keywordMatcher.find()) {
+            complexity++;
+        }
+        Matcher operatorMatcher = COMPLEXITY_OPERATORS.matcher(source);
+        while (operatorMatcher.find()) {
             complexity++;
         }
         return complexity;

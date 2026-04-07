@@ -5,9 +5,9 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.cli.HeadlessConsole;
-import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.agents.AgentDefinition;
 import ai.brokk.executor.agents.AgentStore;
+import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.executor.routers.ActivityRouter;
@@ -335,16 +335,11 @@ public final class HeadlessExecutorMain {
 
     private void logAgentStoreLoadSnapshot(AgentStore.LoadSnapshot snapshot) {
         var loadedNames = snapshot.agents().stream().map(AgentDefinition::name).toList();
-        logger.info(
-                "Loaded {} custom agents from layered store: {}",
-                loadedNames.size(),
-                loadedNames);
-        List<String> skipped = snapshot.skippedInvalidFiles().stream().map(Path::toString).toList();
+        logger.info("Loaded {} custom agents from layered store: {}", loadedNames.size(), loadedNames);
+        List<String> skipped =
+                snapshot.skippedInvalidFiles().stream().map(Path::toString).toList();
         if (!skipped.isEmpty()) {
-            logger.warn(
-                    "Skipped {} invalid custom agent files while loading agent store: {}",
-                    skipped.size(),
-                    skipped);
+            logger.warn("Skipped {} invalid custom agent files while loading agent store: {}", skipped.size(), skipped);
         }
     }
 

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -54,7 +55,7 @@ public class AgentStore {
      */
     public LoadSnapshot loadSnapshot() {
         var byName = new LinkedHashMap<String, AgentDefinition>();
-        var skippedInvalidFiles = new java.util.ArrayList<Path>();
+        var skippedInvalidFiles = new ArrayList<Path>();
         // Load user-level first so project-level can override
         loadFromDirectory(userDir, "user", skippedInvalidFiles).forEach(def -> byName.put(def.name(), def));
         loadFromDirectory(projectDir, "project", skippedInvalidFiles).forEach(def -> byName.put(def.name(), def));
