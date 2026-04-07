@@ -78,7 +78,8 @@ class SftServerTest {
                     revision,
                     List.of("src/main/java/example/Foo.java"),
                     List.of(),
-                    List.of("src/main/java/example/Helper.java"));
+                    List.of("src/main/java/example/Helper.java"),
+                    "");
 
             assertEquals(3, formatted.size());
             assertEquals("user", formatted.getFirst().role());
@@ -193,14 +194,52 @@ class SftServerTest {
         }
     }
 
+    @Test
+    void formatWorkspace_includesBuildErrorWhenProvided() throws Exception {
+        initGitRepo(tempDir);
+
+        var foo = tempDir.resolve("src/main/java/example/Foo.java");
+        Files.createDirectories(foo.getParent());
+        Files.writeString(
+                foo,
+                """
+                package example;
+
+                class Foo {
+                    void alpha() {}
+                }
+                """);
+        var revision = commitAll(tempDir, "initial");
+
+        try (var server = new SftServer(tempDir, 0)) {
+            var formatted = server.format_workspace(
+                    "Fix the build",
+                    revision,
+                    List.of("src/main/java/example/Foo.java"),
+                    List.of(),
+                    List.of(),
+                    "src/main/java/example/Foo.java:4: error: cannot find symbol");
+
+            assertTrue(formatted.getFirst().content().contains("[HARNESS NOTE: The build is currently FAILING."));
+            assertTrue(formatted.getFirst().content().contains("cannot find symbol"));
+        }
+    }
+
     private static HttpResponse<String> postWorkspace(HttpClient client, URI uri, String revision) {
         try {
             var body = OBJECT_MAPPER.writeValueAsString(Map.of(
-                    "goal", "Inspect Foo",
-                    "revision", revision,
-                    "editable", List.of("src/main/java/example/Foo.java"),
-                    "readonly", List.of(),
-                    "summarized", List.of()));
+                    "goal",
+                    "Inspect Foo",
+                    "revision",
+                    revision,
+                    "editable",
+                    List.of("src/main/java/example/Foo.java"),
+                    "readonly",
+                    List.of(),
+                    "summarized",
+                    List.of(),
+                    "build_error",
+                    ""));
             var request = HttpRequest.newBuilder(uri)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))

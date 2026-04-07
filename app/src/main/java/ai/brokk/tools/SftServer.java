@@ -38,6 +38,7 @@ import java.util.concurrent.CountDownLatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 public final class SftServer implements AutoCloseable {
     private static final Logger logger = LogManager.getLogger(SftServer.class);
@@ -137,7 +138,12 @@ public final class SftServer implements AutoCloseable {
 
     @Blocking
     public List<SftMessage> format_workspace(
-            String goal, String revision, List<String> editable, List<String> readonly, List<String> summarized) {
+            String goal,
+            String revision,
+            List<String> editable,
+            List<String> readonly,
+            List<String> summarized,
+            String buildError) {
         var normalizedEditable = normalizePaths(editable);
         var normalizedReadonly = normalizePaths(readonly);
         var normalizedSummarized = normalizePaths(summarized);
@@ -172,6 +178,9 @@ public final class SftServer implements AutoCloseable {
             context = context.setReadonly(readonlyFragment, true);
         }
         context = context.removeSupersededSummaries();
+        if (!buildError.isBlank()) {
+            context = context.withBuildResult(false, buildError);
+        }
 
         var workspaceMessages =
                 WorkspacePrompts.getMessagesForCodeAgent(context, Set.of()).workspace();
@@ -237,7 +246,8 @@ public final class SftServer implements AutoCloseable {
                     requireNonBlank(request.revision(), "revision"),
                     request.editable(),
                     request.readonly(),
-                    request.summarized());
+                    request.summarized(),
+                    defaultIfNull(request.build_error()));
             SimpleHttpServer.sendJsonResponse(exchange, new FormatWorkspaceResponse(result));
         } catch (IllegalArgumentException e) {
             RouterUtil.sendValidationError(
@@ -341,6 +351,10 @@ public final class SftServer implements AutoCloseable {
         return value;
     }
 
+    private static String defaultIfNull(@Nullable String value) {
+        return value == null ? "" : value;
+    }
+
     private static SftMessage toSftMessage(ChatMessage message) {
         return new SftMessage(toSftRole(message), Messages.getText(message));
     }
@@ -355,7 +369,12 @@ public final class SftServer implements AutoCloseable {
     }
 
     private record FormatWorkspaceRequest(
-            String goal, String revision, List<String> editable, List<String> readonly, List<String> summarized) {}
+            String goal,
+            String revision,
+            List<String> editable,
+            List<String> readonly,
+            List<String> summarized,
+            @Nullable String build_error) {}
 
     private record FormatPatchRequest(String from, String to) {}
 
