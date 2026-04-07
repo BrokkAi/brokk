@@ -56,7 +56,9 @@ async def test_handle_login_command_with_args_shows_usage():
 async def test_handle_logout_command_logic():
     app = BrokkApp()
     app.executor = MagicMock()
-    app.run_worker = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
+    # Capture the task so we can await it directly instead of relying on a sleep
+    created_tasks = []
+    app.run_worker = MagicMock(side_effect=lambda coro: created_tasks.append(asyncio.create_task(coro)))
     app._relaunch_executor = AsyncMock()
     chat_panel = MagicMock()
 
@@ -67,8 +69,9 @@ async def test_handle_logout_command_logic():
         # Trigger /logout
         app._handle_command("/logout")
 
-        # Wait for the worker task (do_logout) to finish
-        await asyncio.sleep(0.1)
+        # Await the actual do_logout task instead of sleeping
+        assert len(created_tasks) == 1, "Expected exactly one worker task to be created"
+        await created_tasks[0]
 
         mock_write.assert_called_once_with({"brokkApiKey": None})
         assert app.executor.brokk_api_key is None
