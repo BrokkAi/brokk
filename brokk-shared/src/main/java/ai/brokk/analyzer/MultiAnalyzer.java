@@ -199,6 +199,18 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        return delegateFor(cu).flatMap(delegate -> delegate.commentDensity(cu));
+    }
+
+    @Override
+    public List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        return delegateFor(file)
+                .map(delegate -> delegate.commentDensityByTopLevel(file))
+                .orElse(List.of());
+    }
+
+    @Override
     public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
         return delegateFor(codeUnit).flatMap(analyzer -> analyzer.getSource(codeUnit, includeComments));
     }

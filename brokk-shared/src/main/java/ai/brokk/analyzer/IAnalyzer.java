@@ -691,6 +691,20 @@ public interface IAnalyzer {
     }
 
     /**
+     * Comment density for a single declaration. Language-specific analyzers may override; default is unsupported.
+     */
+    default Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        return Optional.empty();
+    }
+
+    /**
+     * Per-top-level declaration comment density for a file. Default is an empty list.
+     */
+    default List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        return List.of();
+    }
+
+    /**
      * Analyzes comments in the specified content to distinguish between 'How' (redundant) vs 'Why' (semantic) comments.
      */
     default List<String> findPotentialHowComments(String content) {

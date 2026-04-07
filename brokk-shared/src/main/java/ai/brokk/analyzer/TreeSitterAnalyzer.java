@@ -66,7 +66,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private volatile boolean isStale = false;
     private final AtomicBoolean staleWarningLogged = new AtomicBoolean(false);
 
-    private void checkStale(String methodName) {
+    protected void checkStale(String methodName) {
         if (this.isStale && staleWarningLogged.compareAndSet(false, true)) {
             log.warn("Accessing stale analyzer snapshot in {}", methodName, new IllegalStateException("Stale trace"));
         }

@@ -3,6 +3,7 @@ package ai.brokk.tools;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CommentDensityStats;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitHotspotAnalyzer;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
@@ -25,6 +27,9 @@ import org.jetbrains.annotations.Blocking;
 public class CodeQualityTools {
 
     private static final String FINDING_PREFIX = "[CODE_QUALITY]";
+
+    private static final String COMMENT_DENSITY_JAVA_ONLY =
+            "Comment density is only available for Java symbols in this analyzer snapshot.";
 
     private final IContextManager contextManager;
 
@@ -112,6 +117,142 @@ public class CodeQualityTools {
         }
 
         return anyFile ? String.join("\n", lines) : "No redundant 'how'-style comments detected.";
+    }
+
+    @Tool(
+            """
+            Java comment density for one symbol identified by fully qualified name (same resolution as getDefinitions).
+            Reports header vs inline comment line counts, declaration span lines, and rolled-up totals for class-like units.
+            For semantic review, follow up with getFileContents or getMethodSources. Output is truncated to maxLines.""")
+    public String reportCommentDensityForCodeUnit(
+            @P("Fully qualified name (e.g. com.example.MyClass or com.example.MyClass.method).") String fqName,
+            @P("Maximum output lines; values <= 0 default to 120.") int maxLines) {
+
+        if (fqName == null || fqName.isBlank()) {
+            return "Missing fqName.";
+        }
+        int cap = maxLines > 0 ? maxLines : 120;
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        String key = fqName.strip();
+        var defs = analyzer.getDefinitions(key);
+        if (defs.isEmpty()) {
+            return "No definition found for: " + key;
+        }
+        CodeUnit cu = defs.stream()
+                .filter(d -> "java".equals(d.source().extension()))
+                .findFirst()
+                .orElse(defs.getFirst());
+        Optional<CommentDensityStats> stats = analyzer.commentDensity(cu);
+        if (stats.isEmpty()) {
+            return COMMENT_DENSITY_JAVA_ONLY;
+        }
+        return truncateToLineCap(formatCommentDensityForUnit(stats.get()), cap);
+    }
+
+    @Tool(
+            """
+            Java comment density tables for the given source files: one section per file and one row per top-level declaration.
+            Includes own and rolled-up header/inline line counts. Bounded by maxFiles and maxTopLevelRows total across all files.""")
+    public String reportCommentDensityForFiles(
+            @P("File paths relative to the project root.") List<String> filePaths,
+            @P("Maximum declaration rows across all files; values <= 0 default to 60.") int maxTopLevelRows,
+            @P("Maximum files to include; values <= 0 default to 25.") int maxFiles) {
+
+        int rowCap = maxTopLevelRows > 0 ? maxTopLevelRows : 60;
+        int fileCap = maxFiles > 0 ? maxFiles : 25;
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        var lines = new ArrayList<String>();
+        lines.add("## Comment density by file");
+        lines.add("");
+        int filesShown = 0;
+        int rowsEmitted = 0;
+        boolean rowsTruncated = false;
+        boolean filesTruncated = false;
+
+        outer:
+        for (String path : filePaths) {
+            if (filesShown >= fileCap) {
+                filesTruncated = true;
+                break;
+            }
+            ProjectFile file = contextManager.toFile(path);
+            if (!file.exists()) {
+                lines.add("- Missing file (skipped): `" + path + "`");
+                continue;
+            }
+            if (!"java".equals(file.extension())) {
+                lines.add("### `" + path + "`");
+                lines.add("(not a Java file; skipped)");
+                lines.add("");
+                continue;
+            }
+            List<CommentDensityStats> stats = analyzer.commentDensityByTopLevel(file);
+            if (stats.isEmpty()) {
+                lines.add("### `" + path + "`");
+                lines.add(COMMENT_DENSITY_JAVA_ONLY);
+                lines.add("");
+                filesShown++;
+                continue;
+            }
+            filesShown++;
+            lines.add("### `" + path + "`");
+            lines.add("| Declaration | Hdr | Inl | Span | Roll H | Roll I | Roll S |");
+            lines.add("|-------------|-----|-----|------|--------|--------|--------|");
+            for (CommentDensityStats s : stats) {
+                if (rowsEmitted >= rowCap) {
+                    rowsTruncated = true;
+                    break outer;
+                }
+                lines.add("| `%s` | %d | %d | %d | %d | %d | %d |"
+                        .formatted(
+                                s.fqName(),
+                                s.headerCommentLines(),
+                                s.inlineCommentLines(),
+                                s.spanLines(),
+                                s.rolledUpHeaderCommentLines(),
+                                s.rolledUpInlineCommentLines(),
+                                s.rolledUpSpanLines()));
+                rowsEmitted++;
+            }
+            lines.add("");
+        }
+        var footer = new ArrayList<String>();
+        footer.add("");
+        footer.add("- Files shown: %d (cap %d%s)"
+                .formatted(filesShown, fileCap, filesTruncated ? ", list truncated" : ""));
+        footer.add("- Declaration rows: %d (cap %d%s)"
+                .formatted(rowsEmitted, rowCap, rowsTruncated ? ", table truncated" : ""));
+        if (rowsTruncated || filesTruncated) {
+            footer.add("- Note: narrow the path list or increase caps to see more.");
+        }
+        lines.addAll(footer);
+        return String.join("\n", lines);
+    }
+
+    private static String formatCommentDensityForUnit(CommentDensityStats s) {
+        var lines = new ArrayList<String>();
+        lines.add("## Comment density");
+        lines.add("");
+        lines.add("- Symbol: `%s`".formatted(s.fqName()));
+        lines.add("- File: `%s`".formatted(s.relativePath()));
+        lines.add("- Own: header %d, inline %d, span %d"
+                .formatted(s.headerCommentLines(), s.inlineCommentLines(), s.spanLines()));
+        lines.add("- Rolled-up: header %d, inline %d, span %d"
+                .formatted(
+                        s.rolledUpHeaderCommentLines(),
+                        s.rolledUpInlineCommentLines(),
+                        s.rolledUpSpanLines()));
+        return String.join("\n", lines);
+    }
+
+    private static String truncateToLineCap(String text, int maxLines) {
+        List<String> lines = text.lines().toList();
+        if (lines.size() <= maxLines) {
+            return text;
+        }
+        return String.join(
+                "\n",
+                lines.subList(0, maxLines)) + "\n\n... (" + (lines.size() - maxLines) + " more lines omitted)";
     }
 
     @Blocking

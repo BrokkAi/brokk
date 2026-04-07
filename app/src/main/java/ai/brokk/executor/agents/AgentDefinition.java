@@ -66,6 +66,8 @@ public record AgentDefinition(
             // CodeQualityTools
             "computeCyclomaticComplexity",
             "analyzeCommentSemantics",
+            "reportCommentDensityForCodeUnit",
+            "reportCommentDensityForFiles",
             "analyzeGitHotspots",
             // Terminal
             "answer",
