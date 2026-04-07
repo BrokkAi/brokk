@@ -55,36 +55,31 @@ public class CommitPrompts {
             instructions =
                     """
                     <goal>
-                    Here is my diff. Provide a single-line commit subject as JSON.
+                    Here is my diff. Provide a single-line commit subject.
 
                     Requirements:
-                    - Output ONLY a JSON object.
-                    - Use exactly this shape: {"subject":"...","body":[],"useBody":false}
-                    - The subject must be exactly one line.
-                    - Do not exceed 72 characters in the subject.
+                    - Generate exactly one line, no more.
+                    - Do not exceed 72 characters.
                     - If a single file is changed, include its short filename (not the path, not the extension).
-                    - body must be an empty array.
-                    - useBody must be false.
+                    - Reply only with the commit message, without any additional text, explanations, or line breaks.
                     </goal>
                     """;
         } else {
             instructions =
                     """
                     <goal>
-                    Generate a concise Git commit message based on the provided diff as JSON.
+                    Generate a concise Git commit message based on the provided diff.
 
                     Your primary objective is brevity. Most commits should ONLY contain the subject line.
                     Use a multi-line body only for significant logic changes or architectural shifts.
 
-                    Output format:
-                    - Output ONLY a JSON object.
-                    - Use exactly this shape: {"subject":"...","body":["..."],"useBody":true}
-                    - If the change is simple, set "body" to [] and "useBody" to false.
-                    - Subject line: Max 72 characters. If one file changed, include its name (no path/extension).
-                    - Body: Only include if the diff introduces high complexity.
-                    - Each body array item must be exactly one plain-text line no longer than 72 characters.
-                    - DO NOT describe "how" the code changed (the diff shows that); describe "why" or "what" the high-level impact is.
-                    - Do not include markdown headers, code fences, or any text outside the JSON object.
+                    ## Formatting Rules:
+                    1. Subject Line: Max 72 characters. If one file changed, include its name (no path/extension).
+                    2. Body: Only include if the diff introduces high complexity.
+                       - Start with one blank line.
+                       - Explain major logic changes using single-line bullets.
+                       - DO NOT describe "how" the code changed (the diff shows that); describe "why" or "what" the high-level impact is.
+                    3. Constraints: Wrap at 72 chars. Plain text only. No markdown headers or code fences. Use backticks for `filenames`.
 
                     ## Filtering Criteria:
                     Ignore the following for the detailed explanation (include them in the subject only):
@@ -111,8 +106,6 @@ public class CommitPrompts {
                General guidelines:
                - Use the imperative mood (e.g., "Add feature" not "Added feature" or "Adding feature").
                - No trailing period on the subject line.
-               - Never reveal your reasoning or mention the prompt.
-               - Return data only, not commentary.
 
                Follow these format preferences:
                %s
