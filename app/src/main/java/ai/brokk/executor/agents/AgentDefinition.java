@@ -65,7 +65,6 @@ public record AgentDefinition(
             "importDependency",
             // CodeQualityTools
             "computeCyclomaticComplexity",
-            "analyzeCommentSemantics",
             "reportCommentDensityForCodeUnit",
             "reportCommentDensityForFiles",
             "analyzeGitHotspots",

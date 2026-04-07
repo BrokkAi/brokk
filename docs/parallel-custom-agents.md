@@ -4,14 +4,13 @@ _Last update: 7 April 2026_
 
 This document describes how a **client orchestrator** (IDE plugin, CLI, or another agent) can run **multiple stored custom agents** in parallel against the headless executor, then merge or interpret results.
 
-Brokk does not expose a single job mode that fans out to N custom agents. Instead, parallelism is a **client concern**: submit several jobs, each bound to one custom agent definition. Custom agents are Markdown files with YAML frontmatter, registered in the executor's agent store; each runs inside `CustomAgentExecutor` with the tools listed in its definition (including optional `computeCyclomaticComplexity`, `analyzeCommentSemantics`, `reportCommentDensityForCodeUnit`, and `reportCommentDensityForFiles` from `CodeQualityTools`).
+Brokk does not expose a single job mode that fans out to N custom agents. Instead, parallelism is a **client concern**: submit several jobs, each bound to one custom agent definition. Custom agents are Markdown files with YAML frontmatter, registered in the executor's agent store; each runs inside `CustomAgentExecutor` with the tools listed in its definition (including optional `computeCyclomaticComplexity`, `reportCommentDensityForCodeUnit`, and `reportCommentDensityForFiles` from `CodeQualityTools`).
 
 ## Prerequisites
 
 - **Stored agents**: Each workflow (e.g. complexity scan, comment heuristics, git-adjacent review) has a name such as `code-quality-complexity` and exists in the agent store the executor loads.
 - **Tool allowlists**: In each agent file, list only the tools that agent needs. Code-quality helpers include:
   - `computeCyclomaticComplexity`
-  - `analyzeCommentSemantics`
   - `reportCommentDensityForCodeUnit` (Java: one symbol by FQN; bounded `maxLines`)
   - `reportCommentDensityForFiles` (Java: per-file tables; bounded `maxTopLevelRows` and `maxFiles`)
   Plus the usual search/workspace tools as needed.
@@ -115,7 +114,7 @@ These names are validated against `AgentDefinition.KNOWN_TOOL_NAMES`. Actual ava
 **Other**
 
 - `runShellCommand`, `importDependency`
-- `computeCyclomaticComplexity`, `analyzeCommentSemantics`, `reportCommentDensityForCodeUnit`, `reportCommentDensityForFiles`, `analyzeGitHotspots` (code quality; Java comment-density tools return a short message when the analyzer has no Java snapshot; git hotspots take `sinceDays` / optional ISO `sinceIso` and `untilIso`, plus `maxCommits` and `maxFiles` with a hard cap of 500 files)
+- `computeCyclomaticComplexity`, `reportCommentDensityForCodeUnit`, `reportCommentDensityForFiles`, `analyzeGitHotspots` (code quality; Java comment-density tools return a short message when the analyzer has no Java snapshot; git hotspots take `sinceDays` / optional ISO `sinceIso` and `untilIso`, plus `maxCommits` and `maxFiles` with a hard cap of 500 files)
 - `answer`, `abortSearch` (always added if missing when resolving effective tools)
 - `think` (always added if missing)
 

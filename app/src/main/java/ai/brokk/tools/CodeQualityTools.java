@@ -21,7 +21,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 
 /**
- * Read-only static analysis helpers for code quality (complexity, comment heuristics).
+ * Read-only static analysis helpers for code quality.
  * Intended for {@link ai.brokk.executor.agents.CustomAgentExecutor custom agents} and similar tool loops.
  */
 public class CodeQualityTools {
@@ -84,39 +84,6 @@ public class CodeQualityTools {
             flagged |= analyzeUnitComplexity(analyzer, child, threshold, lines);
         }
         return flagged;
-    }
-
-    @Tool(
-            """
-            Heuristically finds comments that look like redundant 'how' explanations vs semantic 'why' comments.
-            Returns a report of candidate redundant comments for the given files.""")
-    public String analyzeCommentSemantics(@P("File paths relative to the project root.") List<String> filePaths) {
-
-        var lines = new ArrayList<String>();
-        lines.add("Comment semantics:");
-        boolean anyFile = false;
-        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-
-        for (String path : filePaths) {
-            ProjectFile file = contextManager.toFile(path);
-            if (!file.exists()) continue;
-
-            String content = file.read().orElse("");
-            List<String> howComments = analyzer.findPotentialHowComments(content);
-
-            if (!howComments.isEmpty()) {
-                anyFile = true;
-                lines.add("File: " + path);
-                for (String comment : howComments) {
-                    String finding =
-                            "%s Redundant 'how'-style comment in %s: %s".formatted(FINDING_PREFIX, path, comment);
-                    contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, finding);
-                    lines.add("  - " + comment);
-                }
-            }
-        }
-
-        return anyFile ? String.join("\n", lines) : "No redundant 'how'-style comments detected.";
     }
 
     @Tool(

@@ -62,7 +62,6 @@ public class CustomAgentExecutor {
             "xmlSelect",
             "jq",
             "computeCyclomaticComplexity",
-            "analyzeCommentSemantics",
             "reportCommentDensityForCodeUnit",
             "reportCommentDensityForFiles");
 

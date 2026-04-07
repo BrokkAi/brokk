@@ -4251,7 +4251,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
                     return counts.entrySet().stream()
                             .collect(Collectors.toMap(
-                                    Map.Entry::getKey, e -> new CommentLineBreakdown(e.getValue()[0], e.getValue()[1])));
+                                    Map.Entry::getKey,
+                                    e -> new CommentLineBreakdown(e.getValue()[0], e.getValue()[1])));
                 },
                 Map.of());
     }

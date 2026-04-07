@@ -30,8 +30,9 @@ public class PolyglotCommentDensityTests {
             List<CommentDensityStats> rows = analyzer.commentDensityByTopLevel(file);
             assertEquals(analyzer.getTopLevelDeclarations(file).size(), rows.size());
             assertTrue(rows.stream()
-                    .mapToInt(r -> r.rolledUpHeaderCommentLines() + r.rolledUpInlineCommentLines())
-                    .sum() > 0);
+                            .mapToInt(r -> r.rolledUpHeaderCommentLines() + r.rolledUpInlineCommentLines())
+                            .sum()
+                    > 0);
             assertTrue(rows.stream().anyMatch(r -> r.rolledUpInlineCommentLines() > 0));
 
             CodeUnit function = analyzer.getDeclarations(file).stream()
