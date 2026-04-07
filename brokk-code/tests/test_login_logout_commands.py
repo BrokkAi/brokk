@@ -56,9 +56,14 @@ async def test_handle_login_command_with_args_shows_usage():
 async def test_handle_logout_command_logic():
     app = BrokkApp()
     app.executor = MagicMock()
-    # Capture the task so we can await it directly instead of relying on a sleep
     created_tasks = []
-    app.run_worker = MagicMock(side_effect=lambda coro: created_tasks.append(asyncio.create_task(coro)))
+
+    def _capture_task(coro):
+        task = asyncio.create_task(coro)
+        created_tasks.append(task)
+        return task
+
+    app.run_worker = MagicMock(side_effect=_capture_task)
     app._relaunch_executor = AsyncMock()
     chat_panel = MagicMock()
 
