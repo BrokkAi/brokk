@@ -117,7 +117,7 @@ def test_run_mcp_server_falls_back_to_versioned_jbang(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
-    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _ws, subproject="app": None)
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
     monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
 
@@ -151,7 +151,7 @@ def test_run_mcp_server_falls_back_to_bundled_jbang_version(monkeypatch, tmp_pat
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
-    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _ws, subproject="app": None)
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
     monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
 
@@ -172,7 +172,7 @@ def test_run_mcp_server_falls_back_to_bundled_jbang_version(monkeypatch, tmp_pat
 
 
 def test_run_mcp_server_reports_missing_runtime(monkeypatch, tmp_path, capsys) -> None:
-    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _ws, subproject="app": None)
     monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "missing-runtime")
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
     monkeypatch.setattr(os, "chdir", lambda _path: None)
@@ -202,7 +202,7 @@ def test_run_mcp_server_appends_passthrough_args_with_separator_for_jbang(
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", lambda _path: None)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
-    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _ws, subproject="app": None)
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
     monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
 
@@ -258,6 +258,7 @@ def test_run_mcp_server_appends_passthrough_args_directly_for_java(monkeypatch, 
 
 def test_find_dev_jar_core_finds_jar_in_brokk_core_libs(tmp_path) -> None:
     repo = tmp_path / "repo"
+    repo.mkdir()
     (repo / "gradlew").write_text("")
     libs_dir = repo / "brokk-core" / "build" / "libs"
     libs_dir.mkdir(parents=True)
@@ -271,6 +272,7 @@ def test_find_dev_jar_core_finds_jar_in_brokk_core_libs(tmp_path) -> None:
 
 def test_find_dev_jar_core_walks_up_to_find_gradlew(tmp_path) -> None:
     repo = tmp_path / "repo"
+    repo.mkdir()
     (repo / "gradlew").write_text("")
     libs_dir = repo / "brokk-core" / "build" / "libs"
     libs_dir.mkdir(parents=True)
@@ -288,6 +290,7 @@ def test_find_dev_jar_core_picks_newest_jar(tmp_path) -> None:
     import time
 
     repo = tmp_path / "repo"
+    repo.mkdir()
     (repo / "gradlew").write_text("")
     libs_dir = repo / "brokk-core" / "build" / "libs"
     libs_dir.mkdir(parents=True)
@@ -304,6 +307,7 @@ def test_find_dev_jar_core_picks_newest_jar(tmp_path) -> None:
 
 def test_find_dev_jar_core_excludes_classifier_jars(tmp_path) -> None:
     repo = tmp_path / "repo"
+    repo.mkdir()
     (repo / "gradlew").write_text("")
     libs_dir = repo / "brokk-core" / "build" / "libs"
     libs_dir.mkdir(parents=True)
@@ -324,6 +328,7 @@ def test_find_dev_jar_core_returns_none_when_no_gradlew(tmp_path) -> None:
 
 def test_find_dev_jar_core_finds_gradlew_bat(tmp_path) -> None:
     repo = tmp_path / "repo"
+    repo.mkdir()
     (repo / "gradlew.bat").write_text("")
     libs_dir = repo / "brokk-core" / "build" / "libs"
     libs_dir.mkdir(parents=True)
