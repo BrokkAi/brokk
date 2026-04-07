@@ -3810,12 +3810,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // files currently on disk that this analyser is interested in
         // (getAllFiles() already applies exclusion pattern filtering)
-        Set<ProjectFile> currentFiles = project.getAllFiles().stream()
-                .filter(pf -> {
-                    var p = pf.absPath().toAbsolutePath().normalize().toString();
-                    return language.getExtensions().stream().anyMatch(p::endsWith);
-                })
-                .collect(Collectors.toSet());
+        // Use isRelevantFile (extension-based) so this matches filterRelevantFiles(update(Set)) and avoids
+        // path-string endsWith(extension) pitfalls (e.g. *.javabackup matching "java", or *.JAVA vs "java").
+        Set<ProjectFile> currentFiles =
+                project.getAllFiles().stream().filter(this::isRelevantFile).collect(Collectors.toSet());
 
         // Snapshot known files (those we've analyzed)
         var current = this.state;
