@@ -518,6 +518,11 @@ public interface IAnalyzer {
     }
 
     default String summarizeSymbols(Collection<CodeUnit> units, Set<CodeUnitType> types, int indent) {
+        return summarizeSymbols(units, types, indent, Set.of());
+    }
+
+    private String summarizeSymbols(
+            Collection<CodeUnit> units, Set<CodeUnitType> types, int indent, Set<CodeUnit> ancestorPath) {
         var indentStr = "  ".repeat(Math.max(0, indent));
         var sb = new StringBuilder();
 
@@ -543,19 +548,30 @@ public interface IAnalyzer {
                 }
 
                 for (var cu : groupUnits) {
-                    renderSymbol(sb, cu, types, indent, indentStr);
+                    renderSymbol(sb, cu, types, indent, indentStr, ancestorPath);
                 }
             }
         } else {
             for (var cu : units) {
                 if (cu.isAnonymous()) continue;
-                renderSymbol(sb, cu, types, indent, indentStr);
+                renderSymbol(sb, cu, types, indent, indentStr, ancestorPath);
             }
         }
         return sb.toString().stripTrailing();
     }
 
-    private void renderSymbol(StringBuilder sb, CodeUnit cu, Set<CodeUnitType> types, int indent, String indentStr) {
+    private void renderSymbol(
+            StringBuilder sb,
+            CodeUnit cu,
+            Set<CodeUnitType> types,
+            int indent,
+            String indentStr,
+            Set<CodeUnit> ancestorPath) {
+        if (ancestorPath.contains(cu)) {
+            return;
+        }
+        var pathForChildren = new HashSet<>(ancestorPath);
+        pathForChildren.add(cu);
         // Use identifier for entries since the group header (if any) or nesting provides context
         sb.append(indentStr).append("- ").append(cu.identifier());
 
@@ -564,7 +580,7 @@ public interface IAnalyzer {
                 .toList();
         if (!children.isEmpty()) {
             sb.append("\n");
-            sb.append(this.summarizeSymbols(children, types, indent + 1));
+            sb.append(this.summarizeSymbols(children, types, indent + 1, pathForChildren));
         }
         sb.append("\n");
     }
