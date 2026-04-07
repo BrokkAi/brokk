@@ -52,6 +52,7 @@ public class TestProject implements IProject {
     private @Nullable IGitRepo repo;
     private @Nullable Supplier<Set<ProjectFile>> allFilesSupplier;
     private @Nullable Set<ProjectFile> allFiles;
+
     private Set<ProjectFile> allOnDiskDependencies = Set.of();
     private Set<IProject.Dependency> liveDependencies = Set.of();
     private @Nullable Predicate<Path> gitignoredPredicate;
@@ -284,6 +285,25 @@ public class TestProject implements IProject {
         return getRoot();
     }
 
+    /**
+     * True when {@code root} is the JVM system temp directory (not merely a subdirectory under it). Walking that path
+     * would scan the entire temp tree; {@link #getAllFiles} throws in that case unless files are supplied via
+     * {@link #withAllFiles} or {@link #withAllFilesSupplier}.
+     */
+    private static boolean isBareSystemTempDirectory(Path root) {
+        Path tmp =
+                Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
+        Path r = root.toAbsolutePath().normalize();
+        if (r.equals(tmp)) {
+            return true;
+        }
+        try {
+            return Files.exists(r) && Files.exists(tmp) && Files.isSameFile(r, tmp);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     @Override
     public Set<ProjectFile> getAllFiles() {
         if (allFilesSupplier != null) {
@@ -291,6 +311,12 @@ public class TestProject implements IProject {
         }
         if (allFiles != null) {
             return allFiles;
+        }
+        if (isBareSystemTempDirectory(root)) {
+            throw new IllegalStateException(
+                    "TestProject root must not be the JVM system temp directory (java.io.tmpdir); that would scan the "
+                            + "entire temp tree. Use a dedicated directory, for example JUnit 5 @TempDir, or supply "
+                            + "files with withAllFiles(...) / withAllFilesSupplier(...).");
         }
         try (Stream<Path> stream = Files.walk(root)) {
             return stream.filter(p -> Files.isRegularFile(p))
