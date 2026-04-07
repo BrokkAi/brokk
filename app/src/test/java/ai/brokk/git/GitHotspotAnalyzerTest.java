@@ -124,12 +124,19 @@ public class GitHotspotAnalyzerTest {
 
         try (DiffFormatter df = new DiffFormatter(DisabledOutputStream.INSTANCE) {
             private boolean throwOnce = true;
+            private int scanInvocation;
 
             @Override
             public List<DiffEntry> scan(
                     @Nullable org.eclipse.jgit.treewalk.AbstractTreeIterator oldTree,
                     @Nullable org.eclipse.jgit.treewalk.AbstractTreeIterator newTree)
                     throws java.io.IOException {
+                scanInvocation++;
+                if (scanInvocation == 2) {
+                    assertFalse(
+                            isDetectRenames(),
+                            "GitRepoData.scanWithFallback retry should run with rename detection off");
+                }
                 if (throwOnce && isDetectRenames()) {
                     throwOnce = false;
                     // Wrap it to test the more robust detection
@@ -162,7 +169,9 @@ public class GitHotspotAnalyzerTest {
             // This should not throw MissingObjectException because processCommit catches and retries
             hotspotAnalyzer.processCommit(commit, df, new HashMap<>());
 
-            assertFalse(df.isDetectRenames(), "Rename detection should have been disabled after exception");
+            assertTrue(
+                    df.isDetectRenames(),
+                    "scanWithFallback restores rename detection after a successful fallback so DiffFormatter can be reused");
         }
     }
 }

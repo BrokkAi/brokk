@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -128,10 +127,7 @@ public class GitHotspotAnalyzer {
 
         RevCommit parent = commit.getParentCount() > 0 ? commit.getParent(0) : null;
         List<DiffEntry> diffs = GitRepoData.scanWithFallback(
-                df,
-                parent != null ? parent.getTree() : null,
-                commit.getTree(),
-                "GitHotspotAnalyzer");
+                df, parent != null ? parent.getTree() : null, commit.getTree(), "GitHotspotAnalyzer");
 
         for (DiffEntry diff : diffs) {
             String path = diff.getNewPath();
