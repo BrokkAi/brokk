@@ -85,7 +85,7 @@ curl -X POST "${BASE}/v1/agents" \
 
 ## Agent File Format
 
-Agents are markdown files with YAML frontmatter. The filename must match the agent name (e.g., `security-auditor.md` for an agent named `security-auditor`).
+Agents are markdown files with YAML frontmatter. Filename/name matching is recommended (e.g., `security-auditor.md` for an agent named `security-auditor`) for consistency and predictable CRUD behavior, but job invocation resolves by the `name` field in frontmatter from the merged agent registry.
 
 ```markdown
 ---
@@ -410,10 +410,12 @@ Present findings as a prioritized list with:
 
 ### "Unknown agent: my-agent" when submitting a job
 
-The agent name doesn't match any `.md` file in `.brokk/agents/` or `~/.brokk/agents/`. Check:
-- The filename matches the name (e.g., `my-agent.md` for `"agent": "my-agent"`)
-- The `name` field inside the YAML frontmatter matches too
+The agent name doesn't match any loaded definition in `.brokk/agents/` or `~/.brokk/agents/`. Check:
+- A file exists in one of those directories and has valid YAML frontmatter
+- The `name` field inside the YAML frontmatter exactly matches `"agent"` in your job request
 - The name uses only lowercase letters, digits, and hyphens
+
+If `GET /v1/agents` includes the agent but `GET /v1/agents/{name}` does not, align filename and frontmatter name (recommended: `<name>.md`).
 
 ### "name must match [a-z][a-z0-9-]*"
 

@@ -158,6 +158,21 @@ class AgentStoreTest {
     }
 
     @Test
+    void list_orderIsDeterministicAndNameSorted_afterMerge() throws IOException {
+        store.save(testAgent("z-user", "user"), "user");
+        store.save(testAgent("a-user", "user"), "user");
+        store.save(testAgent("m-project", "project"), "project");
+        store.save(testAgent("b-project", "project"), "project");
+
+        var first = store.list().stream().map(AgentDefinition::name).toList();
+        var second = store.list().stream().map(AgentDefinition::name).toList();
+
+        // Deterministic merge order: user scope first (sorted), then project scope (sorted).
+        assertEquals(List.of("a-user", "z-user", "b-project", "m-project"), first);
+        assertEquals(first, second);
+    }
+
+    @Test
     void get_projectTakesPrecedence() throws IOException {
         store.save(new AgentDefinition("shared", "User", null, null, "User prompt", "user"), "user");
         store.save(new AgentDefinition("shared", "Project", null, null, "Project prompt", "project"), "project");
