@@ -34,10 +34,64 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
 
     private static final Pattern WILDCARD_IMPORT_PATTERN = Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
+    private static final Set<String> COMMENT_NODE_TYPES = Set.of("comment", "line_comment", "block_comment");
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPython(reference);
+    }
+
+    @Override
+    public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        checkStale("commentDensity");
+        if (!"py".equals(cu.source().extension())) {
+            return Optional.empty();
+        }
+        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(cu.source(), COMMENT_NODE_TYPES);
+        return Optional.of(buildRollUpStats(cu, counts));
+    }
+
+    @Override
+    public List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        checkStale("commentDensityByTopLevel");
+        if (!"py".equals(file.extension())) {
+            return List.of();
+        }
+        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(file, COMMENT_NODE_TYPES);
+        List<CommentDensityStats> rows = new ArrayList<>();
+        for (CodeUnit top : getTopLevelDeclarations(file)) {
+            rows.add(buildRollUpStats(top, counts));
+        }
+        return List.copyOf(rows);
+    }
+
+    private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentLineBreakdown> counts) {
+        CommentLineBreakdown own = counts.getOrDefault(cu.fqName(), new CommentLineBreakdown(0, 0));
+        int span = rangesOf(cu).stream()
+                .mapToInt(r -> r.endLine() - r.startLine() + 1)
+                .sum();
+        String path = cu.source().toString();
+        if (!cu.isClass()) {
+            return new CommentDensityStats(
+                    cu.fqName(),
+                    path,
+                    own.headerLines(),
+                    own.inlineLines(),
+                    span,
+                    own.headerLines(),
+                    own.inlineLines(),
+                    span);
+        }
+        int rh = own.headerLines();
+        int ri = own.inlineLines();
+        int rs = span;
+        for (CodeUnit ch : getDirectChildren(cu)) {
+            CommentDensityStats child = buildRollUpStats(ch, counts);
+            rh += child.rolledUpHeaderCommentLines();
+            ri += child.rolledUpInlineCommentLines();
+            rs += child.rolledUpSpanLines();
+        }
+        return new CommentDensityStats(cu.fqName(), path, own.headerLines(), own.inlineLines(), span, rh, ri, rs);
     }
 
     @Override

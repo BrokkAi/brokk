@@ -4205,6 +4205,71 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return Optional.ofNullable(best);
     }
 
+    protected record CommentLineBreakdown(int headerLines, int inlineLines) {}
+
+    /**
+     * Collects comment line counts per enclosing declaration, using comment-aware ownership:
+     * ownership is resolved with {@link #enclosingCodeUnitByCommentBytes(ProjectFile, int, int)} and then
+     * classified as header if the comment ends on or before the declaration {@link Range#startByte()}.
+     */
+    protected Map<String, CommentLineBreakdown> collectCommentLineBreakdown(
+            ProjectFile file, Set<String> commentNodeTypes) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Map.of();
+                    }
+                    List<TSNode> comments = new ArrayList<>();
+                    collectNodesByType(root, commentNodeTypes, comments);
+
+                    Map<String, int[]> counts = new HashMap<>();
+                    for (TSNode c : comments) {
+                        int cs = c.getStartByte();
+                        int ce = c.getEndByte();
+                        var cuOpt = enclosingCodeUnitByCommentBytes(file, cs, ce);
+                        if (cuOpt.isEmpty()) {
+                            continue;
+                        }
+                        var cu = cuOpt.get();
+                        var rangeOpt = rangesOf(cu).stream()
+                                .filter(r -> cs >= r.commentStartByte() && ce <= r.endByte())
+                                .min(Comparator.comparingInt(r -> r.endByte() - r.commentStartByte()));
+                        if (rangeOpt.isEmpty()) {
+                            continue;
+                        }
+                        var range = rangeOpt.get();
+                        boolean header = ce <= range.startByte();
+                        int lines = c.getEndPoint().getRow() - c.getStartPoint().getRow() + 1;
+                        int[] entry = counts.computeIfAbsent(cu.fqName(), ignored -> new int[2]);
+                        if (header) {
+                            entry[0] += lines;
+                        } else {
+                            entry[1] += lines;
+                        }
+                    }
+                    return counts.entrySet().stream()
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey, e -> new CommentLineBreakdown(e.getValue()[0], e.getValue()[1])));
+                },
+                Map.of());
+    }
+
+    private static void collectNodesByType(TSNode node, Set<String> nodeTypes, List<TSNode> out) {
+        String type = node.getType();
+        if (type != null && nodeTypes.contains(type)) {
+            out.add(node);
+            return;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child != null) {
+                collectNodesByType(child, nodeTypes, out);
+            }
+        }
+    }
+
     private @Nullable CUWithDepth findDeepestEnclosingByCommentBytes(
             CodeUnit current, int startByte, int endByte, int depth) {
         boolean containsCurrent =
