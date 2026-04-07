@@ -2354,6 +2354,16 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
+    public static class FileNotFoundException extends GitRepoException {
+        public FileNotFoundException(ProjectFile file, String refOrCommitId) {
+            super("File '" + file + "' not found at ref '" + refOrCommitId + "'");
+        }
+
+        public FileNotFoundException(ProjectFile file, String refOrCommitId, Throwable cause) {
+            super("File '" + file + "' not found at ref '" + refOrCommitId + "'", cause);
+        }
+    }
+
     public static class WorktreeNeedsForceException extends GitRepoException {
         public WorktreeNeedsForceException(String message) {
             super(message);

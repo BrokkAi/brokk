@@ -21,6 +21,8 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.errors.LargeObjectException;
+import org.eclipse.jgit.lib.ObjectLoader;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.AbstractTreeIterator;
@@ -50,9 +52,15 @@ public class GitRepoData {
     private final Git git;
 
     GitRepoData(GitRepo repo) {
+        this(repo, DEFAULT_MAX_BLOB_SIZE);
+    }
+
+    /** Package-private constructor for testing with a custom max blob size. */
+    GitRepoData(GitRepo repo, long maxBlobSize) {
         this.repo = repo;
         this.repository = repo.getRepository();
         this.git = repo.getGit();
+        this.maxBlobSize = maxBlobSize;
     }
 
     /** Performs git diff operation with the given filter group, handling NoHeadException for empty repositories. */
@@ -184,7 +192,28 @@ public class GitRepoData {
         }
     }
 
-    /** Retrieves the contents of {@code file} at a given commit ID, or returns an empty string if not found. */
+    /** Placeholder text returned when a blob exceeds our safe-load threshold. */
+    public static final String LARGE_OBJECT_PLACEHOLDER = "[File content too large to display]";
+
+    /** Placeholder text returned when file content could not be loaded due to an unexpected error. */
+    public static final String FAILED_TO_LOAD_PLACEHOLDER = "[Failed to load file content]";
+
+    /** Default maximum blob size we'll load into memory (5 MB). */
+    private static final long DEFAULT_MAX_BLOB_SIZE = 5 * 1024 * 1024;
+
+    /** Maximum blob size for this instance (package-private for testability). */
+    final long maxBlobSize;
+
+    /**
+     * Retrieves the contents of {@code file} at a given commit ID.
+     *
+     * @param commitId the commit SHA or ref to read from (must not be blank)
+     * @param file the file to retrieve
+     * @return the file content as a UTF-8 string, or {@link #LARGE_OBJECT_PLACEHOLDER} if the blob
+     *         exceeds {@code maxBlobSize} or cannot be loaded by JGit
+     * @throws GitRepo.FileNotFoundException if the file does not exist at the specified commit
+     * @throws GitAPIException if a Git error occurs
+     */
     public String getFileContent(String commitId, ProjectFile file) throws GitAPIException {
         if (commitId.isBlank()) {
             throw new IllegalArgumentException("commitId must not be blank");
@@ -203,14 +232,69 @@ public class GitRepoData {
                 if (treeWalk.next()) {
                     var blobId = treeWalk.getObjectId(0);
                     var loader = repository.open(blobId);
-                    return new String(loader.getBytes(), StandardCharsets.UTF_8);
+                    return loadBlobContent(loader, file, commitId);
                 }
             }
         } catch (IOException e) {
             throw new GitRepo.GitWrappedIOException(e);
         }
 
-        throw new GitRepo.GitRepoException("File '%s' not found at commit '%s'".formatted(file, commitId));
+        throw new GitRepo.FileNotFoundException(file, commitId);
+    }
+
+    /**
+     * Safely loads blob content, handling large objects gracefully.
+     * Returns a placeholder for objects exceeding {@code maxBlobSize} or when JGit cannot load them.
+     */
+    private String loadBlobContent(ObjectLoader loader, ProjectFile file, String commitId) throws IOException {
+        long size = loader.getSize();
+
+        if (size > maxBlobSize) {
+            logger.debug(
+                    "File {} at commit {} is {} bytes, exceeds {} byte limit, returning placeholder",
+                    file,
+                    commitId,
+                    size,
+                    maxBlobSize);
+            return LARGE_OBJECT_PLACEHOLDER;
+        }
+
+        // For large objects (as determined by JGit's threshold), use bounded streaming to avoid LargeObjectException
+        if (loader.isLarge()) {
+            logger.debug("File {} at commit {} is large ({} bytes), using bounded stream", file, commitId, size);
+            try (var stream = loader.openStream()) {
+                // Stream content, checking size limit after each chunk
+                var buffer = new ByteArrayOutputStream();
+                byte[] chunk = new byte[8192];
+                long totalRead = 0;
+                int bytesRead;
+                while ((bytesRead = stream.read(chunk)) != -1) {
+                    totalRead += bytesRead;
+                    if (totalRead > maxBlobSize) {
+                        logger.debug(
+                                "File {} at commit {} exceeded {} byte cap during streaming, returning placeholder",
+                                file,
+                                commitId,
+                                maxBlobSize);
+                        return LARGE_OBJECT_PLACEHOLDER;
+                    }
+                    buffer.write(chunk, 0, bytesRead);
+                }
+                return buffer.toString(StandardCharsets.UTF_8);
+            } catch (LargeObjectException e) {
+                logger.debug("File {} at commit {} could not be streamed: {}", file, commitId, e.getMessage());
+                return LARGE_OBJECT_PLACEHOLDER;
+            }
+        }
+
+        // For small objects, getBytes() is safe and efficient
+        try {
+            return new String(loader.getBytes(), StandardCharsets.UTF_8);
+        } catch (LargeObjectException e) {
+            logger.debug(
+                    "File {} at commit {} threw LargeObjectException on getBytes: {}", file, commitId, e.getMessage());
+            return LARGE_OBJECT_PLACEHOLDER;
+        }
     }
 
     /**
@@ -447,9 +531,12 @@ public class GitRepoData {
         }
         try {
             return getFileContent(ref, file);
-        } catch (GitAPIException e) {
+        } catch (GitRepo.FileNotFoundException e) {
             logger.debug("File {} not found at ref {}, treating as empty", file, ref);
             return "";
+        } catch (GitAPIException e) {
+            logger.debug("Failed to load file {} at ref {}: {}", file, ref, e.getMessage());
+            return FAILED_TO_LOAD_PLACEHOLDER;
         }
     }
 

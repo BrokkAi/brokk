@@ -2404,4 +2404,53 @@ public class GitRepoTest {
         // but since it's private we rely on the fact that getFileDiffs uses it.
         // We simulate a diff entry manually if needed, but the public API test is sufficient.
     }
+
+    @Test
+    void testGetFileDiffs_LargeObjectHandling() throws Exception {
+        // Create initial commit with a file that exceeds our test threshold
+        String initialContent = "A".repeat(1500); // 1500 bytes, exceeds 1KB cap
+        createCommit("large_test.txt", initialContent, "Initial commit");
+        String firstCommit = repo.getCurrentCommitId();
+
+        // Modify the file and create second commit
+        String modifiedContent = "B".repeat(2000); // 2000 bytes, exceeds 1KB cap
+        createCommit("large_test.txt", modifiedContent, "Modified commit");
+        String secondCommit = repo.getCurrentCommitId();
+
+        // Create a GitRepoData instance with a small cap (1 KB) for testing
+        var testData = new GitRepoData(repo, 1024);
+
+        // Call getFileDiffs with the test instance that has the small cap
+        var diffs = testData.getFileDiffs(firstCommit, secondCommit);
+
+        // Verify we got results without exception
+        assertEquals(1, diffs.size(), "Should have one file diff");
+        var diff = diffs.get(0);
+        assertNotNull(diff.oldFile());
+        assertNotNull(diff.newFile());
+        assertEquals("large_test.txt", diff.newFile().getFileName());
+
+        // Both old and new content should be placeholders since they exceed the cap
+        assertEquals(
+                GitRepoData.LARGE_OBJECT_PLACEHOLDER, diff.oldText(), "Old text should be placeholder for large file");
+        assertEquals(
+                GitRepoData.LARGE_OBJECT_PLACEHOLDER, diff.newText(), "New text should be placeholder for large file");
+    }
+
+    @Test
+    void testGetRefContent_InvalidRefReturnsFailedPlaceholder() throws Exception {
+        // Test that getRefContent returns FAILED_TO_LOAD_PLACEHOLDER for a non-existent commit
+        var readmeFile = new ProjectFile(projectRoot, "README.md");
+        var content = repo.data().getRefContent("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", readmeFile);
+        assertEquals(
+                GitRepoData.FAILED_TO_LOAD_PLACEHOLDER,
+                content,
+                "Non-existent commit should return FAILED_TO_LOAD_PLACEHOLDER");
+
+        // Test that getRefContent returns empty string for a file that doesn't exist at a valid commit
+        var validCommit = repo.getCurrentCommitId();
+        var missingFile = new ProjectFile(projectRoot, "missing.txt");
+        var missingContent = repo.data().getRefContent(validCommit, missingFile);
+        assertEquals("", missingContent, "Missing file at valid commit should return empty string");
+    }
 }

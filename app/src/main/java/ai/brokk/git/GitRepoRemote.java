@@ -3,13 +3,20 @@ package ai.brokk.git;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.api.errors.JGitInternalException;
 import org.eclipse.jgit.lib.ProgressMonitor;
+import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.transport.PushResult;
@@ -549,7 +556,14 @@ public class GitRepoRemote {
             // Don't throw if token is empty - allow graceful failure for public repos
         }
 
-        var remoteRefs = lsRemote.call();
+        Collection<Ref> remoteRefs;
+        try {
+            remoteRefs = lsRemote.call();
+        } catch (IllegalThreadStateException | JGitInternalException e) {
+            // JGit's SSH transport can throw these RuntimeExceptions instead of GitAPIException.
+            // Deliberately do NOT catch all RuntimeException.
+            throw new GitRepo.GitRepoException("Failed to list remote refs for " + url, e);
+        }
 
         var branches = new ArrayList<String>();
         var tags = new ArrayList<String>();
