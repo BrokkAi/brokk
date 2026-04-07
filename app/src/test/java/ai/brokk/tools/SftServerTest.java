@@ -146,6 +146,63 @@ class SftServerTest {
     }
 
     @Test
+    void formatPatch_filtersByIncludedFilenames() throws Exception {
+        initGitRepo(tempDir);
+
+        var foo = tempDir.resolve("src/main/java/example/Foo.java");
+        var bar = tempDir.resolve("src/main/java/example/Bar.java");
+        Files.createDirectories(foo.getParent());
+        Files.writeString(
+                foo,
+                """
+                package example;
+
+                class Foo {
+                    void alpha() {}
+                }
+                """);
+        Files.writeString(
+                bar,
+                """
+                package example;
+
+                class Bar {
+                    void beta() {}
+                }
+                """);
+        var from = commitAll(tempDir, "before");
+
+        Files.writeString(
+                foo,
+                """
+                package example;
+
+                class Foo {
+                    void alphaUpdated() {}
+                }
+                """);
+        Files.writeString(
+                bar,
+                """
+                package example;
+
+                class Bar {
+                    void betaUpdated() {}
+                }
+                """);
+        var to = commitAll(tempDir, "after");
+
+        try (var server = new SftServer(tempDir, 0)) {
+            var formatted = server.format_patch(from, to, List.of("src/main/java/example/Foo.java"));
+
+            assertEquals(1, formatted.size());
+            assertTrue(formatted.containsKey("src/main/java/example/Foo.java"));
+            assertFalse(formatted.containsKey("src/main/java/example/Bar.java"));
+            assertTrue(formatted.get("src/main/java/example/Foo.java").contains("alphaUpdated()"));
+        }
+    }
+
+    @Test
     void httpServer_handlesConcurrentRequests() throws Exception {
         initGitRepo(tempDir);
 

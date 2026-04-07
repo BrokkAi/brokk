@@ -192,15 +192,27 @@ public final class SftServer implements AutoCloseable {
 
     @Blocking
     public Map<String, String> format_patch(String from, String to) {
+        return format_patch(from, to, List.of());
+    }
+
+    @Blocking
+    public Map<String, String> format_patch(String from, String to, List<String> filenames) {
         if (from.isBlank() || to.isBlank()) {
             throw new IllegalArgumentException("from and to must not be blank");
         }
 
+        var includedFiles = normalizePathSet(defaultIfNull(filenames));
         List<GitRepoData.FileDiff> fileDiffs;
         try {
             fileDiffs = requireGitRepo().data().getFileDiffs(from, to);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to diff revisions '%s' and '%s'".formatted(from, to), e);
+        }
+
+        if (!includedFiles.isEmpty()) {
+            fileDiffs = fileDiffs.stream()
+                    .filter(diff -> isPathIncluded(diff, includedFiles))
+                    .toList();
         }
 
         var binaryPaths = fileDiffs.stream()
@@ -271,7 +283,10 @@ public final class SftServer implements AutoCloseable {
         }
 
         try {
-            var result = format_patch(requireNonBlank(request.from(), "from"), requireNonBlank(request.to(), "to"));
+            var result = format_patch(
+                    requireNonBlank(request.from(), "from"),
+                    requireNonBlank(request.to(), "to"),
+                    defaultIfNull(request.filenames()));
             SimpleHttpServer.sendJsonResponse(exchange, new FormatPatchResponse(result));
         } catch (IllegalArgumentException e) {
             RouterUtil.sendValidationError(
@@ -355,8 +370,36 @@ public final class SftServer implements AutoCloseable {
         return value == null ? "" : value;
     }
 
+    private static List<String> defaultIfNull(@Nullable List<String> values) {
+        return values == null ? List.of() : values;
+    }
+
     private static SftMessage toSftMessage(ChatMessage message) {
         return new SftMessage(toSftRole(message), Messages.getText(message));
+    }
+
+    private Set<String> normalizePathSet(List<String> paths) {
+        var normalized = new LinkedHashSet<String>();
+        for (var path : normalizePaths(defaultIfNull(paths))) {
+            if (path.isBlank()) {
+                throw new IllegalArgumentException("Path list must not contain blank entries");
+            }
+
+            normalized.add(validateProjectFile(path).toString().replace('\\', '/'));
+        }
+        return Set.copyOf(normalized);
+    }
+
+    private static boolean isPathIncluded(GitRepoData.FileDiff diff, Set<String> includedPaths) {
+        if (diff.oldFile() != null
+                && includedPaths.contains(diff.oldFile().toString().replace('\\', '/'))) {
+            return true;
+        }
+        if (diff.newFile() != null
+                && includedPaths.contains(diff.newFile().toString().replace('\\', '/'))) {
+            return true;
+        }
+        return false;
     }
 
     private static String toSftRole(ChatMessage message) {
@@ -376,7 +419,7 @@ public final class SftServer implements AutoCloseable {
             List<String> summarized,
             @Nullable String build_error) {}
 
-    private record FormatPatchRequest(String from, String to) {}
+    private record FormatPatchRequest(String from, String to, @Nullable List<String> filenames) {}
 
     public record SftMessage(String role, String content) {}
 
