@@ -423,7 +423,7 @@ def test_run_mcp_core_server_falls_back_to_jbang(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", lambda _path: None)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
-    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _ws, subproject="app": None)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _ws, subproject="brokk-core": None)
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
     monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
 
@@ -452,7 +452,7 @@ def test_run_mcp_core_server_passthrough_args_with_jbang_separator(
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", lambda _path: None)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
-    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _ws, subproject="app": None)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _ws, subproject="brokk-core": None)
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
     monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "jbang")
 
@@ -499,7 +499,7 @@ def test_run_mcp_core_server_passthrough_args_direct_java_no_separator(
 
 
 def test_run_mcp_core_server_reports_missing_runtime(monkeypatch, tmp_path, capsys) -> None:
-    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _ws, subproject="app": None)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _ws, subproject="brokk-core": None)
     monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "missing-runtime")
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
     monkeypatch.setattr(os, "chdir", lambda _path: None)
