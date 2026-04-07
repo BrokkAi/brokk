@@ -84,6 +84,7 @@ public class ArchitectAgent {
             ToolRegistry toolRegistry,
             WorkspaceTools workspaceTools,
             ParallelSearch parallelSearch,
+            ParallelCustomAgent parallelCustomAgent,
             List<ChatMessage> messages,
             Llm.StreamingResult result) {}
 
@@ -679,6 +680,7 @@ public class ArchitectAgent {
 
             var tr = turn.toolRegistry();
             var parallelSearch = turn.parallelSearch();
+            var parallelCustomAgent = turn.parallelCustomAgent();
             var result = turn.result();
 
             totalUsage = TokenUsage.sum(
@@ -1004,7 +1006,8 @@ public class ArchitectAgent {
 
             // happy path
             if (result.error() == null) {
-                return new PlanningTurnOutcome.Success(new PlanningTurn(tr, wst, parallelSearch, messages, result));
+                return new PlanningTurnOutcome.Success(
+                        new PlanningTurn(tr, wst, parallelSearch, parallelCustomAgent, messages, result));
             }
 
             // llm error

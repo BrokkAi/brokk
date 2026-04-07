@@ -74,11 +74,16 @@ public class CustomAgentExecutor {
     @Blocking
     public TaskResult execute(String taskInput) {
         try {
-            return executeLoop(taskInput);
+            return executeInterruptibly(taskInput);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new TaskResult(context, new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
+    }
+
+    @Blocking
+    public TaskResult executeInterruptibly(String taskInput) throws InterruptedException {
+        return executeLoop(taskInput);
     }
 
     private TaskResult executeLoop(String taskInput) throws InterruptedException {

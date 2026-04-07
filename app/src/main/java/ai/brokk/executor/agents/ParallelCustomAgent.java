@@ -66,7 +66,7 @@ public class ParallelCustomAgent {
                 agentName, cm.getService().nameOf(model));
 
         var executor = new CustomAgentExecutor(cm, agentDef, model);
-        var result = executor.execute(task);
+        var result = executor.executeInterruptibly(task);
         return extractExplanation(result.stopDetails().explanation());
     }
 
@@ -144,6 +144,13 @@ public class ParallelCustomAgent {
                     tasks.get(j).future().cancel(true);
                 }
             } catch (ExecutionException e) {
+                if (e.getCause() instanceof InterruptedException) {
+                    interrupted = true;
+                    for (int j = i + 1; j < batchSize; j++) {
+                        tasks.get(j).future().cancel(true);
+                    }
+                    continue;
+                }
                 var errorMessage = "Error executing custom agent: %s"
                         .formatted(Objects.toString(
                                 e.getCause() != null ? e.getCause().getMessage() : "Unknown error"));
@@ -169,7 +176,7 @@ public class ParallelCustomAgent {
     }
 
     private CustomAgentTaskResult executeCustomAgentRequest(
-            ToolExecutionRequest request, ToolRegistry tr, IConsoleIO taskIo) {
+            ToolExecutionRequest request, ToolRegistry tr, IConsoleIO taskIo) throws InterruptedException {
         taskIo.beforeToolCall(request);
 
         String agentName;
@@ -204,15 +211,9 @@ public class ParallelCustomAgent {
 
         try {
             var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo);
-            var result = executor.execute(task);
+            var result = executor.executeInterruptibly(task);
             var explanation = extractExplanation(result.stopDetails().explanation());
-
-            ToolExecutionResult toolResult;
-            if (result.stopDetails().reason() == StopReason.LLM_ERROR) {
-                toolResult = ToolExecutionResult.fatal(request, explanation);
-            } else {
-                toolResult = ToolExecutionResult.success(request, explanation);
-            }
+            var toolResult = toToolExecutionResult(request, result.stopDetails(), explanation);
             taskIo.afterToolOutput(toolResult);
             return new CustomAgentTaskResult(toolResult, agentName);
         } catch (RuntimeException e) {
@@ -236,6 +237,16 @@ public class ParallelCustomAgent {
             // Not JSON -- return as-is
         }
         return raw;
+    }
+
+    static ToolExecutionResult toToolExecutionResult(
+            ToolExecutionRequest request, TaskResult.StopDetails stopDetails, String explanation)
+            throws InterruptedException {
+        return switch (stopDetails.reason()) {
+            case LLM_ERROR -> ToolExecutionResult.fatal(request, explanation);
+            case INTERRUPTED -> throw new InterruptedException();
+            default -> ToolExecutionResult.success(request, explanation);
+        };
     }
 
     /**
