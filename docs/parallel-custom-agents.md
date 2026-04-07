@@ -55,10 +55,6 @@ If you do **not** need wall-clock parallelism, a single `POST /v1/jobs` with **`
 - If one parallel job fails, others may still succeed. Decide in the client whether to fail the whole batch or report partial results.
 - Validate agent names **before** fan-out (unknown agent names return **400** at job creation).
 
-## Related endpoints
-
-- **`GET /v1/context/analytics/git-hotspots`**: Same analysis as tool `analyzeGitHotspots` (JSON). Query parameters: `since` (e.g. `180d` or ISO-8601 instant), optional `until` (ISO-8601 exclusive end), `maxCommits`, optional `maxFiles` (0 = unlimited file rows in JSON).
-
 For parallel custom-agent workflows, **mode stays `SEARCH`** (or whatever your orchestrator uses); behavior is encoded in stored agent definitions plus client orchestration.
 
 ---

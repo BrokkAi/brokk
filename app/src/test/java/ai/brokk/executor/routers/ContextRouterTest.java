@@ -275,29 +275,6 @@ class ContextRouterTest {
     }
 
     @Test
-    void handleGetGitHotspots_onEmptyRepo_returnsReport() throws Exception {
-        // Since setup uses a real MainProject but typically empty temp dir,
-        // we might not have a Git repo initialized unless we do it explicitly.
-        // However, ContextRouter will return 400 if it's not a GitRepo.
-
-        var exchange = TestHttpExchange.request("GET", "/v1/context/analytics/git-hotspots?maxCommits=5");
-        contextRouter.handle(exchange);
-
-        // If repo isn't initialized in setUp, it might return 400.
-        // In this test environment, we expect a valid structure or a controlled error.
-        assertTrue(exchange.responseCode() == 200 || exchange.responseCode() == 400);
-
-        if (exchange.responseCode() == 200) {
-            Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
-            assertTrue(body.containsKey("repository"));
-            assertTrue(body.containsKey("analyzedCommits"));
-            assertTrue(body.containsKey("files"));
-            assertTrue(body.containsKey("totalUniqueFiles"));
-            assertTrue(body.containsKey("truncated"));
-        }
-    }
-
-    @Test
     void handleGetContextFragment_unknownId_returns404() throws Exception {
         var exchange = TestHttpExchange.request("GET", "/v1/context/fragments/not-real");
         contextRouter.handle(exchange);
