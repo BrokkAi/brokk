@@ -18,7 +18,7 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.exception.GlobalExceptionHandler;
-import ai.brokk.executor.agents.CustomAgentTools;
+import ai.brokk.executor.agents.ParallelCustomAgent;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
@@ -717,9 +717,27 @@ public class ArchitectAgent {
             var searchPartition =
                     ToolRegistry.partitionByNames(terminalPartition.otherRequests(), Set.of("callSearchAgent"));
             var codePartition = ToolRegistry.partitionByNames(searchPartition.otherRequests(), Set.of("callCodeAgent"));
+            var customAgentPartition =
+                    ToolRegistry.partitionByNames(codePartition.otherRequests(), Set.of("callCustomAgent"));
             var searchAgentReqs = new ArrayList<>(searchPartition.matchingRequests());
             var codeAgentReqs = new ArrayList<>(codePartition.matchingRequests());
-            var otherReqs = new ArrayList<>(codePartition.otherRequests());
+
+            // Split custom agent requests into read-only (parallel-eligible) and mutating (sequential)
+            var readOnlyCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
+            var mutatingCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
+            for (var req : customAgentPartition.matchingRequests()) {
+                var agentName = ParallelCustomAgent.extractAgentName(req, tr);
+                var agentDef =
+                        agentName != null ? cm.getAgentStore().get(agentName).orElse(null) : null;
+                if (agentDef != null && agentDef.isReadOnly(cm.getProject())) {
+                    readOnlyCustomAgentReqs.add(req);
+                } else {
+                    mutatingCustomAgentReqs.add(req);
+                }
+            }
+
+            var otherReqs = new ArrayList<>(customAgentPartition.otherRequests());
+            otherReqs.addAll(mutatingCustomAgentReqs);
 
             // If we see "projectFinished" or "abortProject", handle it and then exit.
             // If these final/abort calls are present together with other tool calls in the same LLM response,
@@ -821,6 +839,16 @@ public class ArchitectAgent {
                 scope.append(context);
             }
 
+            // Handle read-only custom agent requests in parallel
+            if (!readOnlyCustomAgentReqs.isEmpty()) {
+                var customResult = parallelCustomAgent.execute(readOnlyCustomAgentReqs, tr);
+                if (customResult.stopDetails().reason() == StopReason.LLM_ERROR) {
+                    return resultWithMessages(
+                            StopReason.LLM_ERROR, customResult.stopDetails().explanation());
+                }
+                architectMessages.addAll(customResult.toolExecutionMessages());
+            }
+
             // code agent calls are done serially
             var initialContext = context;
             for (var req : codeAgentReqs) {
@@ -898,6 +926,7 @@ public class ArchitectAgent {
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
             ParallelSearch parallelSearch = new ParallelSearch(context.forSearchAgent(), goal, delegatedSearchModel());
+            ParallelCustomAgent parallelCustomAgent = new ParallelCustomAgent(cm, planningModel);
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))
@@ -908,7 +937,7 @@ public class ArchitectAgent {
                     .register(this)
                     .register(wst)
                     .register(parallelSearch)
-                    .register(new CustomAgentTools(cm, planningModel));
+                    .register(parallelCustomAgent);
             depTools.ifPresent(builder::register);
             ToolRegistry tr = builder.build();
 
