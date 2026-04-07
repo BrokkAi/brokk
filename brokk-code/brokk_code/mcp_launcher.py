@@ -151,14 +151,16 @@ def _run_mcp(
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
     except FileNotFoundError:
+        kind = f"{label} runtime" if label else "runtime"
         print(
-            f"Error: Unable to launch MCP {label} runtime via '{launcher}'. "
+            f"Error: Unable to launch MCP {kind} via '{launcher}'. "
             "Ensure the required runtime is installed or pass --jar.",
             file=sys.stderr,
         )
         sys.exit(1)
     except OSError as exc:
-        print(f"Error: Failed to launch MCP {label} runtime: {exc}", file=sys.stderr)
+        kind = f"{label} runtime" if label else "runtime"
+        print(f"Error: Failed to launch MCP {kind}: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
