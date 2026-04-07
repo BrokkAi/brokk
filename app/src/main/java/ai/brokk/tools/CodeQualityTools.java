@@ -8,9 +8,9 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitHotspotAnalyzer;
 import ai.brokk.git.GitRepo;
-import java.io.IOException;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -128,7 +128,7 @@ public class CodeQualityTools {
             @P("Fully qualified name (e.g. com.example.MyClass or com.example.MyClass.method).") String fqName,
             @P("Maximum output lines; values <= 0 default to 120.") int maxLines) {
 
-        if (fqName == null || fqName.isBlank()) {
+        if (fqName.isBlank()) {
             return "Missing fqName.";
         }
         int cap = maxLines > 0 ? maxLines : 120;
@@ -238,10 +238,7 @@ public class CodeQualityTools {
         lines.add("- Own: header %d, inline %d, span %d"
                 .formatted(s.headerCommentLines(), s.inlineCommentLines(), s.spanLines()));
         lines.add("- Rolled-up: header %d, inline %d, span %d"
-                .formatted(
-                        s.rolledUpHeaderCommentLines(),
-                        s.rolledUpInlineCommentLines(),
-                        s.rolledUpSpanLines()));
+                .formatted(s.rolledUpHeaderCommentLines(), s.rolledUpInlineCommentLines(), s.rolledUpSpanLines()));
         return String.join("\n", lines);
     }
 
@@ -250,9 +247,8 @@ public class CodeQualityTools {
         if (lines.size() <= maxLines) {
             return text;
         }
-        return String.join(
-                "\n",
-                lines.subList(0, maxLines)) + "\n\n... (" + (lines.size() - maxLines) + " more lines omitted)";
+        return String.join("\n", lines.subList(0, maxLines)) + "\n\n... (" + (lines.size() - maxLines)
+                + " more lines omitted)";
     }
 
     @Blocking
@@ -262,7 +258,8 @@ public class CodeQualityTools {
             Bounded to control context size: use maxFiles and maxCommits, and an optional time window (sinceDays or ISO instants).
             Returns a compact markdown summary.""")
     public String analyzeGitHotspots(
-            @P("Days back from now for the window start when sinceIso is empty; values <= 0 default to 7.") int sinceDays,
+            @P("Days back from now for the window start when sinceIso is empty; values <= 0 default to 7.")
+                    int sinceDays,
             @P("Optional ISO-8601 start instant; when non-blank, overrides sinceDays.") String sinceIso,
             @P("Optional ISO-8601 exclusive end instant; empty means no upper bound.") String untilIso,
             @P("Maximum commits to walk; values <= 0 default to 500.") int maxCommits,
@@ -275,7 +272,7 @@ public class CodeQualityTools {
         }
 
         Instant since;
-        if (sinceIso != null && !sinceIso.isBlank()) {
+        if (!sinceIso.isBlank()) {
             since = Instant.parse(sinceIso.strip());
         } else {
             int days = sinceDays > 0 ? sinceDays : 7;
@@ -283,7 +280,7 @@ public class CodeQualityTools {
         }
 
         Instant until = null;
-        if (untilIso != null && !untilIso.isBlank()) {
+        if (!untilIso.isBlank()) {
             until = Instant.parse(untilIso.strip());
         }
 

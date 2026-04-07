@@ -160,21 +160,13 @@ public class GitHotspotAnalyzerTest {
                 .call();
 
         GitHotspotAnalyzer hotspotAnalyzer = new GitHotspotAnalyzer(repo, analyzer);
-        GitHotspotAnalyzer.HotspotReport beforeWindow =
-                hotspotAnalyzer.analyze(
-                        Instant.parse("2010-01-01T00:00:00Z"),
-                        Instant.parse("2019-01-01T00:00:00Z"),
-                        100,
-                        0);
+        GitHotspotAnalyzer.HotspotReport beforeWindow = hotspotAnalyzer.analyze(
+                Instant.parse("2010-01-01T00:00:00Z"), Instant.parse("2019-01-01T00:00:00Z"), 100, 0);
         assertEquals(0, beforeWindow.analyzedCommits());
         assertTrue(beforeWindow.files().isEmpty());
 
-        GitHotspotAnalyzer.HotspotReport inWindow =
-                hotspotAnalyzer.analyze(
-                        Instant.parse("2010-01-01T00:00:00Z"),
-                        Instant.parse("2021-01-01T00:00:00Z"),
-                        100,
-                        0);
+        GitHotspotAnalyzer.HotspotReport inWindow = hotspotAnalyzer.analyze(
+                Instant.parse("2010-01-01T00:00:00Z"), Instant.parse("2021-01-01T00:00:00Z"), 100, 0);
         assertEquals(1, inWindow.analyzedCommits());
         assertFalse(inWindow.files().isEmpty());
     }

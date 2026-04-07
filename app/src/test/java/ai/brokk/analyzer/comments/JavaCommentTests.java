@@ -49,7 +49,8 @@ public class JavaCommentTests {
                     }
                 }
                 """;
-        try (var testProject = InlineTestProjectCreator.code(code, "com/example/Foo.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "com/example/Foo.java").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             Optional<CommentDensityStats> opt = analyzer.commentDensity(methodUnit(analyzer, "com.example.Foo.bar"));
             assertTrue(opt.isPresent());
@@ -81,10 +82,10 @@ public class JavaCommentTests {
         try (var testProject =
                 InlineTestProjectCreator.code(code, "com/example/Two.java").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
-            CommentDensityStats dense =
-                    analyzer.commentDensity(methodUnit(analyzer, "com.example.Two.dense")).orElseThrow();
-            CommentDensityStats sparse =
-                    analyzer.commentDensity(methodUnit(analyzer, "com.example.Two.sparse")).orElseThrow();
+            CommentDensityStats dense = analyzer.commentDensity(methodUnit(analyzer, "com.example.Two.dense"))
+                    .orElseThrow();
+            CommentDensityStats sparse = analyzer.commentDensity(methodUnit(analyzer, "com.example.Two.sparse"))
+                    .orElseThrow();
             assertEquals(1, dense.headerCommentLines());
             assertEquals(2, dense.inlineCommentLines());
             assertEquals(1, sparse.headerCommentLines());
@@ -108,14 +109,16 @@ public class JavaCommentTests {
         try (var testProject =
                 InlineTestProjectCreator.code(code, "com/example/Outer.java").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
-            CommentDensityStats outer =
-                    analyzer.commentDensity(classUnit(analyzer, "com.example.Outer")).orElseThrow();
+            CommentDensityStats outer = analyzer.commentDensity(classUnit(analyzer, "com.example.Outer"))
+                    .orElseThrow();
             CodeUnit innerCu = classUnit(analyzer, "com.example.Outer$Inner");
             CommentDensityStats inner = analyzer.commentDensity(innerCu).orElseThrow();
             assertEquals(1, inner.headerCommentLines());
             assertTrue(outer.rolledUpHeaderCommentLines() >= outer.headerCommentLines());
             assertTrue(outer.rolledUpHeaderCommentLines() >= inner.rolledUpHeaderCommentLines());
-            var file = testProject.getFileByRelPath(Path.of("com/example/Outer.java")).orElseThrow();
+            var file = testProject
+                    .getFileByRelPath(Path.of("com/example/Outer.java"))
+                    .orElseThrow();
             List<CommentDensityStats> rows = analyzer.commentDensityByTopLevel(file);
             assertEquals(analyzer.getTopLevelDeclarations(file).size(), rows.size());
             CommentDensityStats outerRow = rows.stream()
@@ -137,7 +140,9 @@ public class JavaCommentTests {
         try (var testProject =
                 InlineTestProjectCreator.code(code, "com/example/MultiTop.java").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
-            var file = testProject.getFileByRelPath(Path.of("com/example/MultiTop.java")).orElseThrow();
+            var file = testProject
+                    .getFileByRelPath(Path.of("com/example/MultiTop.java"))
+                    .orElseThrow();
             List<CommentDensityStats> rows = analyzer.commentDensityByTopLevel(file);
             assertEquals(analyzer.getTopLevelDeclarations(file).size(), rows.size());
         }

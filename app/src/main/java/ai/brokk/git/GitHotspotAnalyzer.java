@@ -108,8 +108,7 @@ public class GitHotspotAnalyzer {
         try (RevWalk walk = new RevWalk(jgitRepo)) {
             ObjectId head = jgitRepo.resolve(Constants.HEAD);
             if (head == null) {
-                return new HotspotReport(
-                        repo.getWorkTreeRoot().toString(), 0, timeframe, 0, false, List.of());
+                return new HotspotReport(repo.getWorkTreeRoot().toString(), 0, timeframe, 0, false, List.of());
             }
             walk.markStart(walk.parseCommit(head));
             RevFilter timeFilter = CommitTimeRevFilter.after(since);
