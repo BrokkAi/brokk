@@ -7,6 +7,8 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.concurrent.LoggingFuture;
+import ai.brokk.tools.ToolExecutionResult;
+import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -20,8 +22,6 @@ import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
-import ai.brokk.tools.ToolExecutionResult;
-import ai.brokk.tools.ToolRegistry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -55,15 +55,19 @@ public class ParallelCustomAgent {
             @P("Complete task description for the agent") String task)
             throws InterruptedException {
         var agentStore = cm.getAgentStore();
-        var agentDef = agentStore.get(agentName)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Custom agent not found: '%s'. Available agents: %s"
-                                .formatted(agentName, agentStore.list().stream()
+        var agentDef = agentStore
+                .get(agentName)
+                .orElseThrow(() -> new IllegalArgumentException("Custom agent not found: '%s'. Available agents: %s"
+                        .formatted(
+                                agentName,
+                                agentStore.list().stream()
                                         .map(AgentDefinition::name)
                                         .toList())));
 
-        logger.info("Invoking custom agent '{}' sequentially with model {}",
-                agentName, cm.getService().nameOf(model));
+        logger.info(
+                "Invoking custom agent '{}' sequentially with model {}",
+                agentName,
+                cm.getService().nameOf(model));
 
         var executor = new CustomAgentExecutor(cm, agentDef, model);
         var result = executor.executeInterruptibly(task);
@@ -198,16 +202,20 @@ public class ParallelCustomAgent {
         var agentDef = agentStore.get(agentName).orElse(null);
         if (agentDef == null) {
             var errorMessage = "Custom agent not found: '%s'. Available agents: %s"
-                    .formatted(agentName, agentStore.list().stream()
-                            .map(AgentDefinition::name)
-                            .toList());
+                    .formatted(
+                            agentName,
+                            agentStore.list().stream()
+                                    .map(AgentDefinition::name)
+                                    .toList());
             var failure = ToolExecutionResult.requestError(request, errorMessage);
             taskIo.afterToolOutput(failure);
             return new CustomAgentTaskResult(failure, agentName);
         }
 
-        logger.info("Invoking custom agent '{}' in parallel with model {}",
-                agentName, cm.getService().nameOf(model));
+        logger.info(
+                "Invoking custom agent '{}' in parallel with model {}",
+                agentName,
+                cm.getService().nameOf(model));
 
         try {
             var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo);

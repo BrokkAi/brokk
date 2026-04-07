@@ -18,7 +18,6 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.exception.GlobalExceptionHandler;
-import ai.brokk.executor.agents.AgentDefinition;
 import ai.brokk.executor.agents.ParallelCustomAgent;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -730,7 +729,8 @@ public class ArchitectAgent {
             var mutatingCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
             for (var req : customAgentPartition.matchingRequests()) {
                 var agentName = ParallelCustomAgent.extractAgentName(req, tr);
-                var agentDef = agentName != null ? cm.getAgentStore().get(agentName).orElse(null) : null;
+                var agentDef =
+                        agentName != null ? cm.getAgentStore().get(agentName).orElse(null) : null;
                 if (agentDef != null && agentDef.isReadOnly(cm.getProject())) {
                     readOnlyCustomAgentReqs.add(req);
                 } else {

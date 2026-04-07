@@ -17,7 +17,6 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.executor.agents.AgentDefinition;
 import ai.brokk.executor.agents.ParallelCustomAgent;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
@@ -519,8 +518,10 @@ public class LutzAgent {
     }
 
     private ToolRegistry createToolRegistry(
-            WorkspaceTools wst, Object toolProvider,
-            ParallelSearch parallelSearch, ParallelCustomAgent parallelCustomAgent) {
+            WorkspaceTools wst,
+            Object toolProvider,
+            ParallelSearch parallelSearch,
+            ParallelCustomAgent parallelCustomAgent) {
         var builder = cm.getToolRegistry()
                 .builder()
                 .register(searchTools)
@@ -1017,7 +1018,9 @@ public class LutzAgent {
             var otherPrimaryCalls = new ArrayList<>(customAgentPartition.otherRequests());
             for (var req : customAgentPartition.matchingRequests()) {
                 var agentName = ParallelCustomAgent.extractAgentName(req, tr);
-                var agentDef = agentName != null ? agent.cm.getAgentStore().get(agentName).orElse(null) : null;
+                var agentDef = agentName != null
+                        ? agent.cm.getAgentStore().get(agentName).orElse(null)
+                        : null;
                 if (agentDef != null && agentDef.isReadOnly(agent.cm.getProject())) {
                     readOnlyCustomAgentReqs.add(req);
                 } else {
