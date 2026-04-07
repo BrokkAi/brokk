@@ -33,7 +33,8 @@ from brokk_code.mcp_config import (
     install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
-from brokk_code.mcp_launcher import run_mcp_server
+from brokk_code.mcp_launcher import run_mcp_core_server, run_mcp_server
+from brokk_code.plugin_config import install_plugin
 from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
 from brokk_code.nvim_init_patch import wire_nvim_plugin_setup
 from brokk_code.settings import (
@@ -897,10 +898,15 @@ def _build_parser() -> argparse.ArgumentParser:
     mcp_parser = subparsers.add_parser("mcp", help="Run in MCP server mode", add_help=False)
     _add_common_runtime_args(mcp_parser)
 
+    mcp_core_parser = subparsers.add_parser(
+        "mcp-core", help="Run in MCP core (read-only) server mode", add_help=False
+    )
+    _add_common_runtime_args(mcp_core_parser)
+
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
-        choices=["zed", "intellij", "nvim", "neovim", "mcp"],
+        choices=["zed", "intellij", "nvim", "neovim", "mcp", "plugin"],
         help="Install target for integration settings",
     )
     install_parser.add_argument(
@@ -1870,7 +1876,7 @@ def main():
     parser = _build_parser()
     args, unknown = parser.parse_known_args()
 
-    if unknown and args.command != "mcp":
+    if unknown and args.command not in ("mcp", "mcp-core"):
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     # Resolve paths early so they are available to all commands
@@ -2099,6 +2105,11 @@ def main():
                     f"Installed Claude MCP workspace skill in {claude_ws_skill}",
                     f"Installed Claude MCP summaries skill in {claude_sum_skill}",
                 ]
+            elif args.target == "plugin":
+                plugin_root = install_plugin(uvx_command=uvx_command)
+                messages = [
+                    f"Installed Claude Code plugin in {plugin_root}",
+                ]
             else:
                 # Should not happen due to argparse choices
                 raise ValueError(f"Unknown target: {args.target}")
@@ -2248,6 +2259,15 @@ def main():
 
     if args.command == "mcp":
         run_mcp_server(
+            workspace_dir=workspace_path,
+            jar_path=jar_path,
+            executor_version=args.executor_version,
+            passthrough_args=unknown,
+        )
+        return
+
+    if args.command == "mcp-core":
+        run_mcp_core_server(
             workspace_dir=workspace_path,
             jar_path=jar_path,
             executor_version=args.executor_version,

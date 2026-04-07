@@ -9,6 +9,7 @@ from brokk_code.runtime_utils import find_dev_jar
 
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
+_MCP_CORE_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkCoreMcpServer"
 
 
 def git_toplevel_for(path: Path) -> Optional[Path]:
@@ -130,4 +131,131 @@ def run_mcp_server(
         sys.exit(1)
     except OSError as exc:
         print(f"Error: Failed to launch MCP runtime: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# brokk-core MCP server
+# ---------------------------------------------------------------------------
+
+
+def find_dev_jar_core(workspace_dir: Path) -> Optional[Path]:
+    """Search for a local brokk-core development JAR.
+
+    Walks upward from *workspace_dir* until ``gradlew`` is found, then looks
+    in ``<repo>/brokk-core/build/libs/brokk-core-*.jar``.
+    """
+    excluded_suffixes = ("-sources.jar", "-javadoc.jar", "-plain.jar")
+
+    def _find_in_repo(base: Path) -> Optional[Path]:
+        libs_dir = base / "brokk-core" / "build" / "libs"
+        if not libs_dir.exists():
+            return None
+        candidates = [
+            jar
+            for jar in libs_dir.glob("brokk-core-*.jar")
+            if not jar.name.endswith(excluded_suffixes)
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda jar: jar.stat().st_mtime)
+
+    curr = workspace_dir.resolve()
+    while True:
+        if (curr / "gradlew").exists() or (curr / "gradlew.bat").exists():
+            jar = _find_in_repo(curr)
+            if jar:
+                return jar
+        if curr == curr.parent:
+            break
+        curr = curr.parent
+    return None
+
+
+def build_direct_mcp_core_command(jar_path: Path) -> list[str]:
+    return [
+        "java",
+        "-Djava.awt.headless=true",
+        "-Dapple.awt.UIElement=true",
+        "--enable-native-access=ALL-UNNAMED",
+        "-cp",
+        str(jar_path),
+        _MCP_CORE_SERVER_MAIN_CLASS,
+    ]
+
+
+def build_jbang_mcp_core_command(*, jbang_binary: str, executor_version: str | None) -> list[str]:
+    version = executor_version or BUNDLED_EXECUTOR_VERSION
+    jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-core-{version}.jar"
+    return [
+        jbang_binary,
+        "--java",
+        "21",
+        "-R",
+        "-Djava.awt.headless=true",
+        "-R",
+        "-Dapple.awt.UIElement=true",
+        "-R",
+        "--enable-native-access=ALL-UNNAMED",
+        "--main",
+        _MCP_CORE_SERVER_MAIN_CLASS,
+        jar_url,
+    ]
+
+
+def resolve_mcp_core_command(
+    *,
+    workspace_dir: Path,
+    jar_path: Optional[Path],
+    executor_version: str | None,
+) -> list[str]:
+    if jar_path:
+        return build_direct_mcp_core_command(jar_path)
+
+    dev_jar = find_dev_jar_core(workspace_dir)
+    if dev_jar:
+        return build_direct_mcp_core_command(dev_jar)
+
+    jbang_binary = ensure_jbang_ready()
+    return build_jbang_mcp_core_command(jbang_binary=jbang_binary, executor_version=executor_version)
+
+
+def run_mcp_core_server(
+    *,
+    workspace_dir: Path,
+    jar_path: Optional[Path],
+    executor_version: str | None,
+    passthrough_args: list[str] | None = None,
+) -> None:
+    resolved_workspace_dir = resolve_mcp_workspace_dir(workspace_dir)
+
+    try:
+        command = resolve_mcp_core_command(
+            workspace_dir=resolved_workspace_dir,
+            jar_path=jar_path,
+            executor_version=executor_version,
+        )
+        if passthrough_args:
+            if command[0] != "java":
+                command.append("--")
+            command.extend(passthrough_args)
+
+        os.chdir(resolved_workspace_dir)
+        if sys.platform == "win32":
+            result = subprocess.run(command, env=os.environ.copy())
+            sys.exit(result.returncode)
+        else:
+            os.execvpe(command[0], command, os.environ.copy())
+    except ExecutorError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError:
+        print(
+            f"Error: Unable to launch MCP core runtime via '{command[0]}'. "
+            "Ensure the required runtime is installed or pass --jar.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except OSError as exc:
+        print(f"Error: Failed to launch MCP core runtime: {exc}", file=sys.stderr)
         sys.exit(1)
