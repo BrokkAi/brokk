@@ -197,9 +197,6 @@ public final class BprCli implements Callable<Integer> {
             description = "List available model aliases and their corresponding model names as JSON and exit.")
     private boolean listModels = false;
 
-    private ContextManager cm;
-    private AbstractProject project;
-
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
         int exitCode = new CommandLine(new BprCli()).execute(args);
@@ -400,487 +397,507 @@ public final class BprCli implements Callable<Integer> {
         }
 
         // Create Project + ContextManager
-        var mainProject = new MainProject(projectPath);
-        project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
-        logger.trace("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
-        cm = new ContextManager(project);
-        var io = cm.getIo();
+        try (var mainProject = new MainProject(projectPath)) {
+            AbstractProject project =
+                    worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
+            logger.trace("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
 
-        cm.createHeadless(true, new HeadlessConsole());
-        // Build BuildDetails from environment variables
-        String testAllCmd = System.getenv("BRK_TESTALL_CMD");
-        String buildLintCmd = System.getenv("BRK_BUILD_CMD");
-        String testSomeCmd = System.getenv("BRK_TESTSOME_CMD");
+            try (ContextManager cm = new ContextManager(project)) {
+                var io = cm.getIo();
 
-        boolean buildLintEnabled = System.getenv("BRK_BUILDLINT_ENABLED") == null
-                || Boolean.parseBoolean(System.getenv("BRK_BUILDLINT_ENABLED"));
-        boolean testAllEnabled = System.getenv("BRK_TESTALL_ENABLED") == null
-                || Boolean.parseBoolean(System.getenv("BRK_TESTALL_ENABLED"));
-        boolean testSomeEnabled = System.getenv("BRK_TESTSOME_ENABLED") == null
-                || Boolean.parseBoolean(System.getenv("BRK_TESTSOME_ENABLED"));
+                cm.createHeadless(true, new HeadlessConsole());
+                // Build BuildDetails from environment variables
+                String testAllCmd = System.getenv("BRK_TESTALL_CMD");
+                String buildLintCmd = System.getenv("BRK_BUILD_CMD");
+                String testSomeCmd = System.getenv("BRK_TESTSOME_CMD");
 
-        List<BuildAgent.ModuleBuildEntry> modules = List.of();
-        String modulesJson = System.getenv("BRK_MODULES_JSON");
-        if (modulesJson != null && !modulesJson.isBlank()) {
-            try {
-                var tf = AbstractProject.objectMapper.getTypeFactory();
-                var type = tf.constructCollectionType(List.class, BuildAgent.ModuleBuildEntry.class);
-                modules = AbstractProject.objectMapper.readValue(modulesJson, type);
-            } catch (Exception e) {
-                logger.error("Failed to deserialize BRK_MODULES_JSON: {}", e.getMessage());
-            }
-        }
+                boolean buildLintEnabled = System.getenv("BRK_BUILDLINT_ENABLED") == null
+                        || Boolean.parseBoolean(System.getenv("BRK_BUILDLINT_ENABLED"));
+                boolean testAllEnabled = System.getenv("BRK_TESTALL_ENABLED") == null
+                        || Boolean.parseBoolean(System.getenv("BRK_TESTALL_ENABLED"));
+                boolean testSomeEnabled = System.getenv("BRK_TESTSOME_ENABLED") == null
+                        || Boolean.parseBoolean(System.getenv("BRK_TESTSOME_ENABLED"));
 
-        var buildDetails = new BuildAgent.BuildDetails(
-                buildLintCmd != null ? buildLintCmd : "",
-                buildLintEnabled,
-                testAllCmd != null ? testAllCmd : "",
-                testAllEnabled,
-                testSomeCmd != null ? testSomeCmd : "",
-                testSomeEnabled,
-                Set.of(),
-                Map.of("VIRTUAL_ENV", ".venv"), // venv is hardcoded to override swebench task runner
-                null,
-                "",
-                modules);
-        logger.info("Build Details: " + buildDetails);
-        project.setBuildDetails(buildDetails);
-
-        //  Model Overrides initialization
-        var service = cm.getService();
-
-        StreamingChatModel planModel = null;
-        StreamingChatModel codeModel = null;
-        StreamingChatModel taskModelOverride = null;
-
-        // Determine which models are required by the chosen action(s).
-        boolean needsPlanModel = architectPrompt != null
-                || inferContextPrompt != null
-                || searchAnswerPrompt != null
-                || lutzPrompt != null
-                || deepScan
-                || merge
-                || (searchWorkspace != null && !searchWorkspace.isBlank());
-        boolean needsCodeModel = codePrompt != null || architectPrompt != null || inferContextPrompt != null || merge;
-
-        if (needsPlanModel && planModelName == null) {
-            System.err.println("Error: This action requires --planmodel to be specified.");
-            return 1;
-        }
-        if (needsCodeModel && codeModelName == null) {
-            System.err.println("Error: This action requires --codemodel to be specified.");
-            return 1;
-        }
-
-        if (planModelName != null) {
-            Service.FavoriteModel fav;
-            try {
-                fav = MainProject.getFavoriteModel(planModelName);
-            } catch (IllegalArgumentException e) {
-                System.err.println("Unknown planning model specified via --planmodel: " + planModelName);
-                return 1;
-            }
-            planModel = service.getModel(fav.config());
-            taskModelOverride = planModel;
-            assert planModel != null : service.getAvailableModels();
-        }
-
-        if (codeModelName != null) {
-            Service.FavoriteModel fav;
-            try {
-                fav = MainProject.getFavoriteModel(codeModelName);
-            } catch (IllegalArgumentException e) {
-                System.err.println("Unknown code model specified via --codemodel: " + codeModelName);
-                return 1;
-            }
-            codeModel = service.getModel(fav.config());
-            assert codeModel != null : service.getAvailableModels();
-        }
-
-        // --- Search Workspace Mode ---
-        if (searchWorkspace != null && !searchWorkspace.isBlank()) {
-            TaskResult searchResult;
-            try (var scope = cm.beginTaskUngrouped(searchWorkspace)) {
-                var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
-                if (disableContextScan) {
-                    logger.info(
-                            "Ignoring --disable-context-scan: SearchAgent does not perform an initial Context scan.");
-                }
-                var agent = new SearchAgent(
-                        cm.liveContext(), searchWorkspace, searchModel, SearchPrompts.Objective.WORKSPACE_ONLY);
-                searchResult = agent.execute();
-                scope.append(searchResult);
-            }
-
-            return searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS ? 0 : 1;
-        }
-
-        // --- Name Resolution and Context Building ---
-
-        // Resolve and add to context using WorkspaceTools
-        Context context = cm.liveContext();
-        var tools = new WorkspaceTools(context);
-
-        // Resolve files and classes
-        var resolvedEditFiles = resolveFiles(editFiles, "editable file");
-        var resolvedReadFiles = resolveFiles(readFiles, "read-only file");
-        var resolvedClasses = resolveClasses(addClasses, cm.getAnalyzer(), "class");
-        var resolvedSummaryClasses = resolveClasses(addSummaryClasses, cm.getAnalyzer(), "summary class");
-
-        // If any resolution failed, the helper methods will have printed an error.
-        if ((resolvedEditFiles.isEmpty() && !editFiles.isEmpty())
-                || (resolvedReadFiles.isEmpty() && !readFiles.isEmpty())
-                || (resolvedClasses.isEmpty() && !addClasses.isEmpty())
-                || (resolvedSummaryClasses.isEmpty() && !addSummaryClasses.isEmpty())) {
-            return 1;
-        }
-
-        if (!resolvedEditFiles.isEmpty()) {
-            context = tools.addFilesToWorkspace(resolvedEditFiles).context();
-            tools = new WorkspaceTools(context);
-        }
-
-        for (var readFile : resolvedReadFiles) {
-            var pf = cm.toFile(readFile);
-            var fragment = new ContextFragments.ProjectPathFragment(pf, cm);
-            context = context.addFragments(fragment).setReadonly(fragment, true);
-            tools = new WorkspaceTools(context);
-        }
-
-        if (!resolvedClasses.isEmpty()) {
-            context = tools.addClassesToWorkspace(resolvedClasses).context();
-            tools = new WorkspaceTools(context);
-        }
-        if (!resolvedSummaryClasses.isEmpty()) {
-            context = tools.addClassSummariesToWorkspace(resolvedSummaryClasses).context();
-            tools = new WorkspaceTools(context);
-        }
-        if (!addSummaryFiles.isEmpty()) {
-            context = tools.addFileSummariesToWorkspace(addSummaryFiles).context();
-            tools = new WorkspaceTools(context);
-        }
-        if (!addMethodSources.isEmpty()) {
-            context = tools.addMethodsToWorkspace(addMethodSources).context();
-            tools = new WorkspaceTools(context);
-        }
-        // Pin CLI fragments if --infer-context is active
-        if (inferContextPrompt != null) {
-            for (var f : context.allFragments().toList()) {
-                context = context.withPinned(f, true);
-            }
-        }
-
-        var finalContextForPush = context;
-        cm.pushContext(ctx -> finalContextForPush);
-        context = cm.liveContext();
-
-        if (deepScan) {
-            if (planModel == null) {
-                System.err.println("Deep Scan requires --planmodel to be specified.");
-                return 1;
-            }
-
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    ContextFragment.describe(cm.liveContext().allFragments()));
-
-            String goalForScan = (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank())
-                    ? deepScanGoal
-                    : "Analyze the workspace and suggest relevant context";
-
-            @Nullable Path deepScanCacheTaskFile = deepScanTaskInfo != null ? deepScanTaskInfo.taskFile : null;
-
-            ContextAgent.RecommendationResult recommendations;
-            var cached = readRecommendationFromCache(deepScanCacheTaskFile, cm, project);
-            if (cached.isPresent()) {
-                recommendations = cached.get();
-            } else {
-                var agent = new ContextAgent(cm, planModel, goalForScan);
-                recommendations = agent.getRecommendations(cm.liveContext());
-                if (recommendations.success() && getCacheMode().canWrite()) {
-                    writeRecommendationToCache(recommendations, deepScanCacheTaskFile);
-                }
-            }
-
-            if (recommendations.success()) {
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Deep Scan suggested "
-                                + recommendations.fragments().stream()
-                                        .map(ContextFragment::shortDescription)
-                                        .toList());
-                cm.pushContext(ctx -> ctx.addAsSummaries(recommendations.fragments()));
-            } else {
-                io.toolError("Deep Scan did not complete successfully");
-            }
-
-            if ("true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))) {
-                var metrics = SearchMetrics.tracking();
-                var filesAddedPaths = recommendations.fragments().stream()
-                        .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
-                        .map(pf -> pf.getRelPath().toString())
-                        .collect(Collectors.toSet());
-                metrics.recordContextScan(filesAddedPaths.size(), !recommendations.success(), filesAddedPaths);
-                metrics.recordOutcome(
-                        recommendations.success() ? TaskResult.StopReason.SUCCESS : TaskResult.StopReason.LLM_ERROR,
-                        filesAddedPaths.size());
-                metrics.recordFinalWorkspaceFiles(filesAddedPaths);
-                var json = metrics.toJson(goalForScan, recommendations.success());
-                System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
-            }
-
-            return recommendations.success() ? 0 : 1;
-        }
-
-        @Nullable Path cacheTaskFile = null;
-        if (architectPrompt != null) {
-            cacheTaskFile = architectTaskInfo != null ? architectTaskInfo.taskFile : null;
-        } else if (inferContextPrompt != null) {
-            cacheTaskFile = inferContextTaskInfo != null ? inferContextTaskInfo.taskFile : null;
-        } else if (codePrompt != null) {
-            cacheTaskFile = codeTaskInfo != null ? codeTaskInfo.taskFile : null;
-        } else if (searchAnswerPrompt != null) {
-            cacheTaskFile = searchAnswerTaskInfo != null ? searchAnswerTaskInfo.taskFile : null;
-        } else if (lutzPrompt != null) {
-            cacheTaskFile = lutzTaskInfo != null ? lutzTaskInfo.taskFile : null;
-        }
-
-        CacheApplication cacheApplication = applyContextCacheIfEnabled(cacheTaskFile, cm, project);
-        context = cacheApplication.context();
-        Optional<ContextAgent.RecommendationResult> cachedContextRec = cacheApplication.cachedRecommendation();
-        var explicitContext = context;
-
-        // --- Run Action ---
-        io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                ContextFragment.describe(cm.liveContext().allFragments()));
-
-        TaskResult result;
-        // Decide scope action/input
-        String scopeInput;
-        if (architectPrompt != null) {
-            scopeInput = architectPrompt;
-        } else if (inferContextPrompt != null) {
-            scopeInput = inferContextPrompt;
-        } else if (codePrompt != null) {
-            scopeInput = codePrompt;
-        } else if (merge) {
-            scopeInput = "Merge";
-        } else if (searchAnswerPrompt != null) {
-            scopeInput = requireNonNull(searchAnswerPrompt);
-        } else if (build) {
-            scopeInput = "Build";
-        } else { // lutzPrompt != null
-            scopeInput = requireNonNull(lutzPrompt);
-        }
-
-        try (var scope = cm.beginTaskUngrouped(scopeInput)) {
-            try {
-                if (architectPrompt != null || inferContextPrompt != null) {
-                    boolean isInfer = inferContextPrompt != null;
-                    String prompt = castNonNull(isInfer ? inferContextPrompt : architectPrompt);
-                    @Nullable Path taskFile = isInfer ? cacheTaskFile : null;
-
-                    if (planModel == null) {
-                        System.err.println("Error: --architect/--infer-context requires --planmodel to be specified.");
-                        return 1;
-                    }
-                    if (codeModel == null) {
-                        System.err.println("Error: --architect/--infer-context requires --codemodel to be specified.");
-                        return 1;
-                    }
-
-                    ArchitectAgent agent;
-
-                    AtomicReference<Context> discoveredContext = new AtomicReference<>(explicitContext);
-                    if (isInfer) {
-                        logger.info(
-                                "Using context cache mode {} for --infer-context (BRK_CONTEXT_CACHE={})",
-                                getCacheMode(),
-                                System.getenv("BRK_CONTEXT_CACHE"));
-
-                        agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, explicitContext);
-                        if (testAllCmd != null) {
-                            agent.setVerifyCommand(testAllCmd);
-                        }
-                        agent.setListener(codeContext -> {
-                            var delta = ContextDelta.between(explicitContext, codeContext)
-                                    .join();
-                            discoveredContext.set(
-                                    requireNonNull(discoveredContext.get()).addAsSummaries(delta.addedFragments()));
-                        });
-                        result = agent.execute();
-                    } else {
-                        agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, explicitContext);
-                        result = agent.executeWithScan();
-                    }
-
-                    context = result.context();
-                    scope.append(result);
-
-                    if (isInfer
-                            && getCacheMode().canWrite()
-                            && result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                        var delta = ContextDelta.between(explicitContext, requireNonNull(discoveredContext.get()))
-                                .join();
-                        var finalRec = new ContextAgent.RecommendationResult(true, delta.addedFragments());
-                        writeRecommendationToCache(finalRec, taskFile);
-
-                        var baseContext = cachedContextRec
-                                .map(recommendationResult ->
-                                        explicitContext.addAsSummaries(recommendationResult.fragments()))
-                                .orElse(explicitContext);
-                        var recDelta = ContextDelta.between(
-                                        baseContext, explicitContext.addAsSummaries(finalRec.fragments()))
-                                .join();
-                        var jsonMap = new LinkedHashMap<String, Object>();
-                        jsonMap.put("addedFragments", recDelta.addedFragments().size());
-                        jsonMap.put(
-                                "removedFragments", recDelta.removedFragments().size());
-
-                        try {
-                            var jsonString = AbstractProject.objectMapper.writeValueAsString(jsonMap);
-                            System.err.println("\nBRK_CONTEXT_METRICS=" + jsonString);
-                        } catch (JsonProcessingException e) {
-                            logger.warn("Failed to serialize context metrics", e);
-                        }
-                    }
-                } else if (codePrompt != null) {
-                    // CodeAgent must use codemodel only
-                    if (codeModel == null) {
-                        System.err.println("Error: --code requires --codemodel to be specified.");
-                        return 1;
-                    }
-                    var agent = new CodeAgent(cm, codeModel);
-                    result = agent.execute(codePrompt, Set.of());
-                    scope.append(result);
-                } else if (merge) {
-                    if (planModel == null) {
-                        System.err.println("Error: --merge requires --planmodel to be specified.");
-                        return 1;
-                    }
-                    if (codeModel == null) {
-                        System.err.println("Error: --merge requires --codemodel to be specified.");
-                        return 1;
-                    }
-
-                    var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
-                    if (conflictOpt.isEmpty()) {
-                        System.err.println(
-                                "Cannot run --merge: Repository is not in a merge/rebase/cherry-pick/revert conflict state");
-                        return 1;
-                    }
-                    var conflict = conflictOpt.get();
-                    logger.debug(conflict.toString());
-                    MergeAgent mergeAgent = new MergeAgent(
-                            cm, planModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+                List<BuildAgent.ModuleBuildEntry> modules = List.of();
+                String modulesJson = System.getenv("BRK_MODULES_JSON");
+                if (modulesJson != null && !modulesJson.isBlank()) {
                     try {
-                        result = mergeAgent.execute();
-                        // Merge orchestrates planning and code models; TaskMeta is ambiguous here.
-                        scope.append(result);
+                        var tf = AbstractProject.objectMapper.getTypeFactory();
+                        var type = tf.constructCollectionType(List.class, BuildAgent.ModuleBuildEntry.class);
+                        modules = AbstractProject.objectMapper.readValue(modulesJson, type);
                     } catch (Exception e) {
-                        io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
+                        logger.error("Failed to deserialize BRK_MODULES_JSON: {}", e.getMessage());
+                    }
+                }
+
+                var buildDetails = new BuildAgent.BuildDetails(
+                        buildLintCmd != null ? buildLintCmd : "",
+                        buildLintEnabled,
+                        testAllCmd != null ? testAllCmd : "",
+                        testAllEnabled,
+                        testSomeCmd != null ? testSomeCmd : "",
+                        testSomeEnabled,
+                        Set.of(),
+                        Map.of("VIRTUAL_ENV", ".venv"), // venv is hardcoded to override swebench task runner
+                        null,
+                        "",
+                        modules);
+                logger.info("Build Details: " + buildDetails);
+                project.setBuildDetails(buildDetails);
+
+                //  Model Overrides initialization
+                var service = cm.getService();
+
+                StreamingChatModel planModel = null;
+                StreamingChatModel codeModel = null;
+                StreamingChatModel taskModelOverride = null;
+
+                // Determine which models are required by the chosen action(s).
+                boolean needsPlanModel = architectPrompt != null
+                        || inferContextPrompt != null
+                        || searchAnswerPrompt != null
+                        || lutzPrompt != null
+                        || deepScan
+                        || merge
+                        || (searchWorkspace != null && !searchWorkspace.isBlank());
+                boolean needsCodeModel =
+                        codePrompt != null || architectPrompt != null || inferContextPrompt != null || merge;
+
+                if (needsPlanModel && planModelName == null) {
+                    System.err.println("Error: This action requires --planmodel to be specified.");
+                    return 1;
+                }
+                if (needsCodeModel && codeModelName == null) {
+                    System.err.println("Error: This action requires --codemodel to be specified.");
+                    return 1;
+                }
+
+                if (planModelName != null) {
+                    Service.FavoriteModel fav;
+                    try {
+                        fav = MainProject.getFavoriteModel(planModelName);
+                    } catch (IllegalArgumentException e) {
+                        System.err.println("Unknown planning model specified via --planmodel: " + planModelName);
                         return 1;
                     }
-                    return 0; // merge is terminal for this CLI command
-                } else if (searchAnswerPrompt != null) {
+                    planModel = service.getModel(fav.config());
+                    taskModelOverride = planModel;
+                    assert planModel != null : service.getAvailableModels();
+                }
+
+                if (codeModelName != null) {
+                    Service.FavoriteModel fav;
+                    try {
+                        fav = MainProject.getFavoriteModel(codeModelName);
+                    } catch (IllegalArgumentException e) {
+                        System.err.println("Unknown code model specified via --codemodel: " + codeModelName);
+                        return 1;
+                    }
+                    codeModel = service.getModel(fav.config());
+                    assert codeModel != null : service.getAvailableModels();
+                }
+
+                // --- Search Workspace Mode ---
+                if (searchWorkspace != null && !searchWorkspace.isBlank()) {
+                    TaskResult searchResult;
+                    try (var scope = cm.beginTaskUngrouped(searchWorkspace)) {
+                        var searchModel =
+                                taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
+                        if (disableContextScan) {
+                            logger.info(
+                                    "Ignoring --disable-context-scan: SearchAgent does not perform an initial Context scan.");
+                        }
+                        var agent = new SearchAgent(
+                                cm.liveContext(), searchWorkspace, searchModel, SearchPrompts.Objective.WORKSPACE_ONLY);
+                        searchResult = agent.execute();
+                        scope.append(searchResult);
+                    }
+
+                    return searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS ? 0 : 1;
+                }
+
+                // --- Name Resolution and Context Building ---
+
+                // Resolve and add to context using WorkspaceTools
+                Context context = cm.liveContext();
+                var tools = new WorkspaceTools(context);
+
+                // Resolve files and classes
+                var resolvedEditFiles = resolveFiles(cm, project, editFiles, "editable file");
+                var resolvedReadFiles = resolveFiles(cm, project, readFiles, "read-only file");
+                var resolvedClasses = resolveClasses(addClasses, cm.getAnalyzer(), "class");
+                var resolvedSummaryClasses = resolveClasses(addSummaryClasses, cm.getAnalyzer(), "summary class");
+
+                // If any resolution failed, the helper methods will have printed an error.
+                if ((resolvedEditFiles.isEmpty() && !editFiles.isEmpty())
+                        || (resolvedReadFiles.isEmpty() && !readFiles.isEmpty())
+                        || (resolvedClasses.isEmpty() && !addClasses.isEmpty())
+                        || (resolvedSummaryClasses.isEmpty() && !addSummaryClasses.isEmpty())) {
+                    return 1;
+                }
+
+                if (!resolvedEditFiles.isEmpty()) {
+                    context = tools.addFilesToWorkspace(resolvedEditFiles).context();
+                    tools = new WorkspaceTools(context);
+                }
+
+                for (var readFile : resolvedReadFiles) {
+                    var pf = cm.toFile(readFile);
+                    var fragment = new ContextFragments.ProjectPathFragment(pf, cm);
+                    context = context.addFragments(fragment).setReadonly(fragment, true);
+                    tools = new WorkspaceTools(context);
+                }
+
+                if (!resolvedClasses.isEmpty()) {
+                    context = tools.addClassesToWorkspace(resolvedClasses).context();
+                    tools = new WorkspaceTools(context);
+                }
+                if (!resolvedSummaryClasses.isEmpty()) {
+                    context = tools.addClassSummariesToWorkspace(resolvedSummaryClasses)
+                            .context();
+                    tools = new WorkspaceTools(context);
+                }
+                if (!addSummaryFiles.isEmpty()) {
+                    context = tools.addFileSummariesToWorkspace(addSummaryFiles).context();
+                    tools = new WorkspaceTools(context);
+                }
+                if (!addMethodSources.isEmpty()) {
+                    context = tools.addMethodsToWorkspace(addMethodSources).context();
+                    tools = new WorkspaceTools(context);
+                }
+                // Pin CLI fragments if --infer-context is active
+                if (inferContextPrompt != null) {
+                    for (var f : context.allFragments().toList()) {
+                        context = context.withPinned(f, true);
+                    }
+                }
+
+                var finalContextForPush = context;
+                cm.pushContext(ctx -> finalContextForPush);
+                context = cm.liveContext();
+
+                if (deepScan) {
                     if (planModel == null) {
-                        System.err.println("Error: --search-answer requires --planmodel to be specified.");
+                        System.err.println("Deep Scan requires --planmodel to be specified.");
                         return 1;
                     }
-                    // SearchAgent now handles scanning internally via execute()
-                    var agent = new SearchAgent(
-                            cm.liveContext(),
-                            requireNonNull(searchAnswerPrompt),
-                            planModel,
-                            SearchPrompts.Objective.ANSWER_ONLY,
-                            cm.getIo());
-                    result = agent.execute();
-                    context = result.context();
-                    scope.append(result);
-                } else if (build) {
-                    String buildError = cm.getProject().getBuildRunner().runVerification(cm);
+
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
-                            buildError.isEmpty()
-                                    ? "Build verification completed successfully."
-                                    : "Build verification failed:\n" + buildError);
-                    // we have no `result` since we did not interact with the LLM
-                    System.exit(buildError.isEmpty() ? 0 : 1);
-                    // make the compiler happy
-                    result = null;
-                } else { // lutzPrompt != null
-                    if (planModel == null) {
-                        System.err.println("Error: --lutz requires --planmodel to be specified.");
-                        return 1;
-                    }
-                    if (codeModel == null) {
-                        System.err.println("Error: --lutz requires --codemodel to be specified.");
-                        return 1;
-                    }
-                    // SearchAgent now handles scanning internally via execute()
-                    var config = new LutzAgent.ScanConfig(true, null, true, false);
-                    var agent = new LutzAgent(
-                            context,
-                            requireNonNull(lutzPrompt),
-                            planModel,
-                            SearchPrompts.Objective.TASKS_ONLY,
-                            scope,
-                            cm.getIo(),
-                            config);
-                    result = agent.execute();
-                    context = result.context();
-                    scope.append(result);
+                            ContextFragment.describe(cm.liveContext().allFragments()));
 
-                    // Execute pending tasks sequentially
-                    var tasksData = cm.getTaskList();
-                    var pendingTasks =
-                            tasksData.tasks().stream().filter(t -> !t.done()).toList();
+                    String goalForScan =
+                            (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank())
+                                    ? deepScanGoal
+                                    : "Analyze the workspace and suggest relevant context";
 
-                    if (!pendingTasks.isEmpty()) {
+                    @Nullable Path deepScanCacheTaskFile = deepScanTaskInfo != null ? deepScanTaskInfo.taskFile : null;
+
+                    ContextAgent.RecommendationResult recommendations;
+                    var cached = readRecommendationFromCache(deepScanCacheTaskFile, cm, project);
+                    if (cached.isPresent()) {
+                        recommendations = cached.get();
+                    } else {
+                        var agent = new ContextAgent(cm, planModel, goalForScan);
+                        recommendations = agent.getRecommendations(cm.liveContext());
+
+                        if (recommendations.success() && getCacheMode().canWrite()) {
+                            writeRecommendationToCache(recommendations, deepScanCacheTaskFile);
+                        }
+                    }
+
+                    if (recommendations.success()) {
                         io.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
-                                "Executing " + pendingTasks.size() + " task" + (pendingTasks.size() == 1 ? "" : "s")
-                                        + " from Task List...");
+                                "Deep Scan suggested "
+                                        + recommendations.fragments().stream()
+                                                .map(ContextFragment::shortDescription)
+                                                .toList());
+                        cm.pushContext(ctx -> ctx.addAsSummaries(recommendations.fragments()));
+                    } else {
+                        io.toolError("Deep Scan did not complete successfully");
+                    }
 
-                        for (var task : pendingTasks) {
-                            io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
+                    if ("true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))) {
+                        var metrics = SearchMetrics.tracking();
+                        var filesAddedPaths = recommendations.fragments().stream()
+                                .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
+                                .map(pf -> pf.getRelPath().toString())
+                                .collect(Collectors.toSet());
+                        metrics.recordContextScan(filesAddedPaths.size(), !recommendations.success(), filesAddedPaths);
+                        metrics.recordOutcome(
+                                recommendations.success()
+                                        ? TaskResult.StopReason.SUCCESS
+                                        : TaskResult.StopReason.LLM_ERROR,
+                                filesAddedPaths.size());
+                        metrics.recordFinalWorkspaceFiles(filesAddedPaths);
+                        var json = metrics.toJson(goalForScan, recommendations.success());
+                        System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
+                    }
 
-                            var taskResult = cm.executeTask(task, planModel, codeModel);
-                            scope.append(taskResult);
-                            result = taskResult; // Track last result for final status check
+                    return recommendations.success() ? 0 : 1;
+                }
 
-                            if (taskResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                                io.toolError(taskResult.stopDetails().explanation(), "Task failed: " + task.text());
-                                break; // Stop on first failure
+                @Nullable Path cacheTaskFile = null;
+                if (architectPrompt != null) {
+                    cacheTaskFile = architectTaskInfo != null ? architectTaskInfo.taskFile : null;
+                } else if (inferContextPrompt != null) {
+                    cacheTaskFile = inferContextTaskInfo != null ? inferContextTaskInfo.taskFile : null;
+                } else if (codePrompt != null) {
+                    cacheTaskFile = codeTaskInfo != null ? codeTaskInfo.taskFile : null;
+                } else if (searchAnswerPrompt != null) {
+                    cacheTaskFile = searchAnswerTaskInfo != null ? searchAnswerTaskInfo.taskFile : null;
+                } else if (lutzPrompt != null) {
+                    cacheTaskFile = lutzTaskInfo != null ? lutzTaskInfo.taskFile : null;
+                }
+
+                CacheApplication cacheApplication = applyContextCacheIfEnabled(cacheTaskFile, cm, project);
+                context = cacheApplication.context();
+                Optional<ContextAgent.RecommendationResult> cachedContextRec = cacheApplication.cachedRecommendation();
+                var explicitContext = context;
+
+                // --- Run Action ---
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        ContextFragment.describe(cm.liveContext().allFragments()));
+
+                TaskResult result;
+                // Decide scope action/input
+                String scopeInput;
+                if (architectPrompt != null) {
+                    scopeInput = architectPrompt;
+                } else if (inferContextPrompt != null) {
+                    scopeInput = inferContextPrompt;
+                } else if (codePrompt != null) {
+                    scopeInput = codePrompt;
+                } else if (merge) {
+                    scopeInput = "Merge";
+                } else if (searchAnswerPrompt != null) {
+                    scopeInput = requireNonNull(searchAnswerPrompt);
+                } else if (build) {
+                    scopeInput = "Build";
+                } else { // lutzPrompt != null
+                    scopeInput = requireNonNull(lutzPrompt);
+                }
+
+                try (var scope = cm.beginTaskUngrouped(scopeInput)) {
+                    try {
+                        if (architectPrompt != null || inferContextPrompt != null) {
+                            boolean isInfer = inferContextPrompt != null;
+                            String prompt = castNonNull(isInfer ? inferContextPrompt : architectPrompt);
+                            @Nullable Path taskFile = isInfer ? cacheTaskFile : null;
+
+                            if (planModel == null) {
+                                System.err.println(
+                                        "Error: --architect/--infer-context requires --planmodel to be specified.");
+                                return 1;
+                            }
+                            if (codeModel == null) {
+                                System.err.println(
+                                        "Error: --architect/--infer-context requires --codemodel to be specified.");
+                                return 1;
+                            }
+
+                            ArchitectAgent agent;
+
+                            AtomicReference<Context> discoveredContext = new AtomicReference<>(explicitContext);
+                            if (isInfer) {
+                                logger.info(
+                                        "Using context cache mode {} for --infer-context (BRK_CONTEXT_CACHE={})",
+                                        getCacheMode(),
+                                        System.getenv("BRK_CONTEXT_CACHE"));
+
+                                agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, explicitContext);
+                                if (testAllCmd != null) {
+                                    agent.setVerifyCommand(testAllCmd);
+                                }
+                                agent.setListener(codeContext -> {
+                                    var delta = ContextDelta.between(explicitContext, codeContext)
+                                            .join();
+                                    discoveredContext.set(requireNonNull(discoveredContext.get())
+                                            .addAsSummaries(delta.addedFragments()));
+                                });
+                                result = agent.execute();
+                            } else {
+                                agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, explicitContext);
+                                result = agent.executeWithScan();
+                            }
+
+                            context = result.context();
+                            scope.append(result);
+
+                            if (isInfer
+                                    && getCacheMode().canWrite()
+                                    && result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                                var delta = ContextDelta.between(
+                                                explicitContext, requireNonNull(discoveredContext.get()))
+                                        .join();
+                                var finalRec = new ContextAgent.RecommendationResult(true, delta.addedFragments());
+                                writeRecommendationToCache(finalRec, taskFile);
+
+                                var baseContext = cachedContextRec
+                                        .map(recommendationResult ->
+                                                explicitContext.addAsSummaries(recommendationResult.fragments()))
+                                        .orElse(explicitContext);
+                                var recDelta = ContextDelta.between(
+                                                baseContext, explicitContext.addAsSummaries(finalRec.fragments()))
+                                        .join();
+                                var jsonMap = new LinkedHashMap<String, Object>();
+                                jsonMap.put(
+                                        "addedFragments",
+                                        recDelta.addedFragments().size());
+                                jsonMap.put(
+                                        "removedFragments",
+                                        recDelta.removedFragments().size());
+
+                                try {
+                                    var jsonString = AbstractProject.objectMapper.writeValueAsString(jsonMap);
+                                    System.err.println("\nBRK_CONTEXT_METRICS=" + jsonString);
+                                } catch (JsonProcessingException e) {
+                                    logger.warn("Failed to serialize context metrics", e);
+                                }
+                            }
+                        } else if (codePrompt != null) {
+                            // CodeAgent must use codemodel only
+                            if (codeModel == null) {
+                                System.err.println("Error: --code requires --codemodel to be specified.");
+                                return 1;
+                            }
+                            var agent = new CodeAgent(cm, codeModel);
+                            result = agent.execute(codePrompt, Set.of());
+                            scope.append(result);
+                        } else if (merge) {
+                            if (planModel == null) {
+                                System.err.println("Error: --merge requires --planmodel to be specified.");
+                                return 1;
+                            }
+                            if (codeModel == null) {
+                                System.err.println("Error: --merge requires --codemodel to be specified.");
+                                return 1;
+                            }
+
+                            var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
+                            if (conflictOpt.isEmpty()) {
+                                System.err.println(
+                                        "Cannot run --merge: Repository is not in a merge/rebase/cherry-pick/revert conflict state");
+                                return 1;
+                            }
+                            var conflict = conflictOpt.get();
+                            logger.debug(conflict.toString());
+                            MergeAgent mergeAgent = new MergeAgent(
+                                    cm, planModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+                            try {
+                                result = mergeAgent.execute();
+                                // Merge orchestrates planning and code models; TaskMeta is ambiguous here.
+                                scope.append(result);
+                            } catch (Exception e) {
+                                io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
+                                return 1;
+                            }
+                            return 0; // merge is terminal for this CLI command
+                        } else if (searchAnswerPrompt != null) {
+                            if (planModel == null) {
+                                System.err.println("Error: --search-answer requires --planmodel to be specified.");
+                                return 1;
+                            }
+                            // SearchAgent now handles scanning internally via execute()
+                            var agent = new SearchAgent(
+                                    cm.liveContext(),
+                                    requireNonNull(searchAnswerPrompt),
+                                    planModel,
+                                    SearchPrompts.Objective.ANSWER_ONLY,
+                                    cm.getIo());
+                            result = agent.execute();
+                            context = result.context();
+                            scope.append(result);
+                        } else if (build) {
+                            String buildError = cm.getProject().getBuildRunner().runVerification(cm);
+                            io.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    buildError.isEmpty()
+                                            ? "Build verification completed successfully."
+                                            : "Build verification failed:\n" + buildError);
+                            // we have no `result` since we did not interact with the LLM
+                            return buildError.isEmpty() ? 0 : 1;
+                        } else { // lutzPrompt != null
+                            if (planModel == null) {
+                                System.err.println("Error: --lutz requires --planmodel to be specified.");
+                                return 1;
+                            }
+                            if (codeModel == null) {
+                                System.err.println("Error: --lutz requires --codemodel to be specified.");
+                                return 1;
+                            }
+                            // SearchAgent now handles scanning internally via execute()
+                            var config = new LutzAgent.ScanConfig(true, null, true, false);
+                            var agent = new LutzAgent(
+                                    context,
+                                    requireNonNull(lutzPrompt),
+                                    planModel,
+                                    SearchPrompts.Objective.TASKS_ONLY,
+                                    scope,
+                                    cm.getIo(),
+                                    config);
+                            result = agent.execute();
+                            context = result.context();
+                            scope.append(result);
+
+                            // Execute pending tasks sequentially
+                            var tasksData = cm.getTaskList();
+                            var pendingTasks = tasksData.tasks().stream()
+                                    .filter(t -> !t.done())
+                                    .toList();
+
+                            if (!pendingTasks.isEmpty()) {
+                                io.showNotification(
+                                        IConsoleIO.NotificationRole.INFO,
+                                        "Executing " + pendingTasks.size() + " task"
+                                                + (pendingTasks.size() == 1 ? "" : "s") + " from Task List...");
+
+                                for (var task : pendingTasks) {
+                                    io.showNotification(
+                                            IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
+
+                                    var taskResult = cm.executeTask(task, planModel, codeModel);
+                                    scope.append(taskResult);
+                                    result = taskResult; // Track last result for final status check
+
+                                    if (taskResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                                        io.toolError(
+                                                taskResult.stopDetails().explanation(), "Task failed: " + task.text());
+                                        break; // Stop on first failure
+                                    }
+                                }
+                            } else {
+                                io.showNotification(IConsoleIO.NotificationRole.INFO, "No pending tasks to execute.");
                             }
                         }
-                    } else {
-                        io.showNotification(IConsoleIO.NotificationRole.INFO, "No pending tasks to execute.");
+                    } catch (Throwable th) {
+                        logger.error("Internal error", th);
+                        io.toolError(requireNonNull(th.getMessage()), "Internal error");
+                        return 1; // internal error
                     }
                 }
-            } catch (Throwable th) {
-                logger.error("Internal error", th);
-                io.toolError(requireNonNull(th.getMessage()), "Internal error");
-                return 1; // internal error
+
+                result = castNonNull(result);
+                if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                    io.toolError(
+                            result.stopDetails().explanation(),
+                            result.stopDetails().reason().toString());
+                    // exit code is 0 since we ran the task as requested; we print out the metrics from Code Agent to
+                    // let
+                    // harness see how we did
+                }
+
+                return 0;
             }
         }
-
-        result = castNonNull(result);
-        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-            io.toolError(
-                    result.stopDetails().explanation(),
-                    result.stopDetails().reason().toString());
-            // exit code is 0 since we ran the task as requested; we print out the metrics from Code Agent to let
-            // harness see how we did
-        }
-
-        return 0;
     }
 
-    private List<String> resolveFiles(List<String> inputs, String entityType) {
+    private List<String> resolveFiles(
+            ContextManager cm, AbstractProject project, List<String> inputs, String entityType) {
         // Files can only be added as editable via CLI, so we only consider tracked files
         // and allow listing all tracked files as a primary source.
         Supplier<Collection<ProjectFile>> primarySource =

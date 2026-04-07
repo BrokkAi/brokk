@@ -737,7 +737,7 @@ tasks.register<Test>("intTest") {
 tasks.register<JavaExec>("runCli") {
     group = "application"
     description = "Runs the Brokk CLI"
-    mainClass.set("ai.brokk.cli.BrokkCli")
+    mainClass.set("ai.brokk.cli.BprCli")
     classpath = sourceSets.main.get().runtimeClasspath
     if (project.hasProperty("args")) {
         args(Commandline.translateCommandline(project.property("args") as String).toList())
