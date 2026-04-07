@@ -12,12 +12,20 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CommitPrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.chat.request.ResponseFormat;
+import dev.langchain4j.model.chat.request.ResponseFormatType;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import dev.langchain4j.model.chat.request.json.JsonArraySchema;
+import dev.langchain4j.model.chat.request.json.JsonBooleanSchema;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import dev.langchain4j.model.chat.request.json.JsonSchema;
+import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -45,6 +53,8 @@ public final class GitWorkflow {
     public record BranchDiff(List<CommitInfo> commits, List<GitRepo.ModifiedFile> files, @Nullable String mergeBase) {}
 
     public record PrSuggestion(String title, String description, boolean usedCommitMessages) {}
+
+    record CommitMessageDraft(String subject, @Nullable List<String> body, boolean useBody) {}
 
     private final IContextManager cm;
     private final GitRepo repo;
@@ -99,18 +109,16 @@ public final class GitWorkflow {
             logger.debug("No messages generated from diff");
             return Optional.empty();
         }
-        var result = cm.getLlm(
-                        cm.getService().getModel(ModelType.COMMIT_MESSAGE),
-                        "Infer commit message",
-                        TaskResult.Type.SUMMARIZE)
-                .sendRequest(messages);
+        var model = cm.getService().getModel(ModelType.COMMIT_MESSAGE);
+        var llm = cm.getLlm(model, "Infer commit message", TaskResult.Type.SUMMARIZE);
+        var result = llm.sendRequest(messages, structuredCommitRequestOptions(llm, model));
 
         if (result.error() != null) {
             logger.debug(
                     "LLM failed to generate commit message: {}", result.error().getMessage());
             return Optional.empty();
         }
-        return Optional.of(stripCommitPreamble(result.text()));
+        return parseCommitMessageDraft(result.text(), oneLine).map(GitWorkflow::formatCommitMessage);
     }
 
     /**
@@ -145,30 +153,141 @@ public final class GitWorkflow {
         var llm = cm.getLlm(
                 new Llm.Options(modelToUse, "Infer commit message (streaming)", TaskResult.Type.SUMMARIZE).withEcho());
         llm.setOutput(streamingOutput);
-        var result = llm.sendRequest(messages);
+        var result = llm.sendRequest(messages, structuredCommitRequestOptions(llm, modelToUse));
 
         if (result.error() != null) {
             throw new RuntimeException("LLM error while generating commit message", result.error());
         }
 
-        return stripCommitPreamble(result.text());
+        return parseCommitMessageDraft(result.text(), oneLine)
+                .map(GitWorkflow::formatCommitMessage)
+                .orElseThrow(() -> new RuntimeException("LLM returned an invalid commit message payload."));
     }
 
-    // Some models (e.g. gemini-2.5-flash) leak internal reasoning artifacts as leading single-word
-    // lines (e.g. " thought\n") even when thinking tokens are disabled. Strip them so they don't
-    // become the commit subject. A line is considered a real commit line if it contains a space or
-    // colon, matching both conventional commits ("type: …") and plain prose subjects.
-    static String stripCommitPreamble(String text) {
-        var result = text.strip()
-                .lines()
-                .dropWhile(l -> {
-                    var t = l.strip();
-                    return t.isEmpty() || (!t.contains(" ") && !t.contains(":"));
-                })
-                .collect(Collectors.joining("\n"))
-                .strip();
-        return result.isEmpty() ? text.strip() : result;
+    private Llm.RequestOptions structuredCommitRequestOptions(
+            Llm llm, dev.langchain4j.model.chat.StreamingChatModel model) {
+        var options = llm.requestOptions();
+        if (!cm.getService().supportsJsonSchema(model)) {
+            return options;
+        }
+
+        var schema = JsonSchema.builder()
+                .name("CommitMessageDraft")
+                .rootElement(JsonObjectSchema.builder()
+                        .addProperty("subject", new JsonStringSchema())
+                        .addProperty(
+                                "body",
+                                JsonArraySchema.builder()
+                                        .items(new JsonStringSchema())
+                                        .build())
+                        .addProperty("useBody", new JsonBooleanSchema())
+                        .required("subject", "body", "useBody")
+                        .additionalProperties(false)
+                        .build())
+                .build();
+
+        return options.withResponseFormat(ResponseFormat.builder()
+                .type(ResponseFormatType.JSON)
+                .jsonSchema(schema)
+                .build());
     }
+
+    static Optional<CommitMessageDraft> parseCommitMessageDraft(@Nullable String rawText, boolean oneLine) {
+        if (rawText == null || rawText.isBlank()) {
+            return Optional.empty();
+        }
+        return parseCommitMessageDraftJson(rawText.trim(), oneLine);
+    }
+
+    private static Optional<CommitMessageDraft> parseCommitMessageDraftJson(String candidateText, boolean oneLine) {
+        try {
+            var root = Json.getMapper().readTree(candidateText);
+            if (!root.isObject()) {
+                return Optional.empty();
+            }
+
+            var subjectNode = root.get("subject");
+            var bodyNode = root.get("body");
+            var useBodyNode = root.get("useBody");
+            if (subjectNode == null
+                    || !subjectNode.isTextual()
+                    || bodyNode == null
+                    || !bodyNode.isArray()
+                    || useBodyNode == null
+                    || !useBodyNode.isBoolean()) {
+                return Optional.empty();
+            }
+
+            var body = new ArrayList<String>();
+            for (var item : bodyNode) {
+                if (!item.isTextual()) {
+                    return Optional.empty();
+                }
+                var line = item.asText().strip();
+                if (!line.isEmpty()) {
+                    body.add(line);
+                }
+            }
+
+            var subject = subjectNode.asText().strip();
+            boolean useBody = useBodyNode.asBoolean();
+
+            var draft = new CommitMessageDraft(subject, body, useBody);
+            return isValidCommitMessageDraft(draft, oneLine) ? Optional.of(draft) : Optional.empty();
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    private static boolean isValidCommitMessageDraft(CommitMessageDraft draft, boolean oneLine) {
+        if (draft.subject().isBlank()
+                || draft.subject().contains("\n")
+                || draft.subject().length() > 72) {
+            return false;
+        }
+        if (containsMetaNarration(draft.subject())) {
+            return false;
+        }
+
+        var body = draft.body() == null ? List.<String>of() : draft.body();
+        if (!draft.useBody() && !body.isEmpty()) {
+            return false;
+        }
+        if (draft.useBody() && body.isEmpty()) {
+            return false;
+        }
+        if (oneLine && (!body.isEmpty() || draft.useBody())) {
+            return false;
+        }
+
+        for (var line : body) {
+            if (line.isBlank() || line.contains("\n") || line.length() > 72 || containsMetaNarration(line)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean containsMetaNarration(String text) {
+        var lower = text.toLowerCase();
+        return lower.startsWith("subject:")
+                || lower.startsWith("body:")
+                || lower.startsWith("final check:")
+                || lower.startsWith("wait,")
+                || lower.contains("the prompt says")
+                || lower.contains("i'll go with")
+                || lower.contains("let's stick to")
+                || lower.contains("one more check");
+    }
+
+    static String formatCommitMessage(CommitMessageDraft draft) {
+        var body = draft.body() == null ? List.<String>of() : draft.body();
+        if (!draft.useBody() || body.isEmpty()) {
+            return draft.subject();
+        }
+        return draft.subject() + "\n\n" + String.join("\n", body);
+    }
+
 
     public PushPullState evaluatePushPull(String branch) throws GitAPIException {
         if (repo.isRemoteBranch(branch) || isSyntheticBranchName(branch)) {
