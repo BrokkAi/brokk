@@ -217,7 +217,9 @@ def resolve_mcp_core_command(
         return build_direct_mcp_core_command(dev_jar)
 
     jbang_binary = ensure_jbang_ready()
-    return build_jbang_mcp_core_command(jbang_binary=jbang_binary, executor_version=executor_version)
+    return build_jbang_mcp_core_command(
+        jbang_binary=jbang_binary, executor_version=executor_version
+    )
 
 
 def run_mcp_core_server(
