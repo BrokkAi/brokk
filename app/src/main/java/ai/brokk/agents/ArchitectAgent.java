@@ -18,7 +18,6 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.exception.GlobalExceptionHandler;
-import ai.brokk.executor.agents.AgentDefinition;
 import ai.brokk.executor.agents.ParallelCustomAgent;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -84,6 +83,7 @@ public class ArchitectAgent {
             ToolRegistry toolRegistry,
             WorkspaceTools workspaceTools,
             ParallelSearch parallelSearch,
+            ParallelCustomAgent parallelCustomAgent,
             List<ChatMessage> messages,
             Llm.StreamingResult result) {}
 
@@ -679,6 +679,7 @@ public class ArchitectAgent {
 
             var tr = turn.toolRegistry();
             var parallelSearch = turn.parallelSearch();
+            var parallelCustomAgent = turn.parallelCustomAgent();
             var result = turn.result();
 
             totalUsage = TokenUsage.sum(
@@ -728,7 +729,8 @@ public class ArchitectAgent {
             var mutatingCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
             for (var req : customAgentPartition.matchingRequests()) {
                 var agentName = ParallelCustomAgent.extractAgentName(req, tr);
-                var agentDef = agentName != null ? cm.getAgentStore().get(agentName).orElse(null) : null;
+                var agentDef =
+                        agentName != null ? cm.getAgentStore().get(agentName).orElse(null) : null;
                 if (agentDef != null && agentDef.isReadOnly(cm.getProject())) {
                     readOnlyCustomAgentReqs.add(req);
                 } else {
@@ -1004,7 +1006,7 @@ public class ArchitectAgent {
 
             // happy path
             if (result.error() == null) {
-                return new PlanningTurnOutcome.Success(new PlanningTurn(tr, wst, parallelSearch, messages, result));
+                return new PlanningTurnOutcome.Success(new PlanningTurn(tr, wst, parallelSearch, parallelCustomAgent, messages, result));
             }
 
             // llm error
