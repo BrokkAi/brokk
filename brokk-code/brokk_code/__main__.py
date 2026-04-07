@@ -1883,6 +1883,13 @@ def main():
     workspace_path = Path(args.workspace).resolve()
     jar_path = Path(args.jar).resolve() if args.jar else None
 
+    if jar_path is not None and args.command == "mcp-core" and "brokk-core" not in jar_path.name:
+        print(
+            "Warning: The specified jar doesn't appear to be a brokk-core jar."
+            " Expected a jar containing 'brokk-core' in the filename.",
+            file=sys.stderr,
+        )
+
     if args.command == "install":
         # Fast-fail validation before prompting for API keys
         if args.plugin and args.target not in {"nvim", "neovim"}:
@@ -2106,9 +2113,10 @@ def main():
                     f"Installed Claude MCP summaries skill in {claude_sum_skill}",
                 ]
             elif args.target == "plugin":
-                plugin_root = install_plugin(uvx_command=uvx_command)
+                plugin_root, was_reinstall = install_plugin(uvx_command=uvx_command)
+                verb = "Updated existing" if was_reinstall else "Installed"
                 messages = [
-                    f"Installed Claude Code plugin in {plugin_root}",
+                    f"{verb} Claude Code plugin in {plugin_root}",
                 ]
             else:
                 # Should not happen due to argparse choices

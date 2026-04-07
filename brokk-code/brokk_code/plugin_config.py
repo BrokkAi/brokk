@@ -17,7 +17,9 @@ def _plugin_manifest() -> dict:
             "powered by tree-sitter"
         ),
         "version": __version__,
-        "author": {"name": "Brokk AI"},
+        "author": "Brokk AI",
+        "license": "Apache-2.0",
+        "homepage": "https://github.com/BrokkAI/brokk",
         "keywords": [
             "code-intelligence",
             "tree-sitter",
@@ -284,12 +286,13 @@ def install_plugin(
     *,
     plugin_path: Path | None = None,
     uvx_command: str = "uvx",
-) -> Path:
+) -> tuple[Path, bool]:
     """Create the Claude Code plugin directory structure at ~/.claude/plugins/brokk/.
 
-    Returns the plugin root directory.
+    Returns a tuple of (plugin root directory, whether this was a reinstall).
     """
     root = plugin_path or (Path.home() / ".claude" / "plugins" / _PLUGIN_DIR_NAME)
+    is_reinstall = root.exists()
     root.mkdir(parents=True, exist_ok=True)
 
     # Plugin manifest
@@ -306,4 +309,4 @@ def install_plugin(
         skill_dir.mkdir(parents=True, exist_ok=True)
         _write_text(skill_dir / "SKILL.md", skill_content)
 
-    return root
+    return root, is_reinstall
