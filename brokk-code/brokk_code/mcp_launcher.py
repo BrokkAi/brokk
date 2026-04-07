@@ -230,6 +230,7 @@ def run_mcp_core_server(
     passthrough_args: list[str] | None = None,
 ) -> None:
     resolved_workspace_dir = resolve_mcp_workspace_dir(workspace_dir)
+    launcher = "runtime"
 
     try:
         command = resolve_mcp_core_command(
@@ -237,8 +238,9 @@ def run_mcp_core_server(
             jar_path=jar_path,
             executor_version=executor_version,
         )
+        launcher = command[0]
         if passthrough_args:
-            if command[0] != "java":
+            if launcher != "java":
                 command.append("--")
             command.extend(passthrough_args)
 
@@ -247,13 +249,13 @@ def run_mcp_core_server(
             result = subprocess.run(command, env=os.environ.copy())
             sys.exit(result.returncode)
         else:
-            os.execvpe(command[0], command, os.environ.copy())
+            os.execvpe(launcher, command, os.environ.copy())
     except ExecutorError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
     except FileNotFoundError:
         print(
-            f"Error: Unable to launch MCP core runtime via '{command[0]}'. "
+            f"Error: Unable to launch MCP core runtime via '{launcher}'. "
             "Ensure the required runtime is installed or pass --jar.",
             file=sys.stderr,
         )
