@@ -1,65 +1,88 @@
-# Parallel custom agents (client-side)
+# Parallel custom agents
 
 _Last update: 7 April 2026_
 
-This document describes how a **client orchestrator** (IDE plugin, CLI, or another agent) can run **multiple stored custom agents** in parallel against the headless executor, then merge or interpret results.
+This document describes how to use **multiple stored custom agents** in parallel when you want separate specialist analyses over the same repository scope.
 
-Brokk does not expose a single job mode that fans out to N custom agents. Instead, parallelism is a **client concern**: submit several jobs, each bound to one custom agent definition. Custom agents are Markdown files with YAML frontmatter, registered in the executor's agent store; each runs inside `CustomAgentExecutor` with the tools listed in its definition (including optional `computeCyclomaticComplexity`, `reportCommentDensityForCodeUnit`, and `reportCommentDensityForFiles` from `CodeQualityTools`).
+The key constraint is operational: a single Brokk headless instance can run only **one job at a time**. That means "parallel custom agents" is primarily about **workspace-level fan-out inside one search run**, not submitting multiple concurrent jobs to the same executor. In practice, you ask the outer search agent to create task lists, prepare workspace context, and invoke `callCustomAgent` for distinct subtasks, or you use multiple executor instances if you truly need job-level concurrency.
 
-## Prerequisites
+Custom agents are Markdown files with YAML frontmatter, registered in the executor's agent store. Each runs inside `CustomAgentExecutor` with the tools listed in its definition.
 
-- **Stored agents**: Each workflow (e.g. complexity scan, comment heuristics, git-adjacent review) has a name such as `code-quality-complexity` and exists in the agent store the executor loads.
-- **Tool allowlists**: In each agent file, list only the tools that agent needs. Code-quality helpers include:
-  - `computeCyclomaticComplexity`
-  - `reportCommentDensityForCodeUnit` (Java: one symbol by FQN; bounded `maxLines`)
-  - `reportCommentDensityForFiles` (Java: per-file tables; bounded `maxTopLevelRows` and `maxFiles`)
-  Plus the usual search/workspace tools as needed.
+## When to use this pattern
 
-## HTTP: one job per custom agent (recommended for parallelism)
+Use parallel custom agents when you want:
+- One agent to inspect complexity hotspots
+- Another to inspect comment quality or maintainability
+- Another to inspect git churn or ownership risk
+- A final synthesis step that merges what each specialist found
 
-Use `POST /v1/jobs` with:
+This works best when all agents can share a common prepared workspace or a coordinated file/symbol scope.
 
-- **`plannerModel`**: Required (non-blank). For `SEARCH` jobs this is the scan/chat model used by the outer loop.
-- **`agent`**: Name of the stored custom agent to run (e.g. `code-quality-complexity`).
-- **`taskInput`**: Task for that agent (scope, paths, thresholds, what to return).
-- **`tags.mode`**: Omit or set to `SEARCH`. If you pass `agent`, the server sets mode to `SEARCH` when needed and rewrites the task so the outer `LutzAgent` uses `callCustomAgent` to invoke your definition.
+## Recommended approach: one job, workspace-oriented delegation
 
-The important behavior: **each request with a distinct `agent` value runs one custom agent** for the given `taskInput`. For **parallel** runs, issue **N requests** with the same or different `agent` names and distinct `Idempotency-Key` values, and **await all jobs** (poll `GET /v1/jobs/{jobId}` or subscribe to events).
+Use a single `POST /v1/jobs` request and let the outer search flow coordinate the specialist agents.
 
-### Example pattern
+Send:
 
-1. **Job A** — `agent: code-quality-complexity`, `taskInput`: list of Java packages to scan and reporting format.
-2. **Job B** — `agent: code-quality-comments`, `taskInput`: same file set or overlapping set.
-3. **Client** waits for both to reach a terminal state, then reads final output from events or task history as your integration already does.
+- **`plannerModel`**: Required (non-blank).
+- **`taskInput`**: A prompt that instructs the outer agent to split the work, prepare workspace context, invoke the desired custom agents, and then merge their results.
+- **`tags.mode`**: Usually `SEARCH`.
+- **`agent`**: Usually omit this when orchestrating multiple custom agents from one run. Set it only when the whole job should be one specific custom agent.
 
-### Optional: `scanModel`
+Example orchestration intent:
 
-If the project defines a default scan model, you can omit `scanModel`. Otherwise pass `scanModel` so the outer search loop and nested `CustomAgentExecutor` use the intended model.
+1. Add the relevant files, classes, or line ranges to workspace.
+2. Create task structure if useful.
+3. Call one custom agent per specialty.
+4. Collect each agent's output.
+5. Return a merged final report with deduped paths and findings.
 
-## Single job, sequential delegation (no extra parallelism)
+Because this all happens in one job, it matches the executor's single-job execution model.
 
-If you do **not** need wall-clock parallelism, a single `POST /v1/jobs` with **`agent` unset** and `tags.mode: SEARCH` can use a **free-form `taskInput`** that instructs the model to call `callCustomAgent` multiple times (different agent names) in sequence. That uses one job and one outer loop; throughput is lower than N parallel jobs.
+## About true concurrency
+
+If you submit multiple `/v1/jobs` requests to the same headless executor, they do not provide meaningful parallel execution because that Brokk instance handles one job at a time. To get true wall-clock parallelism, run against:
+- multiple Brokk headless instances, or
+- another client-side topology that distributes jobs across isolated executors.
+
+If you only have one executor, prefer a single coordinated run.
 
 ## Aggregating results
 
-- Treat each job's successful completion as one **independent report** (markdown in the stop details / streamed output).
-- Your client should **merge** summaries, dedupe file paths, and present a combined view. The server does not merge parallel custom-agent jobs for you.
+Treat each custom agent as an independent specialist report generator. The outer search flow or your client integration should:
 
-## Idempotency and retries
-
-- Send a unique **`Idempotency-Key`** per logical run. Replays with the same key return the same job as the API contract for `/v1/jobs`.
-- For parallel batches, use **one key per job** so each sub-agent run is distinct.
+- merge summaries,
+- dedupe file paths and symbols,
+- preserve which agent produced which finding,
+- and synthesize conflicts or overlaps into a final answer.
 
 ## Failure handling
 
-- If one parallel job fails, others may still succeed. Decide in the client whether to fail the whole batch or report partial results.
-- Validate agent names **before** fan-out (unknown agent names return **400** at job creation).
+- If one specialist agent fails, the outer run can still continue and report partial results.
+- Validate agent names before relying on them in automation.
+- Keep each custom agent tightly scoped so a failure is easier to isolate.
 
-For parallel custom-agent workflows, **mode stays `SEARCH`** (or whatever your orchestrator uses); behavior is encoded in stored agent definitions plus client orchestration.
+## Example task shape
+
+A useful `taskInput` for one-job orchestration looks like this:
+
+```text
+Review src/main/java/com/acme/payments using multiple custom agents.
+First add the relevant files and classes to workspace.
+Then call:
+- code-quality-complexity for complexity hotspots
+- code-quality-comments for comment density and readability
+- git-risk-review for churn and ownership signals
+Finally merge the results into one report with:
+- top findings
+- deduped file list
+- overlap between agents
+- recommended follow-up actions
+```
 
 ---
 
-## Appendix: Modes and tools (reference)
+## Appendix: modes and custom-agent tool references
 
 Values below are defined in the Java sources ([`JobRunner.Mode`](../app/src/main/java/ai/brokk/executor/jobs/JobRunner.java), [`SearchPrompts.Objective`](../app/src/main/java/ai/brokk/prompts/SearchPrompts.java), [`AgentDefinition.KNOWN_TOOL_NAMES`](../app/src/main/java/ai/brokk/executor/agents/AgentDefinition.java)). Update this section when those APIs change.
 
@@ -69,7 +92,7 @@ Values below are defined in the Java sources ([`JobRunner.Mode`](../app/src/main
 |------|--------|
 | `ARCHITECT` | Default when `mode` omitted or invalid; architect-style planning and coding loop. |
 | `ASK` | Direct Q&A against the repo. |
-| `SEARCH` | Read-only search (`LutzAgent`); use with optional `agent` for `callCustomAgent`. |
+| `SEARCH` | Read-only search (`LutzAgent`); best fit for coordinating custom agents. |
 | `REVIEW` | PR review (requires GitHub tags). |
 | `GUIDED_REVIEW` | Guided review with planner model from tags. |
 | `LUTZ` | Lutz search/workspace flow with broader terminal options. |
@@ -83,7 +106,7 @@ Values below are defined in the Java sources ([`JobRunner.Mode`](../app/src/main
 
 ### B. Search objectives (`SearchPrompts.Objective`)
 
-Used internally to pick prompts and **terminal** tools (how the run may finish). Not the same string as `tags.mode`, but each job mode maps to one of these via `JobRunner.objectiveForMode`.
+Used internally to pick prompts and terminal tools. Not the same string as `tags.mode`, but each job mode maps to one of these via `JobRunner.objectiveForMode`.
 
 - `ANSWER_ONLY`
 - `TASKS_ONLY`
@@ -92,33 +115,14 @@ Used internally to pick prompts and **terminal** tools (how the run may finish).
 - `ISSUE_DESCRIPTION`
 - `CODE_ONLY`
 
-### C. Tools allowed in custom agent definitions (`tools` in YAML)
+### C. Outer-loop tools relevant to custom-agent orchestration
 
-These names are validated against `AgentDefinition.KNOWN_TOOL_NAMES`. Actual availability may still be filtered by analyzer/project capabilities (e.g. git, XML, JSON).
+When a job runs `LutzAgent` in `SEARCH`, the coordinating model may have tools such as:
 
-**Search / repo**
-
-- `searchSymbols`, `scanUsages`, `getSymbolLocations`, `skimFiles`, `findFilesContaining`, `findFilenames`, `searchFileContents`
-- `getFileSummaries`, `getClassSkeletons`, `getClassSources`, `getMethodSources`, `getFileContents`, `listFiles`
-- `searchGitCommitMessages`, `getGitLog`, `explainCommit`
-- `xmlSkim`, `xmlSelect`, `jq`
-
-**Workspace**
-
-- `addFilesToWorkspace`, `addLineRangeToWorkspace`, `addClassesToWorkspace`, `addUrlContentsToWorkspace`, `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`, `addMethodsToWorkspace`, `dropWorkspaceFragments`, `createOrReplaceTaskList`
-
-**Other**
-
-- `runShellCommand`, `importDependency`
-- `computeCyclomaticComplexity`, `reportCommentDensityForCodeUnit`, `reportCommentDensityForFiles`, `analyzeGitHotspots` (code quality; Java comment-density tools return a short message when the analyzer has no Java snapshot; git hotspots take `sinceDays` / optional ISO `sinceIso` and `untilIso`, plus `maxCommits` and `maxFiles` with a hard cap of 500 files)
-- `answer`, `abortSearch` (always added if missing when resolving effective tools)
-- `think` (always added if missing)
-
-### D. Tools on the outer `SEARCH` loop only (not in `KNOWN_TOOL_NAMES`)
-
-When the job runs `LutzAgent` in `SEARCH` (including when `agent` is set and the task is rewritten to call `callCustomAgent`), the model also gets tools such as:
-
-- `callSearchAgent`, `callCustomAgent`
+- `callSearchAgent`
+- `callCustomAgent`
 - `callMcpTool` (only if the project defines MCP tools)
 
-Terminal tools depend on the search **objective** (e.g. `answer`, `workspaceComplete`, `createOrReplaceTaskList`, `callCodeAgent`, `describeIssue`, `askForClarification` in interactive Chrome, plus `abortSearch`). Dependency tools are registered when supported by the project.
+Terminal tools depend on the search objective and may include `answer`, `workspaceComplete`, `createOrReplaceTaskList`, `callCodeAgent`, `describeIssue`, `askForClarification`, and `abortSearch`.
+
+For the detailed list of tools you can place in a custom agent's YAML `tools` field, see [Custom Agents](custom-agents.md#available-tools).
