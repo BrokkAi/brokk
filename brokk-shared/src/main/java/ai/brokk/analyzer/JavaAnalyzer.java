@@ -1,7 +1,6 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
-import static java.util.Objects.requireNonNull;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
@@ -1623,16 +1622,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 file,
                 tree -> {
                     List<TSNode> comments = new ArrayList<>();
-                    collectCommentNodes(requireNonNull(tree.getRootNode(), "tree root"), comments);
-                    List<CodeUnit> allUnits = new ArrayList<>();
-                    for (CodeUnit top : getTopLevelDeclarations(file)) {
-                        collectAllUnitsDepthFirst(top, allUnits);
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Map.of();
                     }
+                    collectCommentNodes(root, comments);
                     Map<String, CommentAgg> map = new HashMap<>();
                     for (TSNode c : comments) {
                         int cs = c.getStartByte();
                         int ce = c.getEndByte();
-                        Optional<OwningRange> own = findSmallestOwningRange(allUnits, cs, ce);
+                        Optional<OwningRange> own = findOwningRangeForComment(file, cs, ce);
                         if (own.isEmpty()) {
                             continue;
                         }
@@ -1654,21 +1653,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
     private record OwningRange(CodeUnit cu, Range range) {}
 
-    private Optional<OwningRange> findSmallestOwningRange(List<CodeUnit> units, int cs, int ce) {
-        OwningRange best = null;
-        int bestSpan = Integer.MAX_VALUE;
-        for (CodeUnit cu : units) {
-            for (Range r : rangesOf(cu)) {
-                if (cs >= r.commentStartByte() && ce <= r.endByte()) {
-                    int span = r.endByte() - r.commentStartByte();
-                    if (span < bestSpan) {
-                        bestSpan = span;
-                        best = new OwningRange(cu, r);
-                    }
-                }
-            }
-        }
-        return Optional.ofNullable(best);
+    private Optional<OwningRange> findOwningRangeForComment(ProjectFile file, int cs, int ce) {
+        return enclosingCodeUnitByCommentBytes(file, cs, ce).flatMap(cu -> rangesOf(cu).stream()
+                .filter(r -> cs >= r.commentStartByte() && ce <= r.endByte())
+                .min(Comparator.comparingInt(r -> r.endByte() - r.commentStartByte()))
+                .map(r -> new OwningRange(cu, r)));
     }
 
     private static void collectCommentNodes(TSNode node, List<TSNode> out) {
@@ -1685,13 +1674,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             if (ch != null) {
                 collectCommentNodes(ch, out);
             }
-        }
-    }
-
-    private void collectAllUnitsDepthFirst(CodeUnit cu, List<CodeUnit> out) {
-        out.add(cu);
-        for (CodeUnit ch : getDirectChildren(cu)) {
-            collectAllUnitsDepthFirst(ch, out);
         }
     }
 

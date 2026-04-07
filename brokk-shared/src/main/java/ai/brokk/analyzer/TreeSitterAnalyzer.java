@@ -4183,6 +4183,46 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return Optional.ofNullable(best);
     }
 
+    /**
+     * Like {@link #enclosingCodeUnit(ProjectFile, Range)}, but containment starts at
+     * {@link Range#commentStartByte()} instead of {@link Range#startByte()} so leading
+     * comments (e.g. JavaDoc immediately above a declaration) can still resolve to that declaration.
+     */
+    protected Optional<CodeUnit> enclosingCodeUnitByCommentBytes(ProjectFile file, int startByte, int endByte) {
+        if (startByte > endByte) {
+            return Optional.empty();
+        }
+
+        CodeUnit best = null;
+        int bestDepth = -1;
+        for (var top : getTopLevelDeclarations(file)) {
+            var res = findDeepestEnclosingByCommentBytes(top, startByte, endByte, 0);
+            if (res != null && res.depth > bestDepth) {
+                best = res.cu;
+                bestDepth = res.depth;
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private @Nullable CUWithDepth findDeepestEnclosingByCommentBytes(
+            CodeUnit current, int startByte, int endByte, int depth) {
+        boolean containsCurrent =
+                rangesOf(current).stream().anyMatch(r -> startByte >= r.commentStartByte() && endByte <= r.endByte());
+        if (!containsCurrent) {
+            return null;
+        }
+
+        CUWithDepth best = new CUWithDepth(current, depth);
+        for (var child : childrenOf(current)) {
+            var candidate = findDeepestEnclosingByCommentBytes(child, startByte, endByte, depth + 1);
+            if (candidate != null && candidate.depth > best.depth) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
     private @Nullable CUWithDepth findDeepestEnclosing(CodeUnit current, Range range, int depth) {
         // If the range is not contained within this CU, skip
         boolean containsCurrent = rangesOf(current).stream().anyMatch(range::isContainedWithin);
