@@ -187,6 +187,13 @@ public class MultiAnalyzer
     }
 
     @Override
+    public String summarizeSymbols(ProjectFile file, String sourceText) {
+        return delegateFor(file)
+                .map(delegate -> delegate.summarizeSymbols(file, sourceText))
+                .orElse("");
+    }
+
+    @Override
     public List<CodeUnit> getDirectChildren(CodeUnit cu) {
         return delegateFor(cu).map(delegate -> delegate.getDirectChildren(cu)).orElse(List.of());
     }

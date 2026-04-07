@@ -782,6 +782,39 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     @Override
+    public String summarizeSymbols(ProjectFile file, String sourceText) {
+        var sourceContent = SourceContent.of(sourceText);
+        var tempCache = createEmptyCache();
+        tempCache.sources().put(file, sourceContent);
+
+        var isolatedAnalyzer = (TreeSitterAnalyzer) newSnapshot(this.state, ProgressListener.NOOP, tempCache);
+        var analysisResult = isolatedAnalyzer.analyzeFileContent(file, sourceContent.utf8Bytes(), null);
+        if (analysisResult.topLevelCUs().isEmpty()) {
+            return "";
+        }
+
+        var symbolIndex = new HashMap<String, Set<CodeUnit>>();
+        analysisResult.codeUnitsBySymbol().forEach((key, value) -> symbolIndex.put(key, Set.copyOf(value)));
+
+        var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        keySet.addAll(symbolIndex.keySet());
+
+        var fileState = new FileProperties(
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(analysisResult.topLevelCUs())),
+                List.copyOf(analysisResult.importStatements()),
+                analysisResult.containsTests());
+
+        var snapshot = new AnalyzerState(
+                HashTreePMap.from(symbolIndex),
+                HashTreePMap.from(analysisResult.codeUnitState()),
+                HashTreePMap.from(Map.of(file, fileState)),
+                new SymbolKeyIndex(Collections.unmodifiableNavigableSet(keySet)),
+                System.nanoTime());
+
+        return newSnapshot(snapshot, ProgressListener.NOOP, tempCache).summarizeSymbols(file);
+    }
+
+    @Override
     public Set<ProjectFile> getAnalyzedFiles() {
         return Set.copyOf(this.state.fileState().keySet());
     }
@@ -3658,6 +3691,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected abstract IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache);
+
+    protected AnalyzerCache createEmptyCache() {
+        return new AnalyzerCache();
+    }
 
     protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
         return new AnalyzerCache(previous, changedFiles);

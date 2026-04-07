@@ -771,6 +771,17 @@ tasks.register<JavaExec>("runHeadlessCli") {
     classpath = sourceSets.main.get().runtimeClasspath
 }
 
+tasks.register<JavaExec>("runSftServer") {
+    group = "application"
+    description = "Runs the SftServer"
+    mainClass.set("ai.brokk.tools.SftServer")
+    classpath = sourceSets.main.get().runtimeClasspath
+    systemProperty("java.awt.headless", "true")
+    if (project.hasProperty("args")) {
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
+    }
+}
+
 tasks.register<JavaExec>("runSkeletonPrinter") {
     group = "application"
     description = "Runs the SkeletonPrinter tool"
