@@ -58,9 +58,13 @@ public class CustomAgentExecutor {
     private Context context;
 
     public CustomAgentExecutor(IContextManager cm, AgentDefinition agentDef, StreamingChatModel model) {
+        this(cm, agentDef, model, cm.getIo());
+    }
+
+    public CustomAgentExecutor(IContextManager cm, AgentDefinition agentDef, StreamingChatModel model, IConsoleIO io) {
         this.cm = cm;
         this.agentDef = agentDef;
-        this.io = cm.getIo();
+        this.io = io;
         this.context = cm.liveContext();
         this.llm = cm.getLlm(new Llm.Options(model, agentDef.name(), TaskResult.Type.SEARCH).withEcho());
         this.llm.setOutput(io);

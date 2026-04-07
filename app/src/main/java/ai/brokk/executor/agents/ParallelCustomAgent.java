@@ -52,9 +52,22 @@ public class ParallelCustomAgent {
             The agent runs its own search-and-answer loop and returns its findings.""")
     public String callCustomAgent(
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
-            @P("Complete task description for the agent") String task) {
-        throw new UnsupportedOperationException(
-                "do not invoke callCustomAgent directly, use ParallelCustomAgent.execute");
+            @P("Complete task description for the agent") String task)
+            throws InterruptedException {
+        var agentStore = cm.getAgentStore();
+        var agentDef = agentStore.get(agentName)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Custom agent not found: '%s'. Available agents: %s"
+                                .formatted(agentName, agentStore.list().stream()
+                                        .map(AgentDefinition::name)
+                                        .toList())));
+
+        logger.info("Invoking custom agent '{}' sequentially with model {}",
+                agentName, cm.getService().nameOf(model));
+
+        var executor = new CustomAgentExecutor(cm, agentDef, model);
+        var result = executor.execute(task);
+        return extractExplanation(result.stopDetails().explanation());
     }
 
     /**
@@ -190,7 +203,7 @@ public class ParallelCustomAgent {
                 agentName, cm.getService().nameOf(model));
 
         try {
-            var executor = new CustomAgentExecutor(cm, agentDef, model);
+            var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo);
             var result = executor.execute(task);
             var explanation = extractExplanation(result.stopDetails().explanation());
 
