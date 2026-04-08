@@ -1139,6 +1139,46 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testNestedAnonymousStructFieldsAreCapturedInSummaryHierarchy() throws IOException {
+        String source =
+                """
+                package main
+
+                type prefs struct {
+                    Config struct {
+                        NodeID string
+                        UserProfile struct {
+                            LoginName string
+                        }
+                    }
+                    AdvertiseServices []string
+                }
+                """
+                        .stripIndent();
+
+        try (var project =
+                InlineTestProjectCreator.code(source, "tsrecorder.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "tsrecorder.go");
+            var fqns = inlineAnalyzer.getDeclarations(file).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toSet());
+
+            assertTrue(fqns.contains("main.prefs"), "Expected prefs declaration. Found: " + fqns);
+            assertTrue(fqns.contains("main.prefs.Config"), "Expected Config field declaration. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("main.prefs.Config.NodeID"),
+                    "Expected nested NodeID field declaration. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("main.prefs.Config.UserProfile"),
+                    "Expected nested UserProfile field declaration. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("main.prefs.Config.UserProfile.LoginName"),
+                    "Expected nested LoginName field declaration. Found: " + fqns);
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";

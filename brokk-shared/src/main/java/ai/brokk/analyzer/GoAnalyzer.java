@@ -7,9 +7,11 @@ import ai.brokk.analyzer.cache.GoAnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -485,6 +487,27 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     @Override
+    protected String buildClassChain(TSNode node, TSNode rootNode, SourceContent sourceContent) {
+        Deque<String> segments = new ArrayDeque<>();
+        TSNode current = node.getParent();
+        TSNode immediateParent = current;
+        while (current != null && !current.equals(rootNode)) {
+            if (isClassLike(current)) {
+                final TSNode parent = current;
+                extractSimpleName(parent, sourceContent).ifPresent(name -> {
+                    if (!name.isBlank()) {
+                        segments.addFirst(determineClassChainSegmentName(parent.getType(), name));
+                    }
+                });
+            } else if (FIELD_DECLARATION.equals(current.getType()) && !current.equals(immediateParent)) {
+                extractAnonymousStructContainerName(current, sourceContent).ifPresent(segments::addFirst);
+            }
+            current = current.getParent();
+        }
+        return String.join(".", segments);
+    }
+
+    @Override
     protected String formatFieldSignature(
             TSNode fieldNode,
             SourceContent sourceContent,
@@ -663,6 +686,25 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             current = current.getParent();
         }
         return false;
+    }
+
+    private static Optional<String> extractAnonymousStructContainerName(TSNode fieldDeclaration, SourceContent source) {
+        String name = null;
+        boolean hasAnonymousStructType = false;
+
+        for (TSNode child : fieldDeclaration.getNamedChildren()) {
+            String childType = child.getType();
+            if (STRUCT_TYPE.equals(childType) || INTERFACE_TYPE.equals(childType)) {
+                hasAnonymousStructType = true;
+            } else if (name == null && (FIELD_IDENTIFIER.equals(childType) || "identifier".equals(childType))) {
+                String candidate = source.substringFrom(child).trim();
+                if (!candidate.isBlank()) {
+                    name = candidate;
+                }
+            }
+        }
+
+        return hasAnonymousStructType && name != null ? Optional.of(name) : Optional.empty();
     }
 
     @Override
