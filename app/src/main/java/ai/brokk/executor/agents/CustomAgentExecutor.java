@@ -11,6 +11,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.CodeQualityTools;
 import ai.brokk.tools.DependencyTools;
+import ai.brokk.tools.Destructive;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolOutput;
@@ -142,13 +143,21 @@ public class CustomAgentExecutor {
             Map<ToolExecutionRequest, CompletableFuture<ToolExecutionResult>> parallelFutures = new LinkedHashMap<>();
             if (parallelRequests.size() > 1) {
                 for (var request : parallelRequests) {
-                    io.beforeToolCall(request);
-                    Context snapshotContext = context;
-                    parallelFutures.put(
-                            request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
-                                    .register(new WorkspaceTools(snapshotContext))
-                                    .build()
-                                    .executeTool(request)));
+                    boolean destructive = toolRegistry.isToolAnnotated(request.name(), Destructive.class);
+                    var approval = io.beforeToolCall(request, destructive);
+                    if (!approval.isApproved()) {
+                        parallelFutures.put(
+                                request,
+                                CompletableFuture.completedFuture(ToolExecutionResult.requestError(
+                                        request, "Tool call '%s' was denied by user.".formatted(request.name()))));
+                    } else {
+                        Context snapshotContext = context;
+                        parallelFutures.put(
+                                request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
+                                        .register(new WorkspaceTools(snapshotContext))
+                                        .build()
+                                        .executeTool(request)));
+                    }
                 }
             }
             Runnable cancelOutstandingParallelFutures = () ->
@@ -169,12 +178,19 @@ public class CustomAgentExecutor {
                     }
                     io.afterToolOutput(toolResult);
                 } else {
-                    io.beforeToolCall(request);
-                    var executionRegistry = ToolRegistry.fromBase(toolRegistry)
-                            .register(new WorkspaceTools(context))
-                            .build();
-                    toolResult = executionRegistry.executeTool(request);
-                    io.afterToolOutput(toolResult);
+                    boolean destructive = toolRegistry.isToolAnnotated(request.name(), Destructive.class);
+                    var approval = io.beforeToolCall(request, destructive);
+                    if (!approval.isApproved()) {
+                        toolResult = ToolExecutionResult.requestError(
+                                request, "Tool call '%s' was denied by user.".formatted(request.name()));
+                        io.afterToolOutput(toolResult);
+                    } else {
+                        var executionRegistry = ToolRegistry.fromBase(toolRegistry)
+                                .register(new WorkspaceTools(context))
+                                .build();
+                        toolResult = executionRegistry.executeTool(request);
+                        io.afterToolOutput(toolResult);
+                    }
                 }
                 llm.recordToolExecution(toolResult);
                 messages.add(toolResult.toMessage());

@@ -3,6 +3,7 @@ package ai.brokk;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.context.Context;
 import ai.brokk.gui.InstructionsPanel;
+import ai.brokk.tools.ApprovalResult;
 import ai.brokk.tools.ToolExecutionResult;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
@@ -198,11 +199,17 @@ public interface IConsoleIO {
     }
 
     /**
-     * Notifies the console that a tool is about to be called.
-     * Default implementation is a no-op.
+     * Called before a tool is executed. Implementations may prompt the user for approval
+     * (e.g., for destructive tools). Returns {@link ApprovalResult#APPROVED} to proceed
+     * or {@link ApprovalResult#DENIED} to block execution.
+     *
+     * @param request     the tool execution request
+     * @param destructive true if the tool is annotated {@code @Destructive}
+     *
+     * <p>Default implementation auto-approves all tool calls.
      */
-    default void beforeToolCall(ToolExecutionRequest request) {
-        // no-op
+    default ApprovalResult beforeToolCall(ToolExecutionRequest request, boolean destructive) {
+        return ApprovalResult.APPROVED;
     }
 
     /**
@@ -211,6 +218,16 @@ public interface IConsoleIO {
      */
     default void afterToolOutput(ToolExecutionResult result) {
         // no-op
+    }
+
+    /**
+     * Called before a shell command is executed by the LLM. Implementations may prompt
+     * the user for approval. Not called for user-configured build/test commands.
+     *
+     * <p>Default implementation auto-approves all shell commands.
+     */
+    default ApprovalResult beforeShellCommand(String command) {
+        return ApprovalResult.APPROVED;
     }
 
     default InstructionsPanel getInstructionsPanel() {
