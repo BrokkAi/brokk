@@ -846,6 +846,86 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testFunctionLocalVariablesAreNotReportedAsDeclarations() throws IOException {
+        String source =
+                """
+                package ipnlocal
+
+                func init() {
+                    breakTCPConns = breakTCPConnsDarwin
+                }
+
+                func breakTCPConnsDarwin() error {
+                    var matched int
+                    if matched == 0 {
+                        return nil
+                    }
+                    return nil
+                }
+                """
+                        .stripIndent();
+
+        try (var project =
+                InlineTestProjectCreator.code(source, "breaktcp_darwin.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "breaktcp_darwin.go");
+            var declarations = inlineAnalyzer.getDeclarations(file);
+            var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+            assertTrue(
+                    fqns.contains("ipnlocal.breakTCPConnsDarwin"),
+                    "Expected function declaration to be present. Found: " + fqns);
+            assertFalse(
+                    fqns.contains("ipnlocal._module_.matched"),
+                    "Function-local variables should not be reported as declarations. Found: " + fqns);
+        }
+    }
+
+    @Test
+    void testFunctionLocalAnonymousStructFieldsAreNotReportedAsDeclarations() throws IOException {
+        String source =
+                """
+                package ipnlocal
+
+                func TestExpandProxyArgUnix() {
+                    tests := []struct {
+                        input string
+                        wantURL string
+                        wantInsecure bool
+                    }{
+                        {
+                            input: "unix:/tmp/test.sock",
+                            wantURL: "unix:/tmp/test.sock",
+                        },
+                    }
+                    _ = tests
+                }
+                """
+                        .stripIndent();
+
+        try (var project =
+                InlineTestProjectCreator.code(source, "serve_unix_test.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "serve_unix_test.go");
+            var declarations = inlineAnalyzer.getDeclarations(file);
+            var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+            assertTrue(
+                    fqns.contains("ipnlocal.TestExpandProxyArgUnix"),
+                    "Expected test function declaration to be present. Found: " + fqns);
+            assertFalse(
+                    fqns.stream().anyMatch(fqn -> fqn.endsWith(".input")),
+                    "Function-local anonymous struct fields should not be reported as declarations. Found: " + fqns);
+            assertFalse(
+                    fqns.stream().anyMatch(fqn -> fqn.endsWith(".wantURL")),
+                    "Function-local anonymous struct fields should not be reported as declarations. Found: " + fqns);
+            assertFalse(
+                    fqns.stream().anyMatch(fqn -> fqn.endsWith(".wantInsecure")),
+                    "Function-local anonymous struct fields should not be reported as declarations. Found: " + fqns);
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";

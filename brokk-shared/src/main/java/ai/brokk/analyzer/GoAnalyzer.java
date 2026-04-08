@@ -218,6 +218,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 }
             }
             case CaptureNames.VARIABLE_DEFINITION, CaptureNames.CONSTANT_DEFINITION -> {
+                if (!isPackageLevelDeclaration(definitionNode)) {
+                    log.trace(
+                            "Skipping non-package-level Go var/const '{}' in file '{}'",
+                            simpleName,
+                            file.getFileName());
+                    yield null;
+                }
                 // For package-level variables/constants, classChain should be empty.
                 // We adopt a convention like "_module_.simpleName" for the short name's member part.
                 if (!classChain.isEmpty()) {
@@ -249,6 +256,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 yield CodeUnit.fn(file, packageName, simpleName);
             }
             case "struct.field.definition" -> {
+                if (!isPackageLevelDeclaration(definitionNode)) {
+                    log.trace(
+                            "Skipping non-package-level Go struct field '{}' in file '{}'",
+                            simpleName,
+                            file.getFileName());
+                    yield null;
+                }
                 // simpleName is FieldName (e.g., "FieldA")
                 // classChain is StructName (e.g., "MyStruct")
                 // We want the CodeUnit's shortName to be "StructName.FieldName" for uniqueness and parenting.
@@ -285,6 +299,23 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 yield null; // Explicitly yield null for unhandled cases
             }
         };
+    }
+
+    private static boolean isPackageLevelDeclaration(@Nullable TSNode definitionNode) {
+        TSNode current = definitionNode;
+        while (current != null) {
+            String nodeType = current.getType();
+            if (FUNCTION_DECLARATION.equals(nodeType)
+                    || METHOD_DECLARATION.equals(nodeType)
+                    || "func_literal".equals(nodeType)) {
+                return false;
+            }
+            if ("source_file".equals(nodeType)) {
+                return true;
+            }
+            current = current.getParent();
+        }
+        return true;
     }
 
     @Override
