@@ -626,12 +626,17 @@ public class ArchitectAgent {
                         .arguments("{\"instructions\": \"%s\", \"deferBuild\": false}".formatted(goal))
                         .build();
 
-                io.beforeToolCall(req, true);
-                var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
-                io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
-                architectMessages.add(new UserMessage(
-                        "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
-                                + initialSummary));
+                var approval = io.beforeToolCall(req, true);
+                if (!approval.isApproved()) {
+                    io.afterToolOutput(
+                            ToolExecutionResult.requestError(req, "Tool call 'callCodeAgent' was denied by user."));
+                } else {
+                    var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
+                    io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
+                    architectMessages.add(new UserMessage(
+                            "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
+                                    + initialSummary));
+                }
             } catch (ToolRegistry.FatalLlmException e) {
                 var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
                 this.lastFatalReason = null;

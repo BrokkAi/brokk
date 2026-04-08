@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -506,6 +507,20 @@ public class Environment {
                 }
             } catch (IOException ignored) {
                 // If we can't resolve the real path, the absPath binding is sufficient
+            }
+
+            // Allow writes to standard build tool cache directories in the user's home
+            var home = System.getProperty("user.home");
+            if (home != null) {
+                for (var cacheDir :
+                        List.of(".gradle", ".m2", ".npm", ".cache", ".local", ".cargo", ".rustup", ".sbt", ".ivy2")) {
+                    var cachePath = Path.of(home, cacheDir);
+                    if (Files.isDirectory(cachePath)) {
+                        bwrapArgs.add("--bind");
+                        bwrapArgs.add(cachePath.toString());
+                        bwrapArgs.add(cachePath.toString());
+                    }
+                }
             }
         }
 
