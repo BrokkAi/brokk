@@ -507,6 +507,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public CompletableFuture<ApprovalChoice> showApprovalBanner(
             String toolName, String description, String sessionButtonLabel, boolean showNoSandbox) {
         assert SwingUtilities.isEventDispatchThread();
+        // Complete any pending future with DENY before replacing
+        if (approvalFuture != null && !approvalFuture.isDone()) {
+            approvalFuture.complete(ApprovalChoice.DENY);
+        }
         hideApprovalBanner();
 
         approvalFuture = new CompletableFuture<>();

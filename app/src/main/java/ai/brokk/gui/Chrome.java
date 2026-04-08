@@ -2255,20 +2255,31 @@ public class Chrome
             return ApprovalResult.APPROVED;
         }
         var hop = rightPanel.getHistoryOutputPanel();
-        var futureHolder = new CompletableFuture[] {null};
-        try {
-            SwingUtilities.invokeAndWait(() -> futureHolder[0] = hop.showApprovalBanner(
-                    approval.title(), approval.description(), approval.sessionButtonLabel(), approval.showNoSandbox()));
-        } catch (InvocationTargetException e) {
-            logger.error("Error showing approval banner", e);
-            return ApprovalResult.DENIED;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return ApprovalResult.DENIED;
+        CompletableFuture<HistoryOutputPanel.ApprovalChoice> future;
+        if (SwingUtilities.isEventDispatchThread()) {
+            future = hop.showApprovalBanner(
+                    approval.title(), approval.description(), approval.sessionButtonLabel(), approval.showNoSandbox());
+        } else {
+            var futureHolder = new CompletableFuture[] {null};
+            try {
+                SwingUtilities.invokeAndWait(() -> futureHolder[0] = hop.showApprovalBanner(
+                        approval.title(),
+                        approval.description(),
+                        approval.sessionButtonLabel(),
+                        approval.showNoSandbox()));
+            } catch (InvocationTargetException e) {
+                logger.error("Error showing approval banner", e);
+                return ApprovalResult.DENIED;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return ApprovalResult.DENIED;
+            }
+            @SuppressWarnings("unchecked")
+            var f = (CompletableFuture<HistoryOutputPanel.ApprovalChoice>) futureHolder[0];
+            future = f;
         }
         try {
-            @SuppressWarnings("unchecked")
-            var choice = (HistoryOutputPanel.ApprovalChoice) futureHolder[0].get();
+            var choice = future.get();
             if (choice == HistoryOutputPanel.ApprovalChoice.ALLOW_SESSION) {
                 sessionApprovedTools.add(approval.sessionKey());
             }

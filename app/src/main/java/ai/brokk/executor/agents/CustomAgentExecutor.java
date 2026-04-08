@@ -143,13 +143,21 @@ public class CustomAgentExecutor {
             Map<ToolExecutionRequest, CompletableFuture<ToolExecutionResult>> parallelFutures = new LinkedHashMap<>();
             if (parallelRequests.size() > 1) {
                 for (var request : parallelRequests) {
-                    io.beforeToolCall(request, false);
-                    Context snapshotContext = context;
-                    parallelFutures.put(
-                            request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
-                                    .register(new WorkspaceTools(snapshotContext))
-                                    .build()
-                                    .executeTool(request)));
+                    boolean destructive = toolRegistry.isToolAnnotated(request.name(), Destructive.class);
+                    var approval = io.beforeToolCall(request, destructive);
+                    if (!approval.isApproved()) {
+                        parallelFutures.put(
+                                request,
+                                CompletableFuture.completedFuture(ToolExecutionResult.requestError(
+                                        request, "Tool call '%s' was denied by user.".formatted(request.name()))));
+                    } else {
+                        Context snapshotContext = context;
+                        parallelFutures.put(
+                                request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
+                                        .register(new WorkspaceTools(snapshotContext))
+                                        .build()
+                                        .executeTool(request)));
+                    }
                 }
             }
             Runnable cancelOutstandingParallelFutures = () ->
