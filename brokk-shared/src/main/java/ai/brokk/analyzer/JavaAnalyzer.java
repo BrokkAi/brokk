@@ -25,6 +25,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
     private static final Set<String> JAVA_COMMENT_NODE_TYPES = Set.of(LINE_COMMENT, BLOCK_COMMENT);
+    private static final Set<String> LOG_RECEIVER_NAMES = Set.of("log", "logger");
 
     public JavaAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
@@ -1716,10 +1717,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         if (receiverText.isEmpty()) {
             return false;
         }
-        return receiverText.equals("log")
-                || receiverText.equals("logger")
-                || receiverText.endsWith(".log")
-                || receiverText.endsWith(".logger");
+        return LOG_RECEIVER_NAMES.contains(receiverText)
+                || LOG_RECEIVER_NAMES.stream().anyMatch(name -> receiverText.endsWith("." + name));
     }
 
     private static String compactCatchExcerpt(String text) {
