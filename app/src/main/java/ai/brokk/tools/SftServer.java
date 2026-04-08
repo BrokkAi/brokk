@@ -228,7 +228,7 @@ public final class SftServer implements AutoCloseable {
         SequencedSet<EditBlock.SearchReplaceBlock> blocks = SearchReplaceBlockFormatter.fromFileDiffs(fileDiffs);
         var results = new LinkedHashMap<String, String>();
         for (var block : blocks) {
-            var filename = requireNonNull(block.rawFileName());
+            var filename = requireNonNull(block.rawFileName()).replace('\\', '/');
             results.merge(filename, block.repr(), (left, right) -> left + "\n" + right);
         }
         return Map.copyOf(results);
