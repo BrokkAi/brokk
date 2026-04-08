@@ -299,6 +299,43 @@ public interface IAnalyzer {
 
     record DeclarationInfo(DeclarationKind kind, String name, @Nullable CodeUnit enclosingUnit) {}
 
+    record ExceptionSmellWeights(
+            int genericThrowableWeight,
+            int genericExceptionWeight,
+            int genericRuntimeExceptionWeight,
+            int emptyBodyWeight,
+            int commentOnlyBodyWeight,
+            int smallBodyWeight,
+            int logOnlyWeight,
+            int meaningfulBodyCreditPerStatement,
+            int meaningfulBodyStatementThreshold,
+            int smallBodyMaxStatements) {
+
+        public static ExceptionSmellWeights defaults() {
+            return new ExceptionSmellWeights(
+                    5, // Throwable is usually over-broad
+                    3, // Exception is broad and often swallows domain signals
+                    2, // RuntimeException is still broad, but less severe than Exception
+                    5, // Empty handler is the strongest smell
+                    4, // Comment-only body still swallows
+                    2, // Tiny bodies merit review
+                    2, // Log-only can still be swallow-y
+                    1, // Richer body reduces suspicion
+                    6, // Credit plateaus after a moderate amount of handling
+                    2 // 0-2 statements is considered a small body
+                    );
+        }
+    }
+
+    record ExceptionHandlingSmell(
+            ProjectFile file,
+            String enclosingFqName,
+            String catchType,
+            int score,
+            int bodyStatementCount,
+            List<String> reasons,
+            String excerpt) {}
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
@@ -732,6 +769,13 @@ public interface IAnalyzer {
      * Per-top-level declaration comment density for a file. Default is an empty list.
      */
     default List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        return List.of();
+    }
+
+    /**
+     * Returns suspicious exception handling sites for quality triage. The default implementation is unsupported.
+     */
+    default List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
         return List.of();
     }
 
