@@ -2153,7 +2153,9 @@ def _main_dispatch(
                     f"Installed Claude MCP summaries skill in {claude_sum_skill}",
                 ]
             elif args.target == "plugin":
-                plugin_root, was_reinstall = install_plugin(uvx_command=uvx_command)
+                plugin_root, was_reinstall = install_plugin(
+                    force=args.force, uvx_command=uvx_command
+                )
                 verb = "Updated existing" if was_reinstall else "Installed"
                 messages = [
                     f"{verb} Claude Code plugin in {plugin_root}",

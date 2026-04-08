@@ -1,8 +1,11 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from brokk_code import __version__
 from brokk_code.plugin_config import install_plugin
+from brokk_code.zed_config import ExistingBrokkCodeEntryError
 
 
 def test_install_plugin_creates_directory_structure(tmp_path) -> None:
@@ -98,7 +101,7 @@ def test_install_plugin_skill_content_mentions_tools(tmp_path) -> None:
 
 
 def test_install_plugin_idempotent(tmp_path) -> None:
-    """Re-installing does not corrupt existing files."""
+    """Re-installing with force=True does not corrupt existing files."""
     plugin_dir = tmp_path / "brokk"
 
     root1, was_reinstall1 = install_plugin(plugin_path=plugin_dir)
@@ -106,7 +109,7 @@ def test_install_plugin_idempotent(tmp_path) -> None:
     mcp1 = (root1 / ".mcp.json").read_text(encoding="utf-8")
     skill1 = (root1 / "code-navigation" / "SKILL.md").read_text(encoding="utf-8")
 
-    root2, was_reinstall2 = install_plugin(plugin_path=plugin_dir)
+    root2, was_reinstall2 = install_plugin(plugin_path=plugin_dir, force=True)
     manifest2 = (root2 / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
     mcp2 = (root2 / ".mcp.json").read_text(encoding="utf-8")
     skill2 = (root2 / "code-navigation" / "SKILL.md").read_text(encoding="utf-8")
@@ -141,3 +144,28 @@ def test_install_plugin_json_files_end_with_newline(tmp_path) -> None:
     mcp_text = (root / ".mcp.json").read_text(encoding="utf-8")
     assert manifest_text.endswith("\n")
     assert mcp_text.endswith("\n")
+
+
+def test_install_plugin_refuses_overwrite_without_force(tmp_path) -> None:
+    """Reinstall without --force raises ExistingBrokkCodeEntryError."""
+    plugin_dir = tmp_path / "brokk"
+    install_plugin(plugin_path=plugin_dir)
+
+    with pytest.raises(ExistingBrokkCodeEntryError, match="already exists"):
+        install_plugin(plugin_path=plugin_dir)
+
+
+def test_install_plugin_preserves_user_edits_without_force(tmp_path) -> None:
+    """User-modified files under the plugin dir are not clobbered without --force."""
+    plugin_dir = tmp_path / "brokk"
+    install_plugin(plugin_path=plugin_dir)
+
+    # Simulate a user editing a SKILL.md
+    skill_file = plugin_dir / "workspace" / "SKILL.md"
+    skill_file.write_text("user-customized content", encoding="utf-8")
+
+    with pytest.raises(ExistingBrokkCodeEntryError):
+        install_plugin(plugin_path=plugin_dir)
+
+    # The user's edit should still be intact
+    assert skill_file.read_text(encoding="utf-8") == "user-customized content"

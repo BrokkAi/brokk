@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 from brokk_code import __version__
+from brokk_code.zed_config import ExistingBrokkCodeEntryError
 
 _PLUGIN_DIR_NAME = "brokk"
 _PLUGIN_META_DIR = ".claude-plugin"
@@ -288,13 +289,17 @@ def install_plugin(
     *,
     plugin_path: Path | None = None,
     uvx_command: str = "uvx",
+    force: bool = False,
 ) -> tuple[Path, bool]:
     """Create the Claude Code plugin directory structure at ~/.claude/plugins/brokk/.
 
     Returns a tuple of (plugin root directory, whether this was a reinstall).
+    Raises ExistingBrokkCodeEntryError if the plugin already exists and force is False.
     """
     root = plugin_path or (Path.home() / ".claude" / "plugins" / _PLUGIN_DIR_NAME)
     is_reinstall = root.exists()
+    if is_reinstall and not force:
+        raise ExistingBrokkCodeEntryError(f"{root} already exists; use --force to overwrite it")
     root.mkdir(parents=True, exist_ok=True)
 
     # Plugin manifest
