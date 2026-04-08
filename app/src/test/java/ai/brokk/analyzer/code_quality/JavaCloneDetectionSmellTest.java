@@ -4,12 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.testutil.InlineTestProjectCreator;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 
-public class JavaCloneDetectionSmellTest {
+public class JavaCloneDetectionSmellTest extends AbstractCloneDetectionSmellTest {
 
     @Test
     void flagsRenamedVariableClonesAcrossFiles() {
@@ -160,20 +157,5 @@ public class JavaCloneDetectionSmellTest {
         assertTrue(findings.stream()
                 .anyMatch(f -> f.enclosingFqName().contains("Alpha.compute")
                         && f.peerEnclosingFqName().contains("Beta.calculate")));
-    }
-
-    private List<IAnalyzer.CloneSmell> analyze(String pathA, String sourceA, String pathB, String sourceB) {
-        return analyze(pathA, sourceA, pathB, sourceB, IAnalyzer.CloneSmellWeights.defaults());
-    }
-
-    private List<IAnalyzer.CloneSmell> analyze(
-            String pathA, String sourceA, String pathB, String sourceB, IAnalyzer.CloneSmellWeights weights) {
-        try (var testProject = InlineTestProjectCreator.code(sourceA, pathA)
-                .addFileContents(sourceB, pathB)
-                .build()) {
-            IAnalyzer analyzer = testProject.getAnalyzer();
-            ProjectFile file = new ProjectFile(testProject.getRoot(), pathA);
-            return analyzer.findStructuralCloneSmells(file, weights);
-        }
     }
 }

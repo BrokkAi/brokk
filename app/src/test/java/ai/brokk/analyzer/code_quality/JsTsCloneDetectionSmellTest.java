@@ -4,12 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.testutil.InlineTestProjectCreator;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 
-public class JsTsCloneDetectionSmellTest {
+public class JsTsCloneDetectionSmellTest extends AbstractCloneDetectionSmellTest {
 
     @Test
     void flagsRenamedVariableCloneInTypeScript() {
@@ -57,16 +54,5 @@ public class JsTsCloneDetectionSmellTest {
         var strictWeights = new IAnalyzer.CloneSmellWeights(40, 50, 2, 2, 70);
         var findings = analyze("src/a.ts", a, "src/b.ts", b, strictWeights);
         assertTrue(findings.isEmpty());
-    }
-
-    private List<IAnalyzer.CloneSmell> analyze(
-            String pathA, String sourceA, String pathB, String sourceB, IAnalyzer.CloneSmellWeights weights) {
-        try (var testProject = InlineTestProjectCreator.code(sourceA, pathA)
-                .addFileContents(sourceB, pathB)
-                .build()) {
-            IAnalyzer analyzer = testProject.getAnalyzer();
-            ProjectFile file = new ProjectFile(testProject.getRoot(), pathA);
-            return analyzer.findStructuralCloneSmells(file, weights);
-        }
     }
 }
