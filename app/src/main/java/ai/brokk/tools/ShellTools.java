@@ -38,6 +38,8 @@ public class ShellTools {
         var project = cm.getProject();
         var root = project.getRoot();
         var shellConfig = project.getShellConfig();
+        var sandboxPolicy =
+                ToolExecutionHelper.isSandboxOverridden() ? SandboxPolicy.NONE : SandboxPolicy.WORKSPACE_WRITE;
 
         Deque<String> lines = new ArrayDeque<>(MAX_OUTPUT_LINES);
 
@@ -45,7 +47,7 @@ public class ShellTools {
             Environment.instance.runShellCommand(
                     command,
                     root,
-                    SandboxPolicy.WORKSPACE_WRITE,
+                    sandboxPolicy,
                     line -> {
                         synchronized (lines) {
                             if (lines.size() >= MAX_OUTPUT_LINES) {

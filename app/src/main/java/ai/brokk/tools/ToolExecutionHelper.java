@@ -17,7 +17,14 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
  */
 public final class ToolExecutionHelper {
 
+    private static final ThreadLocal<Boolean> SANDBOX_OVERRIDE = ThreadLocal.withInitial(() -> false);
+
     private ToolExecutionHelper() {}
+
+    /** Returns true if the current thread has sandbox override active (user chose "Allow Without Sandbox"). */
+    public static boolean isSandboxOverridden() {
+        return SANDBOX_OVERRIDE.get();
+    }
 
     /**
      * Executes a tool with approval gating.
@@ -26,6 +33,9 @@ public final class ToolExecutionHelper {
      * to {@link IConsoleIO#beforeToolCall}. If approved, executes the tool and calls
      * {@link IConsoleIO#afterToolOutput}. If denied, returns a {@link ToolExecutionResult}
      * with {@code REQUEST_ERROR} status so the LLM receives feedback that the call was rejected.
+     *
+     * <p>If the approval result is {@link ApprovalResult#APPROVED_NO_SANDBOX}, sets a thread-local
+     * flag that {@link ShellTools} can check to bypass sandbox restrictions.
      */
     public static ToolExecutionResult executeWithApproval(
             IConsoleIO io, ToolRegistry registry, ToolExecutionRequest request) throws InterruptedException {
@@ -37,8 +47,15 @@ public final class ToolExecutionHelper {
             io.afterToolOutput(result);
             return result;
         }
-        ToolExecutionResult result = registry.executeTool(request);
-        io.afterToolOutput(result);
-        return result;
+        if (approval.skipSandbox()) {
+            SANDBOX_OVERRIDE.set(true);
+        }
+        try {
+            ToolExecutionResult result = registry.executeTool(request);
+            io.afterToolOutput(result);
+            return result;
+        } finally {
+            SANDBOX_OVERRIDE.remove();
+        }
     }
 }

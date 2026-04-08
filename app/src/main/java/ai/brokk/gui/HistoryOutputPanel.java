@@ -107,6 +107,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public enum ApprovalChoice {
         ALLOW,
         ALLOW_SESSION,
+        ALLOW_NO_SANDBOX,
         DENY
     }
 
@@ -504,7 +505,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * that completes when the user makes a choice. Must be called on the EDT.
      */
     public CompletableFuture<ApprovalChoice> showApprovalBanner(
-            String toolName, String description, String sessionButtonLabel) {
+            String toolName, String description, String sessionButtonLabel, boolean showNoSandbox) {
         assert SwingUtilities.isEventDispatchThread();
         hideApprovalBanner();
 
@@ -551,6 +552,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         buttonPanel.add(allowButton);
         buttonPanel.add(sessionButton);
+        if (showNoSandbox) {
+            var noSandboxButton = new MaterialButton("Allow Without Sandbox");
+            noSandboxButton.addActionListener(e -> resolveApproval(ApprovalChoice.ALLOW_NO_SANDBOX));
+            buttonPanel.add(noSandboxButton);
+        }
         buttonPanel.add(denyButton);
 
         approvalBannerPanel.add(buttonPanel, BorderLayout.EAST);

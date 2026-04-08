@@ -2256,8 +2256,8 @@ public class Chrome
         var hop = rightPanel.getHistoryOutputPanel();
         var futureHolder = new CompletableFuture[] {null};
         try {
-            SwingUtilities.invokeAndWait(() -> futureHolder[0] =
-                    hop.showApprovalBanner(approval.title(), approval.description(), approval.sessionButtonLabel()));
+            SwingUtilities.invokeAndWait(() -> futureHolder[0] = hop.showApprovalBanner(
+                    approval.title(), approval.description(), approval.sessionButtonLabel(), approval.showNoSandbox()));
         } catch (java.lang.reflect.InvocationTargetException e) {
             logger.error("Error showing approval banner", e);
             return ApprovalResult.DENIED;
@@ -2271,7 +2271,11 @@ public class Chrome
             if (choice == HistoryOutputPanel.ApprovalChoice.ALLOW_SESSION) {
                 sessionApprovedTools.add(approval.sessionKey());
             }
-            return choice == HistoryOutputPanel.ApprovalChoice.DENY ? ApprovalResult.DENIED : ApprovalResult.APPROVED;
+            return switch (choice) {
+                case DENY -> ApprovalResult.DENIED;
+                case ALLOW_NO_SANDBOX -> ApprovalResult.APPROVED_NO_SANDBOX;
+                default -> ApprovalResult.APPROVED;
+            };
         } catch (ExecutionException e) {
             logger.error("Error waiting for approval", e);
             return ApprovalResult.DENIED;
@@ -2281,7 +2285,8 @@ public class Chrome
         }
     }
 
-    private record ApprovalContext(String title, String description, String sessionButtonLabel, String sessionKey) {}
+    private record ApprovalContext(
+            String title, String description, String sessionButtonLabel, String sessionKey, boolean showNoSandbox) {}
 
     private ApprovalContext computeApprovalContext(ToolExecutionRequest request) {
         return switch (request.name()) {
@@ -2291,7 +2296,8 @@ public class Chrome
                         "Agent wants to edit code",
                         instructions != null ? instructions : "",
                         "Allow Edits for Session",
-                        "callCodeAgent");
+                        "callCodeAgent",
+                        false);
             }
             case "runShellCommand" -> {
                 var command = extractJsonField(request.arguments(), "command");
@@ -2299,14 +2305,16 @@ public class Chrome
                         "Agent wants to run a shell command",
                         command != null ? command : request.arguments(),
                         "Allow Command for Session",
-                        "runShellCommand:" + (command != null ? command : ""));
+                        "runShellCommand:" + (command != null ? command : ""),
+                        true);
             }
             default ->
                 new ApprovalContext(
                         "Agent wants to run: " + request.name(),
                         request.arguments(),
                         "Allow for Session",
-                        request.name());
+                        request.name(),
+                        false);
         };
     }
 
