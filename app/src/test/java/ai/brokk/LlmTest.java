@@ -1,11 +1,17 @@
 package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
+import ai.brokk.testutil.TestProject;
 import ai.brokk.util.HistoryIo;
+import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -82,5 +88,35 @@ public class LlmTest {
         sessionManager.getSessionsCache().put(legacyId, legacyInfo);
 
         assertEquals(0.0, sessionManager.getTotalSessionCost(legacyId), 0.001);
+    }
+
+    @Test
+    void logRequestOnly_writes_request_json_without_response_log() throws Exception {
+        var project = new TestProject(tempDir);
+        var cm = new TestContextManager(
+                project, new TestConsoleIO(), java.util.Set.of(), new ai.brokk.testutil.TestAnalyzer());
+        var llm = new Llm(
+                new AbstractService.OfflineStreamingModel(),
+                "test request log only",
+                TaskResult.Type.CODE,
+                cm,
+                false,
+                false,
+                false,
+                false);
+
+        llm.logRequestOnly(List.of(new UserMessage("hello")));
+
+        var historyDir = Llm.getHistoryBaseDir(tempDir);
+        var requestFiles = Files.walk(historyDir)
+                .filter(path -> path.getFileName().toString().endsWith("request.json"))
+                .toList();
+        var responseLogs = Files.walk(historyDir)
+                .filter(path -> path.getFileName().toString().endsWith(".log"))
+                .toList();
+
+        assertEquals(1, requestFiles.size());
+        assertTrue(Files.readString(requestFiles.getFirst()).contains("hello"));
+        assertEquals(List.of(), responseLogs);
     }
 }

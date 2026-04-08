@@ -82,6 +82,10 @@ public class Environment {
         return Duration.ofSeconds(10);
     }
 
+    public static boolean isBooleanFlagEnabled(@Nullable String value) {
+        return value != null && Boolean.parseBoolean(value.trim());
+    }
+
     /** Timeout for network-heavy git operations (fetch, clone, push, pull). */
     public static final Duration GIT_NETWORK_TIMEOUT = Duration.ofMinutes(5);
 

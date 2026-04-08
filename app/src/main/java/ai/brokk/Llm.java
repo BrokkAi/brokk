@@ -718,6 +718,18 @@ public class Llm {
         }
     }
 
+    public void logRequestOnly(List<ChatMessage> rawMessages) {
+        logRequestOnly(rawMessages, requestOptions());
+    }
+
+    public void logRequestOnly(List<ChatMessage> rawMessages, RequestOptions options) {
+        var messages = Messages.forLlm(rawMessages);
+        if (messages.isEmpty()) {
+            throw new IllegalArgumentException("Cannot log request with empty message list");
+        }
+        logRequest(buildChatRequest(messages, options));
+    }
+
     private record ToolContractCheck(StreamingResult rawResult, StreamingResult processedResult, List<String> errors) {}
 
     private ToolContractCheck checkToolContractAndPostProcess(StreamingResult result, ToolContext toolContext) {
@@ -778,7 +790,7 @@ public class Llm {
                     attempt,
                     LogDescription.getShortDescription(description, 12));
 
-            response = doSingleSendMessage(model, messages, options);
+            response = doSingleSendMessage(messages, options);
             lastError = response.error;
             if (!response.isEmpty() && (lastError == null || allowPartialResponses)) {
                 // Success!
@@ -842,23 +854,25 @@ public class Llm {
     /**
      * Sends messages to model in a single attempt.
      */
-    private StreamingResult doSingleSendMessage(
-            StreamingChatModel model, List<ChatMessage> messages, RequestOptions options) throws InterruptedException {
+    private StreamingResult doSingleSendMessage(List<ChatMessage> messages, RequestOptions options)
+            throws InterruptedException {
         // Note: writeRequestToHistory is now called *within* this method,
         // right before doSingleStreamingCall, to ensure it uses the final `messagesToSend`.
+        var request = buildChatRequest(messages, options);
+        return doSingleStreamingCall(request);
+    }
 
+    private ChatRequest buildChatRequest(List<ChatMessage> messages, RequestOptions options) {
         var toolContext = options.toolContext();
         var tools = toolContext.toolSpecifications();
         var toolChoice = toolContext.toolChoice();
 
-        // Build request with parameters (always include base params for previousResponseId/metadata)
         var requestBuilder = ChatRequest.builder().messages(messages);
         var paramsBuilder = getParamsBuilder(options);
 
         if (!tools.isEmpty()) {
             paramsBuilder = paramsBuilder.toolSpecifications(tools);
             if (contextManager.getService().supportsParallelCalls(model)) {
-                // can't just blindly call .parallelToolCalls(boolean), litellm will barf if it sees the option at all
                 paramsBuilder = paramsBuilder.parallelToolCalls(true);
             }
             if (toolChoice == ToolChoice.REQUIRED && contextManager.getService().supportsToolChoiceRequired(model)) {
@@ -866,8 +880,7 @@ public class Llm {
             }
         }
 
-        var request = requestBuilder.parameters(paramsBuilder.build()).build();
-        return doSingleStreamingCall(request);
+        return requestBuilder.parameters(paramsBuilder.build()).build();
     }
 
     private void prettyPrintToolCalls(ToolContext toolContext, List<ToolExecutionRequest> requests) {

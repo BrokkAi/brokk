@@ -114,4 +114,14 @@ class EnvironmentTest {
                 },
                 "Negative timeout should throw IllegalArgumentException");
     }
+
+    @Test
+    void isBooleanFlagEnabled_requiresExplicitTrue() {
+        assertTrue(Environment.isBooleanFlagEnabled("true"));
+        assertTrue(Environment.isBooleanFlagEnabled(" TRUE "));
+        assertFalse(Environment.isBooleanFlagEnabled("false"));
+        assertFalse(Environment.isBooleanFlagEnabled("0"));
+        assertFalse(Environment.isBooleanFlagEnabled(""));
+        assertFalse(Environment.isBooleanFlagEnabled(null));
+    }
 }
