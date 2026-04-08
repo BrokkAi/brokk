@@ -80,7 +80,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                     if (root == null) {
                         return List.of();
                     }
-                    return withSource(file, source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights), List.of());
+                    return withSource(
+                            file,
+                            source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights),
+                            List.of());
                 },
                 List.of());
     }

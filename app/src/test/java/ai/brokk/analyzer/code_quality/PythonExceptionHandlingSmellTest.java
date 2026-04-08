@@ -1,7 +1,7 @@
 package ai.brokk.analyzer.code_quality;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
@@ -14,7 +14,8 @@ public class PythonExceptionHandlingSmellTest {
 
     @Test
     void flagsBareExceptWithTinyBody() {
-        String code = """
+        String code =
+                """
                 def run():
                     try:
                         work()
@@ -34,7 +35,8 @@ public class PythonExceptionHandlingSmellTest {
 
     @Test
     void substantialHandlingCanAvoidFlag() {
-        String code = """
+        String code =
+                """
                 def run():
                     try:
                         work()
@@ -60,7 +62,8 @@ public class PythonExceptionHandlingSmellTest {
 
     @Test
     void reportsNestedExceptHandlers() {
-        String code = """
+        String code =
+                """
                 def run():
                     try:
                         outer()
@@ -81,12 +84,15 @@ public class PythonExceptionHandlingSmellTest {
                     return 0
                 """;
         var findings = analyze(code);
-        long catches = findings.stream().filter(f -> !f.catchType().equals("<unknown>")).count();
+        long catches = findings.stream()
+                .filter(f -> !f.catchType().equals("<unknown>"))
+                .count();
         assertEquals(2, catches, "Expected both outer and inner except handlers to be reported");
     }
 
     private List<IAnalyzer.ExceptionHandlingSmell> analyze(String source) {
-        try (var testProject = InlineTestProjectCreator.code(source, "pkg/test_mod.py").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(source, "pkg/test_mod.py").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             ProjectFile file = new ProjectFile(testProject.getRoot(), "pkg/test_mod.py");
             return analyzer.findExceptionHandlingSmells(file, IAnalyzer.ExceptionSmellWeights.defaults());

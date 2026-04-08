@@ -173,7 +173,7 @@ public class CodeQualityTools {
                 }
                 lines.add("| `%s` | %d | %d | %d | %d | %d | %d |"
                         .formatted(
-                            sanitizeTableCell(s.fqName()),
+                                sanitizeTableCell(s.fqName()),
                                 s.headerCommentLines(),
                                 s.inlineCommentLines(),
                                 s.spanLines(),

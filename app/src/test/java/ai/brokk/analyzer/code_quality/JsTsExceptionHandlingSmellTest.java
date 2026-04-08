@@ -1,7 +1,7 @@
 package ai.brokk.analyzer.code_quality;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
@@ -14,7 +14,8 @@ public class JsTsExceptionHandlingSmellTest {
 
     @Test
     void flagsUntypedCatchWithSmallBody() {
-        String code = """
+        String code =
+                """
                 export function run() {
                   try {
                     work();
@@ -33,7 +34,8 @@ public class JsTsExceptionHandlingSmellTest {
 
     @Test
     void substantialHandlingCanAvoidFlag() {
-        String code = """
+        String code =
+                """
                 export function run() {
                   try {
                     work();
@@ -56,7 +58,8 @@ public class JsTsExceptionHandlingSmellTest {
 
     @Test
     void reportsNestedCatchHandlers() {
-        String code = """
+        String code =
+                """
                 export function run() {
                   try {
                     outer();
@@ -75,7 +78,8 @@ public class JsTsExceptionHandlingSmellTest {
                 function metrics() {}
                 """;
         var findings = analyze(code, "src/test.ts");
-        long untypedCount = findings.stream().filter(f -> f.catchType().equals("<untyped>")).count();
+        long untypedCount =
+                findings.stream().filter(f -> f.catchType().equals("<untyped>")).count();
         assertEquals(2, untypedCount, "Expected both outer and inner catch handlers to be reported");
     }
 

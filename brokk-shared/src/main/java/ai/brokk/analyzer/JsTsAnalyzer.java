@@ -100,7 +100,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                     if (root == null) {
                         return List.of();
                     }
-                    return withSource(file, source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights), List.of());
+                    return withSource(
+                            file,
+                            source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights),
+                            List.of());
                 },
                 List.of());
     }
