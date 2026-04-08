@@ -29,6 +29,7 @@ import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
+import ai.brokk.tools.Destructive;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.SearchTools;
@@ -1322,6 +1323,7 @@ public class LutzAgent {
 
         @Tool(
                 "Invoke the Code Agent to implement the current goal in a single shot using your provided instructions. Provide complete, self-contained instructions; only the Workspace and your instructions are visible to the Code Agent.")
+        @Destructive
         @SuppressWarnings("UnusedMethod")
         public String callCodeAgent(
                 @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
