@@ -136,12 +136,14 @@ class SftServerTest {
 
             assertEquals(1, formatted.size());
             assertNotNull(filePatch);
+            assertTrue(filePatch.contains("src/main/java/example/Foo.java"));
             assertTrue(filePatch.contains("<<<<<<< SEARCH"));
             assertTrue(filePatch.contains("alpha()"));
             assertTrue(filePatch.contains("alphaUpdated()"));
             assertTrue(filePatch.contains("omega()"));
             assertTrue(filePatch.contains("omegaUpdated()"));
             assertFalse(filePatch.contains("BRK_ENTIRE_FILE"));
+            assertFalse(filePatch.contains("src\\main\\java\\example\\Foo.java"));
         }
     }
 

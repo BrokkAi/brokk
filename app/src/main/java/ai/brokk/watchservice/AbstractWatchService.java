@@ -117,6 +117,10 @@ public abstract class AbstractWatchService implements AutoCloseable {
         logger.debug("Removed listener: {}", listener.getClass().getSimpleName());
     }
 
+    public void close(long awaitMillis) {
+        close();
+    }
+
     @Override
     public abstract void close();
 
