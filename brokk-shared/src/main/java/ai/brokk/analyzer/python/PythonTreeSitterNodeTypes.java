@@ -49,6 +49,8 @@ public final class PythonTreeSitterNodeTypes {
 
     // Literals and Keywords
     public static final String STRING = "string";
+    public static final String STRING_CONTENT = "string_content";
+    public static final String INTERPOLATION = "interpolation";
     public static final String INTEGER = "integer";
     public static final String FLOAT = "float";
     public static final String TRUE = "true";
@@ -60,6 +62,7 @@ public final class PythonTreeSitterNodeTypes {
     public static final String DECORATED_DEFINITION = "decorated_definition";
     public static final String ATTRIBUTE = "attribute";
     public static final String IDENTIFIER = "identifier";
+    public static final String KEYWORD_IDENTIFIER = "keyword_identifier";
     public static final String CALL = "call";
     public static final String COMMENT = CommonTreeSitterNodeTypes.COMMENT;
     public static final String LINE_COMMENT = CommonTreeSitterNodeTypes.LINE_COMMENT;

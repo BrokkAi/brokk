@@ -35,6 +35,12 @@ public final class TypeScriptTreeSitterNodeTypes {
     // Expressions
     public static final String TERNARY_EXPRESSION = "ternary_expression";
     public static final String BINARY_EXPRESSION = "binary_expression";
+    public static final String IDENTIFIER = "identifier";
+    public static final String STRING = "string";
+    public static final String TEMPLATE_STRING = "template_string";
+    public static final String NUMBER = "number";
+    public static final String TRUE = "true";
+    public static final String FALSE = "false";
 
     // Decorators
     public static final String DECORATOR = CommonTreeSitterNodeTypes.DECORATOR;
@@ -68,6 +74,8 @@ public final class TypeScriptTreeSitterNodeTypes {
 
     // Modifier types
     public static final String ACCESSIBILITY_MODIFIER = "accessibility_modifier";
+    public static final String MODIFIERS = "modifiers";
+    public static final String TYPE_PARAMETERS = "type_parameters";
 
     // Other types
     public static final String INTERFACE = "interface";
