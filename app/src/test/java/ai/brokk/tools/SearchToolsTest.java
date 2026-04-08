@@ -24,6 +24,7 @@ import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
@@ -132,6 +133,28 @@ public class SearchToolsTest {
         }
     }
 
+    private void commitTrackedFiles(Map<String, String> filesByPath, Instant instant, String message) throws Exception {
+        try (Git git = Git.open(projectRoot.toFile())) {
+            var ident = new PersonIdent("Test User", "test@example.com", instant, ZoneId.of("UTC"));
+            for (var entry : filesByPath.entrySet()) {
+                Path file = projectRoot.resolve(entry.getKey());
+                Path parent = file.getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                Files.writeString(file, entry.getValue());
+                mockProjectFiles.add(new ProjectFile(projectRoot, entry.getKey()));
+                git.add().addFilepattern(entry.getKey().replace('\\', '/')).call();
+            }
+            git.commit()
+                    .setMessage(message)
+                    .setAuthor(ident)
+                    .setCommitter(ident)
+                    .setSign(false)
+                    .call();
+        }
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         projectRoot = tempDir.resolve("testRepo");
@@ -212,9 +235,11 @@ public class SearchToolsTest {
         recreateSearchTools();
 
         String result = searchTools.findFilenames(List.of(".*\\.txt"), 1);
+        String mainSection = mainResultSection(result);
 
-        assertTrue(result.contains("z-high.txt"), "More important file should be selected when limit is hit");
-        assertFalse(result.contains("a-low.txt"), "Alphabetically earlier file should be dropped when less important");
+        assertTrue(mainSection.contains("z-high.txt"), "More important file should be selected when limit is hit");
+        assertFalse(
+                mainSection.contains("a-low.txt"), "Alphabetically earlier file should be dropped when less important");
     }
 
     @Test
@@ -274,6 +299,22 @@ public class SearchToolsTest {
         String resultUpper = searchTools.findFilenames(List.of("MOP.SVELTE"), 200);
         assertTrue(resultUpper.contains("# frontend-mop/src"), "Should group by common prefix");
         assertTrue(resultUpper.contains("- MOP.svelte"), "Should include matching file under prefix");
+    }
+
+    @Test
+    void testFindFilenames_AppendsRelatedContent() throws Exception {
+        commitTrackedFiles(
+                Map.of("A.java", "class A {}", "B.java", "class B {}"),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add A and B together");
+        recreateSearchTools();
+
+        String result = searchTools.findFilenames(List.of("A\\.java"), 10);
+        String relatedSection = relatedContentSection(result);
+
+        assertTrue(result.contains("## Related Content"), "Should include related content header");
+        assertTrue(relatedSection.contains("B.java"), "Should include a Git-related file");
+        assertFalse(relatedSection.contains("A.java"), "Should not echo the result file in related content");
     }
 
     @Test
@@ -554,11 +595,13 @@ public class SearchToolsTest {
         recreateSearchTools();
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "*.txt", false, false, 0, 1);
+        String mainSection = mainResultSection(result);
 
         assertTrue(
-                result.contains("z-high.txt"), "More important matching file should be selected when maxFiles is hit");
+                mainSection.contains("z-high.txt"),
+                "More important matching file should be selected when maxFiles is hit");
         assertFalse(
-                result.contains("a-low.txt"),
+                mainSection.contains("a-low.txt"),
                 "Alphabetically earlier matching file should be omitted when less important");
     }
 
@@ -658,6 +701,35 @@ public class SearchToolsTest {
 
         String result = tools.searchSymbols(List.of("A"), false, 200);
         assertTrue(result.contains("loc=\"1\""), "Should contain loc attribute in file tag. Result: " + result);
+    }
+
+    @Test
+    void testSearchSymbols_AppendsRelatedContent() throws Exception {
+        commitTrackedFiles(
+                Map.of("A.java", "class A {}", "B.java", "class B {}"),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add A and B together");
+
+        ProjectFile aFile = new ProjectFile(projectRoot, "A.java");
+        ProjectFile bFile = new ProjectFile(projectRoot, "B.java");
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(aFile, "", "A"));
+        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(bFile, "", "B"));
+
+        TestContextManager ctx = new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo);
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.searchSymbols(List.of("A"), false, 200);
+        String relatedSection = relatedContentSection(result);
+
+        assertTrue(result.contains("## Related Content"), "Should include related content header");
+        assertTrue(relatedSection.contains("B.java"), "Should include a Git-related file");
+        assertFalse(relatedSection.contains("A.java"), "Should not echo the result file in related content");
     }
 
     @Test
@@ -771,11 +843,13 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "budget26.txt"));
 
         String result = searchTools.searchFileContents(List.of("A", "B", "C"), "budget*.txt", false, false, 0, 999);
+        String mainSection = mainResultSection(result);
 
-        assertTrue(result.contains("budget25.txt (40 loc) (pattern: B) (first 20/20 matches)"));
-        assertTrue(result.contains("budget25.txt (40 loc) (pattern: C) (first 20/20 matches)"));
+        assertTrue(mainSection.contains("budget25.txt (40 loc) (pattern: B) (first 20/20 matches)"));
+        assertTrue(mainSection.contains("budget25.txt (40 loc) (pattern: C) (first 20/20 matches)"));
         assertFalse(
-                result.contains("budget26.txt"), "Should stop before the next file after crossing the 500-match limit");
+                mainSection.contains("budget26.txt"),
+                "Should stop before the next file after crossing the 500-match limit");
         assertTrue(result.contains("TRUNCATED: reached global limit of 500 total matches"));
     }
 
@@ -990,5 +1064,15 @@ public class SearchToolsTest {
             idx += substring.length();
         }
         return count;
+    }
+
+    private static String mainResultSection(String text) {
+        int relatedContentIdx = text.indexOf("\n\n## Related Content\n");
+        return relatedContentIdx >= 0 ? text.substring(0, relatedContentIdx) : text;
+    }
+
+    private static String relatedContentSection(String text) {
+        int relatedContentIdx = text.indexOf("\n\n## Related Content\n");
+        return relatedContentIdx >= 0 ? text.substring(relatedContentIdx) : "";
     }
 }
