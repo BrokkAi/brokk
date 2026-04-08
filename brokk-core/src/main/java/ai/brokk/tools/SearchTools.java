@@ -22,6 +22,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.util.Lines;
+import ai.brokk.util.Messages;
 import ai.brokk.util.PathExpander;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -50,6 +51,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -190,9 +192,22 @@ public class SearchTools {
     }
 
     private final ICodeIntelligence codeIntelligence;
+    private final AtomicLong researchTokens = new AtomicLong(0);
 
     public SearchTools(ICodeIntelligence codeIntelligence) {
         this.codeIntelligence = codeIntelligence;
+    }
+
+    /**
+     * Returns the number of research tokens accumulated since the last call to this method, and resets the counter to zero.
+     */
+    public long getAndClearResearchTokens() {
+        return researchTokens.getAndSet(0);
+    }
+
+    private String recordResearchTokens(String output) {
+        researchTokens.addAndGet(Messages.getApproximateTokens(output));
+        return output;
     }
 
     private String appendRelatedContent(String output, Collection<ProjectFile> resultFiles) {
@@ -854,7 +869,7 @@ public class SearchTools {
         }
 
         // Return the combined skeleton strings directly, joined by newlines
-        return appendRelatedContent(String.join("\n\n", allSkeletons), filesWithSummaries);
+        return recordResearchTokens(appendRelatedContent(String.join("\n\n", allSkeletons), filesWithSummaries));
     }
 
     // --- Tool Methods requiring analyzer
@@ -954,7 +969,7 @@ public class SearchTools {
             result.append("</file>\n");
         });
 
-        return appendRelatedContent(result.toString(), filesToRender);
+        return recordResearchTokens(appendRelatedContent(result.toString(), filesToRender));
     }
 
     public String scanUsages(List<String> symbols, boolean includeTests) {
@@ -992,7 +1007,7 @@ public class SearchTools {
         if (results.isEmpty()) {
             return "No usages found for: " + String.join(", ", symbols);
         }
-        return appendRelatedContent(String.join("\n\n", results), resultFiles);
+        return recordResearchTokens(appendRelatedContent(String.join("\n\n", results), resultFiles));
     }
 
     public String getClassSkeletons(List<String> classNames) {
@@ -1022,7 +1037,7 @@ public class SearchTools {
             return "No classes found in: " + String.join(", ", classNames);
         }
 
-        return appendRelatedContent(result, resultFiles);
+        return recordResearchTokens(appendRelatedContent(result, resultFiles));
     }
 
     public String getClassSources(List<String> classNames) {
@@ -1081,7 +1096,7 @@ public class SearchTools {
                     + "Retrying the same tool call will return the same results.\n\n" + output;
         }
 
-        return appendRelatedContent(output, resultFiles);
+        return recordResearchTokens(appendRelatedContent(output, resultFiles));
     }
 
     public String getSymbolLocations(List<String> symbols) {
@@ -1120,7 +1135,7 @@ public class SearchTools {
             result.append("\n\nNot found: ").append(String.join(", ", notFound));
         }
 
-        return appendRelatedContent(result.toString(), resultFiles);
+        return recordResearchTokens(appendRelatedContent(result.toString(), resultFiles));
     }
 
     public String getMethodSources(List<String> methodNames) {
@@ -1158,7 +1173,7 @@ public class SearchTools {
             return "No sources found for methods: " + String.join(", ", methodNames);
         }
 
-        return appendRelatedContent(result.toString(), resultFiles);
+        return recordResearchTokens(appendRelatedContent(result.toString(), resultFiles));
     }
 
     public String getGitLog(String path, int limit) {
@@ -1224,7 +1239,7 @@ public class SearchTools {
             }
 
             sb.append("</git_log>");
-            return appendRelatedContent(sb.toString(), resultFiles);
+            return recordResearchTokens(appendRelatedContent(sb.toString(), resultFiles));
         } catch (GitAPIException e) {
             logger.error("Error retrieving git log for path '{}': {}", path, e.getMessage(), e);
             return "Error retrieving git log: " + e.getMessage();
@@ -1373,7 +1388,7 @@ public class SearchTools {
             }
         }
 
-        return appendRelatedContent(resultBuilder.toString(), resultFiles);
+        return recordResearchTokens(appendRelatedContent(resultBuilder.toString(), resultFiles));
     }
 
     // --- Text search tools
@@ -1432,7 +1447,7 @@ public class SearchTools {
                             searchResult.errors().size(), searchResult.errors().getFirst());
         }
         logger.debug(msg);
-        return appendRelatedContent(msg, matchingFilenames);
+        return recordResearchTokens(appendRelatedContent(msg, matchingFilenames));
     }
 
     public record FindFilesContainingResult(Set<ProjectFile> matches, List<String> errors) {}
@@ -1652,8 +1667,8 @@ public class SearchTools {
             output += "\n\n" + String.join("\n", suffixLines);
         }
 
-        return appendRelatedContent(
-                output, selectedHits.stream().map(FileHit::file).toList());
+        return recordResearchTokens(appendRelatedContent(
+                output, selectedHits.stream().map(FileHit::file).toList()));
     }
 
     private record EffectiveLimits(int maxFiles, int matchesPerFile) {}
@@ -1774,8 +1789,8 @@ public class SearchTools {
             output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
         }
 
-        return appendRelatedContent(
-                output, batchResult.results().stream().map(FileOutput::file).toList());
+        return recordResearchTokens(appendRelatedContent(
+                output, batchResult.results().stream().map(FileOutput::file).toList()));
     }
 
     public String xmlSkim(String filepath, int maxFiles) throws InterruptedException {
@@ -1852,8 +1867,8 @@ public class SearchTools {
                     .formatted(batchResult.errors().size(), batchResult.errors().getFirst());
         }
 
-        return appendRelatedContent(
-                output, batchResult.results().stream().map(FileOutput::file).toList());
+        return recordResearchTokens(appendRelatedContent(
+                output, batchResult.results().stream().map(FileOutput::file).toList()));
     }
 
     public String xmlSelect(
@@ -2020,8 +2035,8 @@ public class SearchTools {
                     .formatted(batchResult.errors().size(), batchResult.errors().getFirst());
         }
 
-        return appendRelatedContent(
-                outResult, batchResult.results().stream().map(FileOutput::file).toList());
+        return recordResearchTokens(appendRelatedContent(
+                outResult, batchResult.results().stream().map(FileOutput::file).toList()));
     }
 
     public String findFilenames(List<String> patterns, int limit) {
@@ -2113,9 +2128,9 @@ public class SearchTools {
                     + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
         }
 
-        return appendRelatedContent(
+        return recordResearchTokens(appendRelatedContent(
                 prefix + "Matching filenames by common prefix:\n" + formatFilenamesByPrefix(matchingFiles),
-                matchingFiles);
+                matchingFiles));
     }
 
     private String formatFilenamesByPrefix(List<ProjectFile> matchingFiles) {
@@ -2206,7 +2221,7 @@ public class SearchTools {
             return "None of the requested files could be read: " + String.join(", ", filenames);
         }
 
-        return appendRelatedContent(result.toString(), successfulFiles);
+        return recordResearchTokens(appendRelatedContent(result.toString(), successfulFiles));
     }
 
     /**
@@ -2278,7 +2293,7 @@ public class SearchTools {
                 .filter(file -> file.getParent().equals(normalizedPath))
                 .sorted()
                 .toList();
-        return appendRelatedContent(result, listedFiles);
+        return recordResearchTokens(appendRelatedContent(result, listedFiles));
     }
 
     public String skimFiles(List<String> filePaths) {
@@ -2342,9 +2357,9 @@ public class SearchTools {
                 .collect(Collectors.joining());
 
         if (!fullTruncated) {
-            return appendRelatedContent(
+            return recordResearchTokens(appendRelatedContent(
                     prefix + fullSkim,
-                    selectedBlocks.stream().map(FileOutput::file).toList());
+                    selectedBlocks.stream().map(FileOutput::file).toList()));
         }
 
         String filesCdl = selectedBlocks.stream()
@@ -2364,9 +2379,9 @@ public class SearchTools {
                 """
                         .formatted(filesCdl);
 
-        return appendRelatedContent(
+        return recordResearchTokens(appendRelatedContent(
                 prefix + filenamesResult,
-                selectedBlocks.stream().map(FileOutput::file).toList());
+                selectedBlocks.stream().map(FileOutput::file).toList()));
     }
 
     /**

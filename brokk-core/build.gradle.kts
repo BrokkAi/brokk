@@ -50,6 +50,7 @@ dependencies {
     implementation(libs.jackson.databind)
     implementation(libs.jackson.smile)
     implementation(libs.jackson.jq)
+    implementation(libs.jtokkit)
     api(libs.jackson.annotations)
     implementation(libs.lz4)
 

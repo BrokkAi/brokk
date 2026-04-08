@@ -1,5 +1,6 @@
 package ai.brokk.tools;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -105,6 +106,28 @@ class SearchToolsTest {
         assertTrue(result.contains("## Related Content"), "Should include related content header");
         assertTrue(relatedSection.contains("B.java"), "Should include a related file");
         assertFalse(relatedSection.contains("A.java"), "Should not echo the seed file");
+    }
+
+    @Test
+    void findFilenames_TracksResearchTokensIncludingRelatedContent() throws Exception {
+        Path projectRoot = initRepo();
+        commitTrackedFiles(
+                projectRoot,
+                Map.of("A.java", "class A {}", "B.java", "class B {}"),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add A and B together");
+
+        project = new CoreProject(projectRoot);
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, new DisabledAnalyzer(project)));
+
+        assertEquals(0L, tools.getAndClearResearchTokens(), "Counter should start empty");
+
+        String result = tools.findFilenames(List.of("A\\.java"), 10);
+        long countedTokens = tools.getAndClearResearchTokens();
+
+        assertTrue(result.contains("## Related Content"), "Should include related content header");
+        assertTrue(countedTokens > 0, "Final output should be counted as research tokens");
+        assertEquals(0L, tools.getAndClearResearchTokens(), "Counter should reset after reading");
     }
 
     private Path initRepo() throws Exception {
