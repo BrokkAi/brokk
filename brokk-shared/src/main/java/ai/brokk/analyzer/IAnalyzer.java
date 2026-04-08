@@ -497,6 +497,25 @@ public interface IAnalyzer {
     }
 
     /**
+     * Returns human-readable declaration signatures for a code unit, intended for display in search results.
+     *
+     * <p>Implementations with syntax-aware skeleton support should override this to return declaration text from
+     * source. The default fallback is intentionally lightweight and may omit modifiers or inheritance details.
+     */
+    default List<String> getDisplaySignatures(CodeUnit codeUnit) {
+        String functionDisplay = codeUnit.signature() != null
+                ? codeUnit.identifier() + codeUnit.signature()
+                : codeUnit.identifier() + "()";
+        return List.of(
+                switch (codeUnit.kind()) {
+                    case CLASS -> "class " + codeUnit.identifier();
+                    case FUNCTION -> functionDisplay;
+                    case FIELD -> codeUnit.identifier();
+                    case MODULE -> codeUnit.shortName();
+                });
+    }
+
+    /**
      * Returns an analyzer that targets the given language if one is available. For single-analyzers, it will be the
      * analyzer instance itself if there is a match. For multi-analyzers, it will be a matching delegate, if any.
      *

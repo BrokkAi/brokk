@@ -748,6 +748,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     @Override
+    public List<String> getDisplaySignatures(CodeUnit codeUnit) {
+        var displaySignatures = signaturesOf(codeUnit).stream()
+                .map(TreeSitterAnalyzer::normalizeDisplaySignature)
+                .filter(signature -> !signature.isBlank())
+                .distinct()
+                .toList();
+        return displaySignatures.isEmpty() ? IAnalyzer.super.getDisplaySignatures(codeUnit) : displaySignatures;
+    }
+
+    private static String normalizeDisplaySignature(String signature) {
+        String normalized = signature
+                .lines()
+                .map(String::trim)
+                .filter(line -> !line.isBlank())
+                .collect(Collectors.joining(" "))
+                .replaceAll("\\s+", " ")
+                .strip();
+        while (normalized.endsWith("{")) {
+            normalized = normalized.substring(0, normalized.length() - 1).stripTrailing();
+        }
+        return normalized;
+    }
+
+    @Override
     public List<Range> rangesOf(CodeUnit codeUnit) {
         return codeUnitProperties(codeUnit).rangesList();
     }

@@ -982,9 +982,9 @@ public class SearchTools {
             Example output:
             <file path="src/main/java/com/example/Foo.java">
             [CLASS]
-            - com.example.Foo
+            - class Foo extends IFoo
             [FUNCTION]
-            - com.example.Foo.bar
+            - public void bar(int x, int y)
             </file>
             """)
     public String searchSymbols(
@@ -1079,9 +1079,12 @@ public class SearchTools {
                 var symbols = kindGroups.get(kind);
                 if (symbols != null && !symbols.isEmpty()) {
                     result.append("[").append(kind).append("]\n");
-                    symbols.stream().map(CodeUnit::fqName).distinct().sorted().forEach(fqn -> result.append("- ")
-                            .append(fqn)
-                            .append("\n"));
+                    symbols.stream()
+                            .flatMap(cu -> analyzer.getDisplaySignatures(cu).stream())
+                            .distinct()
+                            .sorted(String.CASE_INSENSITIVE_ORDER)
+                            .forEach(signature ->
+                                    result.append("- ").append(signature).append("\n"));
                 }
             });
 
@@ -1096,7 +1099,8 @@ public class SearchTools {
             Find where and how a symbol is used/called/accessed/wired across the codebase.
             Returns call sites with enclosing context and up to three full source examples.
             Use for questions like "how is X used", "who calls X", "how is X obtained/wired".
-            Requires fully qualified symbol names -- call searchSymbols first if you only have a partial name.
+            Requires exact symbol names, usually fully qualified. Use searchSymbols to identify candidate declarations
+            when you only have a partial name, then choose the exact symbol to inspect.
             """)
     public String scanUsages(
             @P("Fully qualified symbol names (package name, class name, optional member name) to find usages for")

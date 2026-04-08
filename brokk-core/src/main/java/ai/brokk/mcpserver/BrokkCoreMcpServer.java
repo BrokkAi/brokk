@@ -240,6 +240,7 @@ public class BrokkCoreMcpServer {
         specs.add(tool(
                 "searchSymbols",
                 "Find where classes, functions, fields, and modules are defined. "
+                        + "Returns human-readable declaration signatures grouped by file and kind. "
                         + "Patterns are case-insensitive regex with implicit ^ and $, so use wildcarding: "
                         + ".*Foo.*, Abstract.*, [a-z]*DAO.",
                 schema(
@@ -258,7 +259,8 @@ public class BrokkCoreMcpServer {
         specs.add(tool(
                 "scanUsages",
                 "Find where and how a symbol is used/called/accessed across the codebase. "
-                        + "Requires fully qualified symbol names -- call searchSymbols first if you only have a partial name.",
+                        + "Requires exact symbol names, usually fully qualified. "
+                        + "Use searchSymbols to identify candidate declarations when you only have a partial name.",
                 schema(
                         Map.of(
                                 "symbols", arrayProp("Fully qualified symbol names to find usages for."),

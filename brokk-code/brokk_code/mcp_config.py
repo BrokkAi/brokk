@@ -391,7 +391,11 @@ without reading full source code.
 1. Use `getSummaries` with fully qualified class names, file paths,
    or glob patterns to get class skeletons (fields and method
    signatures, no bodies).
-2. Only escalate to heavier read tools (`getClassSources`,
+2. After `searchSymbols`, prefer `getSummaries` or file reads on the
+   returned files when you need more detail; `searchSymbols` returns
+   display signatures grouped by file, not machine-ready fully
+   qualified symbol names.
+3. Only escalate to heavier read tools (`getClassSources`,
    `getMethodSources`) once you have identified the specific classes
    or methods you need.
 """
@@ -454,7 +458,11 @@ without reading full source code.
 1. Use `getSummaries` with fully qualified class names, file paths,
    or glob patterns to get class skeletons (fields and method
    signatures, no bodies).
-2. Only escalate to heavier read tools (`getClassSources`,
+2. After `searchSymbols`, prefer `getSummaries` or file reads on the
+   returned files when you need more detail; `searchSymbols` returns
+   display signatures grouped by file, not machine-ready fully
+   qualified symbol names.
+3. Only escalate to heavier read tools (`getClassSources`,
    `getMethodSources`) once you have identified the specific classes
    or methods you need.
 """

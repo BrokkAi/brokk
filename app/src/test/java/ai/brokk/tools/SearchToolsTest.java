@@ -699,6 +699,39 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testSearchSymbols_RendersDisplaySignatures() throws IOException, InterruptedException {
+        Path aJava = projectRoot.resolve("src/main/java/com/example/A.java");
+        Files.createDirectories(aJava.getParent());
+        Files.writeString(aJava, "class A {}");
+        ProjectFile pf = new ProjectFile(projectRoot, "src/main/java/com/example/A.java");
+        mockProjectFiles.add(pf);
+
+        CodeUnit cls = ai.brokk.analyzer.CodeUnit.cls(pf, "com.example", "A");
+        CodeUnit method = ai.brokk.analyzer.CodeUnit.fn(pf, "com.example", "A.bar");
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(cls);
+        analyzer.addDeclaration(method);
+        analyzer.setDisplaySignatures(cls, List.of("class A extends Base"));
+        analyzer.setDisplaySignatures(method, List.of("public void bar(int x, int y)"));
+
+        TestContextManager ctx = new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo);
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.searchSymbols(List.of(".*A.*"), false, 200);
+
+        assertTrue(result.contains("- class A extends Base"), "Should render class signature. Result: " + result);
+        assertTrue(
+                result.contains("- public void bar(int x, int y)"),
+                "Should render method signature. Result: " + result);
+        assertFalse(result.contains("com.example.A.bar"), "Should not render raw method FQN. Result: " + result);
+    }
+
+    @Test
     void testSearchSymbols_IncludesLoc() throws IOException, InterruptedException {
         Path aJava = projectRoot.resolve("A.java");
         Files.writeString(aJava, "class A {}");

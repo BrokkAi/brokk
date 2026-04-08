@@ -277,6 +277,9 @@ def test_install_codex_mcp_summaries_skill_creates_expected_skill(monkeypatch, t
     assert "name: brokk-get-summaries" in content
     assert "getSummaries" in content
     assert "class skeletons" in content
+    assert "After `searchSymbols`" in content
+    assert "display signatures grouped by file" in content
+    assert "qualified symbol names" in content
 
 
 def test_install_claude_mcp_workspace_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
@@ -303,6 +306,9 @@ def test_install_claude_mcp_summaries_skill_creates_expected_skill(monkeypatch, 
     assert "name: brokk-get-summaries" in content
     assert "getSummaries" in content
     assert "class skeletons" in content
+    assert "After `searchSymbols`" in content
+    assert "display signatures grouped by file" in content
+    assert "qualified symbol names" in content
 
 
 def test_configure_codex_mcp_settings_recovers_malformed_delimiters(tmp_path, monkeypatch):

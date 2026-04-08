@@ -23,6 +23,7 @@ public class TestAnalyzer
     private final Map<String, List<CodeUnit>> methodsMap;
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
     private final Map<CodeUnit, Integer> complexityMap = new HashMap<>();
+    private final Map<CodeUnit, List<String>> displaySignatures = new HashMap<>();
     private final Map<CodeUnit, String> skeletons = new HashMap<>();
     private final Map<CodeUnit, String> sources = new HashMap<>();
     private final Map<CodeUnit, List<Range>> rangesByCodeUnit = new HashMap<>();
@@ -189,6 +190,15 @@ public class TestAnalyzer
     @Override
     public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
         return Optional.empty();
+    }
+
+    @Override
+    public List<String> getDisplaySignatures(CodeUnit codeUnit) {
+        return List.copyOf(displaySignatures.getOrDefault(codeUnit, IAnalyzer.super.getDisplaySignatures(codeUnit)));
+    }
+
+    public void setDisplaySignatures(CodeUnit cu, List<String> signatures) {
+        this.displaySignatures.put(cu, List.copyOf(signatures));
     }
 
     public void setSkeleton(CodeUnit cu, String skeleton) {

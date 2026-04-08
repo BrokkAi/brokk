@@ -112,6 +112,45 @@ class SearchToolsTest {
     }
 
     @Test
+    void searchSymbols_RendersDisplaySignatures() throws Exception {
+        Path projectRoot = initRepo();
+        Path filePath = projectRoot.resolve("src/main/java/com/example/A.java");
+        Files.createDirectories(filePath.getParent());
+        Files.writeString(filePath, "class A {}");
+
+        project = new CoreProject(projectRoot);
+        ProjectFile aFile = new ProjectFile(projectRoot, "src/main/java/com/example/A.java");
+        CodeUnit aClass = CodeUnit.cls(aFile, "com.example", "A");
+        CodeUnit aMethod = CodeUnit.fn(aFile, "com.example", "A.bar");
+        IAnalyzer analyzer = new DisabledAnalyzer(project) {
+            @Override
+            public Set<CodeUnit> searchDefinitions(String pattern) {
+                return ".*A.*".equals(pattern) ? Set.of(aClass, aMethod) : Set.of();
+            }
+
+            @Override
+            public List<String> getDisplaySignatures(CodeUnit codeUnit) {
+                if (codeUnit.equals(aClass)) {
+                    return List.of("class A extends Base");
+                }
+                if (codeUnit.equals(aMethod)) {
+                    return List.of("public void bar(int x, int y)");
+                }
+                return super.getDisplaySignatures(codeUnit);
+            }
+        };
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
+
+        String result = tools.searchSymbols(List.of(".*A.*"), false, 200);
+
+        assertTrue(result.contains("- class A extends Base"), "Should render class signature. Result: " + result);
+        assertTrue(
+                result.contains("- public void bar(int x, int y)"),
+                "Should render method signature. Result: " + result);
+        assertFalse(result.contains("com.example.A.bar"), "Should not render raw method FQN. Result: " + result);
+    }
+
+    @Test
     void findFilenames_TracksResearchTokensIncludingRelatedContent() throws Exception {
         Path projectRoot = initRepo();
         commitTrackedFiles(

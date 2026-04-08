@@ -960,9 +960,12 @@ public class SearchTools {
                 var symbols = kindGroups.get(kind);
                 if (symbols != null && !symbols.isEmpty()) {
                     result.append("[").append(kind).append("]\n");
-                    symbols.stream().map(CodeUnit::fqName).distinct().sorted().forEach(fqn -> result.append("- ")
-                            .append(fqn)
-                            .append("\n"));
+                    symbols.stream()
+                            .flatMap(cu -> analyzer.getDisplaySignatures(cu).stream())
+                            .distinct()
+                            .sorted(String.CASE_INSENSITIVE_ORDER)
+                            .forEach(signature ->
+                                    result.append("- ").append(signature).append("\n"));
                 }
             });
 
