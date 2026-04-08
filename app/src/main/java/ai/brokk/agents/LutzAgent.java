@@ -272,8 +272,8 @@ public class LutzAgent {
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
 
-        // Shell command execution
-        tools.add("runShellCommand");
+        // Shell agent for command execution
+        tools.add("callShellAgent");
 
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");
@@ -644,6 +644,7 @@ public class LutzAgent {
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimFiles" -> 40;
 
+            case "callShellAgent" -> 98;
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;
             case "answer", "askForClarification", "workspaceComplete" -> 101;
@@ -1319,6 +1320,22 @@ public class LutzAgent {
                     .toString();
             agent.io.llmOutput(json, ChatMessageType.AI, LlmOutputMeta.newMessage());
             return json;
+        }
+
+        @Tool(
+                "Delegate a shell command task to the Shell Agent. Use this when the user needs to run commands like package installation, environment setup, build tools, or any CLI operation. The Shell Agent has full shell access and the user will approve each command interactively. Provide a clear description of what needs to be done.")
+        @Destructive
+        @SuppressWarnings("UnusedMethod")
+        public String callShellAgent(
+                @P(
+                                "Description of the shell task to accomplish, e.g. 'Install golangci-lint using the system package manager'")
+                        String task)
+                throws InterruptedException {
+            logger.debug("callShellAgent invoked with task: {}", task);
+            agent.io.llmOutput("**Shell Agent** engaged:\n" + task, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
+
+            var shellAgent = new ShellAgent(agent.cm, agent.model, task);
+            return shellAgent.execute();
         }
 
         @Tool(
