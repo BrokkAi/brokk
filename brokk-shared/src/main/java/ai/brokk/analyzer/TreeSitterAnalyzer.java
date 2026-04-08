@@ -4510,6 +4510,207 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return null;
     }
 
+    @Override
+    public List<CloneSmell> findStructuralCloneSmells(ProjectFile file, CloneSmellWeights weights) {
+        checkStale("findStructuralCloneSmells");
+        CloneSmellWeights resolved = weights != null ? weights : CloneSmellWeights.defaults();
+        if (!isRelevantFile(file)) {
+            return List.of();
+        }
+        List<CloneCandidateData> allCandidates = getAllDeclarations().stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> isRelevantFile(cu.source()))
+                .map(cu -> buildCloneCandidateData(cu, resolved))
+                .flatMap(Optional::stream)
+                .toList();
+        if (allCandidates.isEmpty()) {
+            return List.of();
+        }
+        List<CloneCandidateData> fileCandidates = allCandidates.stream()
+                .filter(c -> c.unit().source().equals(file))
+                .toList();
+        if (fileCandidates.isEmpty()) {
+            return List.of();
+        }
+
+        var findings = new ArrayList<CloneSmell>();
+        for (CloneCandidateData left : fileCandidates) {
+            for (CloneCandidateData right : allCandidates) {
+                if (left.unit().equals(right.unit())) {
+                    continue;
+                }
+                int tokenSimilarity =
+                        computeCloneTokenSimilarity(left.normalizedTokens(), right.normalizedTokens(), resolved);
+                if (tokenSimilarity < resolved.minSimilarityPercent()) {
+                    continue;
+                }
+                int refinedSimilarity = refineCloneSimilarityPercent(left, right, tokenSimilarity, resolved);
+                if (refinedSimilarity < resolved.minSimilarityPercent()) {
+                    continue;
+                }
+                findings.add(new CloneSmell(
+                        left.unit().source(),
+                        left.unit().fqName(),
+                        right.unit().source(),
+                        right.unit().fqName(),
+                        refinedSimilarity,
+                        Math.min(
+                                left.normalizedTokens().size(),
+                                right.normalizedTokens().size()),
+                        List.of(buildReason(tokenSimilarity, refinedSimilarity)),
+                        left.excerpt(),
+                        right.excerpt()));
+            }
+        }
+        return findings.stream()
+                .sorted(Comparator.comparingInt(CloneSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(CloneSmell::enclosingFqName)
+                        .thenComparing(f -> f.peerFile().toString())
+                        .thenComparing(CloneSmell::peerEnclosingFqName))
+                .toList();
+    }
+
+    protected int refineCloneSimilarityPercent(
+            CloneCandidateData left, CloneCandidateData right, int tokenSimilarity, CloneSmellWeights weights) {
+        return tokenSimilarity;
+    }
+
+    protected Optional<CloneCandidateData> buildCloneCandidateData(CodeUnit cu, CloneSmellWeights weights) {
+        return getSource(cu, false)
+                .map(String::strip)
+                .filter(source -> !source.isBlank())
+                .flatMap(source -> {
+                    List<String> normalized = normalizedCloneTokens(source);
+                    if (normalized.size() < weights.minNormalizedTokens()) {
+                        return Optional.empty();
+                    }
+                    return Optional.of(new CloneCandidateData(
+                            cu, normalized, buildCloneAstSignature(source), compactCloneExcerpt(source)));
+                });
+    }
+
+    protected String buildCloneAstSignature(String source) {
+        return "";
+    }
+
+    protected List<String> normalizedCloneTokens(String source) {
+        return withFreshTree(source, List.of(), tree -> {
+            TSNode root = tree.getRootNode();
+            if (root == null) {
+                return List.of();
+            }
+            var tokens = new ArrayList<String>();
+            collectNormalizedLeafTokens(root, SourceContent.of(source), tokens);
+            return List.copyOf(tokens);
+        });
+    }
+
+    protected int computeCloneTokenSimilarity(
+            List<String> leftTokens, List<String> rightTokens, CloneSmellWeights weights) {
+        Set<String> leftShingles = shingles(leftTokens, weights.shingleSize());
+        Set<String> rightShingles = shingles(rightTokens, weights.shingleSize());
+        if (leftShingles.size() < weights.minSharedShingles() || rightShingles.size() < weights.minSharedShingles()) {
+            return 0;
+        }
+        Set<String> intersection = new HashSet<>(leftShingles);
+        intersection.retainAll(rightShingles);
+        if (intersection.size() < weights.minSharedShingles()) {
+            return 0;
+        }
+        Set<String> union = new HashSet<>(leftShingles);
+        union.addAll(rightShingles);
+        if (union.isEmpty()) {
+            return 0;
+        }
+        return (int) Math.round((intersection.size() * 100.0) / union.size());
+    }
+
+    protected static Set<String> shingles(List<String> tokens, int shingleSize) {
+        int k = Math.max(1, shingleSize);
+        if (tokens.size() < k) {
+            return Set.of();
+        }
+        var shingles = new LinkedHashSet<String>();
+        for (int i = 0; i <= tokens.size() - k; i++) {
+            shingles.add(String.join("|", tokens.subList(i, i + k)));
+        }
+        return shingles;
+    }
+
+    protected String normalizeCloneLeafToken(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        String token = sourceContent.substringFrom(node).strip();
+        if (token.isEmpty()) {
+            return "";
+        }
+        if (type.contains("identifier") || "name".equals(type) || "property_identifier".equals(type)) {
+            return "ID";
+        }
+        if (type.contains("string")) {
+            return "STR";
+        }
+        if (type.contains("number") || type.contains("integer") || type.contains("float") || type.contains("decimal")) {
+            return "NUM";
+        }
+        if ("true".equals(token) || "false".equals(token)) {
+            return "BOOL";
+        }
+        if (token.length() == 1 && !Character.isLetterOrDigit(token.charAt(0))) {
+            return "OP:" + token;
+        }
+        return "T:" + type;
+    }
+
+    protected <R> R withFreshTree(String source, R defaultValue, Function<TSTree, R> fn) {
+        try (TSTree tree = getTSParser().parseString(null, source)) {
+            if (tree == null) {
+                return defaultValue;
+            }
+            return fn.apply(tree);
+        }
+    }
+
+    private void collectNormalizedLeafTokens(TSNode root, SourceContent sourceContent, List<String> out) {
+        try (var cursor = new TSTreeCursor(root)) {
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return;
+                }
+                if (current.getNamedChildCount() == 0) {
+                    String token = normalizeCloneLeafToken(current, sourceContent);
+                    if (!token.isBlank()) {
+                        out.add(token);
+                    }
+                }
+                if (!gotoNextDepthFirst(cursor, true)) {
+                    return;
+                }
+            }
+        }
+    }
+
+    private static String compactCloneExcerpt(String raw) {
+        return raw.lines()
+                .map(String::strip)
+                .filter(line -> !line.isEmpty())
+                .limit(6)
+                .collect(Collectors.joining(" "))
+                .replace("|", "\\|");
+    }
+
+    private static String buildReason(int tokenSimilarity, int refinedSimilarity) {
+        if (refinedSimilarity == tokenSimilarity) {
+            return "token-similarity:" + tokenSimilarity;
+        }
+        return "token-similarity:" + tokenSimilarity + ", refined-similarity:" + refinedSimilarity;
+    }
+
+    protected record CloneCandidateData(
+            CodeUnit unit, List<String> normalizedTokens, String astSignature, String excerpt) {}
+
     /**
      * Extracts potential type identifiers from source code.
      */

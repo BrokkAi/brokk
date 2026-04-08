@@ -18,6 +18,7 @@ import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
+import org.treesitter.TSTreeCursor;
 import org.treesitter.TreeSitterJava;
 
 public class JavaAnalyzer extends TreeSitterAnalyzer
@@ -229,6 +230,74 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     @Override
     protected String bodyPlaceholder() {
         return "{...}";
+    }
+
+    @Override
+    protected String buildCloneAstSignature(String source) {
+        return withFreshTree(source, "", tree -> {
+            TSNode root = tree.getRootNode();
+            if (root == null) {
+                return "";
+            }
+            SourceContent sourceContent = SourceContent.of(source);
+            var labels = new ArrayList<String>();
+            try (var cursor = new TSTreeCursor(root)) {
+                while (true) {
+                    TSNode node = cursor.currentNode();
+                    if (node == null) {
+                        break;
+                    }
+                    labels.add(normalizeAstLabel(node, sourceContent));
+                    if (!gotoNextDepthFirst(cursor, true)) {
+                        break;
+                    }
+                }
+            }
+            return String.join("|", labels);
+        });
+    }
+
+    @Override
+    protected int refineCloneSimilarityPercent(
+            CloneCandidateData left, CloneCandidateData right, int tokenSimilarity, CloneSmellWeights weights) {
+        if (left.astSignature().isBlank() || right.astSignature().isBlank()) {
+            return tokenSimilarity;
+        }
+        Set<String> leftAst = Set.copyOf(List.of(left.astSignature().split("\\|")));
+        Set<String> rightAst = Set.copyOf(List.of(right.astSignature().split("\\|")));
+        if (leftAst.isEmpty() || rightAst.isEmpty()) {
+            return tokenSimilarity;
+        }
+        Set<String> intersection = new HashSet<>(leftAst);
+        intersection.retainAll(rightAst);
+        Set<String> union = new HashSet<>(leftAst);
+        union.addAll(rightAst);
+        int astSimilarity = union.isEmpty() ? 0 : (int) Math.round((intersection.size() * 100.0) / union.size());
+        if (astSimilarity < weights.astSimilarityPercent()) {
+            return 0;
+        }
+        return Math.min(tokenSimilarity, astSimilarity);
+    }
+
+    private static String normalizeAstLabel(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        String text = sourceContent.substringFrom(node).strip();
+        if (type.contains("identifier")) {
+            return "ID";
+        }
+        if (type.contains("string_literal")) {
+            return "STR";
+        }
+        if (type.contains("decimal") || type.contains("integer") || type.contains("floating")) {
+            return "NUM";
+        }
+        if ("true".equals(text) || "false".equals(text)) {
+            return "BOOL";
+        }
+        if ("modifiers".equals(type) || "type_parameters".equals(type)) {
+            return "IGN";
+        }
+        return "N:" + type;
     }
 
     @Override
