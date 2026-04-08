@@ -96,7 +96,7 @@ public class BrokkExternalMcpServer {
             "scan",
             "searchSymbols",
             "scanUsages",
-            "getFileSummaries",
+            "getSummaries",
             "getClassSources",
             "getMethodSources");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();

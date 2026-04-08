@@ -32,6 +32,7 @@ public record AgentDefinition(
             "searchSymbols",
             "scanUsages",
             "getSymbolLocations",
+            "getSummaries",
             "skimFiles",
             "findFilesContaining",
             "findFilenames",
@@ -57,6 +58,7 @@ public record AgentDefinition(
             "searchSymbols",
             "scanUsages",
             "getSymbolLocations",
+            "getSummaries",
             "skimFiles",
             "findFilesContaining",
             "findFilenames",
@@ -80,6 +82,7 @@ public record AgentDefinition(
             "searchSymbols",
             "scanUsages",
             "getSymbolLocations",
+            "getSummaries",
             "skimFiles",
             "findFilesContaining",
             "findFilenames",
@@ -155,6 +158,7 @@ public record AgentDefinition(
         names.add("searchSymbols");
         names.add("scanUsages");
         names.add("getSymbolLocations");
+        names.add("getSummaries");
         names.add("skimFiles");
         names.add("findFilesContaining");
         names.add("findFilenames");

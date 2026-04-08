@@ -431,6 +431,20 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testGetSummaries_routesClassesAndFilesTogether() {
+        TestContextManager ctxWithAnalyzer = new TestContextManager(
+                javaTestProject, new TestConsoleIO(), Set.of(), javaAnalyzer, new TestRepo(javaTestProject.getRoot()));
+
+        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+
+        String result = tools.getSummaries(List.of("A", "B.java", "Missing.java"));
+
+        assertTrue(result.contains("class A"), "Should include class summary for direct class targets");
+        assertTrue(result.contains("class B"), "Should include class summary for file targets");
+        assertTrue(result.contains("No project files found matching: Missing.java"), "Should report unmatched files");
+    }
+
+    @Test
     void testGetGitLog_limitEnforced() throws Exception {
         // Create several commits
         try (Git git = Git.open(projectRoot.toFile())) {

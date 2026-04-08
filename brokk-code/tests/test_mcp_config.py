@@ -77,7 +77,7 @@ def test_configure_claude_code_mcp_settings_appends_to_claude_md(tmp_path, monke
     content = instructions.read_text()
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" in content
     assert "# Brokk" in content
-    assert "getFileSummaries" in content
+    assert "getSummaries" in content
     assert "searchSymbols" not in content
     assert "scanUsages" not in content
     assert "scan" not in content
@@ -117,7 +117,7 @@ def test_configure_codex_mcp_settings_appends_to_codex_agents(tmp_path, monkeypa
     content = agents_md.read_text()
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" in content
     assert "# Brokk" in content
-    assert "getFileSummaries" in content
+    assert "getSummaries" in content
     assert "activateWorkspace" in content
     assert "searchSymbols" not in content
     assert "scanUsages" not in content
@@ -271,11 +271,11 @@ def test_install_codex_mcp_summaries_skill_creates_expected_skill(monkeypatch, t
 
     skill_path = install_codex_mcp_summaries_skill()
 
-    assert skill_path == tmp_path / ".codex" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+    assert skill_path == tmp_path / ".codex" / "skills" / "brokk-get-summaries" / "SKILL.md"
     assert skill_path.exists()
     content = skill_path.read_text(encoding="utf-8")
-    assert "name: brokk-get-file-summaries" in content
-    assert "getFileSummaries" in content
+    assert "name: brokk-get-summaries" in content
+    assert "getSummaries" in content
     assert "class skeletons" in content
 
 
@@ -297,11 +297,11 @@ def test_install_claude_mcp_summaries_skill_creates_expected_skill(monkeypatch, 
 
     skill_path = install_claude_mcp_summaries_skill()
 
-    assert skill_path == tmp_path / ".claude" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+    assert skill_path == tmp_path / ".claude" / "skills" / "brokk-get-summaries" / "SKILL.md"
     assert skill_path.exists()
     content = skill_path.read_text(encoding="utf-8")
-    assert "name: brokk-get-file-summaries" in content
-    assert "getFileSummaries" in content
+    assert "name: brokk-get-summaries" in content
+    assert "getSummaries" in content
     assert "class skeletons" in content
 
 

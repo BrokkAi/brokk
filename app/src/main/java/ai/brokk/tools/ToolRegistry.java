@@ -79,6 +79,7 @@ public class ToolRegistry {
             Map.entry("findFilesContaining", "Searching for substrings"),
             Map.entry("findFilenames", "Searching for filenames"),
             Map.entry("getFileContents", "Getting file contents"),
+            Map.entry("getSummaries", "Getting summaries"),
             Map.entry("getFileSummaries", "Getting file summaries"),
             Map.entry("scanUsages", "Finding usages"),
             Map.entry("getRelatedClasses", "Finding related code"),

@@ -640,7 +640,12 @@ public class LutzAgent {
                     "findFilenames",
                     "searchGitCommitMessages" -> 20;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
-            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimFiles" -> 40;
+            case "getCallGraphTo",
+                    "getCallGraphFrom",
+                    "getFileContents",
+                    "getSummaries",
+                    "getFileSummaries",
+                    "skimFiles" -> 40;
 
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;
