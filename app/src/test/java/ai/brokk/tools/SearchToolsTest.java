@@ -19,12 +19,15 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.lib.PersonIdent;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -94,6 +97,41 @@ public class SearchToolsTest {
         }
     }
 
+    private void recreateSearchTools() {
+        repo.close();
+        repo = new GitRepo(projectRoot);
+
+        TestProject project = new TestProject(projectRoot, Languages.NONE)
+                .withRepo(repo)
+                .withAllFilesSupplier(() -> mockProjectFiles)
+                .withGitignoredPredicate(path -> path.startsWith(Path.of(AbstractProject.BROKK_DIR)));
+        TestContextManager ctxManager =
+                new TestContextManager(project, new TestConsoleIO(), Set.of(), new TestAnalyzer(), repo);
+
+        searchTools = new SearchTools(ctxManager);
+    }
+
+    private void commitTrackedFile(String relativePath, String content, Instant instant) throws Exception {
+        Path file = projectRoot.resolve(relativePath);
+        Path parent = file.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Files.writeString(file, content);
+        mockProjectFiles.add(new ProjectFile(projectRoot, relativePath));
+
+        try (Git git = Git.open(projectRoot.toFile())) {
+            var ident = new PersonIdent("Test User", "test@example.com", instant, ZoneId.of("UTC"));
+            git.add().addFilepattern(relativePath.replace('\\', '/')).call();
+            git.commit()
+                    .setMessage("Update " + relativePath)
+                    .setAuthor(ident)
+                    .setCommitter(ident)
+                    .setSign(false)
+                    .call();
+        }
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         projectRoot = tempDir.resolve("testRepo");
@@ -114,15 +152,7 @@ public class SearchToolsTest {
         }
 
         repo = new GitRepo(projectRoot);
-
-        TestProject project = new TestProject(projectRoot, Languages.NONE)
-                .withRepo(repo)
-                .withAllFilesSupplier(() -> mockProjectFiles)
-                .withGitignoredPredicate(path -> path.startsWith(Path.of(AbstractProject.BROKK_DIR)));
-        TestContextManager ctxManager =
-                new TestContextManager(project, new TestConsoleIO(), Set.of(), new TestAnalyzer(), repo);
-
-        searchTools = new SearchTools(ctxManager);
+        recreateSearchTools();
     }
 
     @AfterEach
@@ -173,6 +203,31 @@ public class SearchToolsTest {
         assertTrue(result.contains("max 5 filenames"), "Warning should mention the limit");
         long bulletCount = result.lines().filter(line -> line.startsWith("- ")).count();
         assertEquals(5, bulletCount, "Should return exactly 5 filenames");
+    }
+
+    @Test
+    void testfindFilenames_limitUsesGitImportanceBeforeAlphabeticalDisplay() throws Exception {
+        commitTrackedFile("a-low.txt", "low\n", Instant.parse("2020-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "high\n", Instant.parse("2025-01-01T00:00:00Z"));
+        recreateSearchTools();
+
+        String result = searchTools.findFilenames(List.of(".*\\.txt"), 1);
+
+        assertTrue(result.contains("z-high.txt"), "More important file should be selected when limit is hit");
+        assertFalse(result.contains("a-low.txt"), "Alphabetically earlier file should be dropped when less important");
+    }
+
+    @Test
+    void testfindFilenames_selectedFilesAreRenderedAlphabetically() throws Exception {
+        commitTrackedFile("a-low.txt", "low\n", Instant.parse("2020-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "high\n", Instant.parse("2025-01-01T00:00:00Z"));
+        recreateSearchTools();
+
+        String result = searchTools.findFilenames(List.of(".*\\.txt"), 2);
+
+        assertTrue(
+                result.indexOf("a-low.txt") < result.indexOf("z-high.txt"),
+                "Selected files should still render alphabetically");
     }
 
     @Test
@@ -490,6 +545,21 @@ public class SearchToolsTest {
         // Verify that **/root.txt matches a file at the project root via the retry logic
         String result = searchTools.searchFileContents(List.of("found"), "**/root.txt", false, false, 0, 200);
         assertTrue(result.contains("root.txt"), "Should find file at root even with **/ prefix");
+    }
+
+    @Test
+    void testSearchFileContents_limitUsesGitImportanceBeforeAlphabeticalDisplay() throws Exception {
+        commitTrackedFile("a-low.txt", "MATCH low\n", Instant.parse("2020-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "MATCH high\n", Instant.parse("2025-01-01T00:00:00Z"));
+        recreateSearchTools();
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "*.txt", false, false, 0, 1);
+
+        assertTrue(
+                result.contains("z-high.txt"), "More important matching file should be selected when maxFiles is hit");
+        assertFalse(
+                result.contains("a-low.txt"),
+                "Alphabetically earlier matching file should be omitted when less important");
     }
 
     @Test

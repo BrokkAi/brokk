@@ -4,6 +4,7 @@ import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static ai.brokk.util.Lines.truncateLine;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
+import static java.util.Objects.requireNonNull;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.Completions;
@@ -15,6 +16,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
+import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
@@ -775,13 +777,12 @@ public class SearchTools {
         }
 
         var project = contextManager.getProject();
-        List<ProjectFile> projectFiles = filePaths.stream()
+        List<ProjectFile> projectFiles = prioritizeFilesForSelection(filePaths.stream()
                 .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .distinct()
-                .sorted() // Sort for deterministic output order
-                .toList();
+                .toList());
 
         if (projectFiles.isEmpty()) {
             return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
@@ -888,18 +889,12 @@ public class SearchTools {
         // Group by file, then by kind within each file
         var fileGroups = allDefinitions.stream()
                 .collect(Collectors.groupingBy(
-                        cu -> toUnixPath(cu.source().toString()),
-                        Collectors.groupingBy(cu -> cu.kind().name())));
+                        CodeUnit::source, Collectors.groupingBy(cu -> cu.kind().name())));
 
-        // Build output: sorted files (limited), sorted kinds per file, sorted symbols per kind
+        // Build output: select by Git importance, then render the selected files alphabetically.
         var result = new StringBuilder();
-        var sortedFileEntries = fileGroups.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .toList();
-
-        boolean truncated = sortedFileEntries.size() > effectiveLimit;
-        var limitedFileEntries =
-                sortedFileEntries.stream().limit(effectiveLimit).toList();
+        boolean truncated = fileGroups.size() > effectiveLimit;
+        var filesToRender = selectFilesForDisplay(fileGroups.keySet(), effectiveLimit);
 
         if (truncated) {
             result.append("### WARNING: Result limit reached (max ")
@@ -909,9 +904,8 @@ public class SearchTools {
                     .append(" files. Retrying the same tool call will return the same results.\n\n");
         }
 
-        limitedFileEntries.forEach(fileEntry -> {
-            var filePath = fileEntry.getKey();
-            var kindGroups = fileEntry.getValue();
+        filesToRender.forEach(file -> {
+            var kindGroups = requireNonNull(fileGroups.get(file));
 
             int loc = kindGroups.values().stream()
                     .flatMap(List::stream)
@@ -920,7 +914,7 @@ public class SearchTools {
                     .map(Lines::count)
                     .orElse(0);
             result.append("<file path=\"")
-                    .append(filePath)
+                    .append(toUnixPath(file.toString()))
                     .append("\" loc=\"")
                     .append(loc)
                     .append("\">\n");
@@ -1409,12 +1403,9 @@ public class SearchTools {
 
         var searchResult = findFilesContainingPatterns(
                 compiledPatterns, contextManager.getProject().getAllFiles());
-        // sort to provide deterministic results because getAllFiles() is an unordered Set
-        var allMatches = searchResult.matches().stream().sorted().toList();
-
         int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
-        boolean truncated = allMatches.size() > effectiveLimit;
-        var matchingFilenames = allMatches.stream().limit(effectiveLimit).toList();
+        boolean truncated = searchResult.matches().size() > effectiveLimit;
+        var matchingFilenames = selectFilesForDisplay(searchResult.matches(), effectiveLimit);
 
         if (matchingFilenames.isEmpty()) {
             if (!searchResult.errors().isEmpty()) {
@@ -1458,7 +1449,27 @@ public class SearchTools {
 
     private record BatchResult<T>(List<T> results, List<String> errors, boolean truncatedByMaxFiles) {}
 
+    private record FileOutput(ProjectFile file, String output) {}
+
     private record IndexedResult<T>(int index, @Nullable T value, @Nullable String error) {}
+
+    private List<ProjectFile> prioritizeFilesForSelection(Collection<ProjectFile> files) {
+        var alphabeticalFiles = files.stream().sorted().toList();
+        try {
+            return GitDistance.sortByImportance(alphabeticalFiles, contextManager.getRepo());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while ranking files by Git importance; falling back to alphabetical order");
+            return alphabeticalFiles;
+        } catch (RuntimeException e) {
+            logger.debug("Failed to rank files by Git importance; falling back to alphabetical order", e);
+            return alphabeticalFiles;
+        }
+    }
+
+    private List<ProjectFile> selectFilesForDisplay(Collection<ProjectFile> files, int limit) {
+        return prioritizeFilesForSelection(files).stream().limit(limit).sorted().toList();
+    }
 
     private <T> BatchResult<T> batchProcessFiles(
             List<ProjectFile> files, int maxFiles, BiFunction<ProjectFile, Integer, IndexedResult<T>> processor)
@@ -1580,6 +1591,7 @@ public class SearchTools {
         if (files.isEmpty()) {
             return "No text files found matching: " + filepath;
         }
+        files = prioritizeFilesForSelection(files);
 
         record FileHit(ProjectFile file, List<AlmostGrep.FileContentSearchResult> blocks) {}
 
@@ -1603,9 +1615,9 @@ public class SearchTools {
         }
 
         List<String> processingErrors = new ArrayList<>(batchResult.errors());
-        List<String> fileBlocks = new ArrayList<>();
         int totalMatches = 0;
         boolean truncatedByTotalMatches = false;
+        List<FileHit> selectedHits = new ArrayList<>();
 
         for (var hit : batchResult.results()) {
             if (totalMatches >= FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
@@ -1613,11 +1625,16 @@ public class SearchTools {
                 break;
             }
 
+            selectedHits.add(hit);
             for (var block : hit.blocks()) {
-                fileBlocks.add(block.output());
                 totalMatches += block.matches();
             }
         }
+
+        List<String> fileBlocks = selectedHits.stream()
+                .sorted((a, b) -> a.file().compareTo(b.file()))
+                .flatMap(hit -> hit.blocks().stream().map(AlmostGrep.FileContentSearchResult::output))
+                .toList();
 
         if (fileBlocks.isEmpty()) {
             if (!processingErrors.isEmpty()) {
@@ -1684,12 +1701,11 @@ public class SearchTools {
             @P("Maximum number of output values to return per file. Capped at 100.") int matchesPerFile)
             throws InterruptedException {
         var project = contextManager.getProject();
-        var files = Completions.expandPath(project, filepath).stream()
+        var files = prioritizeFilesForSelection(Completions.expandPath(project, filepath).stream()
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .filter(pf -> pf.isText() && "json".equalsIgnoreCase(pf.extension()))
-                .sorted()
-                .toList();
+                .toList());
 
         if (files.isEmpty()) {
             return "No JSON files found matching: " + filepath;
@@ -1717,7 +1733,7 @@ public class SearchTools {
             return "Invalid jq filter: " + e.getMessage();
         }
 
-        BatchResult<String> batchResult;
+        BatchResult<FileOutput> batchResult;
         try {
             batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
                 try {
@@ -1754,7 +1770,7 @@ public class SearchTools {
                             outLines.add(truncateLine(rendered, 0, rendered.length()));
                         }
                     }
-                    return new IndexedResult<>(idx, String.join("\n", outLines) + "\n", null);
+                    return new IndexedResult<>(idx, new FileOutput(file, String.join("\n", outLines) + "\n"), null);
                 } catch (Exception e) {
                     String message = e.getMessage() == null ? e.toString() : e.getMessage();
                     return new IndexedResult<>(idx, null, file + ": " + message);
@@ -1777,7 +1793,11 @@ public class SearchTools {
             return "No results for jq filter.";
         }
 
-        String output = String.join("\n", batchResult.results()).trim();
+        String output = batchResult.results().stream()
+                .sorted((a, b) -> a.file().compareTo(b.file()))
+                .map(FileOutput::output)
+                .collect(Collectors.joining("\n"))
+                .trim();
         if (batchResult.truncatedByMaxFiles()) {
             output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
         }
@@ -1806,22 +1826,20 @@ public class SearchTools {
             @P("Maximum number of files to return results for. Capped at 100.") int maxFiles)
             throws InterruptedException {
         var project = contextManager.getProject();
-        var files = Completions.expandPath(project, filepath).stream()
+        var files = prioritizeFilesForSelection(Completions.expandPath(project, filepath).stream()
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .filter(ProjectFile::isText)
                 .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                .sorted()
-                .toList();
+                .toList());
 
         if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
-            files = Completions.expandPath(project, filepath.substring(3)).stream()
+            files = prioritizeFilesForSelection(Completions.expandPath(project, filepath.substring(3)).stream()
                     .filter(ProjectFile.class::isInstance)
                     .map(ProjectFile.class::cast)
                     .filter(ProjectFile::isText)
                     .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                    .sorted()
-                    .toList();
+                    .toList());
         }
 
         if (files.isEmpty()) {
@@ -1830,7 +1848,7 @@ public class SearchTools {
 
         int effectiveMaxFiles = min(max(1, maxFiles), FILE_SEARCH_LIMIT);
 
-        BatchResult<String> batchResult;
+        BatchResult<FileOutput> batchResult;
         try {
             batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
                 try {
@@ -1844,7 +1862,7 @@ public class SearchTools {
                     String skim = xmlSkimBfs(root, XML_SKIM_TOTAL_BUDGET_CHARS);
                     String block = "<file path=\"%s\">\n%s\n</file>"
                             .formatted(file.toString().replace('\\', '/'), skim);
-                    return new IndexedResult<>(idx, block, null);
+                    return new IndexedResult<>(idx, new FileOutput(file, block), null);
                 } catch (Exception e) {
                     String message = e.getMessage() == null ? e.toString() : e.getMessage();
                     return new IndexedResult<>(idx, null, file + ": " + message);
@@ -1867,7 +1885,11 @@ public class SearchTools {
             return "No results for xmlSkim.";
         }
 
-        String output = String.join("\n\n", batchResult.results()).trim();
+        String output = batchResult.results().stream()
+                .sorted((a, b) -> a.file().compareTo(b.file()))
+                .map(FileOutput::output)
+                .collect(Collectors.joining("\n\n"))
+                .trim();
         if (batchResult.truncatedByMaxFiles()) {
             output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles);
         }
@@ -1909,22 +1931,20 @@ public class SearchTools {
             @P("Maximum number of matches to return per file. Capped at 100.") int matchesPerFile)
             throws InterruptedException {
         var project = contextManager.getProject();
-        var files = Completions.expandPath(project, filepath).stream()
+        var files = prioritizeFilesForSelection(Completions.expandPath(project, filepath).stream()
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .filter(ProjectFile::isText)
                 .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                .sorted()
-                .toList();
+                .toList());
 
         if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
-            files = Completions.expandPath(project, filepath.substring(3)).stream()
+            files = prioritizeFilesForSelection(Completions.expandPath(project, filepath.substring(3)).stream()
                     .filter(ProjectFile.class::isInstance)
                     .map(ProjectFile.class::cast)
                     .filter(ProjectFile::isText)
                     .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                    .sorted()
-                    .toList();
+                    .toList());
         }
 
         if (files.isEmpty()) {
@@ -1951,7 +1971,7 @@ public class SearchTools {
             return "Invalid XPath: " + message;
         }
 
-        BatchResult<String> batchResult;
+        BatchResult<FileOutput> batchResult;
         try {
             batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
                 try {
@@ -2035,7 +2055,7 @@ public class SearchTools {
                         }
                     }
 
-                    return new IndexedResult<>(idx, String.join("\n", outLines) + "\n", null);
+                    return new IndexedResult<>(idx, new FileOutput(file, String.join("\n", outLines) + "\n"), null);
                 } catch (Exception e) {
                     String message = e.getMessage() == null ? e.toString() : e.getMessage();
                     return new IndexedResult<>(idx, null, file + ": " + message);
@@ -2058,7 +2078,11 @@ public class SearchTools {
             return "No results for xmlSelect.";
         }
 
-        String outResult = String.join("\n", batchResult.results()).trim();
+        String outResult = batchResult.results().stream()
+                .sorted((a, b) -> a.file().compareTo(b.file()))
+                .map(FileOutput::output)
+                .collect(Collectors.joining("\n"))
+                .trim();
         if (batchResult.truncatedByMaxFiles()) {
             outResult += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
         }
@@ -2147,7 +2171,6 @@ public class SearchTools {
                         return false;
                     })
                     .distinct()
-                    .sorted()
                     .toList();
         } catch (RegexMatchOverflowException e) {
             logger.warn("Regex stack overflow while searching filenames with pattern {}", e.pattern(), e);
@@ -2156,7 +2179,7 @@ public class SearchTools {
 
         int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
         boolean truncated = allMatches.size() > effectiveLimit;
-        var matchingFiles = allMatches.stream().limit(effectiveLimit).toList();
+        var matchingFiles = selectFilesForDisplay(allMatches, effectiveLimit);
 
         if (matchingFiles.isEmpty()) {
             return "No filenames found matching patterns: " + String.join(", ", patterns);
@@ -2358,29 +2381,28 @@ public class SearchTools {
         var project = contextManager.getProject();
         var analyzer = getAnalyzer();
 
-        List<ProjectFile> projectFiles = filePaths.stream()
+        List<ProjectFile> projectFiles = prioritizeFilesForSelection(filePaths.stream()
                 .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .distinct()
-                .sorted()
-                .toList();
+                .toList());
 
         if (projectFiles.isEmpty()) {
             return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
         }
 
         boolean truncatedByFileLimit = projectFiles.size() > FILE_SKIM_LIMIT;
-        List<ProjectFile> filesToSkim =
+        List<ProjectFile> candidateFiles =
                 projectFiles.stream().limit(FILE_SKIM_LIMIT).toList();
 
         int maxTokens = 12_800;
 
-        StringBuilder fullSkim = new StringBuilder();
         int fullTokens = 0;
         boolean fullTruncated = false;
+        List<FileOutput> selectedBlocks = new ArrayList<>();
 
-        for (var file : filesToSkim) {
+        for (var file : candidateFiles) {
             String identifiers = analyzer.summarizeSymbols(file);
             String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
             String fileContent = file.read().orElse("");
@@ -2393,7 +2415,7 @@ public class SearchTools {
                 break;
             }
 
-            fullSkim.append(fileBlock);
+            selectedBlocks.add(new FileOutput(file, fileBlock));
             fullTokens += blockTokens;
         }
 
@@ -2406,11 +2428,18 @@ public class SearchTools {
                     .append(" files. Retrying the same tool call will return the same results.\n\n");
         }
 
+        String fullSkim = selectedBlocks.stream()
+                .sorted((a, b) -> a.file().compareTo(b.file()))
+                .map(FileOutput::output)
+                .collect(Collectors.joining());
+
         if (!fullTruncated) {
-            return recordResearchTokens(prefix + fullSkim.toString());
+            return recordResearchTokens(prefix + fullSkim);
         }
 
-        String filesCdl = filesToSkim.stream()
+        String filesCdl = selectedBlocks.stream()
+                .map(FileOutput::file)
+                .sorted()
                 .map(file -> {
                     String content = file.read().orElse("");
                     return "%s (%d loc)".formatted(file.toString(), Lines.count(content));
