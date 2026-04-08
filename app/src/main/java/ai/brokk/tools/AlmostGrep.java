@@ -5,12 +5,14 @@ import static ai.brokk.util.Lines.truncateLine;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -126,57 +128,51 @@ final class AlmostGrep {
         return new SearchTools.FindFilesContainingResult(matches, errors);
     }
 
-    static List<FileContentSearchResult> searchFileContentsInFile(
-            ProjectFile file, List<Pattern> patterns, int contextLines) {
+    static @Nullable FileContentSearchResult searchFileContentsInFile(
+            ProjectFile file,
+            List<Pattern> patterns,
+            int contextLines,
+            IAnalyzer analyzer,
+            SearchTools.FileContentSearchType searchType) {
         var contentOpt = file.read();
         if (contentOpt.isEmpty()) {
-            return List.of();
+            return null;
         }
 
         String content = contentOpt.get();
         if (content.isEmpty()) {
-            return List.of();
+            return null;
         }
 
-        List<LineRef> lineRefs = null;
-        int[] lineStartOffsets = null;
-        int lineCount = 0;
+        List<LineRef> lineRefs = computeLineRefs(content);
+        if (lineRefs.isEmpty()) {
+            return null;
+        }
+        int[] lineStartOffsets =
+                lineRefs.stream().mapToInt(LineRef::startInclusive).toArray();
+        int lineCount = lineRefs.size();
         String filePath = file.toString().replace('\\', '/');
-        List<FileContentSearchResult> patternResults = new ArrayList<>();
+        Set<Integer> retainedMatchLines = new LinkedHashSet<>();
 
         for (Pattern pattern : patterns) {
-            // 0: unseen, 1: seen but not retained (beyond first-N limit), 2: retained as one of first-N
             byte[] lineStates = new byte[lineCount + 1];
             int matchesTaken = 0;
-            int totalMatchesInPattern = 0;
 
             try {
                 Matcher matcher = pattern.matcher(content);
                 int lineIdx = 0;
                 while (matcher.find()) {
-                    if (lineRefs == null) {
-                        lineRefs = computeLineRefs(content);
-                        if (lineRefs.isEmpty()) {
-                            return List.of();
-                        }
-                        lineStartOffsets = lineRefs.stream()
-                                .mapToInt(LineRef::startInclusive)
-                                .toArray();
-                        lineCount = lineRefs.size();
-                        lineStates = new byte[lineCount + 1];
-                    }
-                    int[] nonNullLineStartOffsets = Objects.requireNonNull(lineStartOffsets);
                     int matchStart = matcher.start();
-                    while (lineIdx + 1 < lineCount && nonNullLineStartOffsets[lineIdx + 1] <= matchStart) {
+                    while (lineIdx + 1 < lineCount && lineStartOffsets[lineIdx + 1] <= matchStart) {
                         lineIdx++;
                     }
 
                     int lineNo = lineIdx + 1;
                     if (lineStates[lineNo] == 0) {
-                        totalMatchesInPattern++;
                         if (matchesTaken < SearchTools.FILE_CONTENTS_MATCHES_PER_FILE) {
                             lineStates[lineNo] = 2;
                             matchesTaken++;
+                            retainedMatchLines.add(lineNo);
                         } else {
                             lineStates[lineNo] = 1;
                         }
@@ -185,42 +181,248 @@ final class AlmostGrep {
             } catch (StackOverflowError e) {
                 throw new SearchTools.RegexMatchOverflowException(pattern.pattern(), e);
             }
-
-            if (matchesTaken == 0) {
-                continue;
-            }
-            List<LineRef> nonNullLineRefs = Objects.requireNonNull(lineRefs);
-
-            boolean[] toPrint = new boolean[lineCount + 1];
-            for (int lineNo = 1; lineNo <= lineCount; lineNo++) {
-                if (lineStates[lineNo] != 2) {
-                    continue;
-                }
-                int from = max(1, lineNo - contextLines);
-                int to = min(lineCount, lineNo + contextLines);
-                for (int ln = from; ln <= to; ln++) {
-                    toPrint[ln] = true;
-                }
-            }
-
-            List<String> outLines = new ArrayList<>();
-            for (LineRef ref : nonNullLineRefs) {
-                if (!toPrint[ref.lineNo()]) continue;
-                outLines.add("%d: %s"
-                        .formatted(ref.lineNo(), truncateLine(content, ref.startInclusive(), ref.endExclusive())));
-            }
-
-            String matchCountLabel = "first %d/%d matches".formatted(matchesTaken, totalMatchesInPattern);
-            String header =
-                    "%s (%d loc) (pattern: %s) (%s)".formatted(filePath, lineCount, pattern.pattern(), matchCountLabel);
-
-            List<String> resultLines = new ArrayList<>(outLines.size() + 1);
-            resultLines.add(header);
-            resultLines.addAll(outLines);
-            patternResults.add(new FileContentSearchResult(String.join("\n", resultLines), matchesTaken));
         }
 
-        return List.copyOf(patternResults);
+        if (retainedMatchLines.isEmpty()) {
+            return null;
+        }
+
+        SearchTools.FileContentSearchType effectiveSearchType =
+                analyzer.getAnalyzedFiles().contains(file) ? searchType : SearchTools.FileContentSearchType.ALL;
+
+        String output = effectiveSearchType == SearchTools.FileContentSearchType.ALL
+                ? renderAllMatches(file, content, lineRefs, contextLines, analyzer, retainedMatchLines, filePath)
+                : renderFilteredMatches(
+                        file,
+                        content,
+                        lineRefs,
+                        contextLines,
+                        analyzer,
+                        retainedMatchLines,
+                        filePath,
+                        effectiveSearchType);
+        if (output.isEmpty()) {
+            return null;
+        }
+
+        int visibleMatches = countVisibleMatches(file, content, analyzer, retainedMatchLines, effectiveSearchType);
+        return visibleMatches == 0 ? null : new FileContentSearchResult(output, visibleMatches);
+    }
+
+    private static int countVisibleMatches(
+            ProjectFile file,
+            String content,
+            IAnalyzer analyzer,
+            Set<Integer> retainedMatchLines,
+            SearchTools.FileContentSearchType searchType) {
+        if (!analyzer.getAnalyzedFiles().contains(file) || searchType == SearchTools.FileContentSearchType.ALL) {
+            return retainedMatchLines.size();
+        }
+
+        MatchBuckets buckets = classifyMatchLines(file, content, analyzer, retainedMatchLines);
+        return switch (searchType) {
+            case DECLARATIONS -> buckets.declarations().size();
+            case USAGES -> buckets.usages().size();
+            case ALL -> retainedMatchLines.size();
+        };
+    }
+
+    private static String renderAllMatches(
+            ProjectFile file,
+            String content,
+            List<LineRef> lineRefs,
+            int contextLines,
+            IAnalyzer analyzer,
+            Set<Integer> retainedMatchLines,
+            String filePath) {
+        if (!analyzer.getAnalyzedFiles().contains(file)) {
+            return renderFileBlock(
+                    filePath,
+                    lineRefs.size(),
+                    renderSimpleSection("matches", retainedMatchLines, lineRefs, content, contextLines));
+        }
+
+        MatchBuckets buckets = classifyMatchLines(file, content, analyzer, retainedMatchLines);
+        String matchesSection =
+                renderMatchesSection(buckets.declarations(), buckets.usages(), lineRefs, content, contextLines);
+        String relatedSection = renderSimpleSection("related", buckets.related(), lineRefs, content, contextLines);
+        if (matchesSection.isEmpty() && relatedSection.isEmpty()) {
+            return "";
+        }
+        return renderFileBlock(filePath, lineRefs.size(), matchesSection, relatedSection);
+    }
+
+    private static String renderFilteredMatches(
+            ProjectFile file,
+            String content,
+            List<LineRef> lineRefs,
+            int contextLines,
+            IAnalyzer analyzer,
+            Set<Integer> retainedMatchLines,
+            String filePath,
+            SearchTools.FileContentSearchType searchType) {
+        if (!analyzer.getAnalyzedFiles().contains(file)) {
+            return renderFileBlock(
+                    filePath,
+                    lineRefs.size(),
+                    renderSimpleSection("matches", retainedMatchLines, lineRefs, content, contextLines));
+        }
+
+        MatchBuckets buckets = classifyMatchLines(file, content, analyzer, retainedMatchLines);
+        Set<Integer> visibleLines = searchType == SearchTools.FileContentSearchType.DECLARATIONS
+                ? buckets.declarations()
+                : buckets.usages();
+        if (visibleLines.isEmpty()) {
+            return "";
+        }
+
+        String heading = searchType == SearchTools.FileContentSearchType.DECLARATIONS ? "[DECLARATIONS]" : "[USAGES]";
+        String section = renderSimpleSection("matches", visibleLines, lineRefs, content, contextLines, heading);
+        return renderFileBlock(filePath, lineRefs.size(), section);
+    }
+
+    private static MatchBuckets classifyMatchLines(
+            ProjectFile file, String content, IAnalyzer analyzer, Set<Integer> retainedMatchLines) {
+        Set<Integer> declarationLines = analyzer.getDeclarations(file).stream()
+                .flatMap(cu -> analyzer.rangesOf(cu).stream())
+                .map(range -> range.startLine() + 1)
+                .collect(Collectors.toSet());
+        Set<String> importLines = analyzer.importStatementsOf(file).stream()
+                .flatMap(snippet -> snippet.lines().map(String::strip))
+                .filter(line -> !line.isBlank())
+                .collect(Collectors.toSet());
+
+        Set<Integer> declarations = new LinkedHashSet<>();
+        Set<Integer> usages = new LinkedHashSet<>();
+        Set<Integer> related = new LinkedHashSet<>();
+
+        retainedMatchLines.stream().sorted().forEach(lineNo -> {
+            if (declarationLines.contains(lineNo)) {
+                declarations.add(lineNo);
+                return;
+            }
+
+            String lineText = lineText(content, lineNo);
+            if (importLines.contains(lineText.strip()) || isLikelyImportLine(lineText)) {
+                related.add(lineNo);
+                return;
+            }
+
+            if (analyzer.enclosingCodeUnit(file, lineNo - 1, lineNo - 1).isPresent()) {
+                usages.add(lineNo);
+            } else {
+                related.add(lineNo);
+            }
+        });
+
+        return new MatchBuckets(declarations, usages, related);
+    }
+
+    private static String lineText(String content, int lineNo) {
+        String[] lines = content.split("\\R", -1);
+        if (lineNo < 1 || lineNo > lines.length) {
+            return "";
+        }
+        return lines[lineNo - 1];
+    }
+
+    private static boolean isLikelyImportLine(String lineText) {
+        String trimmed = lineText.stripLeading();
+        return trimmed.startsWith("import ")
+                || trimmed.startsWith("from ")
+                || trimmed.startsWith("#include")
+                || trimmed.startsWith("using ")
+                || trimmed.startsWith("require(");
+    }
+
+    private static String renderFileBlock(String filePath, int lineCount, String... sections) {
+        List<String> nonBlankSections = new ArrayList<>();
+        for (String section : sections) {
+            if (!section.isBlank()) {
+                nonBlankSections.add(section.stripTrailing());
+            }
+        }
+        if (nonBlankSections.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder result = new StringBuilder();
+        result.append("<file path=\"")
+                .append(filePath)
+                .append("\" loc=\"")
+                .append(lineCount)
+                .append("\">\n");
+        result.append(String.join("\n", nonBlankSections)).append("\n");
+        result.append("</file>");
+        return result.toString();
+    }
+
+    private static String renderMatchesSection(
+            Set<Integer> declarationLines,
+            Set<Integer> usageLines,
+            List<LineRef> lineRefs,
+            String content,
+            int contextLines) {
+        List<String> parts = new ArrayList<>(2);
+        if (!declarationLines.isEmpty()) {
+            parts.add(renderSectionBody(declarationLines, lineRefs, content, contextLines, "[DECLARATIONS]"));
+        }
+        if (!usageLines.isEmpty()) {
+            parts.add(renderSectionBody(usageLines, lineRefs, content, contextLines, "[USAGES]"));
+        }
+        if (parts.isEmpty()) {
+            return "";
+        }
+        return "<matches>\n" + String.join("\n", parts) + "\n</matches>";
+    }
+
+    private static String renderSimpleSection(
+            String tag, Set<Integer> matchedLines, List<LineRef> lineRefs, String content, int contextLines) {
+        return renderSimpleSection(tag, matchedLines, lineRefs, content, contextLines, null);
+    }
+
+    private static String renderSimpleSection(
+            String tag,
+            Set<Integer> matchedLines,
+            List<LineRef> lineRefs,
+            String content,
+            int contextLines,
+            @Nullable String heading) {
+        if (matchedLines.isEmpty()) {
+            return "";
+        }
+
+        String body = renderSectionBody(matchedLines, lineRefs, content, contextLines, heading);
+        return "<%s>\n%s\n</%s>".formatted(tag, body, tag);
+    }
+
+    private static String renderSectionBody(
+            Set<Integer> matchedLines,
+            List<LineRef> lineRefs,
+            String content,
+            int contextLines,
+            @Nullable String heading) {
+        boolean[] toPrint = new boolean[lineRefs.size() + 1];
+        matchedLines.forEach(lineNo -> {
+            int from = max(1, lineNo - contextLines);
+            int to = min(lineRefs.size(), lineNo + contextLines);
+            for (int ln = from; ln <= to; ln++) {
+                toPrint[ln] = true;
+            }
+        });
+
+        List<String> lines = new ArrayList<>();
+        if (heading != null) {
+            lines.add(heading);
+        }
+        for (LineRef ref : lineRefs) {
+            if (!toPrint[ref.lineNo()]) {
+                continue;
+            }
+            lines.add(
+                    "%d: %s".formatted(ref.lineNo(), truncateLine(content, ref.startInclusive(), ref.endExclusive())));
+        }
+        return String.join("\n", lines);
     }
 
     private static List<LineRef> computeLineRefs(String content) {
@@ -269,6 +471,8 @@ final class AlmostGrep {
     }
 
     private record LineRef(int lineNo, int startInclusive, int endExclusive) {}
+
+    private record MatchBuckets(Set<Integer> declarations, Set<Integer> usages, Set<Integer> related) {}
 
     record FileContentSearchResult(String output, int matches) {}
 

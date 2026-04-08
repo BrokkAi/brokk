@@ -90,6 +90,8 @@ class BrokkExternalMcpServerMcpFormattingIntegrationTest {
                             List.of("MCP", "ToolRegistry", "skill"),
                             "filepath",
                             "**/*.md",
+                            "searchType",
+                            "all",
                             "caseInsensitive",
                             true,
                             "multiline",

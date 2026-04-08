@@ -2,6 +2,8 @@ package ai.brokk.tools;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.IAnalyzer.Range;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -508,7 +510,8 @@ public class SearchToolsTest {
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "**/grep_test.txt", false, false, 1, 200);
 
-        assertTrue(result.contains("grep_test.txt (4 loc) (pattern: MATCH) (first 1/1 matches)"));
+        assertTrue(result.contains("<file path=\"grep_test.txt\" loc=\"4\">"));
+        assertTrue(result.contains("<matches>"));
         assertTrue(result.contains("1: line1"));
         assertTrue(result.contains("2: line2 MATCH"));
         assertTrue(result.contains("3: line3"));
@@ -617,8 +620,8 @@ public class SearchToolsTest {
 
         String withFlag = searchTools.searchFileContents(List.of("match"), "case_insensitive.txt", true, false, 0, 200);
         assertTrue(
-                withFlag.contains("case_insensitive.txt (3 loc) (pattern: match) (first 1/1 matches)"),
-                "Should match with case-insensitive flag and show LOC");
+                withFlag.contains("<file path=\"case_insensitive.txt\" loc=\"3\">"),
+                "Should match with case-insensitive flag and show file metadata");
         assertTrue(withFlag.contains("2: Line2 MATCH"), "Should show matching line");
     }
 
@@ -633,8 +636,8 @@ public class SearchToolsTest {
 
         String withFlag = searchTools.searchFileContents(List.of("^line2$"), "multiline.txt", false, true, 0, 200);
         assertTrue(
-                withFlag.contains("multiline.txt (3 loc) (pattern: ^line2$) (first 1/1 matches)"),
-                "Should match with multiline flag and show LOC");
+                withFlag.contains("<file path=\"multiline.txt\" loc=\"3\">"),
+                "Should match with multiline flag and show file metadata");
         assertTrue(withFlag.contains("2: line2"), "Should show the anchored match line");
     }
 
@@ -814,7 +817,7 @@ public class SearchToolsTest {
         String result =
                 searchTools.searchFileContents(List.of("MATCH"), "matches_per_file_test.txt", false, false, 0, 200);
 
-        assertTrue(result.contains("matches_per_file_test.txt (30 loc) (pattern: MATCH) (first 20/30 matches)"));
+        assertTrue(result.contains("<file path=\"matches_per_file_test.txt\" loc=\"30\">"));
         assertTrue(result.contains("20: MATCH 20"));
         assertFalse(result.contains("21: MATCH 21"));
     }
@@ -845,8 +848,8 @@ public class SearchToolsTest {
         String result = searchTools.searchFileContents(List.of("A", "B", "C"), "budget*.txt", false, false, 0, 999);
         String mainSection = mainResultSection(result);
 
-        assertTrue(mainSection.contains("budget25.txt (40 loc) (pattern: B) (first 20/20 matches)"));
-        assertTrue(mainSection.contains("budget25.txt (40 loc) (pattern: C) (first 20/20 matches)"));
+        assertTrue(mainSection.contains("<file path=\"budget25.txt\" loc=\"40\">"));
+        assertTrue(mainSection.contains("21: C 1"));
         assertFalse(
                 mainSection.contains("budget26.txt"),
                 "Should stop before the next file after crossing the 500-match limit");
@@ -863,9 +866,7 @@ public class SearchToolsTest {
         // Ask for exactly 3 matches.
         String result = searchTools.searchFileContents(List.of("MATCH"), "exact_limit.txt", false, false, 0, 10);
 
-        assertTrue(
-                result.contains("exact_limit.txt (3 loc) (pattern: MATCH) (first 3/3 matches)"),
-                "Should show hit limit in header");
+        assertTrue(result.contains("<file path=\"exact_limit.txt\" loc=\"3\">"), "Should show file metadata");
         assertTrue(result.contains("3: MATCH 3"), "Should contain the last match");
         assertFalse(
                 result.contains("TRUNCATED: reached matchesPerFile"),
@@ -947,9 +948,74 @@ public class SearchToolsTest {
                 List.of("alpha", "beta", "gamma"), "multi_pattern_dedupe.txt", false, false, 0, 200);
 
         assertEquals(
-                3,
+                1,
                 countOccurrences(result, "1: alpha beta gamma"),
-                "Line should be emitted once for each matching pattern block");
+                "Line should be emitted once after combining matches from all patterns");
+    }
+
+    @Test
+    void testSearchFileContents_SearchTypeClassifiesAnalyzedFiles() throws Exception {
+        Path nestedDir = projectRoot.resolve("src/main/java/com/example");
+        Files.createDirectories(nestedDir);
+        Path file = nestedDir.resolve("Foo.java");
+        Files.writeString(
+                file,
+                """
+                package com.example;
+                import java.util.List;
+                class Foo {
+                    List<String> values;
+                    Foo useFoo(Foo other) {
+                        Foo local = other;
+                        return local;
+                    }
+                }
+                """
+                        .stripIndent());
+
+        ProjectFile projectFile = new ProjectFile(projectRoot, "src/main/java/com/example/Foo.java");
+        mockProjectFiles.add(projectFile);
+
+        CodeUnit cls = CodeUnit.cls(projectFile, "com.example", "Foo");
+        CodeUnit field = CodeUnit.field(projectFile, "com.example", "Foo.values");
+        CodeUnit method = CodeUnit.fn(projectFile, "com.example", "Foo.useFoo");
+
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(cls);
+        analyzer.addDeclaration(field);
+        analyzer.addDeclaration(method);
+        analyzer.setRanges(cls, List.of(new Range(0, 0, 2, 7, 0)));
+        analyzer.setRanges(field, List.of(new Range(0, 0, 3, 3, 0)));
+        analyzer.setRanges(method, List.of(new Range(0, 0, 4, 7, 0)));
+        analyzer.setImportStatements(projectFile, List.of("import java.util.List;"));
+
+        SearchTools tools = new SearchTools(new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo));
+
+        String declarations =
+                tools.searchFileContents(List.of("Foo", "List"), "**/*.java", "declarations", false, false, 0, 20);
+        assertTrue(declarations.contains("[DECLARATIONS]"));
+        assertTrue(declarations.contains("3: class Foo {"));
+        assertTrue(declarations.contains("4:     List<String> values;"));
+        assertTrue(declarations.contains("5:     Foo useFoo(Foo other) {"));
+        assertFalse(declarations.contains("2: import java.util.List;"));
+        assertFalse(declarations.contains("6:         Foo local = other;"));
+
+        String usages = tools.searchFileContents(List.of("Foo"), "**/*.java", "usages", false, false, 0, 20);
+        assertTrue(usages.contains("[USAGES]"));
+        assertTrue(usages.contains("6:         Foo local = other;"));
+        assertFalse(usages.contains("3: class Foo {"));
+
+        String all = tools.searchFileContents(List.of("Foo", "List"), "**/*.java", "all", false, false, 0, 20);
+        assertTrue(all.contains("<matches>"));
+        assertTrue(all.contains("<related>"));
+        assertTrue(all.contains("[DECLARATIONS]"));
+        assertTrue(all.contains("[USAGES]"));
+        assertTrue(all.contains("2: import java.util.List;"));
     }
 
     @Test

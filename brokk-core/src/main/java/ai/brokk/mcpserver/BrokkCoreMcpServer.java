@@ -356,25 +356,37 @@ public class BrokkCoreMcpServer {
 
         specs.add(tool(
                 "searchFileContents",
-                "Search for regex patterns in file contents with context lines.",
+                "Search for regex patterns in file contents with optional filtering to declarations, usages, or all. "
+                        + "In analyzed files, searchType=all also shows lower-signal related lines such as imports; "
+                        + "searchType=declarations or usages hides them. Un-analyzed files always behave as all.",
                 schema(
                         Map.of(
-                                "patterns", arrayProp("Regex patterns to search for."),
-                                "filepath", stringProp("File path or glob pattern to restrict search to."),
-                                "caseInsensitive", boolProp("Case-insensitive matching."),
-                                "multiline", boolProp("Enable multiline matching."),
-                                "contextLines", intProp("Number of context lines around each match."),
-                                "maxFiles", intProp("Maximum number of files to search.")),
+                                "patterns",
+                                arrayProp("Regex patterns to search for."),
+                                "filepath",
+                                stringProp("File path or glob pattern to restrict search to."),
+                                "searchType",
+                                stringProp(
+                                        "Which analyzed-code hits to show: declarations, usages, or all. Imports and other related lines only appear with all."),
+                                "caseInsensitive",
+                                boolProp("Case-insensitive matching."),
+                                "multiline",
+                                boolProp("Enable multiline matching."),
+                                "contextLines",
+                                intProp("Number of context lines around each match."),
+                                "maxFiles",
+                                intProp("Maximum number of files to search.")),
                         List.of("patterns", "filepath")),
                 (exchange, request) -> withReadLock(() -> {
                     var patterns = stringListArg(request, "patterns");
                     var filepath = stringArg(request, "filepath");
+                    var searchType = stringArgOrDefault(request, "searchType", "all");
                     var caseInsensitive = boolArg(request, "caseInsensitive", false);
                     var multiline = boolArg(request, "multiline", false);
                     var contextLines = intArg(request, "contextLines", 2);
                     var maxFiles = intArg(request, "maxFiles", 20);
                     return textResult(searchTools.searchFileContents(
-                            patterns, filepath, caseInsensitive, multiline, contextLines, maxFiles));
+                            patterns, filepath, searchType, caseInsensitive, multiline, contextLines, maxFiles));
                 })));
 
         specs.add(tool(

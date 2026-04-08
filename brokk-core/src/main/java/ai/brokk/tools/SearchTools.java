@@ -1551,6 +1551,33 @@ public class SearchTools {
         return new BatchResult<>(results, errors, truncated);
     }
 
+    enum FileContentSearchType {
+        DECLARATIONS("declarations"),
+        USAGES("usages"),
+        ALL("all");
+
+        private final String wireName;
+
+        FileContentSearchType(String wireName) {
+            this.wireName = wireName;
+        }
+
+        String wireName() {
+            return wireName;
+        }
+
+        static FileContentSearchType fromWireValue(String rawValue) {
+            return switch (rawValue.toLowerCase(Locale.ROOT)) {
+                case "declarations" -> DECLARATIONS;
+                case "usages" -> USAGES;
+                case "all" -> ALL;
+                default ->
+                    throw new IllegalArgumentException(
+                            "Invalid searchType '%s'. Expected one of: declarations, usages, all".formatted(rawValue));
+            };
+        }
+    }
+
     public String searchFileContents(
             List<String> patterns,
             String filepath,
@@ -1559,8 +1586,27 @@ public class SearchTools {
             int contextLines,
             int maxFiles)
             throws InterruptedException {
+        return searchFileContents(patterns, filepath, "all", caseInsensitive, multiline, contextLines, maxFiles);
+    }
+
+    public String searchFileContents(
+            List<String> patterns,
+            String filepath,
+            String searchType,
+            boolean caseInsensitive,
+            boolean multiline,
+            int contextLines,
+            int maxFiles)
+            throws InterruptedException {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search file contents: patterns list is empty");
+        }
+
+        final FileContentSearchType effectiveSearchType;
+        try {
+            effectiveSearchType = FileContentSearchType.fromWireValue(searchType);
+        } catch (IllegalArgumentException e) {
+            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
 
         int clampedContext = max(0, min(contextLines, FILE_CONTENTS_CONTEXT_LINES_LIMIT));
@@ -1598,15 +1644,17 @@ public class SearchTools {
         }
         files = prioritizeFilesForSelection(files);
 
-        record FileHit(ProjectFile file, List<AlmostGrep.FileContentSearchResult> blocks) {}
+        var analyzer = getAnalyzer();
+        record FileHit(ProjectFile file, AlmostGrep.FileContentSearchResult block) {}
 
         String patternsLabel = String.join(", ", patterns);
         BatchResult<FileHit> batchResult;
         try {
             batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
                 try {
-                    var res = AlmostGrep.searchFileContentsInFile(file, compiledPatterns, clampedContext);
-                    if (res.isEmpty()) return new IndexedResult<>(idx, null, null);
+                    var res = AlmostGrep.searchFileContentsInFile(
+                            file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
+                    if (res == null) return new IndexedResult<>(idx, null, null);
                     return new IndexedResult<>(idx, new FileHit(file, res), null);
                 } catch (RegexMatchOverflowException e) {
                     String message = "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
@@ -1631,22 +1679,26 @@ public class SearchTools {
             }
 
             selectedHits.add(hit);
-            for (var block : hit.blocks()) {
-                totalMatches += block.matches();
-            }
+            totalMatches += hit.block().matches();
         }
 
         List<String> fileBlocks = selectedHits.stream()
                 .sorted((a, b) -> a.file().compareTo(b.file()))
-                .flatMap(hit -> hit.blocks().stream().map(AlmostGrep.FileContentSearchResult::output))
+                .map(hit -> hit.block().output())
                 .toList();
 
         if (fileBlocks.isEmpty()) {
             if (!processingErrors.isEmpty()) {
-                return "No matches found for pattern(s) '%s' in files matching '%s' (errors occurred in %d files; first: %s)"
-                        .formatted(patternsLabel, filepath, processingErrors.size(), processingErrors.getFirst());
+                return "No matches found for pattern(s) '%s' in files matching '%s' with searchType='%s' (errors occurred in %d files; first: %s)"
+                        .formatted(
+                                patternsLabel,
+                                filepath,
+                                effectiveSearchType.wireName(),
+                                processingErrors.size(),
+                                processingErrors.getFirst());
             }
-            return "No matches found for pattern(s) '" + patternsLabel + "' in files matching '" + filepath + "'";
+            return "No matches found for pattern(s) '%s' in files matching '%s' with searchType='%s'"
+                    .formatted(patternsLabel, filepath, effectiveSearchType.wireName());
         }
 
         var suffixLines = new ArrayList<String>(3);

@@ -1589,17 +1589,59 @@ public class SearchTools {
         return new BatchResult<>(results, errors, truncated);
     }
 
+    enum FileContentSearchType {
+        DECLARATIONS("declarations"),
+        USAGES("usages"),
+        ALL("all");
+
+        private final String wireName;
+
+        FileContentSearchType(String wireName) {
+            this.wireName = wireName;
+        }
+
+        String wireName() {
+            return wireName;
+        }
+
+        static FileContentSearchType fromWireValue(String rawValue) {
+            return switch (rawValue.toLowerCase(Locale.ROOT)) {
+                case "declarations" -> DECLARATIONS;
+                case "usages" -> USAGES;
+                case "all" -> ALL;
+                default ->
+                    throw new IllegalArgumentException(
+                            "Invalid searchType '%s'. Expected one of: declarations, usages, all".formatted(rawValue));
+            };
+        }
+    }
+
+    public String searchFileContents(
+            List<String> patterns,
+            String filepath,
+            boolean caseInsensitive,
+            boolean multiline,
+            int contextLines,
+            int maxFiles)
+            throws InterruptedException {
+        return searchFileContents(patterns, filepath, "all", caseInsensitive, multiline, contextLines, maxFiles);
+    }
+
     @Tool(
             """
             Regex search across file contents -- use for string literals, config values, comments, log messages, and non-code files.
             For finding code definitions (classes, methods), prefer searchSymbols or getSymbolLocations. For finding usages of known symbols, prefer scanUsages.
-            Provides grep-like output with line numbers and optional context lines.
+            In analyzed files, searchType can focus on declarations, usages, or all. searchType=all shows declarations first, then usages, then lower-signal related lines such as imports. searchType=declarations or usages hides those related lines. Un-analyzed files always behave as all.
+            Returns pseudo-XML <file> blocks with <matches> and optional <related> sections, plus optional context lines.
 
             Limits: 500 total matching lines across all files. 20 matches per file per pattern. maxFiles capped at 100.
             """)
     public String searchFileContents(
             @P("Java-style regex patterns to search for.") List<String> patterns,
             @P("Glob pattern for file paths (e.g., '**/AGENTS.md', 'src/**/*.java').") String filepath,
+            @P(
+                            "In analyzed files, filter visible hits to declarations, usages, or all. Imports and other related lines only appear with all. Un-analyzed files always behave as all.")
+                    String searchType,
             @P("Case-insensitive matching (equivalent to Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).")
                     boolean caseInsensitive,
             @P("Enable multiline mode (equivalent to Pattern.MULTILINE, affecting ^ and $).") boolean multiline,
@@ -1608,6 +1650,13 @@ public class SearchTools {
             throws InterruptedException {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search file contents: patterns list is empty");
+        }
+
+        final FileContentSearchType effectiveSearchType;
+        try {
+            effectiveSearchType = FileContentSearchType.fromWireValue(searchType);
+        } catch (IllegalArgumentException e) {
+            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
 
         int clampedContext = max(0, min(contextLines, FILE_CONTENTS_CONTEXT_LINES_LIMIT));
@@ -1645,15 +1694,17 @@ public class SearchTools {
         }
         files = prioritizeFilesForSelection(files);
 
-        record FileHit(ProjectFile file, List<AlmostGrep.FileContentSearchResult> blocks) {}
+        var analyzer = getAnalyzer();
+        record FileHit(ProjectFile file, AlmostGrep.FileContentSearchResult block) {}
 
         String patternsLabel = String.join(", ", patterns);
         BatchResult<FileHit> batchResult;
         try {
             batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
                 try {
-                    var res = AlmostGrep.searchFileContentsInFile(file, compiledPatterns, clampedContext);
-                    if (res.isEmpty()) return new IndexedResult<>(idx, null, null);
+                    var res = AlmostGrep.searchFileContentsInFile(
+                            file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
+                    if (res == null) return new IndexedResult<>(idx, null, null);
                     return new IndexedResult<>(idx, new FileHit(file, res), null);
                 } catch (RegexMatchOverflowException e) {
                     String message = "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
@@ -1678,22 +1729,26 @@ public class SearchTools {
             }
 
             selectedHits.add(hit);
-            for (var block : hit.blocks()) {
-                totalMatches += block.matches();
-            }
+            totalMatches += hit.block().matches();
         }
 
         List<String> fileBlocks = selectedHits.stream()
                 .sorted((a, b) -> a.file().compareTo(b.file()))
-                .flatMap(hit -> hit.blocks().stream().map(AlmostGrep.FileContentSearchResult::output))
+                .map(hit -> hit.block().output())
                 .toList();
 
         if (fileBlocks.isEmpty()) {
             if (!processingErrors.isEmpty()) {
-                return "No matches found for pattern(s) '%s' in files matching '%s' (errors occurred in %d files; first: %s)"
-                        .formatted(patternsLabel, filepath, processingErrors.size(), processingErrors.getFirst());
+                return "No matches found for pattern(s) '%s' in files matching '%s' with searchType='%s' (errors occurred in %d files; first: %s)"
+                        .formatted(
+                                patternsLabel,
+                                filepath,
+                                effectiveSearchType.wireName(),
+                                processingErrors.size(),
+                                processingErrors.getFirst());
             }
-            return "No matches found for pattern(s) '" + patternsLabel + "' in files matching '" + filepath + "'";
+            return "No matches found for pattern(s) '%s' in files matching '%s' with searchType='%s'"
+                    .formatted(patternsLabel, filepath, effectiveSearchType.wireName());
         }
 
         var suffixLines = new ArrayList<String>(3);

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.IAnalyzer.Range;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcpserver.StandaloneCodeIntelligence;
 import ai.brokk.project.CoreProject;
@@ -14,6 +15,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -128,6 +131,124 @@ class SearchToolsTest {
         assertTrue(result.contains("## Related Content"), "Should include related content header");
         assertTrue(countedTokens > 0, "Final output should be counted as research tokens");
         assertEquals(0L, tools.getAndClearResearchTokens(), "Counter should reset after reading");
+    }
+
+    @Test
+    void searchFileContents_SearchTypeClassifiesAnalyzedFiles() throws Exception {
+        Path projectRoot = initRepo();
+        Path filePath = projectRoot.resolve("src/main/java/com/example/Foo.java");
+        Files.createDirectories(filePath.getParent());
+        Files.writeString(
+                filePath,
+                """
+                package com.example;
+                import java.util.List;
+                class Foo {
+                    List<String> values;
+                    Foo useFoo(Foo other) {
+                        Foo local = other;
+                        return local;
+                    }
+                }
+                """
+                        .stripIndent());
+        try (Git git = Git.open(projectRoot.toFile())) {
+            git.add().addFilepattern("src/main/java/com/example/Foo.java").call();
+        }
+
+        project = new CoreProject(projectRoot);
+        ProjectFile projectFile = new ProjectFile(projectRoot, "src/main/java/com/example/Foo.java");
+        CodeUnit cls = CodeUnit.cls(projectFile, "com.example", "Foo");
+        CodeUnit field = CodeUnit.field(projectFile, "com.example", "Foo.values");
+        CodeUnit method = CodeUnit.fn(projectFile, "com.example", "Foo.useFoo");
+
+        Map<CodeUnit, List<Range>> ranges = new HashMap<>();
+        ranges.put(cls, List.of(new Range(0, 0, 2, 7, 0)));
+        ranges.put(field, List.of(new Range(0, 0, 3, 3, 0)));
+        ranges.put(method, List.of(new Range(0, 0, 4, 7, 0)));
+
+        IAnalyzer analyzer = new DisabledAnalyzer(project) {
+            @Override
+            public Set<ProjectFile> getAnalyzedFiles() {
+                return Set.of(projectFile);
+            }
+
+            @Override
+            public Set<CodeUnit> getDeclarations(ProjectFile file) {
+                return file.equals(projectFile) ? Set.of(cls, field, method) : Set.of();
+            }
+
+            @Override
+            public List<Range> rangesOf(CodeUnit codeUnit) {
+                return ranges.getOrDefault(codeUnit, List.of());
+            }
+
+            @Override
+            public List<String> importStatementsOf(ProjectFile file) {
+                return file.equals(projectFile) ? List.of("import java.util.List;") : List.of();
+            }
+
+            @Override
+            public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+                return new LinkedHashSet<>();
+            }
+
+            @Override
+            public java.util.Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
+                if (!file.equals(projectFile)) {
+                    return java.util.Optional.empty();
+                }
+                return ranges.entrySet().stream()
+                        .filter(entry -> entry.getValue().stream()
+                                .anyMatch(range -> startLine >= range.startLine() && endLine <= range.endLine()))
+                        .min(Comparator.comparingInt(entry -> entry.getValue().stream()
+                                .filter(range -> startLine >= range.startLine() && endLine <= range.endLine())
+                                .mapToInt(range -> range.endLine() - range.startLine())
+                                .min()
+                                .orElse(Integer.MAX_VALUE)))
+                        .map(Map.Entry::getKey);
+            }
+        };
+
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
+
+        String declarations =
+                tools.searchFileContents(List.of("Foo", "List"), "**/*.java", "declarations", false, false, 0, 20);
+        assertTrue(declarations.contains("[DECLARATIONS]"));
+        assertTrue(declarations.contains("3: class Foo {"));
+        assertTrue(declarations.contains("4:     List<String> values;"));
+        assertTrue(declarations.contains("5:     Foo useFoo(Foo other) {"));
+        assertFalse(declarations.contains("2: import java.util.List;"));
+        assertFalse(declarations.contains("6:         Foo local = other;"));
+
+        String usages = tools.searchFileContents(List.of("Foo"), "**/*.java", "usages", false, false, 0, 20);
+        assertTrue(usages.contains("[USAGES]"));
+        assertTrue(usages.contains("6:         Foo local = other;"));
+        assertFalse(usages.contains("3: class Foo {"));
+
+        String all = tools.searchFileContents(List.of("Foo", "List"), "**/*.java", "all", false, false, 0, 20);
+        assertTrue(all.contains("<matches>"));
+        assertTrue(all.contains("<related>"));
+        assertTrue(all.contains("2: import java.util.List;"));
+    }
+
+    @Test
+    void searchFileContents_UnanalyzedFilesIgnoreSearchTypeFilter() throws Exception {
+        Path projectRoot = initRepo();
+        Path filePath = projectRoot.resolve("notes.txt");
+        Files.writeString(filePath, "import Foo\nplain Foo\n");
+        try (Git git = Git.open(projectRoot.toFile())) {
+            git.add().addFilepattern("notes.txt").call();
+        }
+
+        project = new CoreProject(projectRoot);
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, new DisabledAnalyzer(project)));
+
+        String result = tools.searchFileContents(List.of("Foo"), "*.txt", "declarations", false, false, 0, 20);
+        assertTrue(result.contains("<matches>"));
+        assertTrue(result.contains("1: import Foo"));
+        assertTrue(result.contains("2: plain Foo"));
+        assertFalse(result.contains("<related>"));
     }
 
     private Path initRepo() throws Exception {
