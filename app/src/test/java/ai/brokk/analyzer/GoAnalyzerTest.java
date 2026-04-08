@@ -1057,6 +1057,38 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testReplicatedAnonymousMembersDoNotInheritTemplateRanges() throws IOException {
+        String source =
+                """
+                package cli
+
+                type Settings struct {
+                    Config, Override struct {
+                        Enabled bool
+                    }
+                }
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "settings.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var templateField = inlineAnalyzer.getDefinitions("cli.Settings.Config.Enabled").stream()
+                    .findFirst()
+                    .orElseThrow();
+            var replicatedField = inlineAnalyzer.getDefinitions("cli.Settings.Override.Enabled").stream()
+                    .findFirst()
+                    .orElseThrow();
+
+            assertFalse(
+                    inlineAnalyzer.rangesOf(templateField).isEmpty(),
+                    "Template anonymous member should retain its source range.");
+            assertTrue(
+                    inlineAnalyzer.rangesOf(replicatedField).isEmpty(),
+                    "Replicated anonymous member should not inherit the template sibling's source range.");
+        }
+    }
+
+    @Test
     void testFunctionLocalInterfaceMethodsAreNotReportedAsDeclarations() throws IOException {
         String source =
                 """

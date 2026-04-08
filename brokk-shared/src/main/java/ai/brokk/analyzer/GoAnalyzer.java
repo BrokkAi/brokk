@@ -651,7 +651,6 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 template.isSynthetic());
         acc.addChild(parent, cloned).registerCodeUnit(cloned);
         acc.getSignatures(template).forEach(signature -> acc.addSignature(cloned, signature));
-        acc.getRanges(template).forEach(range -> acc.addRange(cloned, range));
         acc.setHasBody(cloned, acc.getHasBody(template, false));
         acc.setIsTypeAlias(cloned, acc.getIsTypeAlias(template, false));
         return cloned;
