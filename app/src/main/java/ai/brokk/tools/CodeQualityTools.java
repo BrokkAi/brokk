@@ -295,11 +295,11 @@ public class CodeQualityTools {
             Tune similarity and size thresholds to reduce noise.""")
     public String reportStructuralCloneSmells(
             @P("File paths relative to the project root.") List<String> filePaths,
-            @P("Minimum similarity score (0-100) to include; values <= 0 default to 72.") int minScore,
-            @P("Minimum normalized token count; values <= 0 default to 20.") int minNormalizedTokens,
-            @P("Shingle size used for token overlap; values <= 0 default to 3.") int shingleSize,
-            @P("Minimum shared shingles before scoring; values <= 0 default to 4.") int minSharedShingles,
-            @P("AST refinement threshold (0-100); values <= 0 default to 80.") int astSimilarityPercent,
+            @P("Minimum similarity score (0-100) to include; values <= 0 default to 60.") int minScore,
+            @P("Minimum normalized token count; values <= 0 default to 12.") int minNormalizedTokens,
+            @P("Shingle size used for token overlap; values <= 0 default to 2.") int shingleSize,
+            @P("Minimum shared shingles before scoring; values <= 0 default to 3.") int minSharedShingles,
+            @P("AST refinement threshold (0-100); values <= 0 default to 70.") int astSimilarityPercent,
             @P("Maximum findings to emit; values <= 0 default to 80.") int maxFindings) {
 
         var defaults = IAnalyzer.CloneSmellWeights.defaults();
