@@ -173,7 +173,7 @@ public class CodeQualityTools {
                 }
                 lines.add("| `%s` | %d | %d | %d | %d | %d | %d |"
                         .formatted(
-                                s.fqName(),
+                            sanitizeTableCell(s.fqName()),
                                 s.headerCommentLines(),
                                 s.inlineCommentLines(),
                                 s.spanLines(),
@@ -266,15 +266,18 @@ public class CodeQualityTools {
         lines.add("| Score | Catch Type | Statements | Symbol | File | Reasons | Excerpt |");
         lines.add("|------:|------------|-----------:|--------|------|---------|---------|");
         for (IAnalyzer.ExceptionHandlingSmell finding : filtered.subList(0, shown)) {
-            String reasons = String.join(", ", finding.reasons());
+            String reasons = sanitizeTableCell(String.join(", ", finding.reasons()));
+            String catchType = sanitizeTableCell(finding.catchType());
+            String symbol = sanitizeTableCell(finding.enclosingFqName());
+            String file = sanitizeTableCell(finding.file().toString());
             lines.add("| %d | `%s` | %d | `%s` | `%s` | %s | `%s` |"
                     .formatted(
                             finding.score(),
-                            finding.catchType(),
+                            catchType,
                             finding.bodyStatementCount(),
-                            finding.enclosingFqName(),
-                            finding.file(),
-                            reasons,
+                            symbol,
+                            file,
+                            "`" + reasons + "`",
                             sanitizeTableCell(finding.excerpt())));
         }
         if (filtered.size() > shown) {
@@ -396,7 +399,12 @@ public class CodeQualityTools {
                     .map(a -> a.name() + "(" + a.commits() + ")")
                     .collect(Collectors.joining(", "));
             lines.add("| `%s` | %d | %d | %s | %s |"
-                    .formatted(f.path(), f.churn(), f.complexity(), f.category(), authors));
+                    .formatted(
+                            sanitizeTableCell(f.path()),
+                            f.churn(),
+                            f.complexity(),
+                            sanitizeTableCell(f.category().toString()),
+                            sanitizeTableCell(authors)));
         }
         return String.join("\n", lines);
     }
