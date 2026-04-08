@@ -313,14 +313,11 @@ public class CodeQualityTools {
                 astSimilarityPercent > 0 ? astSimilarityPercent : defaults.astSimilarityPercent());
 
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-        var findings = new ArrayList<IAnalyzer.CloneSmell>();
-        for (String path : filePaths) {
-            ProjectFile file = contextManager.toFile(path);
-            if (!file.exists()) {
-                continue;
-            }
-            findings.addAll(analyzer.findStructuralCloneSmells(file, weights));
-        }
+        List<ProjectFile> files = filePaths.stream()
+                .map(contextManager::toFile)
+                .filter(ProjectFile::exists)
+                .toList();
+        var findings = new ArrayList<>(analyzer.findStructuralCloneSmells(files, weights));
         var deduped = new LinkedHashMap<String, IAnalyzer.CloneSmell>();
         for (IAnalyzer.CloneSmell finding : findings) {
             String left = finding.file() + "#" + finding.enclosingFqName();

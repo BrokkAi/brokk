@@ -4512,9 +4512,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     @Override
     public List<CloneSmell> findStructuralCloneSmells(ProjectFile file, CloneSmellWeights weights) {
+        return findStructuralCloneSmells(List.of(file), weights);
+    }
+
+    @Override
+    public List<CloneSmell> findStructuralCloneSmells(List<ProjectFile> files, CloneSmellWeights weights) {
         checkStale("findStructuralCloneSmells");
         CloneSmellWeights resolved = weights != null ? weights : CloneSmellWeights.defaults();
-        if (!isRelevantFile(file)) {
+        Set<ProjectFile> requestedFiles =
+                files.stream().filter(this::isRelevantFile).collect(Collectors.toSet());
+        if (requestedFiles.isEmpty()) {
             return List.of();
         }
         List<CloneCandidateData> allCandidates = getAllDeclarations().stream()
@@ -4526,15 +4533,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (allCandidates.isEmpty()) {
             return List.of();
         }
-        List<CloneCandidateData> fileCandidates = allCandidates.stream()
-                .filter(c -> c.unit().source().equals(file))
+        List<CloneCandidateData> requestedCandidates = allCandidates.stream()
+                .filter(c -> requestedFiles.contains(c.unit().source()))
                 .toList();
-        if (fileCandidates.isEmpty()) {
+        if (requestedCandidates.isEmpty()) {
             return List.of();
         }
 
         var findings = new ArrayList<CloneSmell>();
-        for (CloneCandidateData left : fileCandidates) {
+        for (CloneCandidateData left : requestedCandidates) {
             for (CloneCandidateData right : allCandidates) {
                 if (left.unit().equals(right.unit())) {
                     continue;

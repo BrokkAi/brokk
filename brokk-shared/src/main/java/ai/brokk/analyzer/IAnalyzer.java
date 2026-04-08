@@ -816,6 +816,16 @@ public interface IAnalyzer {
     }
 
     /**
+     * Returns suspicious structural clones for multiple files in one pass. Default implementation delegates to the
+     * single-file API for compatibility.
+     */
+    default List<CloneSmell> findStructuralCloneSmells(List<ProjectFile> files, CloneSmellWeights weights) {
+        return files.stream()
+                .flatMap(file -> findStructuralCloneSmells(file, weights).stream())
+                .toList();
+    }
+
+    /**
      * Analyzes comments in the specified content to distinguish between 'How' (redundant) vs 'Why' (semantic) comments.
      */
     default List<String> findPotentialHowComments(String content) {
