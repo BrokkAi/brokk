@@ -926,6 +926,50 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testAnonymousStructFieldsAndFunctionLocalTypesAreNotReportedAsDeclarations() throws IOException {
+        String source =
+                """
+                package cli
+
+                var debugArgs struct {
+                    file string
+                    cpuSec int
+                }
+
+                func runDaemonMetrics() {
+                    type change struct {
+                        name string
+                    }
+                    _ = change{}
+                }
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "debug.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "debug.go");
+            var declarations = inlineAnalyzer.getDeclarations(file);
+            var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+            assertTrue(
+                    fqns.contains("cli._module_.debugArgs"),
+                    "Expected package-level variable declaration to be present. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("cli.runDaemonMetrics"),
+                    "Expected function declaration to be present. Found: " + fqns);
+            assertFalse(
+                    fqns.contains("cli.change"),
+                    "Function-local types should not be reported as declarations. Found: " + fqns);
+            assertFalse(
+                    fqns.stream().anyMatch(fqn -> fqn.endsWith(".file")),
+                    "Anonymous struct fields should not be reported as declarations. Found: " + fqns);
+            assertFalse(
+                    fqns.stream().anyMatch(fqn -> fqn.endsWith(".cpuSec")),
+                    "Anonymous struct fields should not be reported as declarations. Found: " + fqns);
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";

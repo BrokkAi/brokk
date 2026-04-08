@@ -201,6 +201,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 yield CodeUnit.fn(file, packageName, simpleName);
             }
             case CaptureNames.TYPE_DEFINITION -> {
+                if (!isPackageLevelDeclaration(definitionNode)) {
+                    log.trace("Skipping non-package-level Go type '{}' in file '{}'", simpleName, file.getFileName());
+                    yield null;
+                }
                 if (skeletonType == SkeletonType.FIELD_LIKE) {
                     log.trace(
                             "Creating FIELD CodeUnit for Go type alias: File='{}', Pkg='{}', Name='{}'",
@@ -259,6 +263,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 if (!isPackageLevelDeclaration(definitionNode)) {
                     log.trace(
                             "Skipping non-package-level Go struct field '{}' in file '{}'",
+                            simpleName,
+                            file.getFileName());
+                    yield null;
+                }
+                if (classChain.isEmpty()) {
+                    log.trace(
+                            "Skipping Go struct field '{}' without named parent type in file '{}'",
                             simpleName,
                             file.getFileName());
                     yield null;
