@@ -695,11 +695,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         TSNode receiverNode = localCaptures.get("method.receiver.type");
         if (receiverNode != null) {
-            String receiverTypeText = sourceContent.substringFrom(receiverNode).trim();
-            // Remove leading * for pointer receivers
-            if (receiverTypeText.startsWith("*")) {
-                receiverTypeText = receiverTypeText.substring(1).trim();
-            }
+            String receiverTypeText = normalizeReceiverTypeText(
+                    sourceContent.substringFrom(receiverNode).trim());
             if (!receiverTypeText.isEmpty()) {
                 return Optional.of(receiverTypeText);
             } else {
@@ -712,6 +709,17 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
 
         return Optional.empty();
+    }
+
+    private static String normalizeReceiverTypeText(String receiverTypeText) {
+        if (receiverTypeText.startsWith("*")) {
+            receiverTypeText = receiverTypeText.substring(1).trim();
+        }
+        int genericStart = receiverTypeText.indexOf('[');
+        if (genericStart >= 0) {
+            receiverTypeText = receiverTypeText.substring(0, genericStart).trim();
+        }
+        return receiverTypeText;
     }
 
     @Override

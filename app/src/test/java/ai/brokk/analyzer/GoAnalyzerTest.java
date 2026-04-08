@@ -1091,6 +1091,54 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testGenericReceiverMethodsAreCapturedAndNested() throws IOException {
+        String source =
+                """
+                package web
+
+                type apiHandler[data any] struct {
+                    permissionCheck func(data data) bool
+                }
+
+                func (a *apiHandler[data]) getPeer() error { return nil }
+                func (a *apiHandler[data]) handle() {}
+                func (a *apiHandler[data]) handleJSON() {}
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "web.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "web.go");
+            var declarations = inlineAnalyzer.getDeclarations(file);
+            var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+            assertTrue(
+                    fqns.contains("web.apiHandler.getPeer"),
+                    "Expected generic receiver method getPeer to be present. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("web.apiHandler.handle"),
+                    "Expected generic receiver method handle to be present. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("web.apiHandler.handleJSON"),
+                    "Expected generic receiver method handleJSON to be present. Found: " + fqns);
+
+            var apiHandler = inlineAnalyzer.getDefinitions("web.apiHandler").stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertCodeEquals(
+                    """
+                    type apiHandler struct {
+                      permissionCheck func(data data) bool
+                      func (a *apiHandler[data]) getPeer() error { ... }
+                      func (a *apiHandler[data]) handle() { ... }
+                      func (a *apiHandler[data]) handleJSON() { ... }
+                    }
+                    """,
+                    inlineAnalyzer.getSkeleton(apiHandler).orElseThrow());
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";

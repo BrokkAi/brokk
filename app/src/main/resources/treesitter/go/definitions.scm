@@ -30,7 +30,12 @@
 (method_declaration
   receiver: (parameter_list
     (parameter_declaration
-      type: [ (type_identifier) @method.receiver.type (pointer_type (type_identifier) @method.receiver.type) ]
+      type: [
+        (type_identifier) @method.receiver.type
+        (generic_type) @method.receiver.type
+        (pointer_type (type_identifier) @method.receiver.type)
+        (pointer_type (generic_type) @method.receiver.type)
+      ]
     )
   )
   name: (field_identifier) @method.name
