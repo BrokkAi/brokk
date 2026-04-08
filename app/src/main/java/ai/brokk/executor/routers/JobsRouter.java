@@ -6,6 +6,7 @@ import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.JobReservation;
+import ai.brokk.executor.agents.AgentDefinition;
 import ai.brokk.executor.agents.AgentStore;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -159,7 +161,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         String effectiveTaskInput = request.taskInput();
         if (request.agent() != null && !request.agent().isBlank()) {
             var agentName = request.agent().strip();
-            var agentDef = agentStore.get(agentName);
+            var agentDef = resolveAgentFromMergedRegistry(agentName);
             if (agentDef.isEmpty()) {
                 RouterUtil.sendValidationError(exchange, "Unknown agent: " + agentName);
                 return;
@@ -640,6 +642,16 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 jobReservation.releaseIfOwner(jobId);
             }
         });
+    }
+
+    /**
+     * Resolve an agent by name from the merged registry (project overrides user).
+     * This keeps /v1/jobs validation aligned with /v1/agents listing semantics.
+     */
+    private Optional<AgentDefinition> resolveAgentFromMergedRegistry(String agentName) {
+        return agentStore.list().stream()
+                .filter(def -> def.name().equals(agentName))
+                .findFirst();
     }
 
     private JobSpec.@Nullable ModelOverrides validateModelOverrides(HttpExchange exchange, JobSpecRequest request)

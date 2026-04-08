@@ -6,10 +6,12 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -32,10 +34,119 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
 
     private static final Pattern WILDCARD_IMPORT_PATTERN = Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
+    private static final Set<String> COMMENT_NODE_TYPES = Set.of("comment", "line_comment", "block_comment");
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPython(reference);
+    }
+
+    @Override
+    public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        checkStale("commentDensity");
+        if (!"py".equals(cu.source().extension())) {
+            return Optional.empty();
+        }
+        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(cu.source(), COMMENT_NODE_TYPES);
+        return Optional.of(buildRollUpStats(cu, counts));
+    }
+
+    @Override
+    public List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        checkStale("commentDensityByTopLevel");
+        if (!"py".equals(file.extension())) {
+            return List.of();
+        }
+        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(file, COMMENT_NODE_TYPES);
+        List<CommentDensityStats> rows = new ArrayList<>();
+        for (CodeUnit top : getTopLevelDeclarations(file)) {
+            rows.add(buildRollUpStats(top, counts));
+        }
+        return List.copyOf(rows);
+    }
+
+    private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentLineBreakdown> counts) {
+        CommentLineBreakdown own = counts.getOrDefault(cu.fqName(), new CommentLineBreakdown(0, 0));
+        int span = rangesOf(cu).stream()
+                .mapToInt(r -> r.endLine() - r.startLine() + 1)
+                .sum();
+        String path = cu.source().toString();
+        if (!cu.isClass()) {
+            return new CommentDensityStats(
+                    cu.fqName(),
+                    path,
+                    own.headerLines(),
+                    own.inlineLines(),
+                    span,
+                    own.headerLines(),
+                    own.inlineLines(),
+                    span);
+        }
+        int rh = own.headerLines();
+        int ri = own.inlineLines();
+        int rs = span;
+        for (CodeUnit ch : getDirectChildren(cu)) {
+            CommentDensityStats child = buildRollUpStats(ch, counts);
+            rh += child.rolledUpHeaderCommentLines();
+            ri += child.rolledUpInlineCommentLines();
+            rs += child.rolledUpSpanLines();
+        }
+        return new CommentDensityStats(cu.fqName(), path, own.headerLines(), own.inlineLines(), span, rh, ri, rs);
+    }
+
+    @Override
+    public int computeCyclomaticComplexity(CodeUnit cu) {
+        if (!cu.isFunction()) return 0;
+
+        return getSource(cu, false)
+                .map(source -> {
+                    try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
+                        TSNode root = tree.getRootNode();
+                        if (root == null) return 1;
+
+                        SourceContent content = SourceContent.of(source);
+                        int complexity = 1; // Base complexity
+
+                        Deque<TSNode> stack = new ArrayDeque<>();
+                        stack.push(root);
+
+                        while (!stack.isEmpty()) {
+                            TSNode node = stack.pop();
+                            String type = node.getType();
+                            if (type == null) {
+                                continue;
+                            }
+
+                            switch (type) {
+                                case IF_STATEMENT,
+                                        ELIF_CLAUSE,
+                                        FOR_STATEMENT,
+                                        WHILE_STATEMENT,
+                                        EXCEPT_CLAUSE,
+                                        CONDITIONAL_EXPRESSION,
+                                        CASE_CLAUSE -> complexity++;
+                                case BOOLEAN_OPERATOR -> {
+                                    String op = content.substringFrom(node);
+                                    if (op.contains("and") || op.contains("or")) {
+                                        complexity++;
+                                    }
+                                }
+                            }
+
+                            for (int i = 0; i < node.getNamedChildCount(); i++) {
+                                TSNode child = node.getNamedChild(i);
+                                if (child != null) {
+                                    stack.push(child);
+                                }
+                            }
+                        }
+                        return complexity;
+                    } catch (Exception e) {
+                        log.warn("Failed to compute complexity for {} using AST; falling back", cu.fqName(), e);
+                        return super.computeCyclomaticComplexity(cu);
+                    }
+                })
+                .orElse(0);
     }
 
     @Override

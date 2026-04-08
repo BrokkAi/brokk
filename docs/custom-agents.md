@@ -29,10 +29,10 @@ You are an expert code reviewer. When given a task:
 1. Search for the relevant code using the available tools
 2. Read the full source of classes and methods you need to review
 3. Analyze for:
-   - Correctness bugs and logic errors
-   - Security vulnerabilities (injection, auth bypass, data exposure)
-   - Performance issues (N+1 queries, unnecessary allocations, blocking calls)
-   - Code style and maintainability
+    - Correctness bugs and logic errors
+    - Security vulnerabilities (injection, auth bypass, data exposure)
+    - Performance issues (N+1 queries, unnecessary allocations, blocking calls)
+    - Code style and maintainability
 4. Provide your findings as a structured answer with severity levels
 ```
 
@@ -85,7 +85,7 @@ curl -X POST "${BASE}/v1/agents" \
 
 ## Agent File Format
 
-Agents are markdown files with YAML frontmatter. The filename must match the agent name (e.g., `security-auditor.md` for an agent named `security-auditor`).
+Agents are markdown files with YAML frontmatter. Filename/name matching is recommended (e.g., `security-auditor.md` for an agent named `security-auditor`) for consistency and predictable CRUD behavior, but job invocation resolves by the `name` field in frontmatter from the merged agent registry.
 
 ```markdown
 ---
@@ -99,6 +99,37 @@ maxTurns: <number>              # optional — defaults to 20
 
 <system prompt — this is what the agent "is" and how it should behave>
 ```
+
+## Recommended Response Contract For Aggregation
+
+When one search run invokes multiple custom agents and then merges their outputs, use a machine-readable response contract so downstream synthesis stays deterministic.
+
+Required first payload from each sub-agent:
+
+```json
+{
+  "role": "Complexity Specialist",
+  "tried": [
+    "Computed complexity for top-level classes in src/core",
+    "Compared hotspots against recent git churn"
+  ],
+  "found": [
+    "High branching complexity in src/core/mapper.ts::map",
+    "Ownership risk in src/service/auth.ts due to concentrated churn"
+  ],
+  "looked": [
+    "src/core/mapper.ts",
+    "src/service/auth.ts",
+    "ElasticsearchMetadataFilterMapper.map"
+  ]
+}
+```
+
+Guidelines:
+- Emit this JSON object first, with no markdown before it.
+- Keep all keys present; use empty arrays when no items exist.
+- Keep `looked` tied to concrete repository paths or symbols inspected.
+- After the JSON object, include optional markdown narrative for humans.
 
 ### Frontmatter Fields
 
@@ -191,64 +222,65 @@ If both levels define an agent with the same name, the **project-level** definit
 
 ## Available Tools
 
-When you specify a `tools` list, you're choosing which capabilities the agent has. If you omit `tools`, the agent gets a broad default set (all search and workspace tools appropriate for your project).
+When you specify a `tools` list, you're choosing which capabilities the agent has. If you omit `tools`, the agent gets a broad default set of search and workspace tools appropriate for your project. Actual availability may still depend on project capabilities such as git, XML, JSON, or Java analysis support.
 
-### Search Tools (read-only, find code)
+### Search and repository tools
 
 | Tool | What it does |
 |------|-------------|
-| `searchSymbols` | Find classes, functions, fields by name pattern |
-| `scanUsages` | Find where a symbol is used/called across the codebase |
+| `searchSymbols` | Find classes, functions, and fields by name pattern |
+| `scanUsages` | Find where a symbol is used or called across the codebase |
 | `getSymbolLocations` | Get file locations for fully qualified symbol names |
 | `findFilesContaining` | Find files containing a regex pattern |
 | `findFilenames` | Search for files by name |
 | `searchFileContents` | Regex search in file contents with context lines |
+| `skimFiles` | Quick overview of files showing declarations |
+| `listFiles` | Directory listing |
+| `getFileSummaries` | File summaries with top-level declarations |
+| `getClassSkeletons` | Class skeletons with fields and method signatures |
+| `getClassSources` | Full source of classes by fully qualified name |
+| `getMethodSources` | Source of specific methods |
+| `getFileContents` | Read full file contents |
 | `searchGitCommitMessages` | Search commit messages by pattern |
 | `getGitLog` | Git log for a file or directory |
 | `explainCommit` | Explain what a commit changed and why |
-| `xmlSkim` | Structural overview of XML/HTML files |
-| `xmlSelect` | Query XML/HTML with XPath |
+| `xmlSkim` | Structural overview of XML or HTML files |
+| `xmlSelect` | Query XML or HTML with XPath |
 | `jq` | Query JSON files with jq expressions |
 
-### Read Tools (load source into workspace)
-
-| Tool | What it does |
-|------|-------------|
-| `getClassSources` | Full source of classes by fully qualified name |
-| `getMethodSources` | Source of specific methods |
-| `getClassSkeletons` | Class skeletons (fields + method signatures, no bodies) |
-| `getFileSummaries` | File summaries (top-level declarations) |
-| `getFileContents` | Read full file contents |
-| `skimFiles` | Quick overview of files showing declarations |
-| `listFiles` | Directory listing |
-
-### Workspace Tools (add/remove context)
+### Workspace tools
 
 | Tool | What it does |
 |------|-------------|
 | `addFilesToWorkspace` | Add files to the agent's working context |
-| `addClassesToWorkspace` | Add class sources to context |
-| `addClassSummariesToWorkspace` | Add class summaries to context |
-| `addMethodsToWorkspace` | Add method sources to context |
-| `addFileSummariesToWorkspace` | Add file summaries to context |
 | `addLineRangeToWorkspace` | Add specific line ranges to context |
+| `addClassesToWorkspace` | Add class sources to context |
 | `addUrlContentsToWorkspace` | Load URL content into context |
+| `addClassSummariesToWorkspace` | Add class summaries to context |
+| `addFileSummariesToWorkspace` | Add file summaries to context |
+| `addMethodsToWorkspace` | Add method sources to context |
 | `dropWorkspaceFragments` | Remove items from context |
-| `createOrReplaceTaskList` | Create a task list |
+| `createOrReplaceTaskList` | Create or replace a task list |
 
-### Other Tools
+### Code-quality and utility tools
 
 | Tool | What it does |
 |------|-------------|
 | `runShellCommand` | Execute a shell command |
 | `importDependency` | Import a project dependency |
+| `computeCyclomaticComplexity` | Compute cyclomatic complexity for Java code when analysis data is available |
+| `reportCommentDensityForCodeUnit` | Report comment density for one Java symbol, with bounded output |
+| `reportCommentDensityForFiles` | Report comment density tables for Java files, with bounded output |
+| `analyzeGitHotspots` | Analyze churn hotspots using bounded commit and file limits |
 
-### Always Available
+Java comment-density tools return a short message when the analyzer has no Java snapshot. `analyzeGitHotspots` supports `sinceDays` and optional ISO `sinceIso` and `untilIso`, plus bounded `maxCommits` and `maxFiles`.
+
+### Always available
 
 These are always included regardless of your `tools` list:
-- `answer` — provide the final answer (ends the agent loop)
-- `abortSearch` — abort if the task can't be completed
-- `think` — step-by-step reasoning (internal scratchpad)
+- `answer` - provide the final answer and end the agent loop
+- `abortSearch` - abort if the task cannot be completed
+- `think` - internal scratchpad reasoning
 
 ## Example Agents
 
@@ -355,11 +387,11 @@ Process:
 2. Find existing tests by searching for test files (look for *Test.java, *Spec.java, test_*.py, etc.)
 3. Read both the production code and existing tests
 4. Identify untested code paths:
-   - Public methods with no corresponding test
-   - Branch conditions (if/else, switch) not covered
-   - Error handling paths (catch blocks, edge cases)
-   - Boundary conditions (null, empty, max values)
-   - Integration points (API calls, database queries)
+    - Public methods with no corresponding test
+    - Branch conditions (if/else, switch) not covered
+    - Error handling paths (catch blocks, edge cases)
+    - Boundary conditions (null, empty, max values)
+    - Integration points (API calls, database queries)
 
 For each gap, suggest:
 - **What to test**: the specific behavior or path
@@ -393,11 +425,11 @@ When analyzing dependencies:
 1. Find build files (pom.xml, build.gradle, package.json, requirements.txt, Cargo.toml, etc.)
 2. Read them to understand current dependency versions
 3. Check for:
-   - Outdated major versions that may have breaking changes
-   - Multiple versions of the same library (version conflicts)
-   - Unused dependencies (declared but never imported)
-   - Dependencies that overlap in functionality
-   - Dependencies with known security issues (based on your training data)
+    - Outdated major versions that may have breaking changes
+    - Multiple versions of the same library (version conflicts)
+    - Unused dependencies (declared but never imported)
+    - Dependencies that overlap in functionality
+    - Dependencies with known security issues (based on your training data)
 
 Present findings as a prioritized list with:
 - **Dependency**: name and current version
@@ -410,10 +442,12 @@ Present findings as a prioritized list with:
 
 ### "Unknown agent: my-agent" when submitting a job
 
-The agent name doesn't match any `.md` file in `.brokk/agents/` or `~/.brokk/agents/`. Check:
-- The filename matches the name (e.g., `my-agent.md` for `"agent": "my-agent"`)
-- The `name` field inside the YAML frontmatter matches too
+The agent name doesn't match any loaded definition in `.brokk/agents/` or `~/.brokk/agents/`. Check:
+- A file exists in one of those directories and has valid YAML frontmatter
+- The `name` field inside the YAML frontmatter exactly matches `"agent"` in your job request
 - The name uses only lowercase letters, digits, and hyphens
+
+If `GET /v1/agents` includes the agent but `GET /v1/agents/{name}` does not, align filename and frontmatter name (recommended: `<name>.md`).
 
 ### "name must match [a-z][a-z0-9-]*"
 

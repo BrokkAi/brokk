@@ -242,6 +242,55 @@ class JobsRouterValidationTest {
     }
 
     @Test
+    void postJobs_withWorkspaceDefinedAgent_isRecognized() throws Exception {
+        var workspaceAgentDir =
+                contextManager.getProject().getRoot().resolve(".brokk").resolve("agents");
+        Files.createDirectories(workspaceAgentDir);
+        // Intentionally use a non-matching filename; registry resolution should key off frontmatter name.
+        Files.writeString(
+                workspaceAgentDir.resolve("custom-density-agent.md"),
+                """
+                ---
+                name: code-quality-comment-density
+                description: Comment density scanner
+                tools:
+                  - reportCommentDensityForFiles
+                maxTurns: 5
+                ---
+
+                Report comment density for the requested files.
+                """);
+
+        Map<String, Object> body = Map.of(
+                "taskInput", "run density scan",
+                "plannerModel", "gpt-4",
+                "agent", "code-quality-comment-density");
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(201, exchange.responseCode());
+    }
+
+    @Test
+    void postJobs_withUnknownAgent_returnsValidationError() throws Exception {
+        Map<String, Object> body = Map.of(
+                "taskInput", "run density scan",
+                "plannerModel", "gpt-4",
+                "agent", "code-quality-comment-density");
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains("Unknown agent: code-quality-comment-density"), payload.message());
+    }
+
+    @Test
     void postJobs_idempotentResponse_includesSessionId() throws Exception {
         String idemKey = UUID.randomUUID().toString();
         Map<String, Object> body = Map.of("taskInput", "idempotent session response", "plannerModel", "gpt-4");

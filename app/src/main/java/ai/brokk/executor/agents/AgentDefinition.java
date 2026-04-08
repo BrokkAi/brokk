@@ -41,7 +41,11 @@ public record AgentDefinition(
             "explainCommit",
             "xmlSkim",
             "xmlSelect",
-            "jq");
+            "jq",
+            "computeCyclomaticComplexity",
+            "reportCommentDensityForCodeUnit",
+            "reportCommentDensityForFiles",
+            "analyzeGitHotspots");
 
     /**
      * Tool names that a read-only agent may use.
@@ -106,6 +110,11 @@ public record AgentDefinition(
             "runShellCommand",
             // DependencyTools
             "importDependency",
+            // CodeQualityTools
+            "computeCyclomaticComplexity",
+            "reportCommentDensityForCodeUnit",
+            "reportCommentDensityForFiles",
+            "analyzeGitHotspots",
             // Terminal
             "answer",
             "abortSearch",

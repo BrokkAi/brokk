@@ -29,6 +29,15 @@ public final class PythonTreeSitterNodeTypes {
     // Statements
     public static final String PASS_STATEMENT = "pass_statement";
     public static final String EXPRESSION_STATEMENT = "expression_statement";
+    public static final String IF_STATEMENT = "if_statement";
+    public static final String ELIF_CLAUSE = "elif_clause";
+    public static final String FOR_STATEMENT = "for_statement";
+    public static final String WHILE_STATEMENT = "while_statement";
+    public static final String EXCEPT_CLAUSE = "except_clause";
+    public static final String MATCH_STATEMENT = "match_statement";
+    public static final String CASE_CLAUSE = "case_clause";
+    public static final String CONDITIONAL_EXPRESSION = "conditional_expression";
+    public static final String BOOLEAN_OPERATOR = "boolean_operator";
     public static final String BLOCK = "block";
     public static final String MODULE = "module";
 

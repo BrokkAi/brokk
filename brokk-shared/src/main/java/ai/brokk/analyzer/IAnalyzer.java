@@ -4,6 +4,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -11,10 +12,12 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SequencedSet;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
@@ -694,5 +697,63 @@ public interface IAnalyzer {
                 .collect(Collectors.toSet());
 
         return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
+    }
+
+    // Heuristic for cyclomatic complexity: count keyword and symbolic decision points.
+    Pattern COMPLEXITY_KEYWORDS = Pattern.compile("\\b(if|while|for|switch|case|catch)\\b");
+    Pattern COMPLEXITY_OPERATORS = Pattern.compile("&&|\\|\\||\\?");
+
+    /**
+     * Computes the heuristic cyclomatic complexity for the given code unit.
+     */
+    default int computeCyclomaticComplexity(CodeUnit cu) {
+        if (!cu.isFunction()) return 0;
+        String source = getSource(cu, false).orElse("");
+        int complexity = 1; // Base complexity
+        Matcher keywordMatcher = COMPLEXITY_KEYWORDS.matcher(source);
+        while (keywordMatcher.find()) {
+            complexity++;
+        }
+        Matcher operatorMatcher = COMPLEXITY_OPERATORS.matcher(source);
+        while (operatorMatcher.find()) {
+            complexity++;
+        }
+        return complexity;
+    }
+
+    /**
+     * Comment density for a single declaration. Language-specific analyzers may override; default is unsupported.
+     */
+    default Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        return Optional.empty();
+    }
+
+    /**
+     * Per-top-level declaration comment density for a file. Default is an empty list.
+     */
+    default List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        return List.of();
+    }
+
+    /**
+     * Analyzes comments in the specified content to distinguish between 'How' (redundant) vs 'Why' (semantic) comments.
+     */
+    default List<String> findPotentialHowComments(String content) {
+        List<String> findings = new ArrayList<>();
+        // Match single line comments
+        Pattern commentPattern = Pattern.compile("//\\s*(.*)");
+        Matcher matcher = commentPattern.matcher(content);
+
+        while (matcher.find()) {
+            String commentText = matcher.group(1).toLowerCase(Locale.ROOT);
+            // Heuristic: comments describing increment, assignment, or simple returns
+            if (commentText.contains("increment")
+                    || commentText.contains("set ")
+                    || commentText.contains("assign")
+                    || commentText.contains("return ")) {
+                findings.add(matcher.group(0));
+            }
+        }
+        return findings;
     }
 }

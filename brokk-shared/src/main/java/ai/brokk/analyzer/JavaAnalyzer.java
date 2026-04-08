@@ -1460,6 +1460,68 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     @Override
+    public int computeCyclomaticComplexity(CodeUnit cu) {
+        if (!cu.isFunction()) return 0;
+
+        return getSource(cu, false)
+                .map(source -> {
+                    try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
+                        TSNode root = tree.getRootNode();
+                        if (root == null) return 1;
+
+                        SourceContent content = SourceContent.of(source);
+                        int complexity = 1; // Base complexity
+
+                        Deque<TSNode> stack = new ArrayDeque<>();
+                        stack.push(root);
+
+                        while (!stack.isEmpty()) {
+                            TSNode node = stack.pop();
+                            String type = node.getType();
+                            if (type == null) {
+                                continue;
+                            }
+
+                            switch (type) {
+                                case IF_STATEMENT,
+                                        FOR_STATEMENT,
+                                        ENHANCED_FOR_STATEMENT,
+                                        WHILE_STATEMENT,
+                                        DO_STATEMENT,
+                                        CATCH_CLAUSE,
+                                        CONDITIONAL_EXPRESSION -> complexity++;
+                                case SWITCH_LABEL -> {
+                                    // Only count if not the 'default' case
+                                    if (!content.substringFrom(node).contains("default")) {
+                                        complexity++;
+                                    }
+                                }
+                                case BINARY_EXPRESSION -> {
+                                    // Check for && or ||
+                                    String operator = content.substringFrom(node);
+                                    if (operator.contains("&&") || operator.contains("||")) {
+                                        complexity++;
+                                    }
+                                }
+                            }
+
+                            for (int i = 0; i < node.getNamedChildCount(); i++) {
+                                TSNode child = node.getNamedChild(i);
+                                if (child != null) {
+                                    stack.push(child);
+                                }
+                            }
+                        }
+                        return complexity;
+                    } catch (Exception e) {
+                        log.warn("Failed to compute complexity for {} using AST; falling back", cu.fqName(), e);
+                        return super.computeCyclomaticComplexity(cu);
+                    }
+                })
+                .orElse(0);
+    }
+
+    @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
@@ -1518,5 +1580,130 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     }
                 },
                 List.of());
+    }
+
+    private static final class CommentAgg {
+        int headerLines;
+        int inlineLines;
+    }
+
+    @Override
+    public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        checkStale("commentDensity");
+        if (!Languages.JAVA.equals(Languages.fromExtension(cu.source().extension()))) {
+            return Optional.empty();
+        }
+        Map<String, CommentAgg> aggs = collectCommentAggregates(cu.source());
+        CommentDensityStats stats = buildRollUpStats(cu, aggs);
+        return Optional.of(stats);
+    }
+
+    @Override
+    public List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        checkStale("commentDensityByTopLevel");
+        if (!Languages.JAVA.equals(Languages.fromExtension(file.extension()))) {
+            return List.of();
+        }
+        Map<String, CommentAgg> aggs = collectCommentAggregates(file);
+        List<CommentDensityStats> rows = new ArrayList<>();
+        for (CodeUnit top : getTopLevelDeclarations(file)) {
+            rows.add(buildRollUpStats(top, aggs));
+        }
+        return List.copyOf(rows);
+    }
+
+    /**
+     * Walks the parse tree for line_comment and block_comment nodes, associates each with the smallest enclosing
+     * declaration span (using {@link Range#commentStartByte()} through {@link Range#endByte()}), and classifies
+     * header vs inline: header if the comment ends on or before the declaration {@link Range#startByte()}.
+     */
+    private Map<String, CommentAgg> collectCommentAggregates(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    List<TSNode> comments = new ArrayList<>();
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Map.of();
+                    }
+                    collectCommentNodes(root, comments);
+                    Map<String, CommentAgg> map = new HashMap<>();
+                    for (TSNode c : comments) {
+                        int cs = c.getStartByte();
+                        int ce = c.getEndByte();
+                        Optional<OwningRange> own = findOwningRangeForComment(file, cs, ce);
+                        if (own.isEmpty()) {
+                            continue;
+                        }
+                        OwningRange or = own.get();
+                        Range r = or.range();
+                        boolean header = ce <= r.startByte();
+                        int lines = c.getEndPoint().getRow() - c.getStartPoint().getRow() + 1;
+                        CommentAgg agg = map.computeIfAbsent(or.cu().fqName(), k -> new CommentAgg());
+                        if (header) {
+                            agg.headerLines += lines;
+                        } else {
+                            agg.inlineLines += lines;
+                        }
+                    }
+                    return map;
+                },
+                Map.of());
+    }
+
+    private record OwningRange(CodeUnit cu, Range range) {}
+
+    private Optional<OwningRange> findOwningRangeForComment(ProjectFile file, int cs, int ce) {
+        return enclosingCodeUnitByCommentBytes(file, cs, ce).flatMap(cu -> rangesOf(cu).stream()
+                .filter(r -> cs >= r.commentStartByte() && ce <= r.endByte())
+                .min(Comparator.comparingInt(r -> r.endByte() - r.commentStartByte()))
+                .map(r -> new OwningRange(cu, r)));
+    }
+
+    private static void collectCommentNodes(TSNode node, List<TSNode> out) {
+        if (node == null) {
+            return;
+        }
+        String t = node.getType();
+        if ("line_comment".equals(t) || "block_comment".equals(t)) {
+            out.add(node);
+            return;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode ch = node.getChild(i);
+            if (ch != null) {
+                collectCommentNodes(ch, out);
+            }
+        }
+    }
+
+    private int spanLines(CodeUnit cu) {
+        return rangesOf(cu).stream()
+                .mapToInt(r -> r.endLine() - r.startLine() + 1)
+                .sum();
+    }
+
+    /**
+     * Non-class units: rolled-up fields mirror own lines. Class units: rolled-up sums descendant comment lines and
+     * span lines (child spans summed; not deduplicated against the outer class span).
+     */
+    private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentAgg> aggs) {
+        CommentAgg own = aggs.getOrDefault(cu.fqName(), new CommentAgg());
+        int span = spanLines(cu);
+        String path = cu.source().toString();
+        if (!cu.isClass()) {
+            return new CommentDensityStats(
+                    cu.fqName(), path, own.headerLines, own.inlineLines, span, own.headerLines, own.inlineLines, span);
+        }
+        int rh = own.headerLines;
+        int ri = own.inlineLines;
+        int rs = span;
+        for (CodeUnit ch : getDirectChildren(cu)) {
+            CommentDensityStats chs = buildRollUpStats(ch, aggs);
+            rh += chs.rolledUpHeaderCommentLines();
+            ri += chs.rolledUpInlineCommentLines();
+            rs += chs.rolledUpSpanLines();
+        }
+        return new CommentDensityStats(cu.fqName(), path, own.headerLines, own.inlineLines, span, rh, ri, rs);
     }
 }

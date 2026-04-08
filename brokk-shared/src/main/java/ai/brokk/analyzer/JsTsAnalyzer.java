@@ -1,13 +1,15 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_CALL_CAPTURE_NAME;
-import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_FUNC_CAPTURE_NAME;
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,6 +34,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern ES6_SIDE_EFFECT_IMPORT_PATTERN = Pattern.compile("^\\s*import\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern CJS_REQUIRE_PATTERN = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
+    private static final Set<String> COMMENT_NODE_TYPES = Set.of("comment", "line_comment", "block_comment");
 
     private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
@@ -55,6 +58,61 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             ProgressListener listener,
             @Nullable AnalyzerCache cache) {
         super(project, language, state, listener, cache);
+    }
+
+    @Override
+    public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        checkStale("commentDensity");
+        String ext = cu.source().extension();
+        if (!"js".equals(ext) && !"jsx".equals(ext) && !"ts".equals(ext) && !"tsx".equals(ext)) {
+            return Optional.empty();
+        }
+        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(cu.source(), COMMENT_NODE_TYPES);
+        return Optional.of(buildRollUpStats(cu, counts));
+    }
+
+    @Override
+    public List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        checkStale("commentDensityByTopLevel");
+        String ext = file.extension();
+        if (!"js".equals(ext) && !"jsx".equals(ext) && !"ts".equals(ext) && !"tsx".equals(ext)) {
+            return List.of();
+        }
+        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(file, COMMENT_NODE_TYPES);
+        List<CommentDensityStats> rows = new ArrayList<>();
+        for (CodeUnit top : getTopLevelDeclarations(file)) {
+            rows.add(buildRollUpStats(top, counts));
+        }
+        return List.copyOf(rows);
+    }
+
+    private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentLineBreakdown> counts) {
+        CommentLineBreakdown own = counts.getOrDefault(cu.fqName(), new CommentLineBreakdown(0, 0));
+        int span = rangesOf(cu).stream()
+                .mapToInt(r -> r.endLine() - r.startLine() + 1)
+                .sum();
+        String path = cu.source().toString();
+        if (!cu.isClass()) {
+            return new CommentDensityStats(
+                    cu.fqName(),
+                    path,
+                    own.headerLines(),
+                    own.inlineLines(),
+                    span,
+                    own.headerLines(),
+                    own.inlineLines(),
+                    span);
+        }
+        int rh = own.headerLines();
+        int ri = own.inlineLines();
+        int rs = span;
+        for (CodeUnit ch : getDirectChildren(cu)) {
+            CommentDensityStats child = buildRollUpStats(ch, counts);
+            rh += child.rolledUpHeaderCommentLines();
+            ri += child.rolledUpInlineCommentLines();
+            rs += child.rolledUpSpanLines();
+        }
+        return new CommentDensityStats(cu.fqName(), path, own.headerLines(), own.inlineLines(), span, rh, ri, rs);
     }
 
     @Override
@@ -385,5 +443,75 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     protected boolean isConstructor(
             CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
         return "constructor".equals(candidate.identifier());
+    }
+
+    @Override
+    public int computeCyclomaticComplexity(CodeUnit cu) {
+        Integer result = withTreeOf(
+                cu.source(),
+                tree -> {
+                    List<Range> ranges = rangesOf(cu);
+                    if (ranges.isEmpty()) return 1;
+
+                    Range firstRange = ranges.getFirst();
+                    TSNode root = tree.getRootNode();
+                    if (root == null) return 1;
+                    TSNode cuNode = root.getDescendantForByteRange(firstRange.startByte(), firstRange.endByte());
+
+                    if (cuNode == null) return 1;
+
+                    int complexity = 1;
+                    Deque<TSNode> stack = new ArrayDeque<>();
+                    stack.push(cuNode);
+
+                    while (!stack.isEmpty()) {
+                        TSNode node = stack.pop();
+                        String type = node.getType();
+
+                        if (type != null) {
+                            switch (type) {
+                                case IF_STATEMENT,
+                                        FOR_STATEMENT,
+                                        FOR_IN_STATEMENT,
+                                        WHILE_STATEMENT,
+                                        DO_STATEMENT,
+                                        CATCH_CLAUSE,
+                                        TERNARY_EXPRESSION -> complexity++;
+                                case SWITCH_CASE -> {
+                                    // Increment for 'case ...:', but not for 'default:'
+                                    if (node.getChildByFieldName("value") != null) {
+                                        complexity++;
+                                    }
+                                }
+                                case BINARY_EXPRESSION -> {
+                                    TSNode operatorNode = node.getChildByFieldName("operator");
+                                    if (operatorNode != null) {
+                                        String operator = operatorNode.getType(); // In JS/TS grammar,
+                                        // operators are often
+                                        // their own types
+                                        if (operator != null
+                                                && (operator.equals("&&")
+                                                        || operator.equals("||")
+                                                        || operator.equals("??"))) {
+                                            complexity++;
+                                        }
+                                    }
+                                }
+                                default -> {}
+                            }
+                        }
+
+                        for (int i = 0; i < node.getChildCount(); i++) {
+                            TSNode child = node.getChild(i);
+                            if (child != null) {
+                                stack.push(child);
+                            }
+                        }
+                    }
+
+                    return complexity;
+                },
+                1);
+        return result != null ? result : 1;
     }
 }
