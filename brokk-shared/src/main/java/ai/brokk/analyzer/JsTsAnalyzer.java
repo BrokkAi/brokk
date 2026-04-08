@@ -147,7 +147,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         String catchType = extractCatchType(catchClause, sourceContent);
         int score = 0;
         var reasons = new ArrayList<String>();
-        if (catchType.equals("<untyped>") || catchType.equals("any") || catchType.equals("unknown")) {
+        if (catchType.equals("<untyped>") || catchType.equals("any") || catchType.equals("<unknown>")) {
             score += weights.genericExceptionWeight();
             reasons.add("generic-catch:" + catchType);
         } else if (catchType.contains("Error") || catchType.contains("Exception")) {
@@ -211,8 +211,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static String extractCatchType(TSNode catchClause, SourceContent sourceContent) {
         TSNode parameterNode = catchClause.getChildByFieldName("parameter");
         if (parameterNode == null) {
-            String catchText = sourceContent.substringFrom(catchClause).strip();
-            return catchText.startsWith("catch (") ? "<untyped>" : "<unknown>";
+            return "<untyped>";
         }
         String parameterText = sourceContent.substringFrom(parameterNode).strip();
         int colon = parameterText.indexOf(':');
