@@ -685,11 +685,16 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
     @Override
     public void close() {
-        watchService.close();
+        close(5000L);
+    }
+
+    @Override
+    public void close(long awaitMillis) {
+        watchService.close(awaitMillis);
 
         try {
             // Attempt a graceful shutdown of the analyzer executor; do not propagate exceptions.
-            analyzerExecutor.shutdownAndAwait(5000L, "AnalyzerWrapper");
+            analyzerExecutor.shutdownAndAwait(awaitMillis, "AnalyzerWrapper");
         } catch (Throwable th) {
             logger.debug("Exception while shutting down analyzerExecutor: {}", th.getMessage());
         }

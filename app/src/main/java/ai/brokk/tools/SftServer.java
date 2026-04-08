@@ -228,8 +228,11 @@ public final class SftServer implements AutoCloseable {
         SequencedSet<EditBlock.SearchReplaceBlock> blocks = SearchReplaceBlockFormatter.fromFileDiffs(fileDiffs);
         var results = new LinkedHashMap<String, String>();
         for (var block : blocks) {
-            var filename = requireNonNull(block.rawFileName()).replace('\\', '/');
-            results.merge(filename, block.repr(), (left, right) -> left + "\n" + right);
+            var normalizedBlock = normalizePatchBlock(block);
+            results.merge(
+                    requireNonNull(normalizedBlock.rawFileName()),
+                    normalizedBlock.repr(),
+                    (left, right) -> left + "\n" + right);
         }
         return Map.copyOf(results);
     }
@@ -400,6 +403,14 @@ public final class SftServer implements AutoCloseable {
             return true;
         }
         return false;
+    }
+
+    private static EditBlock.SearchReplaceBlock normalizePatchBlock(EditBlock.SearchReplaceBlock block) {
+        return new EditBlock.SearchReplaceBlock(
+                requireNonNull(block.rawFileName()).replace('\\', '/'),
+                block.beforeText(),
+                block.afterText(),
+                block.rawText());
     }
 
     private static String toSftRole(ChatMessage message) {

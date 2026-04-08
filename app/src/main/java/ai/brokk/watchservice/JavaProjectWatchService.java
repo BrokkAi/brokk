@@ -23,6 +23,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class JavaProjectWatchService extends AbstractWatchService {
 
+    private static final long DEFAULT_CLOSE_TIMEOUT_MS = 5000;
     private static final long DEBOUNCE_DELAY_MS = 500;
     private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
     private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
@@ -60,7 +61,15 @@ public class JavaProjectWatchService extends AbstractWatchService {
             // The WatchService will queue any events that arrive during this time.
             try {
                 delayNotificationsUntilCompleted.get();
-            } catch (InterruptedException | ExecutionException e) {
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                if (!running) {
+                    logger.debug("WatchService startup interrupted during shutdown");
+                    return;
+                }
+                logger.warn("WatchService startup interrupted unexpectedly", e);
+                return;
+            } catch (ExecutionException e) {
                 logger.debug("Error while waiting for the initial Future to complete", e);
                 throw new RuntimeException(e);
             }
@@ -91,7 +100,7 @@ public class JavaProjectWatchService extends AbstractWatchService {
         }
     }
 
-    private void registerWatchTargets(WatchService watchService) throws IOException {
+    private void registerWatchTargets(WatchService watchService) throws IOException, InterruptedException {
         // Recursively register all directories under project root except .brokk and .git
         registerAllDirectories(root, watchService);
 
@@ -214,6 +223,10 @@ public class JavaProjectWatchService extends AbstractWatchService {
                     } else {
                         registerAllDirectories(eventPath, watchService);
                     }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    logger.debug("Interrupted while registering new directory for watching: {}", eventPath);
+                    return;
                 } catch (IOException ex) {
                     logger.warn("Failed to register new directory for watching: {}", eventPath, ex);
                 }
@@ -229,7 +242,8 @@ public class JavaProjectWatchService extends AbstractWatchService {
     /**
      * @param start can be either the root project directory, or a newly created directory we want to add to the watch
      */
-    private void registerAllDirectories(Path start, WatchService watchService) throws IOException {
+    private void registerAllDirectories(Path start, WatchService watchService)
+            throws IOException, InterruptedException {
         if (!Files.isDirectory(start)) return;
 
         // TODO: Parse VSC ignore files to add to this list
@@ -265,7 +279,8 @@ public class JavaProjectWatchService extends AbstractWatchService {
                     try {
                         Thread.sleep(10);
                     } catch (InterruptedException ie) {
-                        throw new RuntimeException(e);
+                        Thread.currentThread().interrupt();
+                        throw ie;
                     }
                 }
             }
@@ -277,7 +292,7 @@ public class JavaProjectWatchService extends AbstractWatchService {
      * Recursively register the git metadata directory and its subdirectories without excluding ".git". This ensures we
      * observe ref changes like updates to HEAD and refs/heads/* files.
      */
-    private void registerGitMetadata(Path start, WatchService watchService) throws IOException {
+    private void registerGitMetadata(Path start, WatchService watchService) throws IOException, InterruptedException {
         if (!Files.isDirectory(start)) return;
 
         for (int attempt = 1; attempt <= 3; attempt++) {
@@ -305,7 +320,8 @@ public class JavaProjectWatchService extends AbstractWatchService {
                     try {
                         Thread.sleep(10);
                     } catch (InterruptedException ie) {
-                        throw new RuntimeException(e);
+                        Thread.currentThread().interrupt();
+                        throw ie;
                     }
                 }
             }
@@ -339,6 +355,11 @@ public class JavaProjectWatchService extends AbstractWatchService {
 
     @Override
     public void close() {
+        close(DEFAULT_CLOSE_TIMEOUT_MS);
+    }
+
+    @Override
+    public void close(long awaitMillis) {
         Thread t;
         synchronized (this) {
             running = false;
@@ -350,10 +371,12 @@ public class JavaProjectWatchService extends AbstractWatchService {
         // The interrupt wakes the thread from WatchService.poll() so it exits promptly.
         if (t != null) {
             t.interrupt();
-            try {
-                t.join(5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            if (awaitMillis > 0) {
+                try {
+                    t.join(awaitMillis);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
     }
