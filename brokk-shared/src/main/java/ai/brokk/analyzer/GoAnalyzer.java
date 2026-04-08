@@ -31,6 +31,7 @@ import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
+import org.treesitter.TSTreeCursor;
 import org.treesitter.TreeSitterGo;
 
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
@@ -298,6 +299,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             file.getFileName());
                     yield null;
                 }
+                if (classChain.isEmpty()) {
+                    log.trace(
+                            "Skipping Go interface method '{}' without named parent type in file '{}'",
+                            simpleName,
+                            file.getFileName());
+                    yield null;
+                }
                 // simpleName is MethodName (e.g., "DoSomething")
                 // classChain is InterfaceName (e.g., "MyInterface")
                 // We want the CodeUnit's shortName to be "InterfaceName.MethodName".
@@ -463,8 +471,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     protected void postProcessFileAnalysis(
             ProjectFile file,
             FileAnalysisAccumulator acc,
+            TSNode rootNode,
             SourceContent sourceContent,
             Map<CodeUnit, String> cuToCaptureName) {
+        replicateAnonymousFieldSubtrees(acc, rootNode, sourceContent);
+
         for (var cu : List.copyOf(acc.topLevelCUs())) {
             if (!cu.isFunction()) {
                 continue;
@@ -477,13 +488,173 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             }
 
             String parentShortName = shortName.substring(0, lastDot);
-            CodeUnit parent = acc.getByFqName(cu.packageName() + "." + parentShortName);
+            String parentFqName =
+                    cu.packageName().isEmpty() ? parentShortName : cu.packageName() + "." + parentShortName;
+            CodeUnit parent = acc.getByFqName(parentFqName);
             if (parent == null || !parent.isClass()) {
                 continue;
             }
 
             acc.moveTopLevelToChild(cu, parent);
         }
+    }
+
+    private void replicateAnonymousFieldSubtrees(
+            FileAnalysisAccumulator acc, TSNode rootNode, SourceContent sourceContent) {
+        try (var cursor = new TSTreeCursor(rootNode)) {
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return;
+                }
+                if (TYPE_SPEC.equals(current.getType()) && isPackageLevelDeclaration(current)) {
+                    TSNode nameNode = current.getChildByFieldName("name");
+                    TSNode typeNode = current.getChildByFieldName(FIELD_TYPE);
+                    if (nameNode != null
+                            && typeNode != null
+                            && (STRUCT_TYPE.equals(typeNode.getType()) || INTERFACE_TYPE.equals(typeNode.getType()))) {
+                        String typeName = sourceContent.substringFrom(nameNode).trim();
+                        CodeUnit parent = acc.topLevelCUs().stream()
+                                .filter(CodeUnit::isClass)
+                                .filter(cu -> cu.shortName().equals(typeName))
+                                .findFirst()
+                                .orElse(null);
+                        if (parent != null) {
+                            replicateAnonymousTypeMembers(typeNode, List.of(parent), acc, sourceContent);
+                        }
+                    }
+                }
+                if (!gotoNextDepthFirst(cursor, true)) {
+                    return;
+                }
+            }
+        }
+    }
+
+    private void replicateAnonymousTypeMembers(
+            TSNode typeNode, List<CodeUnit> parents, FileAnalysisAccumulator acc, SourceContent sourceContent) {
+        if (parents.isEmpty()) {
+            return;
+        }
+        if (STRUCT_TYPE.equals(typeNode.getType())) {
+            for (TSNode fieldDecl : directMembers(typeNode, FIELD_DECLARATION)) {
+                List<String> fieldNames = fieldNames(fieldDecl, sourceContent);
+                if (fieldNames.isEmpty()) {
+                    continue;
+                }
+                List<CodeUnit> fieldParents = ensureFieldChildren(parents, fieldNames, acc);
+                TSNode nestedType = fieldDecl.getChildByFieldName(FIELD_TYPE);
+                if (nestedType != null
+                        && (STRUCT_TYPE.equals(nestedType.getType()) || INTERFACE_TYPE.equals(nestedType.getType()))) {
+                    replicateAnonymousTypeMembers(nestedType, fieldParents, acc, sourceContent);
+                }
+            }
+            return;
+        }
+
+        if (INTERFACE_TYPE.equals(typeNode.getType())) {
+            for (TSNode methodElem : directMembers(typeNode, METHOD_ELEM)) {
+                TSNode nameNode = methodElem.getChildByFieldName("name");
+                if (nameNode == null) {
+                    continue;
+                }
+                String methodName = sourceContent.substringFrom(nameNode).trim();
+                if (methodName.isBlank()) {
+                    continue;
+                }
+                ensureMethodChildren(parents, methodName, acc);
+            }
+        }
+    }
+
+    private List<TSNode> directMembers(TSNode typeNode, String memberType) {
+        List<TSNode> result = new ArrayList<>();
+        for (TSNode child : typeNode.getNamedChildren()) {
+            if (memberType.equals(child.getType())) {
+                result.add(child);
+                continue;
+            }
+            for (TSNode grandchild : child.getNamedChildren()) {
+                if (memberType.equals(grandchild.getType())) {
+                    result.add(grandchild);
+                }
+            }
+        }
+        return result;
+    }
+
+    private List<String> fieldNames(TSNode fieldDecl, SourceContent sourceContent) {
+        return fieldDecl.getNamedChildren().stream()
+                .filter(child -> FIELD_IDENTIFIER.equals(child.getType()))
+                .map(sourceContent::substringFrom)
+                .map(String::trim)
+                .filter(name -> !name.isBlank())
+                .toList();
+    }
+
+    private List<CodeUnit> ensureFieldChildren(
+            List<CodeUnit> parents, List<String> fieldNames, FileAnalysisAccumulator acc) {
+        List<CodeUnit> result = new ArrayList<>(parents.size() * fieldNames.size());
+        for (CodeUnit parent : parents) {
+            for (String fieldName : fieldNames) {
+                CodeUnit child = existingChild(parent, fieldName, acc);
+                if (child == null) {
+                    CodeUnit template = templateChild(parents, fieldName, acc);
+                    if (template == null) {
+                        continue;
+                    }
+                    child = cloneChild(template, parent, fieldName, acc);
+                }
+                result.add(child);
+            }
+        }
+        return result;
+    }
+
+    private void ensureMethodChildren(List<CodeUnit> parents, String methodName, FileAnalysisAccumulator acc) {
+        for (CodeUnit parent : parents) {
+            if (existingChild(parent, methodName, acc) != null) {
+                continue;
+            }
+            CodeUnit template = templateChild(parents, methodName, acc);
+            if (template != null) {
+                cloneChild(template, parent, methodName, acc);
+            }
+        }
+    }
+
+    private @Nullable CodeUnit existingChild(CodeUnit parent, String childName, FileAnalysisAccumulator acc) {
+        String childShortName = parent.shortName() + "." + childName;
+        String childFqName =
+                parent.packageName().isEmpty() ? childShortName : parent.packageName() + "." + childShortName;
+        return acc.getByFqName(childFqName);
+    }
+
+    private @Nullable CodeUnit templateChild(List<CodeUnit> parents, String childName, FileAnalysisAccumulator acc) {
+        for (CodeUnit parent : parents) {
+            CodeUnit template = existingChild(parent, childName, acc);
+            if (template != null) {
+                return template;
+            }
+        }
+        return null;
+    }
+
+    private CodeUnit cloneChild(CodeUnit template, CodeUnit parent, String childName, FileAnalysisAccumulator acc) {
+        String clonedShortName = parent.shortName() + "." + childName;
+        CodeUnit cloned = new CodeUnit(
+                template.source(),
+                template.kind(),
+                template.packageName(),
+                clonedShortName,
+                template.signature(),
+                template.isSynthetic());
+        acc.addChild(parent, cloned).registerCodeUnit(cloned);
+        acc.getSignatures(template).forEach(signature -> acc.addSignature(cloned, signature));
+        acc.getRanges(template).forEach(range -> acc.addRange(cloned, range));
+        acc.setHasBody(cloned, acc.getHasBody(template, false));
+        acc.setIsTypeAlias(cloned, acc.getIsTypeAlias(template, false));
+        return cloned;
     }
 
     @Override
@@ -499,12 +670,25 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                         segments.addFirst(determineClassChainSegmentName(parent.getType(), name));
                     }
                 });
-            } else if (FIELD_DECLARATION.equals(current.getType()) && !current.equals(immediateParent)) {
+            } else if (FIELD_DECLARATION.equals(current.getType())
+                    && !current.equals(immediateParent)
+                    && hasEnclosingNamedType(current, rootNode)) {
                 extractAnonymousStructContainerName(current, sourceContent).ifPresent(segments::addFirst);
             }
             current = current.getParent();
         }
         return String.join(".", segments);
+    }
+
+    private boolean hasEnclosingNamedType(TSNode node, TSNode rootNode) {
+        TSNode current = node.getParent();
+        while (current != null && !current.equals(rootNode)) {
+            if (isClassLike(current)) {
+                return true;
+            }
+            current = current.getParent();
+        }
+        return false;
     }
 
     @Override
@@ -532,12 +716,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 TSNode typeNode = fieldDeclNode.getChildByFieldName(FIELD_TYPE);
                 TSNode tagNode = fieldDeclNode.getChildByFieldName("tag");
 
-                String typeText = (typeNode != null)
-                        ? sourceContent.substringFrom(typeNode).trim()
-                        : "";
                 String tagText = (tagNode != null)
                         ? " " + sourceContent.substringFrom(tagNode).trim()
                         : "";
+
+                String typeText = summarizeAnonymousFieldType(typeNode, sourceContent)
+                        .orElseGet(() -> typeNode != null
+                                ? sourceContent.substringFrom(typeNode).trim()
+                                : "");
 
                 if (!typeText.isEmpty()) {
                     return (baseIndent + fieldName + " " + typeText + tagText).stripTrailing();
@@ -549,8 +735,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             TSNode typeNode = fieldNode.getChildByFieldName(FIELD_TYPE);
             TSNode tagNode = fieldNode.getChildByFieldName("tag");
 
-            String typeText =
-                    (typeNode != null) ? sourceContent.substringFrom(typeNode).trim() : "";
+            String typeText = summarizeAnonymousFieldType(typeNode, sourceContent)
+                    .orElseGet(() -> typeNode != null
+                            ? sourceContent.substringFrom(typeNode).trim()
+                            : "");
             String tagText = (tagNode != null)
                     ? " " + sourceContent.substringFrom(tagNode).trim()
                     : "";
@@ -686,6 +874,27 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             current = current.getParent();
         }
         return false;
+    }
+
+    private String summarizeInlineAnonymousType(TSNode typeNode, SourceContent sourceContent) {
+        String typeKeyword = typeNode.getType();
+        if (STRUCT_TYPE.equals(typeKeyword)) {
+            return "struct { " + bodyPlaceholder() + " }";
+        }
+        if (INTERFACE_TYPE.equals(typeKeyword)) {
+            return "interface { " + bodyPlaceholder() + " }";
+        }
+        return sourceContent.substringFrom(typeNode).trim();
+    }
+
+    private Optional<String> summarizeAnonymousFieldType(@Nullable TSNode typeNode, SourceContent sourceContent) {
+        if (typeNode == null) {
+            return Optional.empty();
+        }
+        return switch (typeNode.getType()) {
+            case STRUCT_TYPE, INTERFACE_TYPE -> Optional.of(summarizeInlineAnonymousType(typeNode, sourceContent));
+            default -> Optional.empty();
+        };
     }
 
     private static Optional<String> extractAnonymousStructContainerName(TSNode fieldDeclaration, SourceContent source) {

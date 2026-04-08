@@ -970,6 +970,93 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testPackageLevelVarAnonymousNestedMembersAreNotReportedAsDeclarations() throws IOException {
+        String source =
+                """
+                package cli
+
+                var cfg struct {
+                    outer struct {
+                        inner int
+                    }
+                    hooks interface {
+                        Run()
+                    }
+                }
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "cfg.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "cfg.go");
+            var declarations = inlineAnalyzer.getDeclarations(file);
+            var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+            assertTrue(
+                    fqns.contains("cli._module_.cfg"),
+                    "Expected package-level variable declaration to be present. Found: " + fqns);
+            assertFalse(
+                    fqns.stream().anyMatch(fqn -> fqn.endsWith(".inner")),
+                    "Nested anonymous struct members under package vars should not be reported. Found: " + fqns);
+            assertFalse(
+                    fqns.stream().anyMatch(fqn -> fqn.endsWith(".Run")),
+                    "Anonymous interface methods under package vars should not be reported. Found: " + fqns);
+        }
+    }
+
+    @Test
+    void testFunctionLocalTypeShadowDoesNotLeakAnonymousMembersIntoTopLevelType() throws IOException {
+        String source =
+                """
+                package cli
+
+                type Config struct {
+                    Shared struct {
+                        TopLevel int
+                    }
+                }
+
+                func buildConfig() {
+                    type Config struct {
+                        Shared struct {
+                            LocalOnly int
+                        }
+                    }
+                    _ = Config{}
+                }
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "config.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "config.go");
+            var fqns = inlineAnalyzer.getDeclarations(file).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toSet());
+
+            assertTrue(fqns.contains("cli.Config"), "Expected top-level Config declaration. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("cli.Config.Shared.TopLevel"),
+                    "Expected top-level anonymous member declaration. Found: " + fqns);
+            assertFalse(
+                    fqns.contains("cli.Config.Shared.LocalOnly"),
+                    "Function-local shadow type members should not leak into top-level Config. Found: " + fqns);
+
+            var config = inlineAnalyzer.getDefinitions("cli.Config").stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertCodeEquals(
+                    """
+                    type Config struct {
+                      Shared struct { ... }
+                        TopLevel int
+                    }
+                    """,
+                    inlineAnalyzer.getSkeleton(config).orElseThrow());
+        }
+    }
+
+    @Test
     void testFunctionLocalInterfaceMethodsAreNotReportedAsDeclarations() throws IOException {
         String source =
                 """
@@ -1091,6 +1178,55 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testReceiverMethodsDeclaredBeforeTypeAreNestedWithoutPackageClause() throws IOException {
+        String source =
+                """
+                func (pc *peerConfigTable) snat() {}
+                func (pc *peerConfigTable) dnat() {}
+
+                type peerConfigTable struct {
+                    nativeAddr4 int
+                    nativeAddr6 int
+                }
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "wrap.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "wrap.go");
+            var skeletonRoots = inlineAnalyzer.getSkeletons(file).keySet().stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toSet());
+
+            assertTrue(
+                    skeletonRoots.contains("peerConfigTable"),
+                    "Expected peerConfigTable to be a top-level skeleton root. Found: " + skeletonRoots);
+            assertFalse(
+                    skeletonRoots.contains("peerConfigTable.snat"),
+                    "Receiver methods declared before the type should not remain top-level skeleton roots. Found: "
+                            + skeletonRoots);
+            assertFalse(
+                    skeletonRoots.contains("peerConfigTable.dnat"),
+                    "Receiver methods declared before the type should not remain top-level skeleton roots. Found: "
+                            + skeletonRoots);
+
+            var peerConfigTable = inlineAnalyzer.getDefinitions("peerConfigTable").stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertCodeEquals(
+                    """
+                    type peerConfigTable struct {
+                      nativeAddr4 int
+                      nativeAddr6 int
+                      func (pc *peerConfigTable) snat() { ... }
+                      func (pc *peerConfigTable) dnat() { ... }
+                    }
+                    """,
+                    inlineAnalyzer.getSkeleton(peerConfigTable).orElseThrow());
+        }
+    }
+
+    @Test
     void testGenericReceiverMethodsAreCapturedAndNested() throws IOException {
         String source =
                 """
@@ -1175,6 +1311,127 @@ public class GoAnalyzerTest {
             assertTrue(
                     fqns.contains("main.prefs.Config.UserProfile.LoginName"),
                     "Expected nested LoginName field declaration. Found: " + fqns);
+
+            var prefs = inlineAnalyzer.getDefinitions("main.prefs").stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertCodeEquals(
+                    """
+                    type prefs struct {
+                      Config struct { ... }
+                        NodeID string
+                        UserProfile struct { ... }
+                          LoginName string
+                      AdvertiseServices []string
+                    }
+                    """,
+                    inlineAnalyzer.getSkeleton(prefs).orElseThrow());
+        }
+    }
+
+    @Test
+    void testMultiNamedAnonymousStructFieldsReplicateNestedSummaryHierarchy() throws IOException {
+        String source =
+                """
+                package main
+
+                type prefs struct {
+                    Config, Override struct {
+                        NodeID string
+                    }
+                }
+                """
+                        .stripIndent();
+
+        try (var project =
+                InlineTestProjectCreator.code(source, "tsrecorder.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "tsrecorder.go");
+            var fqns = inlineAnalyzer.getDeclarations(file).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toSet());
+
+            assertTrue(fqns.contains("main.prefs.Config"), "Expected Config field declaration. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("main.prefs.Config.NodeID"),
+                    "Expected Config.NodeID field declaration. Found: " + fqns);
+            assertTrue(fqns.contains("main.prefs.Override"), "Expected Override field declaration. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("main.prefs.Override.NodeID"),
+                    "Expected Override.NodeID field declaration. Found: " + fqns);
+
+            var prefs = inlineAnalyzer.getDefinitions("main.prefs").stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertCodeEquals(
+                    """
+                    type prefs struct {
+                      Config struct { ... }
+                        NodeID string
+                      Override struct { ... }
+                        NodeID string
+                    }
+                    """,
+                    inlineAnalyzer.getSkeleton(prefs).orElseThrow());
+        }
+    }
+
+    @Test
+    void testNestedMultiNamedAnonymousStructFieldsReplicateRecursively() throws IOException {
+        String source =
+                """
+                package main
+
+                type prefs struct {
+                    Config, Override struct {
+                        Primary, Secondary struct {
+                            NodeID string
+                        }
+                    }
+                }
+                """
+                        .stripIndent();
+
+        try (var project =
+                InlineTestProjectCreator.code(source, "tsrecorder.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "tsrecorder.go");
+            var fqns = inlineAnalyzer.getDeclarations(file).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toSet());
+
+            assertTrue(
+                    fqns.contains("main.prefs.Config.Primary.NodeID"),
+                    "Expected Config.Primary.NodeID field declaration. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("main.prefs.Config.Secondary.NodeID"),
+                    "Expected Config.Secondary.NodeID field declaration. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("main.prefs.Override.Primary.NodeID"),
+                    "Expected Override.Primary.NodeID field declaration. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("main.prefs.Override.Secondary.NodeID"),
+                    "Expected Override.Secondary.NodeID field declaration. Found: " + fqns);
+
+            var prefs = inlineAnalyzer.getDefinitions("main.prefs").stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertCodeEquals(
+                    """
+                    type prefs struct {
+                      Config struct { ... }
+                        Primary struct { ... }
+                          NodeID string
+                        Secondary struct { ... }
+                          NodeID string
+                      Override struct { ... }
+                        Primary struct { ... }
+                          NodeID string
+                        Secondary struct { ... }
+                          NodeID string
+                    }
+                    """,
+                    inlineAnalyzer.getSkeleton(prefs).orElseThrow());
         }
     }
 

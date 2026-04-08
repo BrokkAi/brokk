@@ -2417,7 +2417,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         // Register modules from imports
                         wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
 
-                        postProcessFileAnalysis(file, acc, sourceContent, cuToCaptureName);
+                        postProcessFileAnalysis(file, acc, rootNode, sourceContent, cuToCaptureName);
 
                         // Synthesize implicit constructors
                         for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
@@ -2665,6 +2665,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected void postProcessFileAnalysis(
             ProjectFile file,
             FileAnalysisAccumulator acc,
+            TSNode rootNode,
             SourceContent sourceContent,
             Map<CodeUnit, String> cuToCaptureName) {}
 
