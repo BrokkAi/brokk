@@ -4292,18 +4292,97 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 Map.of());
     }
 
-    private static void collectNodesByType(TSNode node, Set<String> nodeTypes, List<TSNode> out) {
-        String type = node.getType();
-        if (type != null && nodeTypes.contains(type)) {
-            out.add(node);
-            return;
-        }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (child != null) {
-                collectNodesByType(child, nodeTypes, out);
+    protected static void collectNodesByType(TSNode node, Set<String> nodeTypes, List<TSNode> out) {
+        try (var cursor = new TSTreeCursor(node)) {
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return;
+                }
+                String type = current.getType();
+                if (type != null && nodeTypes.contains(type)) {
+                    out.add(current);
+                }
+                if (!gotoNextDepthFirst(cursor, true)) {
+                    return;
+                }
             }
         }
+    }
+
+    protected static @Nullable TSNode firstNonCommentNamedChild(TSNode node, Set<String> commentNodeTypes) {
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (commentNodeTypes.contains(child.getType())) {
+                continue;
+            }
+            return child;
+        }
+        return null;
+    }
+
+    protected static boolean hasDescendantOfType(TSNode root, String targetType) {
+        if (targetType.equals(root.getType())) {
+            return true;
+        }
+        try (var cursor = new TSTreeCursor(root)) {
+            if (!gotoNextDepthFirst(cursor, true)) {
+                return false;
+            }
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return false;
+                }
+                if (current.isNamed() && targetType.equals(current.getType())) {
+                    return true;
+                }
+                if (!gotoNextDepthFirst(cursor, current.isNamed())) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    protected static @Nullable TSNode findFirstNamedDescendant(TSNode root, String targetType) {
+        if (targetType.equals(root.getType())) {
+            return root;
+        }
+        try (var cursor = new TSTreeCursor(root)) {
+            if (!gotoNextDepthFirst(cursor, true)) {
+                return null;
+            }
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return null;
+                }
+                if (current.isNamed() && targetType.equals(current.getType())) {
+                    return current;
+                }
+                if (!gotoNextDepthFirst(cursor, current.isNamed())) {
+                    return null;
+                }
+            }
+        }
+    }
+
+    /**
+     * Advances the cursor depth-first. When {@code descendIntoCurrent} is false, traversal skips the current subtree.
+     */
+    protected static boolean gotoNextDepthFirst(TSTreeCursor cursor, boolean descendIntoCurrent) {
+        if (descendIntoCurrent && cursor.gotoFirstChild()) {
+            return true;
+        }
+        while (!cursor.gotoNextSibling()) {
+            if (!cursor.gotoParent()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private @Nullable CUWithDepth findDeepestEnclosingByCommentBytes(

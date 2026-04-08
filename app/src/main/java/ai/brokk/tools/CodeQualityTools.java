@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -172,7 +173,7 @@ public class CodeQualityTools {
                 }
                 lines.add("| `%s` | %d | %d | %d | %d | %d | %d |"
                         .formatted(
-                                s.fqName(),
+                                sanitizeTableCell(s.fqName()),
                                 s.headerCommentLines(),
                                 s.inlineCommentLines(),
                                 s.spanLines(),
@@ -196,6 +197,96 @@ public class CodeQualityTools {
         return String.join("\n", lines);
     }
 
+    @Tool(
+            """
+            Detects suspicious Java catch blocks using weighted heuristics designed for high-recall triage.
+            Scores generic catches and tiny/empty handlers, then subtracts credit for richer handling bodies.
+            Use minScore, maxFindings, and weight parameters to tune precision/recall.""")
+    public String reportExceptionHandlingSmells(
+            @P("File paths relative to the project root.") List<String> filePaths,
+            @P("Minimum score to include a finding; values <= 0 default to 4.") int minScore,
+            @P("Maximum findings to emit; values <= 0 default to 80.") int maxFindings,
+            @P("Weight for catching Throwable; values < 0 use default.") int genericThrowableWeight,
+            @P("Weight for catching Exception; values < 0 use default.") int genericExceptionWeight,
+            @P("Weight for catching RuntimeException; values < 0 use default.") int genericRuntimeExceptionWeight,
+            @P("Weight for empty catch bodies; values < 0 use default.") int emptyBodyWeight,
+            @P("Weight for comment-only catch bodies; values < 0 use default.") int commentOnlyBodyWeight,
+            @P("Weight for small catch bodies; values < 0 use default.") int smallBodyWeight,
+            @P("Weight for log-only catch bodies; values < 0 use default.") int logOnlyBodyWeight,
+            @P("Score credit subtracted per catch statement in the body; values < 0 use default.")
+                    int meaningfulBodyCreditPerStatement,
+            @P("Maximum statements that earn meaningful-body credit; values < 0 use default.")
+                    int meaningfulBodyStatementThreshold,
+            @P("Maximum statement count considered a small body; values < 0 use default.") int smallBodyMaxStatements) {
+
+        int threshold = minScore > 0 ? minScore : 4;
+        int findingsCap = maxFindings > 0 ? maxFindings : 80;
+        var defaults = IAnalyzer.ExceptionSmellWeights.defaults();
+        var weights = new IAnalyzer.ExceptionSmellWeights(
+                pickWeight(genericThrowableWeight, defaults.genericThrowableWeight()),
+                pickWeight(genericExceptionWeight, defaults.genericExceptionWeight()),
+                pickWeight(genericRuntimeExceptionWeight, defaults.genericRuntimeExceptionWeight()),
+                pickWeight(emptyBodyWeight, defaults.emptyBodyWeight()),
+                pickWeight(commentOnlyBodyWeight, defaults.commentOnlyBodyWeight()),
+                pickWeight(smallBodyWeight, defaults.smallBodyWeight()),
+                pickWeight(logOnlyBodyWeight, defaults.logOnlyWeight()),
+                pickWeight(meaningfulBodyCreditPerStatement, defaults.meaningfulBodyCreditPerStatement()),
+                pickWeight(meaningfulBodyStatementThreshold, defaults.meaningfulBodyStatementThreshold()),
+                pickWeight(smallBodyMaxStatements, defaults.smallBodyMaxStatements()));
+
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        var findings = new ArrayList<IAnalyzer.ExceptionHandlingSmell>();
+        for (String path : filePaths) {
+            ProjectFile file = contextManager.toFile(path);
+            if (!file.exists()) {
+                continue;
+            }
+            findings.addAll(analyzer.findExceptionHandlingSmells(file, weights));
+        }
+
+        var filtered = findings.stream()
+                .filter(f -> f.score() >= threshold)
+                .sorted(Comparator.comparingInt(IAnalyzer.ExceptionHandlingSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(IAnalyzer.ExceptionHandlingSmell::enclosingFqName))
+                .toList();
+
+        if (filtered.isEmpty()) {
+            return "No exception-handling smells met minScore " + threshold + ".";
+        }
+        int shown = Math.min(findingsCap, filtered.size());
+        var lines = new ArrayList<String>();
+        lines.add("## Exception handling smells");
+        lines.add("");
+        lines.add("- Min score: %d".formatted(threshold));
+        lines.add("- Findings shown: %d of %d".formatted(shown, filtered.size()));
+        lines.add("- Weights: %s".formatted(formatWeights(weights)));
+        lines.add("");
+        lines.add("| Score | Catch Type | Statements | Symbol | File | Reasons | Excerpt |");
+        lines.add("|------:|------------|-----------:|--------|------|---------|---------|");
+        for (IAnalyzer.ExceptionHandlingSmell finding : filtered.subList(0, shown)) {
+            String reasons = sanitizeTableCell(String.join(", ", finding.reasons()));
+            String catchType = sanitizeTableCell(finding.catchType());
+            String symbol = sanitizeTableCell(finding.enclosingFqName());
+            String file = sanitizeTableCell(finding.file().toString());
+            lines.add("| %d | `%s` | %d | `%s` | `%s` | %s | `%s` |"
+                    .formatted(
+                            finding.score(),
+                            catchType,
+                            finding.bodyStatementCount(),
+                            symbol,
+                            file,
+                            "`" + reasons + "`",
+                            sanitizeTableCell(finding.excerpt())));
+        }
+        if (filtered.size() > shown) {
+            lines.add("");
+            lines.add("- Note: output truncated; increase maxFindings to see more.");
+        }
+        return String.join("\n", lines);
+    }
+
     private static String formatCommentDensityForUnit(CommentDensityStats s) {
         var lines = new ArrayList<String>();
         lines.add("## Comment density");
@@ -216,6 +307,31 @@ public class CodeQualityTools {
         }
         return String.join("\n", lines.subList(0, maxLines)) + "\n\n... (" + (lines.size() - maxLines)
                 + " more lines omitted)";
+    }
+
+    private static int pickWeight(int candidate, int fallback) {
+        return candidate >= 0 ? candidate : fallback;
+    }
+
+    private static String sanitizeTableCell(String value) {
+        return value.replace("|", "\\|");
+    }
+
+    private static String formatWeights(IAnalyzer.ExceptionSmellWeights w) {
+        return "Throwable=%d, Exception=%d, RuntimeException=%d, empty=%d, commentOnly=%d, small=%d, logOnly=%d,"
+                        .formatted(
+                                w.genericThrowableWeight(),
+                                w.genericExceptionWeight(),
+                                w.genericRuntimeExceptionWeight(),
+                                w.emptyBodyWeight(),
+                                w.commentOnlyBodyWeight(),
+                                w.smallBodyWeight(),
+                                w.logOnlyWeight())
+                + " creditPerStmt=%d, creditCap=%d, smallBodyMax=%d"
+                        .formatted(
+                                w.meaningfulBodyCreditPerStatement(),
+                                w.meaningfulBodyStatementThreshold(),
+                                w.smallBodyMaxStatements());
     }
 
     @Blocking
@@ -283,7 +399,12 @@ public class CodeQualityTools {
                     .map(a -> a.name() + "(" + a.commits() + ")")
                     .collect(Collectors.joining(", "));
             lines.add("| `%s` | %d | %d | %s | %s |"
-                    .formatted(f.path(), f.churn(), f.complexity(), f.category(), authors));
+                    .formatted(
+                            sanitizeTableCell(f.path()),
+                            f.churn(),
+                            f.complexity(),
+                            sanitizeTableCell(f.category().toString()),
+                            sanitizeTableCell(authors)));
         }
         return String.join("\n", lines);
     }

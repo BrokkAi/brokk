@@ -11,6 +11,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -34,7 +35,9 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern ES6_SIDE_EFFECT_IMPORT_PATTERN = Pattern.compile("^\\s*import\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern CJS_REQUIRE_PATTERN = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
-    private static final Set<String> COMMENT_NODE_TYPES = Set.of("comment", "line_comment", "block_comment");
+    private static final Set<String> JS_LOG_BARE_NAMES = Set.of("log", "warn", "error", "exception");
+    private static final Set<String> JS_LOG_RECEIVER_NAMES = Set.of("log", "logger", "console");
+    private static final Set<String> JS_LOG_METHOD_NAMES = Set.of("log", "warn", "error", "exception");
 
     private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
@@ -84,6 +87,180 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             rows.add(buildRollUpStats(top, counts));
         }
         return List.copyOf(rows);
+    }
+
+    @Override
+    public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        checkStale("findExceptionHandlingSmells");
+        ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file,
+                            source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights),
+                            List.of());
+                },
+                List.of());
+    }
+
+    private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        var catches = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(CATCH_CLAUSE), catches);
+        return catches.stream()
+                .map(catchClause -> analyzeCatchClause(file, catchClause, sourceContent, weights))
+                .flatMap(Optional::stream)
+                .sorted(java.util.Comparator.comparingInt(ExceptionHandlingSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(ExceptionHandlingSmell::enclosingFqName))
+                .toList();
+    }
+
+    private Optional<ExceptionHandlingSmell> analyzeCatchClause(
+            ProjectFile file, TSNode catchClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        TSNode bodyNode = catchClause.getChildByFieldName("body");
+        if (bodyNode == null) {
+            bodyNode = catchClause.getNamedChildren().stream()
+                    .filter(child -> STATEMENT_BLOCK.equals(child.getType()))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (bodyNode == null) {
+            return Optional.empty();
+        }
+
+        int bodyStatements = countBodyExpressions(bodyNode);
+        String bodyText = sourceContent.substringFrom(bodyNode);
+        boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
+        boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
+        boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
+        boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
+        boolean throwPresent = hasDescendantOfType(bodyNode, THROW_STATEMENT);
+        boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !throwPresent;
+
+        String catchType = extractCatchType(catchClause, sourceContent);
+        int score = 0;
+        var reasons = new ArrayList<String>();
+        if (catchType.equals("<untyped>") || catchType.equals("any") || catchType.equals("<unknown>")) {
+            score += weights.genericExceptionWeight();
+            reasons.add("generic-catch:" + catchType);
+        } else if (catchType.contains("Error") || catchType.contains("Exception")) {
+            score += weights.genericRuntimeExceptionWeight();
+            reasons.add("generic-catch:" + catchType);
+        }
+        if (emptyBody) {
+            score += weights.emptyBodyWeight();
+            reasons.add("empty-body");
+        }
+        if (commentOnlyBody) {
+            score += weights.commentOnlyBodyWeight();
+            reasons.add("comment-only-body");
+        }
+        if (smallBody) {
+            score += weights.smallBodyWeight();
+            reasons.add("small-body:" + bodyStatements);
+        }
+        if (logOnly) {
+            score += weights.logOnlyWeight();
+            reasons.add("log-only-body");
+        }
+
+        int creditStatements = Math.min(bodyStatements, Math.max(0, weights.meaningfulBodyStatementThreshold()));
+        int bodyCredit = Math.max(0, weights.meaningfulBodyCreditPerStatement()) * creditStatements;
+        if (bodyCredit > 0) {
+            score -= bodyCredit;
+            reasons.add("meaningful-body-credit:" + bodyCredit);
+        }
+        if (score <= 0) {
+            return Optional.empty();
+        }
+
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        catchClause.getStartPoint().getRow(),
+                        catchClause.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        return Optional.of(new ExceptionHandlingSmell(
+                file,
+                enclosing,
+                catchType,
+                score,
+                bodyStatements,
+                List.copyOf(reasons),
+                compactCatchExcerpt(sourceContent.substringFrom(catchClause))));
+    }
+
+    private static int countBodyExpressions(TSNode bodyNode) {
+        int expressions = 0;
+        for (int i = 0; i < bodyNode.getNamedChildCount(); i++) {
+            TSNode child = bodyNode.getNamedChild(i);
+            if (child != null && CATCH_BODY_MEANINGFUL_STATEMENT_TYPES.contains(child.getType())) {
+                expressions++;
+            }
+        }
+        return expressions;
+    }
+
+    private static String extractCatchType(TSNode catchClause, SourceContent sourceContent) {
+        TSNode parameterNode = catchClause.getChildByFieldName("parameter");
+        if (parameterNode == null) {
+            return "<untyped>";
+        }
+        String parameterText = sourceContent.substringFrom(parameterNode).strip();
+        int colon = parameterText.indexOf(':');
+        if (colon < 0) {
+            return "<untyped>";
+        }
+        String type = parameterText.substring(colon + 1).strip();
+        return type.isEmpty() ? "<untyped>" : type;
+    }
+
+    private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
+        TSNode statement = firstNonCommentNamedChild(bodyNode, COMMENT_NODE_TYPES);
+        if (statement == null || !EXPRESSION_STATEMENT.equals(statement.getType())) {
+            return false;
+        }
+        TSNode call = findFirstNamedDescendant(statement, CALL_EXPRESSION);
+        if (call == null) {
+            return false;
+        }
+        TSNode functionNode = call.getChildByFieldName("function");
+        if (functionNode == null) {
+            return false;
+        }
+        if (IDENTIFIER.equals(functionNode.getType())) {
+            String bare = sourceContent.substringFrom(functionNode).strip().toLowerCase(Locale.ROOT);
+            return JS_LOG_BARE_NAMES.contains(bare);
+        }
+        if (!MEMBER_EXPRESSION.equals(functionNode.getType())) {
+            return false;
+        }
+        TSNode objectNode = functionNode.getChildByFieldName("object");
+        TSNode propertyNode = functionNode.getChildByFieldName("property");
+        if (objectNode == null || propertyNode == null) {
+            return false;
+        }
+        String receiver = sourceContent.substringFrom(objectNode).strip().toLowerCase(Locale.ROOT);
+        String method = sourceContent.substringFrom(propertyNode).strip().toLowerCase(Locale.ROOT);
+        boolean loggerLikeReceiver = JS_LOG_RECEIVER_NAMES.contains(receiver)
+                || JS_LOG_RECEIVER_NAMES.stream().anyMatch(name -> receiver.endsWith("." + name));
+        boolean loggerLikeMethod = JS_LOG_METHOD_NAMES.contains(method);
+        return loggerLikeReceiver && loggerLikeMethod;
+    }
+
+    private static String compactCatchExcerpt(String text) {
+        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        if (compact.length() <= 180) {
+            return compact;
+        }
+        return compact.substring(0, 180) + "...";
     }
 
     private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentLineBreakdown> counts) {

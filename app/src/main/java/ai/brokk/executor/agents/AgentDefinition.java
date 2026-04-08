@@ -45,6 +45,7 @@ public record AgentDefinition(
             "computeCyclomaticComplexity",
             "reportCommentDensityForCodeUnit",
             "reportCommentDensityForFiles",
+            "reportExceptionHandlingSmells",
             "analyzeGitHotspots");
 
     /**
@@ -67,6 +68,11 @@ public record AgentDefinition(
             "xmlSkim",
             "xmlSelect",
             "jq",
+            "computeCyclomaticComplexity",
+            "reportCommentDensityForCodeUnit",
+            "reportCommentDensityForFiles",
+            "reportExceptionHandlingSmells",
+            "analyzeGitHotspots",
             // terminal / built-in
             "answer",
             "abortSearch",
@@ -114,6 +120,7 @@ public record AgentDefinition(
             "computeCyclomaticComplexity",
             "reportCommentDensityForCodeUnit",
             "reportCommentDensityForFiles",
+            "reportExceptionHandlingSmells",
             "analyzeGitHotspots",
             // Terminal
             "answer",

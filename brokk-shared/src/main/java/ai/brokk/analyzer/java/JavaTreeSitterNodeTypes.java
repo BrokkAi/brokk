@@ -41,6 +41,10 @@ public final class JavaTreeSitterNodeTypes {
     public static final String ANNOTATION = "annotation";
     public static final String MARKER_ANNOTATION = "marker_annotation";
 
+    // Comments
+    public static final String LINE_COMMENT = CommonTreeSitterNodeTypes.LINE_COMMENT;
+    public static final String BLOCK_COMMENT = CommonTreeSitterNodeTypes.BLOCK_COMMENT;
+
     // Reference node types (used in isAccessExpression)
     public static final String METHOD_INVOCATION = "method_invocation";
     public static final String FIELD_ACCESS = "field_access";
@@ -48,6 +52,8 @@ public final class JavaTreeSitterNodeTypes {
     public static final String TYPE_IDENTIFIER = "type_identifier";
     public static final String SCOPED_TYPE_IDENTIFIER = "scoped_type_identifier";
     public static final String CLASS_LITERAL = "class_literal";
+    public static final String IDENTIFIER = "identifier";
+    public static final String SCOPED_IDENTIFIER = "scoped_identifier";
 
     // Declaration context node types
     public static final String VARIABLE_DECLARATOR = "variable_declarator";
@@ -73,6 +79,15 @@ public final class JavaTreeSitterNodeTypes {
     public static final String CONDITIONAL_EXPRESSION = "ternary_expression";
     public static final String SWITCH_LABEL = "switch_label";
     public static final String BINARY_EXPRESSION = "binary_expression";
+    public static final String BLOCK = "block";
+    public static final String EXPRESSION_STATEMENT = "expression_statement";
+    public static final String THROW_STATEMENT = "throw_statement";
+    public static final String RETURN_STATEMENT = "return_statement";
+    public static final String BREAK_STATEMENT = "break_statement";
+    public static final String CONTINUE_STATEMENT = "continue_statement";
+    public static final String TRY_STATEMENT = "try_statement";
+    public static final String TRY_WITH_RESOURCES_STATEMENT = "try_with_resources_statement";
+    public static final String SWITCH_EXPRESSION = "switch_expression";
 
     // Literals
     public static final String DECIMAL_INTEGER_LITERAL = "decimal_integer_literal";
@@ -110,6 +125,24 @@ public final class JavaTreeSitterNodeTypes {
             ANNOTATION,
             CLASS_LITERAL,
             IMPORT_DECLARATION);
+
+    /**
+     * Top-level statement node types in a catch body that indicate meaningful local handling work.
+     */
+    public static final Set<String> CATCH_BODY_MEANINGFUL_STATEMENT_TYPES = Set.of(
+            EXPRESSION_STATEMENT,
+            THROW_STATEMENT,
+            RETURN_STATEMENT,
+            BREAK_STATEMENT,
+            CONTINUE_STATEMENT,
+            IF_STATEMENT,
+            FOR_STATEMENT,
+            ENHANCED_FOR_STATEMENT,
+            WHILE_STATEMENT,
+            DO_STATEMENT,
+            SWITCH_EXPRESSION,
+            TRY_STATEMENT,
+            TRY_WITH_RESOURCES_STATEMENT);
 
     private JavaTreeSitterNodeTypes() {}
 }
