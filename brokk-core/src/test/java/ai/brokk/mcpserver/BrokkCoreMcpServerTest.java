@@ -70,6 +70,7 @@ class BrokkCoreMcpServerTest {
                 "getActiveWorkspace",
                 "searchSymbols",
                 "scanUsages",
+                "getSummaries",
                 "getFileSummaries",
                 "getClassSources",
                 "getMethodSources",

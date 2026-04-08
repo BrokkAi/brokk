@@ -28,6 +28,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.errorprone.annotations.InlineMe;
 import java.io.ByteArrayInputStream;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
@@ -830,46 +831,157 @@ public class SearchTools {
         return List.copyOf(compiled);
     }
 
-    public String getFileSummaries(List<String> filePaths) {
-        if (filePaths.isEmpty()) {
-            return "Cannot get summaries: file paths list is empty";
+    private record SummaryTargets(
+            List<ProjectFile> fileTargets, List<String> unmatchedFileTargets, List<String> classTargets) {}
+
+    private record SummaryOutput(List<String> skeletons, Set<ProjectFile> sourceFiles) {}
+
+    public String getSummaries(List<String> targets) {
+        if (targets.isEmpty()) {
+            throw new IllegalArgumentException("Cannot get summaries: targets list is empty");
         }
 
+        var summaryTargets = routeSummaryTargets(targets);
+        if (summaryTargets.fileTargets().isEmpty()
+                && summaryTargets.classTargets().isEmpty()) {
+            return "No project files found matching the provided patterns: "
+                    + String.join(", ", summaryTargets.unmatchedFileTargets());
+        }
+
+        var fileOutput = summarizeFiles(summaryTargets.fileTargets());
+        var classOutput = summarizeClasses(summaryTargets.classTargets());
+
+        var skeletons = new LinkedHashSet<String>();
+        skeletons.addAll(fileOutput.skeletons());
+        skeletons.addAll(classOutput.skeletons());
+
+        if (skeletons.isEmpty()) {
+            return buildNoSummariesFoundMessage(summaryTargets);
+        }
+
+        var sourceFiles = new LinkedHashSet<ProjectFile>();
+        sourceFiles.addAll(fileOutput.sourceFiles());
+        sourceFiles.addAll(classOutput.sourceFiles());
+
+        var prefix = summaryTargets.unmatchedFileTargets().isEmpty()
+                ? ""
+                : "No project files found matching: " + String.join(", ", summaryTargets.unmatchedFileTargets())
+                        + "\n\n";
+        return recordResearchTokens(appendRelatedContent(prefix + String.join("\n\n", skeletons), sourceFiles));
+    }
+
+    @Deprecated
+    @InlineMe(replacement = "this.getSummaries(filePaths)")
+    public final String getFileSummaries(List<String> filePaths) {
+        return getSummaries(filePaths);
+    }
+
+    private SummaryTargets routeSummaryTargets(List<String> targets) {
         var project = codeIntelligence.getProject();
-        List<ProjectFile> projectFiles = prioritizeFilesForSelection(filePaths.stream()
-                .flatMap(pattern -> PathExpander.expandPath(project, pattern).stream())
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .distinct()
-                .toList());
+        var knownExtensions = project.getAllFiles().stream()
+                .map(ProjectFile::extension)
+                .map(ext -> ext.toLowerCase(Locale.ROOT))
+                .filter(ext -> !ext.isBlank())
+                .collect(Collectors.toSet());
 
-        if (projectFiles.isEmpty()) {
-            return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
+        var fileTargets = new LinkedHashSet<ProjectFile>();
+        var unmatchedFileTargets = new ArrayList<String>();
+        var classTargets = new LinkedHashSet<String>();
+
+        for (var target : stripParams(targets).stream()
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList()) {
+            var matchingFiles = PathExpander.expandPath(project, target).stream()
+                    .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
+                    .distinct()
+                    .toList();
+            if (!matchingFiles.isEmpty()) {
+                fileTargets.addAll(matchingFiles);
+                continue;
+            }
+
+            if (looksLikeFileTarget(target, knownExtensions)) {
+                unmatchedFileTargets.add(target);
+                continue;
+            }
+
+            classTargets.add(target);
         }
 
+        return new SummaryTargets(
+                prioritizeFilesForSelection(fileTargets.stream().toList()),
+                List.copyOf(unmatchedFileTargets),
+                List.copyOf(classTargets));
+    }
+
+    private static boolean looksLikeFileTarget(String target, Set<String> knownExtensions) {
+        if (target.equals(".")
+                || target.startsWith(".")
+                || target.contains("/")
+                || target.contains("\\")
+                || target.contains("*")
+                || target.contains("?")) {
+            return true;
+        }
+
+        int lastDot = target.lastIndexOf('.');
+        if (lastDot <= 0 || lastDot == target.length() - 1) {
+            return false;
+        }
+
+        var extension = target.substring(lastDot + 1).toLowerCase(Locale.ROOT);
+        return knownExtensions.contains(extension);
+    }
+
+    private SummaryOutput summarizeFiles(List<ProjectFile> projectFiles) {
         List<String> allSkeletons = new ArrayList<>();
-        List<ProjectFile> filesWithSummaries = new ArrayList<>();
+        Set<ProjectFile> filesWithSummaries = new LinkedHashSet<>();
         for (var file : projectFiles) {
             var skeletonsInFile = getAnalyzer().getSkeletons(file);
             if (!skeletonsInFile.isEmpty()) {
-                // Add all skeleton strings from this file to the list
                 allSkeletons.addAll(skeletonsInFile.values());
                 filesWithSummaries.add(file);
             } else {
                 logger.debug("No skeletons found in file: {}", file);
             }
         }
+        return new SummaryOutput(List.copyOf(allSkeletons), filesWithSummaries);
+    }
 
-        if (allSkeletons.isEmpty()) {
-            // filesProcessed will be empty if no skeletons were found in any matched file
-            var processedFilesString = filesWithSummaries.isEmpty()
-                    ? projectFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", "))
-                    : filesWithSummaries.stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
-            return "No class summaries found in the matched files: " + processedFilesString;
+    private SummaryOutput summarizeClasses(List<String> classNames) {
+        var analyzer = getAnalyzer();
+        List<String> skeletons = new ArrayList<>();
+        Set<ProjectFile> resultFiles = new LinkedHashSet<>();
+        classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(fqcn -> {
+            AnalyzerUtil.getSkeleton(analyzer, fqcn).ifPresent(skeleton -> {
+                skeletons.add(skeleton);
+                analyzer.getDefinitions(fqcn).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst()
+                        .map(CodeUnit::source)
+                        .ifPresent(resultFiles::add);
+            });
+        });
+        return new SummaryOutput(List.copyOf(skeletons), resultFiles);
+    }
+
+    private static String buildNoSummariesFoundMessage(SummaryTargets summaryTargets) {
+        List<String> parts = new ArrayList<>();
+        if (!summaryTargets.fileTargets().isEmpty()) {
+            parts.add("No class summaries found in the matched files: "
+                    + summaryTargets.fileTargets().stream()
+                            .map(ProjectFile::toString)
+                            .collect(Collectors.joining(", ")));
         }
-
-        // Return the combined skeleton strings directly, joined by newlines
-        return recordResearchTokens(appendRelatedContent(String.join("\n\n", allSkeletons), filesWithSummaries));
+        if (!summaryTargets.unmatchedFileTargets().isEmpty()) {
+            parts.add("No project files found matching: " + String.join(", ", summaryTargets.unmatchedFileTargets()));
+        }
+        if (!summaryTargets.classTargets().isEmpty()) {
+            parts.add("No classes found for: " + String.join(", ", summaryTargets.classTargets()));
+        }
+        return String.join("; ", parts);
     }
 
     // --- Tool Methods requiring analyzer

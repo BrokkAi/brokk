@@ -236,7 +236,7 @@ When you specify a `tools` list, you're choosing which capabilities the agent ha
 | `searchFileContents` | Regex search in file contents with context lines |
 | `skimFiles` | Quick overview of files showing declarations |
 | `listFiles` | Directory listing |
-| `getFileSummaries` | File summaries with top-level declarations |
+| `getSummaries` | Class or file summaries with fields and method signatures |
 | `getClassSkeletons` | Class skeletons with fields and method signatures |
 | `getClassSources` | Full source of classes by fully qualified name |
 | `getMethodSources` | Source of specific methods |
@@ -336,7 +336,7 @@ tools:
   - searchSymbols
   - scanUsages
   - getClassSkeletons
-  - getFileSummaries
+  - getSummaries
   - skimFiles
   - listFiles
   - findFilenames
@@ -350,7 +350,7 @@ When asked about a system or subsystem:
 1. **Discover structure**: use listFiles and findFilenames to understand the directory layout
 2. **Identify key abstractions**: use searchSymbols to find main classes, interfaces, and entry points
 3. **Trace relationships**: use scanUsages to understand how components connect
-4. **Read skeletons**: use getClassSkeletons and getFileSummaries for an overview without drowning in implementation details
+4. **Read skeletons**: use getClassSkeletons and getSummaries for an overview without drowning in implementation details
 5. **Dive selectively**: only read full source when a specific pattern or algorithm needs explanation
 
 Present your analysis as:

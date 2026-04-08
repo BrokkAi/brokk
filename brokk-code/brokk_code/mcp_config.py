@@ -55,7 +55,8 @@ _LEGACY_BLOCKS = [
 - Avoid shell text search when Brokk syntax-aware tools can answer.
 - At the start of each Codex session, activate Brokk MCP for the current workspace by
   calling activateWorkspace, then verify with getActiveWorkspace.""",
-    # tools-specific guidance block from b7efcf...
+    # Legacy exact block kept verbatim for migration matching.
+    # Stale tool names are intentional here.
     f"""{_BROKK_MARKER}
 - Use searchSymbols (not Grep) to find class/function/field definitions by name.
 - Use scanUsages (not Grep) to find call sites and usages of a known symbol.

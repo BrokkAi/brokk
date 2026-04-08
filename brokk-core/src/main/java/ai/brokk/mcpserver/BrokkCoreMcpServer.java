@@ -273,21 +273,30 @@ public class BrokkCoreMcpServer {
                 })));
 
         specs.add(tool(
+                "getSummaries",
+                "Understand the API surface of classes or files without reading full implementations. "
+                        + "Accepts fully qualified class names, workspace-relative file paths, and file globs in one call.",
+                schema(Map.of("targets", arrayProp("Class names, file paths, or glob patterns.")), List.of("targets")),
+                (exchange, request) -> withReadLock(() -> {
+                    var targets = stringListArg(request, "targets");
+                    return textResult(searchTools.getSummaries(targets));
+                })));
+
+        specs.add(tool(
                 "getFileSummaries",
-                "Returns class skeletons (fields + method signatures, no bodies) for all classes in the "
-                        + "specified files. Supports glob patterns: '*' matches one directory, '**' matches recursively.",
+                "Deprecated alias for getSummaries when you only have file paths or file globs.",
                 schema(
                         Map.of("filePaths", arrayProp("File paths relative to project root. Supports glob patterns.")),
                         List.of("filePaths")),
                 (exchange, request) -> withReadLock(() -> {
                     var filePaths = stringListArg(request, "filePaths");
-                    return textResult(searchTools.getFileSummaries(filePaths));
+                    return textResult(searchTools.getSummaries(filePaths));
                 })));
 
         specs.add(tool(
                 "getClassSources",
                 "Returns full source code of classes. Max 10 classes. "
-                        + "Prefer getFileSummaries or getMethodSources when possible.",
+                        + "Prefer getSummaries or getMethodSources when possible.",
                 schema(
                         Map.of("classNames", arrayProp("Fully qualified class names to retrieve source for; max 10.")),
                         List.of("classNames")),
