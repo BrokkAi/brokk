@@ -520,6 +520,17 @@ public interface IAnalyzer {
         return summarizeSymbols(getTopLevelDeclarations(file), types, 0);
     }
 
+    /**
+     * Summarizes the given source text as though it were the contents of {@code file}, without requiring the analyzer
+     * to update its project-wide snapshot.
+     *
+     * <p>The default implementation returns an empty string. Analyzers that can parse ad-hoc source text in isolation
+     * should override this.
+     */
+    default String summarizeSymbols(ProjectFile file, String sourceText) {
+        return "";
+    }
+
     default String summarizeSymbols(Collection<CodeUnit> units, Set<CodeUnitType> types, int indent) {
         return summarizeSymbols(units, types, indent, Set.of());
     }

@@ -58,9 +58,13 @@ public class CustomAgentExecutor {
     private Context context;
 
     public CustomAgentExecutor(IContextManager cm, AgentDefinition agentDef, StreamingChatModel model) {
+        this(cm, agentDef, model, cm.getIo());
+    }
+
+    public CustomAgentExecutor(IContextManager cm, AgentDefinition agentDef, StreamingChatModel model, IConsoleIO io) {
         this.cm = cm;
         this.agentDef = agentDef;
-        this.io = cm.getIo();
+        this.io = io;
         this.context = cm.liveContext();
         this.llm = cm.getLlm(new Llm.Options(model, agentDef.name(), TaskResult.Type.SEARCH).withEcho());
         this.llm.setOutput(io);
@@ -70,11 +74,16 @@ public class CustomAgentExecutor {
     @Blocking
     public TaskResult execute(String taskInput) {
         try {
-            return executeLoop(taskInput);
+            return executeInterruptibly(taskInput);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new TaskResult(context, new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
+    }
+
+    @Blocking
+    public TaskResult executeInterruptibly(String taskInput) throws InterruptedException {
+        return executeLoop(taskInput);
     }
 
     private TaskResult executeLoop(String taskInput) throws InterruptedException {

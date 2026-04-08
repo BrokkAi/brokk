@@ -113,6 +113,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     @Override
+    protected AnalyzerCache createEmptyCache() {
+        return new GoAnalyzerCache();
+    }
+
+    @Override
     protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
         return new GoAnalyzerCache((GoAnalyzerCache) previous, changedFiles);
     }
