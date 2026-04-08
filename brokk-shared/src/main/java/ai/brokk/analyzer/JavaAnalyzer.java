@@ -24,6 +24,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         implements ImportAnalysisProvider, TypeHierarchyProvider, JvmBasedAnalyzer {
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
+    private static final Set<String> JAVA_COMMENT_NODE_TYPES = Set.of(LINE_COMMENT, BLOCK_COMMENT);
+    private static final Set<String> LOG_RECEIVER_NAMES = Set.of("log", "logger");
 
     public JavaAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
@@ -1460,6 +1462,280 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     @Override
+    public int computeCyclomaticComplexity(CodeUnit cu) {
+        if (!cu.isFunction()) return 0;
+
+        return getSource(cu, false)
+                .map(source -> {
+                    try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
+                        TSNode root = tree.getRootNode();
+                        if (root == null) return 1;
+
+                        SourceContent content = SourceContent.of(source);
+                        int complexity = 1; // Base complexity
+
+                        Deque<TSNode> stack = new ArrayDeque<>();
+                        stack.push(root);
+
+                        while (!stack.isEmpty()) {
+                            TSNode node = stack.pop();
+                            String type = node.getType();
+                            if (type == null) {
+                                continue;
+                            }
+
+                            switch (type) {
+                                case IF_STATEMENT,
+                                        FOR_STATEMENT,
+                                        ENHANCED_FOR_STATEMENT,
+                                        WHILE_STATEMENT,
+                                        DO_STATEMENT,
+                                        CATCH_CLAUSE,
+                                        CONDITIONAL_EXPRESSION -> complexity++;
+                                case SWITCH_LABEL -> {
+                                    // Only count if not the 'default' case
+                                    if (!content.substringFrom(node).contains("default")) {
+                                        complexity++;
+                                    }
+                                }
+                                case BINARY_EXPRESSION -> {
+                                    // Check for && or ||
+                                    String operator = content.substringFrom(node);
+                                    if (operator.contains("&&") || operator.contains("||")) {
+                                        complexity++;
+                                    }
+                                }
+                            }
+
+                            for (int i = 0; i < node.getNamedChildCount(); i++) {
+                                TSNode child = node.getNamedChild(i);
+                                if (child != null) {
+                                    stack.push(child);
+                                }
+                            }
+                        }
+                        return complexity;
+                    } catch (Exception e) {
+                        log.warn("Failed to compute complexity for {} using AST; falling back", cu.fqName(), e);
+                        return super.computeCyclomaticComplexity(cu);
+                    }
+                })
+                .orElse(0);
+    }
+
+    @Override
+    public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        checkStale("findExceptionHandlingSmells");
+        ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file,
+                            source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights),
+                            List.of());
+                },
+                List.of());
+    }
+
+    private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        var findings = new ArrayList<SmellCandidate>();
+        collectCatchSmells(file, root, sourceContent, weights, findings);
+        return findings.stream()
+                .sorted(Comparator.comparingInt(SmellCandidate::score)
+                        .reversed()
+                        .thenComparing(c -> c.smell().file().toString())
+                        .thenComparing(c -> c.smell().enclosingFqName())
+                        .thenComparingInt(SmellCandidate::startByte))
+                .map(SmellCandidate::smell)
+                .toList();
+    }
+
+    private void collectCatchSmells(
+            ProjectFile file,
+            TSNode node,
+            SourceContent sourceContent,
+            ExceptionSmellWeights weights,
+            List<SmellCandidate> out) {
+        if (node == null) {
+            return;
+        }
+        if (CATCH_CLAUSE.equals(node.getType())) {
+            analyzeCatchClause(file, node, sourceContent, weights).ifPresent(out::add);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child != null) {
+                collectCatchSmells(file, child, sourceContent, weights, out);
+            }
+        }
+    }
+
+    private Optional<SmellCandidate> analyzeCatchClause(
+            ProjectFile file, TSNode catchNode, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        TSNode catchParam = null;
+        for (TSNode child : catchNode.getNamedChildren()) {
+            if (CATCH_FORMAL_PARAMETER.equals(child.getType())) {
+                catchParam = child;
+                break;
+            }
+        }
+        if (catchParam == null) {
+            return Optional.empty();
+        }
+
+        TSNode typeNode = catchParam.getChildByFieldName("type");
+        String catchType = sourceContent.substringFrom(typeNode).strip();
+        if (catchType.isEmpty()) {
+            TSNode nameNode = catchParam.getChildByFieldName("name");
+            String paramText = sourceContent.substringFrom(catchParam).strip();
+            if (nameNode != null) {
+                String name = sourceContent.substringFrom(nameNode).strip();
+                int nameIdx = paramText.lastIndexOf(name);
+                if (nameIdx > 0) {
+                    catchType = paramText.substring(0, nameIdx).strip();
+                }
+            }
+            if (catchType.isEmpty()) {
+                catchType = paramText;
+            }
+        }
+        if (catchType.isEmpty()) {
+            return Optional.empty();
+        }
+
+        TSNode bodyNode = catchNode.getChildByFieldName("body");
+        if (bodyNode == null) {
+            bodyNode = catchNode.getNamedChildren().stream()
+                    .filter(child -> BLOCK.equals(child.getType()))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (bodyNode == null) {
+            return Optional.empty();
+        }
+        String bodyText = sourceContent.substringFrom(bodyNode);
+        int bodyStatements = countBodyExpressions(bodyNode);
+        boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
+        boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
+        boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
+        boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
+        boolean throwPresent = hasDescendantOfType(bodyNode, THROW_STATEMENT);
+        boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !throwPresent;
+
+        int score = 0;
+        var reasons = new ArrayList<String>();
+        if (catchType.contains("Throwable")) {
+            score += weights.genericThrowableWeight();
+            reasons.add("generic-catch:Throwable");
+        } else if (catchType.contains("Exception")) {
+            if (catchType.contains("RuntimeException")) {
+                score += weights.genericRuntimeExceptionWeight();
+                reasons.add("generic-catch:RuntimeException");
+            } else {
+                score += weights.genericExceptionWeight();
+                reasons.add("generic-catch:Exception");
+            }
+        }
+        if (emptyBody) {
+            score += weights.emptyBodyWeight();
+            reasons.add("empty-body");
+        }
+        if (commentOnlyBody) {
+            score += weights.commentOnlyBodyWeight();
+            reasons.add("comment-only-body");
+        }
+        if (smallBody) {
+            score += weights.smallBodyWeight();
+            reasons.add("small-body:" + bodyStatements);
+        }
+        if (logOnly) {
+            score += weights.logOnlyWeight();
+            reasons.add("log-only-body");
+        }
+
+        int creditStatements = Math.min(bodyStatements, Math.max(0, weights.meaningfulBodyStatementThreshold()));
+        int bodyCredit = Math.max(0, weights.meaningfulBodyCreditPerStatement()) * creditStatements;
+        if (bodyCredit > 0) {
+            score -= bodyCredit;
+            reasons.add("meaningful-body-credit:" + bodyCredit);
+        }
+
+        if (score <= 0) {
+            return Optional.empty();
+        }
+
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        catchNode.getStartPoint().getRow(),
+                        catchNode.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        String excerpt = compactCatchExcerpt(sourceContent.substringFrom(catchNode));
+        var smell = new ExceptionHandlingSmell(
+                file, enclosing, catchType, score, bodyStatements, List.copyOf(reasons), excerpt);
+        return Optional.of(new SmellCandidate(smell, catchNode.getStartByte()));
+    }
+
+    private static int countBodyExpressions(TSNode bodyNode) {
+        int expressions = 0;
+        for (int i = 0; i < bodyNode.getNamedChildCount(); i++) {
+            TSNode child = bodyNode.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            String type = child.getType();
+            if (LINE_COMMENT.equals(type) || BLOCK_COMMENT.equals(type)) {
+                continue;
+            }
+            if (CATCH_BODY_MEANINGFUL_STATEMENT_TYPES.contains(type)) {
+                expressions++;
+            }
+        }
+        return expressions;
+    }
+
+    private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
+        TSNode statement = firstNonCommentNamedChild(bodyNode, JAVA_COMMENT_NODE_TYPES);
+        if (statement == null || !EXPRESSION_STATEMENT.equals(statement.getType())) {
+            return false;
+        }
+        TSNode invocation = findFirstNamedDescendant(statement, METHOD_INVOCATION);
+        if (invocation == null) {
+            return false;
+        }
+        TSNode objectNode = invocation.getChildByFieldName("object");
+        if (objectNode == null) {
+            return false;
+        }
+        String receiverText = sourceContent.substringFrom(objectNode).strip().toLowerCase(Locale.ROOT);
+        if (receiverText.isEmpty()) {
+            return false;
+        }
+        return LOG_RECEIVER_NAMES.contains(receiverText)
+                || LOG_RECEIVER_NAMES.stream().anyMatch(name -> receiverText.endsWith("." + name));
+    }
+
+    private static String compactCatchExcerpt(String text) {
+        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        if (compact.length() <= 180) {
+            return compact;
+        }
+        return compact.substring(0, 180) + "...";
+    }
+
+    private record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
+    }
+
+    @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
@@ -1518,5 +1794,130 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     }
                 },
                 List.of());
+    }
+
+    private static final class CommentAgg {
+        int headerLines;
+        int inlineLines;
+    }
+
+    @Override
+    public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        checkStale("commentDensity");
+        if (!Languages.JAVA.equals(Languages.fromExtension(cu.source().extension()))) {
+            return Optional.empty();
+        }
+        Map<String, CommentAgg> aggs = collectCommentAggregates(cu.source());
+        CommentDensityStats stats = buildRollUpStats(cu, aggs);
+        return Optional.of(stats);
+    }
+
+    @Override
+    public List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        checkStale("commentDensityByTopLevel");
+        if (!Languages.JAVA.equals(Languages.fromExtension(file.extension()))) {
+            return List.of();
+        }
+        Map<String, CommentAgg> aggs = collectCommentAggregates(file);
+        List<CommentDensityStats> rows = new ArrayList<>();
+        for (CodeUnit top : getTopLevelDeclarations(file)) {
+            rows.add(buildRollUpStats(top, aggs));
+        }
+        return List.copyOf(rows);
+    }
+
+    /**
+     * Walks the parse tree for line_comment and block_comment nodes, associates each with the smallest enclosing
+     * declaration span (using {@link Range#commentStartByte()} through {@link Range#endByte()}), and classifies
+     * header vs inline: header if the comment ends on or before the declaration {@link Range#startByte()}.
+     */
+    private Map<String, CommentAgg> collectCommentAggregates(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    List<TSNode> comments = new ArrayList<>();
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Map.of();
+                    }
+                    collectCommentNodes(root, comments);
+                    Map<String, CommentAgg> map = new HashMap<>();
+                    for (TSNode c : comments) {
+                        int cs = c.getStartByte();
+                        int ce = c.getEndByte();
+                        Optional<OwningRange> own = findOwningRangeForComment(file, cs, ce);
+                        if (own.isEmpty()) {
+                            continue;
+                        }
+                        OwningRange or = own.get();
+                        Range r = or.range();
+                        boolean header = ce <= r.startByte();
+                        int lines = c.getEndPoint().getRow() - c.getStartPoint().getRow() + 1;
+                        CommentAgg agg = map.computeIfAbsent(or.cu().fqName(), k -> new CommentAgg());
+                        if (header) {
+                            agg.headerLines += lines;
+                        } else {
+                            agg.inlineLines += lines;
+                        }
+                    }
+                    return map;
+                },
+                Map.of());
+    }
+
+    private record OwningRange(CodeUnit cu, Range range) {}
+
+    private Optional<OwningRange> findOwningRangeForComment(ProjectFile file, int cs, int ce) {
+        return enclosingCodeUnitByCommentBytes(file, cs, ce).flatMap(cu -> rangesOf(cu).stream()
+                .filter(r -> cs >= r.commentStartByte() && ce <= r.endByte())
+                .min(Comparator.comparingInt(r -> r.endByte() - r.commentStartByte()))
+                .map(r -> new OwningRange(cu, r)));
+    }
+
+    private static void collectCommentNodes(TSNode node, List<TSNode> out) {
+        if (node == null) {
+            return;
+        }
+        String t = node.getType();
+        if (LINE_COMMENT.equals(t) || BLOCK_COMMENT.equals(t)) {
+            out.add(node);
+            return;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode ch = node.getChild(i);
+            if (ch != null) {
+                collectCommentNodes(ch, out);
+            }
+        }
+    }
+
+    private int spanLines(CodeUnit cu) {
+        return rangesOf(cu).stream()
+                .mapToInt(r -> r.endLine() - r.startLine() + 1)
+                .sum();
+    }
+
+    /**
+     * Non-class units: rolled-up fields mirror own lines. Class units: rolled-up sums descendant comment lines and
+     * span lines (child spans summed; not deduplicated against the outer class span).
+     */
+    private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentAgg> aggs) {
+        CommentAgg own = aggs.getOrDefault(cu.fqName(), new CommentAgg());
+        int span = spanLines(cu);
+        String path = cu.source().toString();
+        if (!cu.isClass()) {
+            return new CommentDensityStats(
+                    cu.fqName(), path, own.headerLines, own.inlineLines, span, own.headerLines, own.inlineLines, span);
+        }
+        int rh = own.headerLines;
+        int ri = own.inlineLines;
+        int rs = span;
+        for (CodeUnit ch : getDirectChildren(cu)) {
+            CommentDensityStats chs = buildRollUpStats(ch, aggs);
+            rh += chs.rolledUpHeaderCommentLines();
+            ri += chs.rolledUpInlineCommentLines();
+            rs += chs.rolledUpSpanLines();
+        }
+        return new CommentDensityStats(cu.fqName(), path, own.headerLines, own.inlineLines, span, rh, ri, rs);
     }
 }

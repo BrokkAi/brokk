@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import ai.brokk.watchservice.AbstractWatchService.Listener;
 import java.nio.file.*;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -237,6 +238,18 @@ class JavaProjectWatchServiceTest {
 
         // Wait a bit to ensure no errors occur
         Thread.sleep(200);
+    }
+
+    @Test
+    void testCloseDuringDelayedStartupReturnsPromptly() throws Exception {
+        watchService = new JavaProjectWatchService(tempDir, null, null, List.of());
+        var startupGate = new CompletableFuture<Void>();
+        watchService.start(startupGate);
+
+        Thread.sleep(100);
+
+        assertTimeout(Duration.ofMillis(500), () -> watchService.close(100));
+        startupGate.complete(null);
     }
 
     /**

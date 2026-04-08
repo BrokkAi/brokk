@@ -9,7 +9,9 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.CodeQualityTools;
 import ai.brokk.tools.DependencyTools;
+import ai.brokk.tools.Destructive;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolOutput;
@@ -46,20 +48,7 @@ public class CustomAgentExecutor {
     private record TerminalStopOutput(String llmText, TaskResult.StopDetails stopDetails) implements ToolOutput {}
 
     private static final Set<String> TERMINAL_TOOL_NAMES = Set.of("answer", "abortSearch");
-    private static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES = Set.of(
-            "searchSymbols",
-            "scanUsages",
-            "getSymbolLocations",
-            "skimFiles",
-            "findFilesContaining",
-            "findFilenames",
-            "searchFileContents",
-            "searchGitCommitMessages",
-            "getGitLog",
-            "explainCommit",
-            "xmlSkim",
-            "xmlSelect",
-            "jq");
+    private static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES = AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES;
 
     private final IContextManager cm;
     private final AgentDefinition agentDef;
@@ -70,9 +59,13 @@ public class CustomAgentExecutor {
     private Context context;
 
     public CustomAgentExecutor(IContextManager cm, AgentDefinition agentDef, StreamingChatModel model) {
+        this(cm, agentDef, model, cm.getIo());
+    }
+
+    public CustomAgentExecutor(IContextManager cm, AgentDefinition agentDef, StreamingChatModel model, IConsoleIO io) {
         this.cm = cm;
         this.agentDef = agentDef;
-        this.io = cm.getIo();
+        this.io = io;
         this.context = cm.liveContext();
         this.llm = cm.getLlm(new Llm.Options(model, agentDef.name(), TaskResult.Type.SEARCH).withEcho());
         this.llm.setOutput(io);
@@ -82,11 +75,16 @@ public class CustomAgentExecutor {
     @Blocking
     public TaskResult execute(String taskInput) {
         try {
-            return executeLoop(taskInput);
+            return executeInterruptibly(taskInput);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new TaskResult(context, new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
+    }
+
+    @Blocking
+    public TaskResult executeInterruptibly(String taskInput) throws InterruptedException {
+        return executeLoop(taskInput);
     }
 
     private TaskResult executeLoop(String taskInput) throws InterruptedException {
@@ -99,6 +97,7 @@ public class CustomAgentExecutor {
         if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(new DependencyTools(cm));
         }
+        builder.register(new CodeQualityTools(cm));
         var toolRegistry = builder.build();
         var allowedTools = agentDef.effectiveTools(cm.getProject());
         var toolContext = new ToolContext(toolRegistry.getTools(allowedTools), ToolChoice.REQUIRED, toolRegistry);
@@ -144,13 +143,21 @@ public class CustomAgentExecutor {
             Map<ToolExecutionRequest, CompletableFuture<ToolExecutionResult>> parallelFutures = new LinkedHashMap<>();
             if (parallelRequests.size() > 1) {
                 for (var request : parallelRequests) {
-                    io.beforeToolCall(request);
-                    Context snapshotContext = context;
-                    parallelFutures.put(
-                            request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
-                                    .register(new WorkspaceTools(snapshotContext))
-                                    .build()
-                                    .executeTool(request)));
+                    boolean destructive = toolRegistry.isToolAnnotated(request.name(), Destructive.class);
+                    var approval = io.beforeToolCall(request, destructive);
+                    if (!approval.isApproved()) {
+                        parallelFutures.put(
+                                request,
+                                CompletableFuture.completedFuture(ToolExecutionResult.requestError(
+                                        request, "Tool call '%s' was denied by user.".formatted(request.name()))));
+                    } else {
+                        Context snapshotContext = context;
+                        parallelFutures.put(
+                                request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
+                                        .register(new WorkspaceTools(snapshotContext))
+                                        .build()
+                                        .executeTool(request)));
+                    }
                 }
             }
             Runnable cancelOutstandingParallelFutures = () ->
@@ -171,12 +178,19 @@ public class CustomAgentExecutor {
                     }
                     io.afterToolOutput(toolResult);
                 } else {
-                    io.beforeToolCall(request);
-                    var executionRegistry = ToolRegistry.fromBase(toolRegistry)
-                            .register(new WorkspaceTools(context))
-                            .build();
-                    toolResult = executionRegistry.executeTool(request);
-                    io.afterToolOutput(toolResult);
+                    boolean destructive = toolRegistry.isToolAnnotated(request.name(), Destructive.class);
+                    var approval = io.beforeToolCall(request, destructive);
+                    if (!approval.isApproved()) {
+                        toolResult = ToolExecutionResult.requestError(
+                                request, "Tool call '%s' was denied by user.".formatted(request.name()));
+                        io.afterToolOutput(toolResult);
+                    } else {
+                        var executionRegistry = ToolRegistry.fromBase(toolRegistry)
+                                .register(new WorkspaceTools(context))
+                                .build();
+                        toolResult = executionRegistry.executeTool(request);
+                        io.afterToolOutput(toolResult);
+                    }
                 }
                 llm.recordToolExecution(toolResult);
                 messages.add(toolResult.toMessage());

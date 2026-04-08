@@ -187,6 +187,13 @@ public class MultiAnalyzer
     }
 
     @Override
+    public String summarizeSymbols(ProjectFile file, String sourceText) {
+        return delegateFor(file)
+                .map(delegate -> delegate.summarizeSymbols(file, sourceText))
+                .orElse("");
+    }
+
+    @Override
     public List<CodeUnit> getDirectChildren(CodeUnit cu) {
         return delegateFor(cu).map(delegate -> delegate.getDirectChildren(cu)).orElse(List.of());
     }
@@ -195,6 +202,18 @@ public class MultiAnalyzer
     public List<Range> rangesOf(CodeUnit codeUnit) {
         return delegateFor(codeUnit)
                 .map(delegate -> delegate.rangesOf(codeUnit))
+                .orElse(List.of());
+    }
+
+    @Override
+    public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        return delegateFor(cu).flatMap(delegate -> delegate.commentDensity(cu));
+    }
+
+    @Override
+    public List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        return delegateFor(file)
+                .map(delegate -> delegate.commentDensityByTopLevel(file))
                 .orElse(List.of());
     }
 

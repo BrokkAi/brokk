@@ -694,6 +694,12 @@ def _print_install_prefetch_commands(commands: list[tuple[str, list[str]]]) -> N
 
 def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        "--worktree",
+        action="store_true",
+        default=False,
+        help="Create an isolated git worktree for this session and clean up on exit if no changes",
+    )
+    parser.add_argument(
         "--workspace",
         type=str,
         default=".",
@@ -1872,6 +1878,21 @@ async def run_headless_job(
         await manager.stop()
 
 
+# Commands that don't operate on a workspace and should skip worktree creation
+_NON_WORKSPACE_COMMANDS = {"install", "provider", "version", "logout", "login"}
+
+
+def _resolve_worktree_workspace_path(
+    workspace_path: Path, repo_root: Path, worktree_path: Path
+) -> Path:
+    """Map the selected workspace into the corresponding location inside a worktree."""
+    try:
+        relative_workspace = workspace_path.relative_to(repo_root)
+    except ValueError:
+        return worktree_path
+    return worktree_path / relative_workspace
+
+
 def main():
     parser = _build_parser()
     args, unknown = parser.parse_known_args()
@@ -1890,6 +1911,25 @@ def main():
             file=sys.stderr,
         )
 
+    use_worktree = getattr(args, "worktree", False) and args.command not in _NON_WORKSPACE_COMMANDS
+    if use_worktree:
+        from brokk_code.git_utils import worktree_context
+
+        repo_root = resolve_workspace_dir(workspace_path)
+        with worktree_context(repo_root) as wt_path:
+            wt_workspace = _resolve_worktree_workspace_path(workspace_path, repo_root, wt_path)
+            _main_dispatch(args, wt_workspace, jar_path, unknown)
+    else:
+        _main_dispatch(args, workspace_path, jar_path, unknown)
+
+
+def _main_dispatch(
+    args: argparse.Namespace,
+    workspace_path: Path,
+    jar_path: Path | None,
+    unknown: list[str],
+) -> None:
+    """Core command dispatch, extracted to support optional worktree wrapping."""
     if args.command == "install":
         # Fast-fail validation before prompting for API keys
         if args.plugin and args.target not in {"nvim", "neovim"}:

@@ -66,7 +66,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private volatile boolean isStale = false;
     private final AtomicBoolean staleWarningLogged = new AtomicBoolean(false);
 
-    private void checkStale(String methodName) {
+    protected void checkStale(String methodName) {
         if (this.isStale && staleWarningLogged.compareAndSet(false, true)) {
             log.warn("Accessing stale analyzer snapshot in {}", methodName, new IllegalStateException("Stale trace"));
         }
@@ -779,6 +779,39 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
         return fileProperties(file).topLevelList();
+    }
+
+    @Override
+    public String summarizeSymbols(ProjectFile file, String sourceText) {
+        var sourceContent = SourceContent.of(sourceText);
+        var tempCache = createEmptyCache();
+        tempCache.sources().put(file, sourceContent);
+
+        var isolatedAnalyzer = (TreeSitterAnalyzer) newSnapshot(this.state, ProgressListener.NOOP, tempCache);
+        var analysisResult = isolatedAnalyzer.analyzeFileContent(file, sourceContent.utf8Bytes(), null);
+        if (analysisResult.topLevelCUs().isEmpty()) {
+            return "";
+        }
+
+        var symbolIndex = new HashMap<String, Set<CodeUnit>>();
+        analysisResult.codeUnitsBySymbol().forEach((key, value) -> symbolIndex.put(key, Set.copyOf(value)));
+
+        var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        keySet.addAll(symbolIndex.keySet());
+
+        var fileState = new FileProperties(
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(analysisResult.topLevelCUs())),
+                List.copyOf(analysisResult.importStatements()),
+                analysisResult.containsTests());
+
+        var snapshot = new AnalyzerState(
+                HashTreePMap.from(symbolIndex),
+                HashTreePMap.from(analysisResult.codeUnitState()),
+                HashTreePMap.from(Map.of(file, fileState)),
+                new SymbolKeyIndex(Collections.unmodifiableNavigableSet(keySet)),
+                System.nanoTime());
+
+        return newSnapshot(snapshot, ProgressListener.NOOP, tempCache).summarizeSymbols(file);
     }
 
     @Override
@@ -3659,6 +3692,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected abstract IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache);
 
+    protected AnalyzerCache createEmptyCache() {
+        return new AnalyzerCache();
+    }
+
     protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
         return new AnalyzerCache(previous, changedFiles);
     }
@@ -3810,12 +3847,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // files currently on disk that this analyser is interested in
         // (getAllFiles() already applies exclusion pattern filtering)
-        Set<ProjectFile> currentFiles = project.getAllFiles().stream()
-                .filter(pf -> {
-                    var p = pf.absPath().toAbsolutePath().normalize().toString();
-                    return language.getExtensions().stream().anyMatch(p::endsWith);
-                })
-                .collect(Collectors.toSet());
+        // Use isRelevantFile (extension-based) so this matches filterRelevantFiles(update(Set)) and avoids
+        // path-string endsWith(extension) pitfalls (e.g. *.javabackup matching "java", or *.JAVA vs "java").
+        Set<ProjectFile> currentFiles =
+                project.getAllFiles().stream().filter(this::isRelevantFile).collect(Collectors.toSet());
 
         // Snapshot known files (those we've analyzed)
         var current = this.state;
@@ -4181,6 +4216,191 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         return Optional.ofNullable(best);
+    }
+
+    /**
+     * Like {@link #enclosingCodeUnit(ProjectFile, Range)}, but containment starts at
+     * {@link Range#commentStartByte()} instead of {@link Range#startByte()} so leading
+     * comments (e.g. JavaDoc immediately above a declaration) can still resolve to that declaration.
+     */
+    protected Optional<CodeUnit> enclosingCodeUnitByCommentBytes(ProjectFile file, int startByte, int endByte) {
+        if (startByte > endByte) {
+            return Optional.empty();
+        }
+
+        CodeUnit best = null;
+        int bestDepth = -1;
+        for (var top : getTopLevelDeclarations(file)) {
+            var res = findDeepestEnclosingByCommentBytes(top, startByte, endByte, 0);
+            if (res != null && res.depth > bestDepth) {
+                best = res.cu;
+                bestDepth = res.depth;
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    protected record CommentLineBreakdown(int headerLines, int inlineLines) {}
+
+    /**
+     * Collects comment line counts per enclosing declaration, using comment-aware ownership:
+     * ownership is resolved with {@link #enclosingCodeUnitByCommentBytes(ProjectFile, int, int)} and then
+     * classified as header if the comment ends on or before the declaration {@link Range#startByte()}.
+     */
+    protected Map<String, CommentLineBreakdown> collectCommentLineBreakdown(
+            ProjectFile file, Set<String> commentNodeTypes) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Map.of();
+                    }
+                    List<TSNode> comments = new ArrayList<>();
+                    collectNodesByType(root, commentNodeTypes, comments);
+
+                    Map<String, int[]> counts = new HashMap<>();
+                    for (TSNode c : comments) {
+                        int cs = c.getStartByte();
+                        int ce = c.getEndByte();
+                        var cuOpt = enclosingCodeUnitByCommentBytes(file, cs, ce);
+                        if (cuOpt.isEmpty()) {
+                            continue;
+                        }
+                        var cu = cuOpt.get();
+                        var rangeOpt = rangesOf(cu).stream()
+                                .filter(r -> cs >= r.commentStartByte() && ce <= r.endByte())
+                                .min(Comparator.comparingInt(r -> r.endByte() - r.commentStartByte()));
+                        if (rangeOpt.isEmpty()) {
+                            continue;
+                        }
+                        var range = rangeOpt.get();
+                        boolean header = ce <= range.startByte();
+                        int lines = c.getEndPoint().getRow() - c.getStartPoint().getRow() + 1;
+                        int[] entry = counts.computeIfAbsent(cu.fqName(), ignored -> new int[2]);
+                        if (header) {
+                            entry[0] += lines;
+                        } else {
+                            entry[1] += lines;
+                        }
+                    }
+                    return counts.entrySet().stream()
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> new CommentLineBreakdown(e.getValue()[0], e.getValue()[1])));
+                },
+                Map.of());
+    }
+
+    protected static void collectNodesByType(TSNode node, Set<String> nodeTypes, List<TSNode> out) {
+        try (var cursor = new TSTreeCursor(node)) {
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return;
+                }
+                String type = current.getType();
+                if (type != null && nodeTypes.contains(type)) {
+                    out.add(current);
+                }
+                if (!gotoNextDepthFirst(cursor, true)) {
+                    return;
+                }
+            }
+        }
+    }
+
+    protected static @Nullable TSNode firstNonCommentNamedChild(TSNode node, Set<String> commentNodeTypes) {
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (commentNodeTypes.contains(child.getType())) {
+                continue;
+            }
+            return child;
+        }
+        return null;
+    }
+
+    protected static boolean hasDescendantOfType(TSNode root, String targetType) {
+        if (targetType.equals(root.getType())) {
+            return true;
+        }
+        try (var cursor = new TSTreeCursor(root)) {
+            if (!gotoNextDepthFirst(cursor, true)) {
+                return false;
+            }
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return false;
+                }
+                if (current.isNamed() && targetType.equals(current.getType())) {
+                    return true;
+                }
+                if (!gotoNextDepthFirst(cursor, current.isNamed())) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    protected static @Nullable TSNode findFirstNamedDescendant(TSNode root, String targetType) {
+        if (targetType.equals(root.getType())) {
+            return root;
+        }
+        try (var cursor = new TSTreeCursor(root)) {
+            if (!gotoNextDepthFirst(cursor, true)) {
+                return null;
+            }
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return null;
+                }
+                if (current.isNamed() && targetType.equals(current.getType())) {
+                    return current;
+                }
+                if (!gotoNextDepthFirst(cursor, current.isNamed())) {
+                    return null;
+                }
+            }
+        }
+    }
+
+    /**
+     * Advances the cursor depth-first. When {@code descendIntoCurrent} is false, traversal skips the current subtree.
+     */
+    protected static boolean gotoNextDepthFirst(TSTreeCursor cursor, boolean descendIntoCurrent) {
+        if (descendIntoCurrent && cursor.gotoFirstChild()) {
+            return true;
+        }
+        while (!cursor.gotoNextSibling()) {
+            if (!cursor.gotoParent()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private @Nullable CUWithDepth findDeepestEnclosingByCommentBytes(
+            CodeUnit current, int startByte, int endByte, int depth) {
+        boolean containsCurrent =
+                rangesOf(current).stream().anyMatch(r -> startByte >= r.commentStartByte() && endByte <= r.endByte());
+        if (!containsCurrent) {
+            return null;
+        }
+
+        CUWithDepth best = new CUWithDepth(current, depth);
+        for (var child : childrenOf(current)) {
+            var candidate = findDeepestEnclosingByCommentBytes(child, startByte, endByte, depth + 1);
+            if (candidate != null && candidate.depth > best.depth) {
+                best = candidate;
+            }
+        }
+        return best;
     }
 
     private @Nullable CUWithDepth findDeepestEnclosing(CodeUnit current, Range range, int depth) {

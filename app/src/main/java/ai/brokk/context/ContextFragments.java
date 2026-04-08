@@ -1889,6 +1889,7 @@ public class ContextFragments {
     public static class SummaryFragment extends AbstractComputedFragment {
         private final String targetIdentifier;
         private final SummaryType summaryType;
+        private final boolean precomputed;
 
         private static String computeDescription(String targetIdentifier) {
             return "Summary of %s".formatted(targetIdentifier);
@@ -1911,20 +1912,56 @@ public class ContextFragments {
 
         public SummaryFragment(
                 String id, IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
-            super(
+            this(
                     id,
                     contextManager,
-                    ComputedValue.completed("desc-" + id, computeDescription(targetIdentifier)),
+                    targetIdentifier,
+                    summaryType,
                     new ComputedValue<>(
                             "short-" + id,
                             getFragmentExecutor()
                                     .submit(() ->
                                             computeShortDescription(targetIdentifier, summaryType, contextManager))),
-                    ComputedValue.completed("syntax-" + id, SyntaxConstants.SYNTAX_STYLE_JAVA),
                     null,
-                    () -> computeSnapshotFor(targetIdentifier, summaryType, contextManager));
+                    () -> computeSnapshotFor(targetIdentifier, summaryType, contextManager),
+                    false);
+        }
+
+        public static SummaryFragment precomputedFileSummary(
+                IContextManager contextManager, ProjectFile file, String summaryText) {
+            var text = summaryText.isBlank() ? "No summary found for: " + file : summaryText;
+            var snapshot = new ContentSnapshot(text, Set.of(), Set.of(file), (List<Byte>) null, true);
+            return new SummaryFragment(
+                    UUID.randomUUID().toString(),
+                    contextManager,
+                    file.toString(),
+                    SummaryType.FILE_SKELETONS,
+                    ComputedValue.completed("short-" + file, "Summary of " + file.getFileName()),
+                    snapshot,
+                    null,
+                    true);
+        }
+
+        private SummaryFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                SummaryType summaryType,
+                ComputedValue<String> shortDescriptionCv,
+                @Nullable ContentSnapshot initialSnapshot,
+                @Nullable Callable<ContentSnapshot> computeTask,
+                boolean precomputed) {
+            super(
+                    id,
+                    contextManager,
+                    ComputedValue.completed("desc-" + id, computeDescription(targetIdentifier)),
+                    shortDescriptionCv,
+                    ComputedValue.completed("syntax-" + id, SyntaxConstants.SYNTAX_STYLE_JAVA),
+                    initialSnapshot,
+                    computeTask);
             this.targetIdentifier = targetIdentifier;
             this.summaryType = summaryType;
+            this.precomputed = precomputed;
         }
 
         @Override
@@ -1949,6 +1986,9 @@ public class ContextFragments {
         @Override
         @Blocking
         public Set<ContextFragment> supportingFragments() {
+            if (precomputed) {
+                return Set.of();
+            }
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
             var codeUnits =
                     switch (summaryType) {
@@ -2035,22 +2075,40 @@ public class ContextFragments {
                 logger.error("combinedText is a blocking function and should not be called on the EDT!");
             }
 
-            Map<CodeUnitKey, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
+            var precomputedByTarget = new LinkedHashMap<String, String>();
+            var liveFragments = new ArrayList<SummaryFragment>();
             for (SummaryFragment fragment : fragments) {
+                if (fragment.precomputed) {
+                    precomputedByTarget.putIfAbsent(
+                            fragment.targetIdentifier, fragment.text().join());
+                } else if (!precomputedByTarget.containsKey(fragment.targetIdentifier)) {
+                    liveFragments.add(fragment);
+                }
+            }
+
+            var rendered = precomputedByTarget.values().stream()
+                    .filter(text -> !text.isBlank())
+                    .collect(Collectors.toCollection(ArrayList::new));
+
+            Map<CodeUnitKey, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
+            for (SummaryFragment fragment : liveFragments) {
                 fragment.skeletonsByCodeUnit()
                         .forEach((cu, skeleton) -> deduped.putIfAbsent(CodeUnitKey.of(cu), skeleton));
             }
 
-            if (deduped.isEmpty()) {
-                return "";
+            if (!deduped.isEmpty()) {
+                Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
+                deduped.values().forEach(cus -> skeletonsMap.put(cus.codeUnit(), cus.skeleton()));
+
+                var liveSummary = new SkeletonFragmentFormatter()
+                        .format(new SkeletonFragmentFormatter.Request(
+                                null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
+                if (!liveSummary.isBlank()) {
+                    rendered.add(liveSummary);
+                }
             }
 
-            Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
-            deduped.values().forEach(cus -> skeletonsMap.put(cus.codeUnit(), cus.skeleton()));
-
-            return new SkeletonFragmentFormatter()
-                    .format(new SkeletonFragmentFormatter.Request(
-                            null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
+            return String.join("\n\n", rendered);
         }
 
         private static Set<CodeUnit> resolvePrimaryTargets(
@@ -2094,6 +2152,10 @@ public class ContextFragments {
 
         @Override
         public ContextFragment refreshCopy() {
+            if (precomputed) {
+                return SummaryFragment.precomputedFileSummary(
+                        contextManager, contextManager.toFile(targetIdentifier), text().join());
+            }
             return new SummaryFragment(id, contextManager, targetIdentifier, summaryType);
         }
     }

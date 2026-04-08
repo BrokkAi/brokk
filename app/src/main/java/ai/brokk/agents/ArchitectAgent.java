@@ -18,12 +18,14 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.exception.GlobalExceptionHandler;
-import ai.brokk.executor.agents.CustomAgentTools;
+import ai.brokk.executor.agents.ParallelCustomAgent;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.DependencyTools;
+import ai.brokk.tools.Destructive;
 import ai.brokk.tools.ParallelSearch;
+import ai.brokk.tools.ToolExecutionHelper;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -83,6 +85,7 @@ public class ArchitectAgent {
             ToolRegistry toolRegistry,
             WorkspaceTools workspaceTools,
             ParallelSearch parallelSearch,
+            ParallelCustomAgent parallelCustomAgent,
             List<ChatMessage> messages,
             Llm.StreamingResult result) {}
 
@@ -281,6 +284,7 @@ public class ArchitectAgent {
      * A tool that invokes the CodeAgent to solve the current top task using the given instructions. The instructions
      * can incorporate the stack's current top task or anything else.
      */
+    @Destructive
     @Tool(
             "Invoke the Code Agent to solve or implement the current task. Provide complete instructions. Only the Workspace and your instructions are visible to the Code Agent, NOT the entire chat history; you must therefore provide appropriate context for your instructions. If you expect your changes to temporarily break the build and plan to fix them in later steps, set 'deferBuild' to true to defer build/verification.")
     public String callCodeAgent(
@@ -622,12 +626,17 @@ public class ArchitectAgent {
                         .arguments("{\"instructions\": \"%s\", \"deferBuild\": false}".formatted(goal))
                         .build();
 
-                io.beforeToolCall(req);
-                var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
-                io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
-                architectMessages.add(new UserMessage(
-                        "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
-                                + initialSummary));
+                var approval = io.beforeToolCall(req, true);
+                if (!approval.isApproved()) {
+                    io.afterToolOutput(
+                            ToolExecutionResult.requestError(req, "Tool call 'callCodeAgent' was denied by user."));
+                } else {
+                    var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
+                    io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
+                    architectMessages.add(new UserMessage(
+                            "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
+                                    + initialSummary));
+                }
             } catch (ToolRegistry.FatalLlmException e) {
                 var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
                 this.lastFatalReason = null;
@@ -678,6 +687,7 @@ public class ArchitectAgent {
 
             var tr = turn.toolRegistry();
             var parallelSearch = turn.parallelSearch();
+            var parallelCustomAgent = turn.parallelCustomAgent();
             var result = turn.result();
 
             totalUsage = TokenUsage.sum(
@@ -717,9 +727,27 @@ public class ArchitectAgent {
             var searchPartition =
                     ToolRegistry.partitionByNames(terminalPartition.otherRequests(), Set.of("callSearchAgent"));
             var codePartition = ToolRegistry.partitionByNames(searchPartition.otherRequests(), Set.of("callCodeAgent"));
+            var customAgentPartition =
+                    ToolRegistry.partitionByNames(codePartition.otherRequests(), Set.of("callCustomAgent"));
             var searchAgentReqs = new ArrayList<>(searchPartition.matchingRequests());
             var codeAgentReqs = new ArrayList<>(codePartition.matchingRequests());
-            var otherReqs = new ArrayList<>(codePartition.otherRequests());
+
+            // Split custom agent requests into read-only (parallel-eligible) and mutating (sequential)
+            var readOnlyCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
+            var mutatingCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
+            for (var req : customAgentPartition.matchingRequests()) {
+                var agentName = ParallelCustomAgent.extractAgentName(req, tr);
+                var agentDef =
+                        agentName != null ? cm.getAgentStore().get(agentName).orElse(null) : null;
+                if (agentDef != null && agentDef.isReadOnly(cm.getProject())) {
+                    readOnlyCustomAgentReqs.add(req);
+                } else {
+                    mutatingCustomAgentReqs.add(req);
+                }
+            }
+
+            var otherReqs = new ArrayList<>(customAgentPartition.otherRequests());
+            otherReqs.addAll(mutatingCustomAgentReqs);
 
             // If we see "projectFinished" or "abortProject", handle it and then exit.
             // If these final/abort calls are present together with other tool calls in the same LLM response,
@@ -738,12 +766,10 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
 
-                    io.beforeToolCall(answerReq);
                     var executionRegistry = ToolRegistry.fromBase(tr)
                             .register(new WorkspaceTools(context))
                             .build();
-                    var toolResult = executionRegistry.executeTool(answerReq);
-                    io.afterToolOutput(toolResult);
+                    var toolResult = ToolExecutionHelper.executeWithApproval(io, executionRegistry, answerReq);
                     llm.recordToolExecution(toolResult);
 
                     io.llmOutput(
@@ -763,12 +789,10 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
 
-                    io.beforeToolCall(abortReq);
                     var executionRegistry = ToolRegistry.fromBase(tr)
                             .register(new WorkspaceTools(context))
                             .build();
-                    var toolResult = executionRegistry.executeTool(abortReq);
-                    io.afterToolOutput(toolResult);
+                    var toolResult = ToolExecutionHelper.executeWithApproval(io, executionRegistry, abortReq);
                     llm.recordToolExecution(toolResult);
 
                     io.llmOutput(
@@ -780,12 +804,10 @@ public class ArchitectAgent {
             // Execute remaining tool calls in the desired order (all use the local registry)
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
-                io.beforeToolCall(req);
                 var executionRegistry = ToolRegistry.fromBase(tr)
                         .register(new WorkspaceTools(context))
                         .build();
-                ToolExecutionResult toolResult = executionRegistry.executeTool(req);
-                io.afterToolOutput(toolResult);
+                ToolExecutionResult toolResult = ToolExecutionHelper.executeWithApproval(io, executionRegistry, req);
                 llm.recordToolExecution(toolResult);
 
                 if (isWorkspaceTool(req, executionRegistry)
@@ -821,15 +843,23 @@ public class ArchitectAgent {
                 scope.append(context);
             }
 
+            // Handle read-only custom agent requests in parallel
+            if (!readOnlyCustomAgentReqs.isEmpty()) {
+                var customResult = parallelCustomAgent.execute(readOnlyCustomAgentReqs, tr);
+                if (customResult.stopDetails().reason() == StopReason.LLM_ERROR) {
+                    return resultWithMessages(
+                            StopReason.LLM_ERROR, customResult.stopDetails().explanation());
+                }
+                architectMessages.addAll(customResult.toolExecutionMessages());
+            }
+
             // code agent calls are done serially
             var initialContext = context;
             for (var req : codeAgentReqs) {
-                io.beforeToolCall(req);
                 var executionRegistry = ToolRegistry.fromBase(tr)
                         .register(new WorkspaceTools(context))
                         .build();
-                ToolExecutionResult toolResult = executionRegistry.executeTool(req);
-                io.afterToolOutput(toolResult);
+                ToolExecutionResult toolResult = ToolExecutionHelper.executeWithApproval(io, executionRegistry, req);
                 llm.recordToolExecution(toolResult);
 
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
@@ -898,6 +928,7 @@ public class ArchitectAgent {
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
             ParallelSearch parallelSearch = new ParallelSearch(context.forSearchAgent(), goal, delegatedSearchModel());
+            ParallelCustomAgent parallelCustomAgent = new ParallelCustomAgent(cm, planningModel);
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))
@@ -908,7 +939,7 @@ public class ArchitectAgent {
                     .register(this)
                     .register(wst)
                     .register(parallelSearch)
-                    .register(new CustomAgentTools(cm, planningModel));
+                    .register(parallelCustomAgent);
             depTools.ifPresent(builder::register);
             ToolRegistry tr = builder.build();
 
@@ -975,7 +1006,8 @@ public class ArchitectAgent {
 
             // happy path
             if (result.error() == null) {
-                return new PlanningTurnOutcome.Success(new PlanningTurn(tr, wst, parallelSearch, messages, result));
+                return new PlanningTurnOutcome.Success(
+                        new PlanningTurn(tr, wst, parallelSearch, parallelCustomAgent, messages, result));
             }
 
             // llm error

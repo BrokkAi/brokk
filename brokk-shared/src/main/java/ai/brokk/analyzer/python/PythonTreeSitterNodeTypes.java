@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.python;
 
 import ai.brokk.analyzer.CommonTreeSitterNodeTypes;
+import java.util.Set;
 
 /** Constants for Python TreeSitter node type names. */
 public final class PythonTreeSitterNodeTypes {
@@ -29,6 +30,20 @@ public final class PythonTreeSitterNodeTypes {
     // Statements
     public static final String PASS_STATEMENT = "pass_statement";
     public static final String EXPRESSION_STATEMENT = "expression_statement";
+    public static final String IF_STATEMENT = "if_statement";
+    public static final String ELIF_CLAUSE = "elif_clause";
+    public static final String FOR_STATEMENT = "for_statement";
+    public static final String WHILE_STATEMENT = "while_statement";
+    public static final String EXCEPT_CLAUSE = "except_clause";
+    public static final String TRY_STATEMENT = "try_statement";
+    public static final String RAISE_STATEMENT = "raise_statement";
+    public static final String RETURN_STATEMENT = "return_statement";
+    public static final String BREAK_STATEMENT = "break_statement";
+    public static final String CONTINUE_STATEMENT = "continue_statement";
+    public static final String MATCH_STATEMENT = "match_statement";
+    public static final String CASE_CLAUSE = "case_clause";
+    public static final String CONDITIONAL_EXPRESSION = "conditional_expression";
+    public static final String BOOLEAN_OPERATOR = "boolean_operator";
     public static final String BLOCK = "block";
     public static final String MODULE = "module";
 
@@ -46,6 +61,9 @@ public final class PythonTreeSitterNodeTypes {
     public static final String ATTRIBUTE = "attribute";
     public static final String IDENTIFIER = "identifier";
     public static final String CALL = "call";
+    public static final String COMMENT = CommonTreeSitterNodeTypes.COMMENT;
+    public static final String LINE_COMMENT = CommonTreeSitterNodeTypes.LINE_COMMENT;
+    public static final String BLOCK_COMMENT = CommonTreeSitterNodeTypes.BLOCK_COMMENT;
 
     // Common field names used by Tree-sitter Python grammar
     public static final String FIELD_NAME = "name";
@@ -72,6 +90,20 @@ public final class PythonTreeSitterNodeTypes {
 
     // Test markers
     public static final String TEST_MARKER = "test_marker";
+
+    public static final Set<String> COMMENT_NODE_TYPES = Set.of(COMMENT, LINE_COMMENT, BLOCK_COMMENT);
+
+    public static final Set<String> CATCH_BODY_MEANINGFUL_STATEMENT_TYPES = Set.of(
+            EXPRESSION_STATEMENT,
+            RAISE_STATEMENT,
+            RETURN_STATEMENT,
+            BREAK_STATEMENT,
+            CONTINUE_STATEMENT,
+            IF_STATEMENT,
+            FOR_STATEMENT,
+            WHILE_STATEMENT,
+            TRY_STATEMENT,
+            MATCH_STATEMENT);
 
     private PythonTreeSitterNodeTypes() {}
 }

@@ -40,9 +40,12 @@ import ai.brokk.init.onboarding.OnboardingStep;
 import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.tools.ApprovalResult;
 import ai.brokk.util.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -121,6 +124,7 @@ public class Chrome
 
     private final RightPanel rightPanel;
     private final ToolsPane toolsPane;
+    private final Set<String> sessionApprovedTools = ConcurrentHashMap.newKeySet();
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
     private final JTabbedPane fileHistoryPane; // Bottom area for file history
     private int originalLeftVerticalDividerSize;
@@ -2239,6 +2243,102 @@ public class Chrome
             @Nullable Component parent, String message, String title, int optionType, int messageType) {
         //noinspection MagicConstant
         return MaterialOptionPane.showConfirmDialog(parent, message, title, optionType, messageType);
+    }
+
+    @Override
+    public ApprovalResult beforeToolCall(ToolExecutionRequest request, boolean destructive) {
+        if (!destructive) {
+            return ApprovalResult.APPROVED;
+        }
+        var approval = computeApprovalContext(request);
+        if (sessionApprovedTools.contains(approval.sessionKey())) {
+            return ApprovalResult.APPROVED;
+        }
+        var hop = rightPanel.getHistoryOutputPanel();
+        CompletableFuture<HistoryOutputPanel.ApprovalChoice> future;
+        if (SwingUtilities.isEventDispatchThread()) {
+            future = hop.showApprovalBanner(
+                    approval.title(), approval.description(), approval.sessionButtonLabel(), approval.showNoSandbox());
+        } else {
+            var futureHolder = new CompletableFuture[] {null};
+            try {
+                SwingUtilities.invokeAndWait(() -> futureHolder[0] = hop.showApprovalBanner(
+                        approval.title(),
+                        approval.description(),
+                        approval.sessionButtonLabel(),
+                        approval.showNoSandbox()));
+            } catch (InvocationTargetException e) {
+                logger.error("Error showing approval banner", e);
+                return ApprovalResult.DENIED;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return ApprovalResult.DENIED;
+            }
+            @SuppressWarnings("unchecked")
+            var f = (CompletableFuture<HistoryOutputPanel.ApprovalChoice>) futureHolder[0];
+            future = f;
+        }
+        try {
+            var choice = future.get();
+            if (choice == HistoryOutputPanel.ApprovalChoice.ALLOW_SESSION) {
+                sessionApprovedTools.add(approval.sessionKey());
+            }
+            return switch (choice) {
+                case DENY -> ApprovalResult.DENIED;
+                case ALLOW_NO_SANDBOX -> ApprovalResult.APPROVED_NO_SANDBOX;
+                default -> ApprovalResult.APPROVED;
+            };
+        } catch (ExecutionException e) {
+            logger.error("Error waiting for approval", e);
+            return ApprovalResult.DENIED;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ApprovalResult.DENIED;
+        }
+    }
+
+    private record ApprovalContext(
+            String title, String description, String sessionButtonLabel, String sessionKey, boolean showNoSandbox) {}
+
+    private ApprovalContext computeApprovalContext(ToolExecutionRequest request) {
+        return switch (request.name()) {
+            case "callCodeAgent" -> {
+                var instructions = extractJsonField(request.arguments(), "instructions");
+                yield new ApprovalContext(
+                        "Agent wants to edit code",
+                        instructions != null ? instructions : "",
+                        "Allow Edits for Session",
+                        "callCodeAgent",
+                        false);
+            }
+            case "runShellCommand" -> {
+                var command = extractJsonField(request.arguments(), "command");
+                yield new ApprovalContext(
+                        "Agent wants to run a shell command",
+                        command != null ? command : request.arguments(),
+                        "Allow Command for Session",
+                        "runShellCommand:" + (command != null ? command : ""),
+                        true);
+            }
+            default ->
+                new ApprovalContext(
+                        "Agent wants to run: " + request.name(),
+                        request.arguments(),
+                        "Allow for Session",
+                        request.name(),
+                        false);
+        };
+    }
+
+    @Nullable
+    private static String extractJsonField(String json, String field) {
+        try {
+            var node = new ObjectMapper().readTree(json);
+            var value = node.get(field);
+            return value != null && value.isTextual() ? value.asText() : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override

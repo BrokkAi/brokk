@@ -26,6 +26,59 @@ public record AgentDefinition(
     private static final Pattern NAME_PATTERN = Pattern.compile("[a-z][a-z0-9-]*");
 
     /**
+     * Search tools that are safe to execute in parallel (read-only, no side effects).
+     */
+    public static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES = Set.of(
+            "searchSymbols",
+            "scanUsages",
+            "getSymbolLocations",
+            "skimFiles",
+            "findFilesContaining",
+            "findFilenames",
+            "searchFileContents",
+            "searchGitCommitMessages",
+            "getGitLog",
+            "explainCommit",
+            "xmlSkim",
+            "xmlSelect",
+            "jq",
+            "computeCyclomaticComplexity",
+            "reportCommentDensityForCodeUnit",
+            "reportCommentDensityForFiles",
+            "reportExceptionHandlingSmells",
+            "analyzeGitHotspots");
+
+    /**
+     * Tool names that a read-only agent may use.
+     * An agent whose {@link #effectiveTools} is a subset of this set is considered read-only
+     * and eligible for parallel execution.
+     */
+    public static final Set<String> READ_ONLY_TOOL_NAMES = Set.of(
+            // parallel-safe search tools
+            "searchSymbols",
+            "scanUsages",
+            "getSymbolLocations",
+            "skimFiles",
+            "findFilesContaining",
+            "findFilenames",
+            "searchFileContents",
+            "searchGitCommitMessages",
+            "getGitLog",
+            "explainCommit",
+            "xmlSkim",
+            "xmlSelect",
+            "jq",
+            "computeCyclomaticComplexity",
+            "reportCommentDensityForCodeUnit",
+            "reportCommentDensityForFiles",
+            "reportExceptionHandlingSmells",
+            "analyzeGitHotspots",
+            // terminal / built-in
+            "answer",
+            "abortSearch",
+            "think");
+
+    /**
      * All tool method names that custom agents may reference.
      */
     public static final Set<String> KNOWN_TOOL_NAMES = Set.of(
@@ -63,6 +116,12 @@ public record AgentDefinition(
             "runShellCommand",
             // DependencyTools
             "importDependency",
+            // CodeQualityTools
+            "computeCyclomaticComplexity",
+            "reportCommentDensityForCodeUnit",
+            "reportCommentDensityForFiles",
+            "reportExceptionHandlingSmells",
+            "analyzeGitHotspots",
             // Terminal
             "answer",
             "abortSearch",
@@ -71,6 +130,14 @@ public record AgentDefinition(
 
     public int effectiveMaxTurns() {
         return maxTurns != null ? maxTurns : DEFAULT_MAX_TURNS;
+    }
+
+    /**
+     * Returns true if this agent uses only read-only tools (search + terminal),
+     * making it safe for parallel execution alongside other read-only agents.
+     */
+    public boolean isReadOnly(IProject project) {
+        return READ_ONLY_TOOL_NAMES.containsAll(effectiveTools(project));
     }
 
     /**

@@ -5,8 +5,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Path;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Comprehensive tests for extractCallReceiver method across all analyzer implementations. Tests language-specific method
@@ -15,8 +17,15 @@ import org.junit.jupiter.api.Test;
  */
 public class ExtractCallReceiverTest {
 
-    private final TestProject mockProject =
-            new TestProject(Path.of(System.getProperty("java.io.tmpdir")), Languages.NONE);
+    @TempDir
+    private Path tempDir;
+
+    private TestProject mockProject;
+
+    @BeforeEach
+    void setUp() {
+        mockProject = new TestProject(tempDir, Languages.NONE);
+    }
 
     @Test
     @DisplayName("Java analyzer - extractCallReceiver with various method references")

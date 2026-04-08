@@ -217,13 +217,15 @@ public class ProjectBuildRunner {
             Environment.instance.runShellCommand(
                     verificationCommand,
                     project.getRoot(),
+                    SandboxPolicy.WORKSPACE_WRITE,
                     line -> {
                         if (output != null) output.append(line).append("\n");
                         io.commandOutput(line);
                     },
                     resolveTimeout(project.getRunCommandTimeoutSeconds()),
                     project.getShellConfig(),
-                    details.environmentVariables());
+                    details.environmentVariables(),
+                    null);
             if (output != null) {
                 io.commandResult("Verification", verificationCommand, true, output.toString(), null);
             }
@@ -273,13 +275,15 @@ public class ProjectBuildRunner {
             Environment.instance.runShellCommand(
                     command,
                     project.getRoot(),
+                    SandboxPolicy.WORKSPACE_WRITE,
                     line -> {
                         if (output != null) output.append(line).append("\n");
                         io.commandOutput(line);
                     },
                     resolveTimeout(project.getTestCommandTimeoutSeconds()),
                     project.getShellConfig(),
-                    details.environmentVariables());
+                    details.environmentVariables(),
+                    null);
             if (output != null) {
                 io.commandResult("Post-Task", command, true, output.toString(), null);
             }

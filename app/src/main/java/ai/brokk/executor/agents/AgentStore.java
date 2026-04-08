@@ -6,6 +6,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,6 +35,8 @@ public class AgentStore {
     private final Path projectDir;
     private final Path userDir;
 
+    public record LoadSnapshot(List<AgentDefinition> agents, List<Path> skippedInvalidFiles) {}
+
     public AgentStore(Path projectDir, Path userDir) {
         this.projectDir = projectDir;
         this.userDir = userDir;
@@ -43,11 +46,20 @@ public class AgentStore {
      * Lists all agents, merged from both levels. Project agents override user agents with the same name.
      */
     public List<AgentDefinition> list() {
+        return loadSnapshot().agents();
+    }
+
+    /**
+     * Loads all agents with diagnostics about invalid/skipped files.
+     * Project-level agents override user-level agents with the same name.
+     */
+    public LoadSnapshot loadSnapshot() {
         var byName = new LinkedHashMap<String, AgentDefinition>();
+        var skippedInvalidFiles = new ArrayList<Path>();
         // Load user-level first so project-level can override
-        loadFromDirectory(userDir, "user").forEach(def -> byName.put(def.name(), def));
-        loadFromDirectory(projectDir, "project").forEach(def -> byName.put(def.name(), def));
-        return List.copyOf(byName.values());
+        loadFromDirectory(userDir, "user", skippedInvalidFiles).forEach(def -> byName.put(def.name(), def));
+        loadFromDirectory(projectDir, "project", skippedInvalidFiles).forEach(def -> byName.put(def.name(), def));
+        return new LoadSnapshot(List.copyOf(byName.values()), List.copyOf(skippedInvalidFiles));
     }
 
     /**
@@ -161,14 +173,20 @@ public class AgentStore {
         return value;
     }
 
-    private List<AgentDefinition> loadFromDirectory(Path dir, String scope) {
+    private List<AgentDefinition> loadFromDirectory(Path dir, String scope, List<Path> skippedInvalidFiles) {
         if (!Files.isDirectory(dir)) {
             return List.of();
         }
         try (Stream<Path> files = Files.list(dir)) {
             return files.filter(p -> p.toString().endsWith(".md"))
                     .sorted()
-                    .map(p -> loadFromFile(p, scope))
+                    .map(p -> {
+                        var loaded = loadFromFile(p, scope);
+                        if (loaded.isEmpty()) {
+                            skippedInvalidFiles.add(p);
+                        }
+                        return loaded;
+                    })
                     .flatMap(Optional::stream)
                     .toList();
         } catch (IOException e) {

@@ -4,6 +4,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -11,10 +12,12 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SequencedSet;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
@@ -296,6 +299,43 @@ public interface IAnalyzer {
 
     record DeclarationInfo(DeclarationKind kind, String name, @Nullable CodeUnit enclosingUnit) {}
 
+    record ExceptionSmellWeights(
+            int genericThrowableWeight,
+            int genericExceptionWeight,
+            int genericRuntimeExceptionWeight,
+            int emptyBodyWeight,
+            int commentOnlyBodyWeight,
+            int smallBodyWeight,
+            int logOnlyWeight,
+            int meaningfulBodyCreditPerStatement,
+            int meaningfulBodyStatementThreshold,
+            int smallBodyMaxStatements) {
+
+        public static ExceptionSmellWeights defaults() {
+            return new ExceptionSmellWeights(
+                    5, // Throwable is usually over-broad
+                    3, // Exception is broad and often swallows domain signals
+                    2, // RuntimeException is still broad, but less severe than Exception
+                    5, // Empty handler is the strongest smell
+                    4, // Comment-only body still swallows
+                    2, // Tiny bodies merit review
+                    2, // Log-only can still be swallow-y
+                    1, // Richer body reduces suspicion
+                    6, // Credit plateaus after a moderate amount of handling
+                    2 // 0-2 statements is considered a small body
+                    );
+        }
+    }
+
+    record ExceptionHandlingSmell(
+            ProjectFile file,
+            String enclosingFqName,
+            String catchType,
+            int score,
+            int bodyStatementCount,
+            List<String> reasons,
+            String excerpt) {}
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
@@ -517,7 +557,23 @@ public interface IAnalyzer {
         return summarizeSymbols(getTopLevelDeclarations(file), types, 0);
     }
 
+    /**
+     * Summarizes the given source text as though it were the contents of {@code file}, without requiring the analyzer
+     * to update its project-wide snapshot.
+     *
+     * <p>The default implementation returns an empty string. Analyzers that can parse ad-hoc source text in isolation
+     * should override this.
+     */
+    default String summarizeSymbols(ProjectFile file, String sourceText) {
+        return "";
+    }
+
     default String summarizeSymbols(Collection<CodeUnit> units, Set<CodeUnitType> types, int indent) {
+        return summarizeSymbols(units, types, indent, Set.of());
+    }
+
+    private String summarizeSymbols(
+            Collection<CodeUnit> units, Set<CodeUnitType> types, int indent, Set<CodeUnit> ancestorPath) {
         var indentStr = "  ".repeat(Math.max(0, indent));
         var sb = new StringBuilder();
 
@@ -543,19 +599,30 @@ public interface IAnalyzer {
                 }
 
                 for (var cu : groupUnits) {
-                    renderSymbol(sb, cu, types, indent, indentStr);
+                    renderSymbol(sb, cu, types, indent, indentStr, ancestorPath);
                 }
             }
         } else {
             for (var cu : units) {
                 if (cu.isAnonymous()) continue;
-                renderSymbol(sb, cu, types, indent, indentStr);
+                renderSymbol(sb, cu, types, indent, indentStr, ancestorPath);
             }
         }
         return sb.toString().stripTrailing();
     }
 
-    private void renderSymbol(StringBuilder sb, CodeUnit cu, Set<CodeUnitType> types, int indent, String indentStr) {
+    private void renderSymbol(
+            StringBuilder sb,
+            CodeUnit cu,
+            Set<CodeUnitType> types,
+            int indent,
+            String indentStr,
+            Set<CodeUnit> ancestorPath) {
+        if (ancestorPath.contains(cu)) {
+            return;
+        }
+        var pathForChildren = new HashSet<>(ancestorPath);
+        pathForChildren.add(cu);
         // Use identifier for entries since the group header (if any) or nesting provides context
         sb.append(indentStr).append("- ").append(cu.identifier());
 
@@ -564,7 +631,7 @@ public interface IAnalyzer {
                 .toList();
         if (!children.isEmpty()) {
             sb.append("\n");
-            sb.append(this.summarizeSymbols(children, types, indent + 1));
+            sb.append(this.summarizeSymbols(children, types, indent + 1, pathForChildren));
         }
         sb.append("\n");
     }
@@ -667,5 +734,70 @@ public interface IAnalyzer {
                 .collect(Collectors.toSet());
 
         return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
+    }
+
+    // Heuristic for cyclomatic complexity: count keyword and symbolic decision points.
+    Pattern COMPLEXITY_KEYWORDS = Pattern.compile("\\b(if|while|for|switch|case|catch)\\b");
+    Pattern COMPLEXITY_OPERATORS = Pattern.compile("&&|\\|\\||\\?");
+
+    /**
+     * Computes the heuristic cyclomatic complexity for the given code unit.
+     */
+    default int computeCyclomaticComplexity(CodeUnit cu) {
+        if (!cu.isFunction()) return 0;
+        String source = getSource(cu, false).orElse("");
+        int complexity = 1; // Base complexity
+        Matcher keywordMatcher = COMPLEXITY_KEYWORDS.matcher(source);
+        while (keywordMatcher.find()) {
+            complexity++;
+        }
+        Matcher operatorMatcher = COMPLEXITY_OPERATORS.matcher(source);
+        while (operatorMatcher.find()) {
+            complexity++;
+        }
+        return complexity;
+    }
+
+    /**
+     * Comment density for a single declaration. Language-specific analyzers may override; default is unsupported.
+     */
+    default Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        return Optional.empty();
+    }
+
+    /**
+     * Per-top-level declaration comment density for a file. Default is an empty list.
+     */
+    default List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        return List.of();
+    }
+
+    /**
+     * Returns suspicious exception handling sites for quality triage. The default implementation is unsupported.
+     */
+    default List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        return List.of();
+    }
+
+    /**
+     * Analyzes comments in the specified content to distinguish between 'How' (redundant) vs 'Why' (semantic) comments.
+     */
+    default List<String> findPotentialHowComments(String content) {
+        List<String> findings = new ArrayList<>();
+        // Match single line comments
+        Pattern commentPattern = Pattern.compile("//\\s*(.*)");
+        Matcher matcher = commentPattern.matcher(content);
+
+        while (matcher.find()) {
+            String commentText = matcher.group(1).toLowerCase(Locale.ROOT);
+            // Heuristic: comments describing increment, assignment, or simple returns
+            if (commentText.contains("increment")
+                    || commentText.contains("set ")
+                    || commentText.contains("assign")
+                    || commentText.contains("return ")) {
+                findings.add(matcher.group(0));
+            }
+        }
+        return findings;
     }
 }

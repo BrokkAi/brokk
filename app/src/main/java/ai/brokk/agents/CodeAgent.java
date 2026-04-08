@@ -23,10 +23,10 @@ import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
+import ai.brokk.tools.SearchReplaceBlockFormatter;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.difflib.DiffUtils;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.AiMessage;
@@ -41,7 +41,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -53,7 +52,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.SequencedSet;
 import java.util.Set;
-import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
@@ -1849,180 +1847,8 @@ public class CodeAgent {
          */
         @VisibleForTesting
         SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
-            var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
-            var originals = originalFileContents();
-
-            // Sort for determinism
-            var sorted = originals.keySet().stream()
-                    .sorted(Comparator.comparing(ProjectFile::toString))
-                    .toList();
-
-            for (var file : sorted) {
-                String original = originals.getOrDefault(file, "");
-                String revised = file.read().orElse("");
-                if (Objects.equals(original, revised)) {
-                    continue; // No effective change
-                }
-
-                // New file created this turn
-                if (original.isBlank()) {
-                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "BRK_ENTIRE_FILE", revised));
-                    continue;
-                }
-
-                var originalLines = Arrays.asList(original.split("\n", -1));
-                var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
-
-                try {
-                    var patch = DiffUtils.diff(originalLines, revisedLines);
-
-                    // 1) Build minimal windows per delta in original line space
-                    record Window(int start, int end) {
-                        Window expandLeft() {
-                            return new Window(Math.max(0, start - 1), end);
-                        }
-
-                        Window expandRight(int max) {
-                            return new Window(start, Math.min(max, end + 1));
-                        }
-                    }
-                    var windows = new ArrayList<Window>();
-                    for (var delta : patch.getDeltas()) {
-                        var src = delta.getSource();
-                        int sPos = src.getPosition();
-                        int sSize = src.size();
-
-                        int wStart, wEnd;
-                        if (sSize > 0) {
-                            wStart = sPos;
-                            wEnd = sPos + sSize - 1;
-                        } else {
-                            // Pure insertion: anchor on previous line when possible, else next
-                            wStart = (sPos == 0) ? 0 : sPos - 1;
-                            wEnd = wStart;
-                        }
-                        if (!originalLines.isEmpty()) {
-                            wStart = Math.max(0, Math.min(wStart, originalLines.size() - 1));
-                            wEnd = Math.max(0, Math.min(wEnd, originalLines.size() - 1));
-                        }
-                        windows.add(new Window(wStart, wEnd));
-                    }
-
-                    // 2) Expand each window until its before-text is unique in the original
-                    int lastIdx = Math.max(0, originalLines.size() - 1);
-                    windows = windows.stream()
-                            .map(w -> {
-                                Window cur = w;
-                                String before = joinLines(originalLines, cur.start, cur.end);
-                                while (!before.isEmpty()
-                                        && countOccurrences(original, before) > 1
-                                        && (cur.start > 0 || cur.end < lastIdx)) {
-                                    if (cur.start > 0) cur = cur.expandLeft();
-                                    if (cur.end < lastIdx) cur = cur.expandRight(lastIdx);
-                                    before = joinLines(originalLines, cur.start, cur.end);
-                                }
-                                return cur;
-                            })
-                            .collect(Collectors.toCollection(ArrayList::new));
-
-                    // 3) Merge overlapping/adjacent windows after expansion
-                    windows.sort(Comparator.comparingInt(w -> w.start));
-                    var merged = new ArrayList<Window>();
-                    for (var w : windows) {
-                        if (merged.isEmpty()) {
-                            merged.add(w);
-                        } else {
-                            var last = merged.getLast();
-                            if (w.start <= last.end + 1) { // overlap or adjacent
-                                merged.set(merged.size() - 1, new Window(last.start, Math.max(last.end, w.end)));
-                            } else {
-                                merged.add(w);
-                            }
-                        }
-                    }
-
-                    // Precompute net line deltas for mapping original -> revised
-                    record DeltaShape(int pos, int size, int net) {}
-                    var shapes = patch.getDeltas().stream()
-                            .map(d -> new DeltaShape(
-                                    d.getSource().getPosition(),
-                                    d.getSource().size(),
-                                    d.getTarget().size() - d.getSource().size()))
-                            .sorted(Comparator.comparingInt(DeltaShape::pos))
-                            .toList();
-
-                    for (var w : merged) {
-                        // Map original start to revised start
-                        int netBeforeStart = shapes.stream()
-                                .filter(s -> s.pos + s.size <= w.start) // ends before start
-                                .mapToInt(s -> s.net)
-                                .sum();
-                        int revisedStart = w.start + netBeforeStart;
-
-                        int windowLen = w.end - w.start + 1;
-                        // Net deltas that intersect the window
-                        int netInWindow = 0;
-                        for (var d : patch.getDeltas()) {
-                            int p = d.getSource().getPosition();
-                            int sz = d.getSource().size();
-                            int net = d.getTarget().size() - sz;
-                            boolean overlaps;
-                            if (sz > 0) {
-                                overlaps = p < (w.end + 1) && (p + sz) > w.start;
-                            } else {
-                                overlaps = p >= w.start && p <= (w.end + 1);
-                            }
-                            if (overlaps) {
-                                netInWindow += net;
-                            }
-                        }
-                        int revisedEnd = revisedStart + windowLen + netInWindow - 1;
-
-                        String before = joinLines(originalLines, w.start, w.end);
-                        String after = joinLines(
-                                revisedLines,
-                                clamp(revisedStart, 0, Math.max(0, revisedLines.size() - 1)),
-                                clamp(revisedEnd, 0, Math.max(0, revisedLines.size() - 1)));
-
-                        // If uniqueness still fails (pathological), fall back to whole-file
-                        if (!before.isEmpty() && countOccurrences(original, before) > 1) {
-                            results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
-                            continue;
-                        }
-
-                        results.add(new EditBlock.SearchReplaceBlock(file.toString(), before, after));
-                    }
-                } catch (Exception e) {
-                    // If diffing fails for any reason, fall back to a conservative whole-file replacement
-                    logger.warn("Diff generation failed for {}; falling back to whole-file SRB", file, e);
-                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
-                }
-            }
-            return results;
-        }
-
-        private static String joinLines(List<String> lines, int start, int end) {
-            if (lines.isEmpty() || start > end) return "";
-            var sj = new StringJoiner("\n");
-            for (int i = start; i <= end; i++) {
-                sj.add(lines.get(i));
-            }
-            return sj.toString();
-        }
-
-        private static int countOccurrences(String text, String sub) {
-            if (sub.isEmpty()) return 0;
-            int count = 0;
-            int idx = 0;
-            while ((idx = text.indexOf(sub, idx)) != -1) {
-                count++;
-                idx += sub.length();
-            }
-            return count;
-        }
-
-        private static int clamp(int val, int min, int max) {
-            return Math.max(min, Math.min(max, val));
+            return SearchReplaceBlockFormatter.fromChangedFiles(
+                    originalFileContents(), file -> file.read().orElse(""));
         }
     }
 
