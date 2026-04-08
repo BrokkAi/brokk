@@ -503,7 +503,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * Shows an approval banner at the bottom of the output panel and returns a future
      * that completes when the user makes a choice. Must be called on the EDT.
      */
-    public CompletableFuture<ApprovalChoice> showApprovalBanner(String toolName, String arguments) {
+    public CompletableFuture<ApprovalChoice> showApprovalBanner(
+            String toolName, String description, String sessionButtonLabel) {
         assert SwingUtilities.isEventDispatchThread();
         hideApprovalBanner();
 
@@ -524,8 +525,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 titleLabel.getFont().deriveFont(Font.BOLD, titleLabel.getFont().getSize() + 1f));
         infoPanel.add(titleLabel, BorderLayout.NORTH);
 
-        if (arguments != null && !arguments.isBlank()) {
-            var preview = arguments.length() > 120 ? arguments.substring(0, 120) + "..." : arguments;
+        if (description != null && !description.isBlank()) {
+            var preview = description.length() > 120 ? description.substring(0, 120) + "..." : description;
             var detailLabel = new JLabel("<html><i>" + escapeHtml(preview) + "</i></html>");
             detailLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
             infoPanel.add(detailLabel, BorderLayout.CENTER);
@@ -541,7 +542,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         SwingUtil.applyPrimaryButtonStyle(allowButton);
         allowButton.addActionListener(e -> resolveApproval(ApprovalChoice.ALLOW));
 
-        var sessionButton = new MaterialButton("Allow for Session");
+        var sessionButton = new MaterialButton(sessionButtonLabel);
         sessionButton.addActionListener(e -> resolveApproval(ApprovalChoice.ALLOW_SESSION));
 
         var denyButton = new MaterialButton("Deny");

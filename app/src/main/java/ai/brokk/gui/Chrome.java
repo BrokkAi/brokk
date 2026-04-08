@@ -2246,14 +2246,18 @@ public class Chrome
 
     @Override
     public ApprovalResult beforeToolCall(ToolExecutionRequest request, boolean destructive) {
-        if (!destructive || sessionApprovedTools.contains(request.name())) {
+        if (!destructive) {
+            return ApprovalResult.APPROVED;
+        }
+        var approval = computeApprovalContext(request);
+        if (sessionApprovedTools.contains(approval.sessionKey())) {
             return ApprovalResult.APPROVED;
         }
         var hop = rightPanel.getHistoryOutputPanel();
         var futureHolder = new CompletableFuture[] {null};
         try {
-            SwingUtilities.invokeAndWait(
-                    () -> futureHolder[0] = hop.showApprovalBanner(request.name(), request.arguments()));
+            SwingUtilities.invokeAndWait(() -> futureHolder[0] =
+                    hop.showApprovalBanner(approval.title(), approval.description(), approval.sessionButtonLabel()));
         } catch (java.lang.reflect.InvocationTargetException e) {
             logger.error("Error showing approval banner", e);
             return ApprovalResult.DENIED;
@@ -2265,7 +2269,7 @@ public class Chrome
             @SuppressWarnings("unchecked")
             var choice = (HistoryOutputPanel.ApprovalChoice) futureHolder[0].get();
             if (choice == HistoryOutputPanel.ApprovalChoice.ALLOW_SESSION) {
-                sessionApprovedTools.add(request.name());
+                sessionApprovedTools.add(approval.sessionKey());
             }
             return choice == HistoryOutputPanel.ApprovalChoice.DENY ? ApprovalResult.DENIED : ApprovalResult.APPROVED;
         } catch (ExecutionException e) {
@@ -2274,6 +2278,46 @@ public class Chrome
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return ApprovalResult.DENIED;
+        }
+    }
+
+    private record ApprovalContext(String title, String description, String sessionButtonLabel, String sessionKey) {}
+
+    private ApprovalContext computeApprovalContext(ToolExecutionRequest request) {
+        return switch (request.name()) {
+            case "callCodeAgent" -> {
+                var instructions = extractJsonField(request.arguments(), "instructions");
+                yield new ApprovalContext(
+                        "Agent wants to edit code",
+                        instructions != null ? instructions : "",
+                        "Allow Edits for Session",
+                        "callCodeAgent");
+            }
+            case "runShellCommand" -> {
+                var command = extractJsonField(request.arguments(), "command");
+                yield new ApprovalContext(
+                        "Agent wants to run a shell command",
+                        command != null ? command : request.arguments(),
+                        "Allow Command for Session",
+                        "runShellCommand:" + (command != null ? command : ""));
+            }
+            default ->
+                new ApprovalContext(
+                        "Agent wants to run: " + request.name(),
+                        request.arguments(),
+                        "Allow for Session",
+                        request.name());
+        };
+    }
+
+    @Nullable
+    private static String extractJsonField(String json, String field) {
+        try {
+            var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+            var value = node.get(field);
+            return value != null && value.isTextual() ? value.asText() : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 
