@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.code_quality;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
@@ -51,6 +52,31 @@ public class JsTsExceptionHandlingSmellTest {
                 """;
         var findings = analyze(code, "src/test.ts");
         assertTrue(findings.isEmpty());
+    }
+
+    @Test
+    void reportsNestedCatchHandlers() {
+        String code = """
+                export function run() {
+                  try {
+                    outer();
+                  } catch (err) {
+                    try {
+                      inner();
+                    } catch (innerErr) {
+                      log.error(innerErr);
+                    }
+                    metrics();
+                  }
+                }
+
+                function outer() {}
+                function inner() {}
+                function metrics() {}
+                """;
+        var findings = analyze(code, "src/test.ts");
+        long untypedCount = findings.stream().filter(f -> f.catchType().equals("<untyped>")).count();
+        assertEquals(2, untypedCount, "Expected both outer and inner catch handlers to be reported");
     }
 
     private List<IAnalyzer.ExceptionHandlingSmell> analyze(String source, String relPath) {

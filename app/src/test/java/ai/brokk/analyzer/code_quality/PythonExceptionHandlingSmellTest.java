@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.code_quality;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
@@ -55,6 +56,33 @@ public class PythonExceptionHandlingSmellTest {
                 """;
         var findings = analyze(code);
         assertTrue(findings.isEmpty());
+    }
+
+    @Test
+    void reportsNestedExceptHandlers() {
+        String code = """
+                def run():
+                    try:
+                        outer()
+                    except Exception as e:
+                        try:
+                            inner()
+                        except:
+                            logger.error("inner")
+                        metrics()
+
+                def outer():
+                    return 1
+
+                def inner():
+                    return 2
+
+                def metrics():
+                    return 0
+                """;
+        var findings = analyze(code);
+        long catches = findings.stream().filter(f -> !f.catchType().equals("<unknown>")).count();
+        assertEquals(2, catches, "Expected both outer and inner except handlers to be reported");
     }
 
     private List<IAnalyzer.ExceptionHandlingSmell> analyze(String source) {

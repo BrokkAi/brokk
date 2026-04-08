@@ -4300,11 +4300,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     return;
                 }
                 String type = current.getType();
-                boolean matched = type != null && nodeTypes.contains(type);
-                if (matched) {
+                if (type != null && nodeTypes.contains(type)) {
                     out.add(current);
                 }
-                if (!gotoNextDepthFirst(cursor, !matched)) {
+                if (!gotoNextDepthFirst(cursor, true)) {
                     return;
                 }
             }
