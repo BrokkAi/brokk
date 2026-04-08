@@ -1631,7 +1631,7 @@ public class SearchTools {
             """
             Regex search across file contents -- use for string literals, config values, comments, log messages, and non-code files.
             For finding code definitions (classes, methods), prefer searchSymbols or getSymbolLocations. For finding usages of known symbols, prefer scanUsages.
-            In analyzed files, searchType can focus on declarations, usages, or all. searchType=all shows declarations first, then usages, then lower-signal related lines such as imports. searchType=declarations or usages hides those related lines. Un-analyzed files always behave as all.
+            In analyzed files, searchType can focus on declarations, usages, or all. searchType=all shows declarations first, then usages, then lower-signal related lines such as imports. Usage hits are grouped under their enclosing symbol with that symbol's line range, and usage context is clipped to that symbol body. searchType=declarations or usages hides related lines. Un-analyzed files always behave as all.
             Returns pseudo-XML <file> blocks with <matches> and optional <related> sections, plus optional context lines.
 
             Limits: 500 total matching lines across all files. 20 matches per file per pattern. maxFiles capped at 100.
@@ -1640,7 +1640,7 @@ public class SearchTools {
             @P("Java-style regex patterns to search for.") List<String> patterns,
             @P("Glob pattern for file paths (e.g., '**/AGENTS.md', 'src/**/*.java').") String filepath,
             @P(
-                            "In analyzed files, filter visible hits to declarations, usages, or all. Imports and other related lines only appear with all. Un-analyzed files always behave as all.")
+                            "In analyzed files, filter visible hits to declarations, usages, or all. Imports and other related lines only appear with all. Usage hits are grouped under their enclosing symbol. Un-analyzed files always behave as all.")
                     String searchType,
             @P("Case-insensitive matching (equivalent to Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).")
                     boolean caseInsensitive,

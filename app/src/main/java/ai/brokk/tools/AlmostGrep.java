@@ -5,6 +5,7 @@ import static ai.brokk.util.Lines.truncateLine;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
@@ -12,8 +13,11 @@ import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -243,8 +247,8 @@ final class AlmostGrep {
         }
 
         MatchBuckets buckets = classifyMatchLines(file, content, analyzer, retainedMatchLines);
-        String matchesSection =
-                renderMatchesSection(buckets.declarations(), buckets.usages(), lineRefs, content, contextLines);
+        String matchesSection = renderMatchesSection(
+                file, buckets.declarations(), buckets.usages(), lineRefs, content, contextLines, analyzer);
         String relatedSection = renderSimpleSection("related", buckets.related(), lineRefs, content, contextLines);
         if (matchesSection.isEmpty() && relatedSection.isEmpty()) {
             return "";
@@ -277,7 +281,9 @@ final class AlmostGrep {
         }
 
         String heading = searchType == SearchTools.FileContentSearchType.DECLARATIONS ? "[DECLARATIONS]" : "[USAGES]";
-        String section = renderSimpleSection("matches", visibleLines, lineRefs, content, contextLines, heading);
+        String section = searchType == SearchTools.FileContentSearchType.DECLARATIONS
+                ? renderSimpleSection("matches", visibleLines, lineRefs, content, contextLines, heading)
+                : renderUsageSection("matches", file, visibleLines, lineRefs, content, contextLines, analyzer, heading);
         return renderFileBlock(filePath, lineRefs.size(), section);
     }
 
@@ -358,17 +364,19 @@ final class AlmostGrep {
     }
 
     private static String renderMatchesSection(
+            ProjectFile file,
             Set<Integer> declarationLines,
             Set<Integer> usageLines,
             List<LineRef> lineRefs,
             String content,
-            int contextLines) {
+            int contextLines,
+            IAnalyzer analyzer) {
         List<String> parts = new ArrayList<>(2);
         if (!declarationLines.isEmpty()) {
             parts.add(renderSectionBody(declarationLines, lineRefs, content, contextLines, "[DECLARATIONS]"));
         }
         if (!usageLines.isEmpty()) {
-            parts.add(renderSectionBody(usageLines, lineRefs, content, contextLines, "[USAGES]"));
+            parts.add(renderUsageSectionBody(file, usageLines, lineRefs, content, contextLines, analyzer, "[USAGES]"));
         }
         if (parts.isEmpty()) {
             return "";
@@ -396,33 +404,113 @@ final class AlmostGrep {
         return "<%s>\n%s\n</%s>".formatted(tag, body, tag);
     }
 
+    private static String renderUsageSection(
+            String tag,
+            ProjectFile file,
+            Set<Integer> matchedLines,
+            List<LineRef> lineRefs,
+            String content,
+            int contextLines,
+            IAnalyzer analyzer,
+            @Nullable String heading) {
+        if (matchedLines.isEmpty()) {
+            return "";
+        }
+
+        String body = renderUsageSectionBody(file, matchedLines, lineRefs, content, contextLines, analyzer, heading);
+        return "<%s>\n%s\n</%s>".formatted(tag, body, tag);
+    }
+
     private static String renderSectionBody(
             Set<Integer> matchedLines,
             List<LineRef> lineRefs,
             String content,
             int contextLines,
             @Nullable String heading) {
-        boolean[] toPrint = new boolean[lineRefs.size() + 1];
-        matchedLines.forEach(lineNo -> {
-            int from = max(1, lineNo - contextLines);
-            int to = min(lineRefs.size(), lineNo + contextLines);
-            for (int ln = from; ln <= to; ln++) {
-                toPrint[ln] = true;
-            }
-        });
+        List<String> lines = new ArrayList<>();
+        if (heading != null) {
+            lines.add(heading);
+        }
+        lines.addAll(renderLines(matchedLines, lineRefs, content, contextLines, 1, lineRefs.size()));
+        return String.join("\n", lines);
+    }
+
+    private static String renderUsageSectionBody(
+            ProjectFile file,
+            Set<Integer> matchedLines,
+            List<LineRef> lineRefs,
+            String content,
+            int contextLines,
+            IAnalyzer analyzer,
+            @Nullable String heading) {
+        Map<EnclosingUsageBlock, Set<Integer>> linesByBlock = new LinkedHashMap<>();
+        matchedLines.stream().sorted().forEach(lineNo -> linesByBlock
+                .computeIfAbsent(resolveEnclosingUsageBlock(file, analyzer, lineNo), ignored -> new LinkedHashSet<>())
+                .add(lineNo));
 
         List<String> lines = new ArrayList<>();
         if (heading != null) {
             lines.add(heading);
         }
-        for (LineRef ref : lineRefs) {
-            if (!toPrint[ref.lineNo()]) {
-                continue;
-            }
-            lines.add(
-                    "%d: %s".formatted(ref.lineNo(), truncateLine(content, ref.startInclusive(), ref.endExclusive())));
-        }
+        linesByBlock.forEach((block, blockLines) -> {
+            lines.add("%s [%d..%d]".formatted(block.symbol(), block.startLine(), block.endLine()));
+            lines.addAll(renderLines(blockLines, lineRefs, content, contextLines, block.startLine(), block.endLine()));
+        });
         return String.join("\n", lines);
+    }
+
+    private static List<String> renderLines(
+            Set<Integer> matchedLines,
+            List<LineRef> lineRefs,
+            String content,
+            int contextLines,
+            int startLine,
+            int endLine) {
+        if (matchedLines.isEmpty() || startLine > endLine) {
+            return List.of();
+        }
+
+        boolean[] toPrint = new boolean[lineRefs.size() + 1];
+        matchedLines.forEach(lineNo -> {
+            int from = max(startLine, lineNo - contextLines);
+            int to = min(endLine, lineNo + contextLines);
+            for (int ln = from; ln <= to; ln++) {
+                toPrint[ln] = true;
+            }
+        });
+
+        return lineRefs.stream()
+                .filter(ref -> ref.lineNo() >= startLine && ref.lineNo() <= endLine)
+                .filter(ref -> toPrint[ref.lineNo()])
+                .map(ref -> "%d: %s"
+                        .formatted(ref.lineNo(), truncateLine(content, ref.startInclusive(), ref.endExclusive())))
+                .toList();
+    }
+
+    private static EnclosingUsageBlock resolveEnclosingUsageBlock(ProjectFile file, IAnalyzer analyzer, int lineNo) {
+        int zeroBasedLine = lineNo - 1;
+        var enclosingUnit =
+                analyzer.enclosingCodeUnit(file, zeroBasedLine, zeroBasedLine).orElse(null);
+        if (enclosingUnit == null) {
+            return new EnclosingUsageBlock("Line " + lineNo, lineNo, lineNo);
+        }
+
+        var enclosingRange = analyzer.rangesOf(enclosingUnit).stream()
+                .filter(range -> zeroBasedLine >= range.startLine() && zeroBasedLine <= range.endLine())
+                .min(Comparator.comparingInt(range -> range.endLine() - range.startLine()))
+                .orElse(null);
+        int startLine = enclosingRange == null ? lineNo : enclosingRange.startLine() + 1;
+        int endLine = enclosingRange == null ? lineNo : enclosingRange.endLine() + 1;
+        return new EnclosingUsageBlock(formatCodeUnitLabel(enclosingUnit), startLine, endLine);
+    }
+
+    private static String formatCodeUnitLabel(CodeUnit codeUnit) {
+        String shortName = codeUnit.shortName();
+        int memberSeparator = shortName.lastIndexOf('.');
+        if (memberSeparator < 0) {
+            return shortName;
+        }
+        return shortName.substring(0, memberSeparator) + "::" + shortName.substring(memberSeparator + 1);
     }
 
     private static List<LineRef> computeLineRefs(String content) {
@@ -471,6 +559,8 @@ final class AlmostGrep {
     }
 
     private record LineRef(int lineNo, int startInclusive, int endExclusive) {}
+
+    private record EnclosingUsageBlock(String symbol, int startLine, int endLine) {}
 
     private record MatchBuckets(Set<Integer> declarations, Set<Integer> usages, Set<Integer> related) {}
 

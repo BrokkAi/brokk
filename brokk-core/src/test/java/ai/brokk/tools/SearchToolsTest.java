@@ -144,11 +144,13 @@ class SearchToolsTest {
                 package com.example;
                 import java.util.List;
                 class Foo {
+                    String before = "before";
                     List<String> values;
                     Foo useFoo(Foo other) {
                         Foo local = other;
                         return local;
                     }
+                    String after = "after";
                 }
                 """
                         .stripIndent());
@@ -163,9 +165,9 @@ class SearchToolsTest {
         CodeUnit method = CodeUnit.fn(projectFile, "com.example", "Foo.useFoo");
 
         Map<CodeUnit, List<Range>> ranges = new HashMap<>();
-        ranges.put(cls, List.of(new Range(0, 0, 2, 7, 0)));
-        ranges.put(field, List.of(new Range(0, 0, 3, 3, 0)));
-        ranges.put(method, List.of(new Range(0, 0, 4, 7, 0)));
+        ranges.put(cls, List.of(new Range(0, 0, 2, 10, 0)));
+        ranges.put(field, List.of(new Range(0, 0, 4, 4, 0)));
+        ranges.put(method, List.of(new Range(0, 0, 5, 8, 0)));
 
         IAnalyzer analyzer = new DisabledAnalyzer(project) {
             @Override
@@ -216,19 +218,26 @@ class SearchToolsTest {
                 tools.searchFileContents(List.of("Foo", "List"), "**/*.java", "declarations", false, false, 0, 20);
         assertTrue(declarations.contains("[DECLARATIONS]"));
         assertTrue(declarations.contains("3: class Foo {"));
-        assertTrue(declarations.contains("4:     List<String> values;"));
-        assertTrue(declarations.contains("5:     Foo useFoo(Foo other) {"));
+        assertTrue(declarations.contains("5:     List<String> values;"));
+        assertTrue(declarations.contains("6:     Foo useFoo(Foo other) {"));
         assertFalse(declarations.contains("2: import java.util.List;"));
-        assertFalse(declarations.contains("6:         Foo local = other;"));
+        assertFalse(declarations.contains("7:         Foo local = other;"));
 
-        String usages = tools.searchFileContents(List.of("Foo"), "**/*.java", "usages", false, false, 0, 20);
+        String usages = tools.searchFileContents(List.of("Foo"), "**/*.java", "usages", false, false, 2, 20);
         assertTrue(usages.contains("[USAGES]"));
-        assertTrue(usages.contains("6:         Foo local = other;"));
+        assertTrue(usages.contains("Foo::useFoo [6..9]"));
+        assertTrue(usages.contains("6:     Foo useFoo(Foo other) {"));
+        assertTrue(usages.contains("7:         Foo local = other;"));
+        assertTrue(usages.contains("8:         return local;"));
+        assertTrue(usages.contains("9:     }"));
         assertFalse(usages.contains("3: class Foo {"));
+        assertFalse(usages.contains("5:     List<String> values;"));
+        assertFalse(usages.contains("10:     String after = \"after\";"));
 
         String all = tools.searchFileContents(List.of("Foo", "List"), "**/*.java", "all", false, false, 0, 20);
         assertTrue(all.contains("<matches>"));
         assertTrue(all.contains("<related>"));
+        assertTrue(all.contains("Foo::useFoo [6..9]"));
         assertTrue(all.contains("2: import java.util.List;"));
     }
 

@@ -358,7 +358,8 @@ public class BrokkCoreMcpServer {
                 "searchFileContents",
                 "Search for regex patterns in file contents with optional filtering to declarations, usages, or all. "
                         + "In analyzed files, searchType=all also shows lower-signal related lines such as imports; "
-                        + "searchType=declarations or usages hides them. Un-analyzed files always behave as all.",
+                        + "usage hits are grouped beneath their enclosing symbol with bounded symbol-local context; "
+                        + "searchType=declarations or usages hides related lines. Un-analyzed files always behave as all.",
                 schema(
                         Map.of(
                                 "patterns",
@@ -367,7 +368,7 @@ public class BrokkCoreMcpServer {
                                 stringProp("File path or glob pattern to restrict search to."),
                                 "searchType",
                                 stringProp(
-                                        "Which analyzed-code hits to show: declarations, usages, or all. Imports and other related lines only appear with all."),
+                                        "Which analyzed-code hits to show: declarations, usages, or all. Imports and other related lines only appear with all, and usage hits are grouped under their enclosing symbol."),
                                 "caseInsensitive",
                                 boolProp("Case-insensitive matching."),
                                 "multiline",
