@@ -4634,6 +4634,89 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return (int) Math.round((intersection.size() * 100.0) / union.size());
     }
 
+    protected int computeAstLabelMultisetSimilarityPercent(String leftAstSignature, String rightAstSignature) {
+        if (leftAstSignature.isBlank() || rightAstSignature.isBlank()) {
+            return 0;
+        }
+        Map<String, Integer> leftCounts = astLabelCounts(leftAstSignature);
+        Map<String, Integer> rightCounts = astLabelCounts(rightAstSignature);
+        if (leftCounts.isEmpty() || rightCounts.isEmpty()) {
+            return 0;
+        }
+        var allLabels = new HashSet<String>();
+        allLabels.addAll(leftCounts.keySet());
+        allLabels.addAll(rightCounts.keySet());
+        int intersection = 0;
+        int union = 0;
+        for (String label : allLabels) {
+            int left = leftCounts.getOrDefault(label, 0);
+            int right = rightCounts.getOrDefault(label, 0);
+            intersection += Math.min(left, right);
+            union += Math.max(left, right);
+        }
+        if (union == 0) {
+            return 0;
+        }
+        return (int) Math.round((intersection * 100.0) / union);
+    }
+
+    protected int computeAstRefinementSimilarityPercent(String leftAstSignature, String rightAstSignature) {
+        int broadSimilarity = computeAstLabelMultisetSimilarityPercent(leftAstSignature, rightAstSignature);
+        if (broadSimilarity == 0) {
+            return 0;
+        }
+        int controlSimilarity = computeAstControlFlowSimilarityPercent(leftAstSignature, rightAstSignature);
+        if (controlSimilarity < 0) {
+            return broadSimilarity;
+        }
+        return (int) Math.round(((broadSimilarity * 2.0) + controlSimilarity) / 3.0);
+    }
+
+    private static Map<String, Integer> astLabelCounts(String astSignature) {
+        Map<String, Integer> counts = new HashMap<>();
+        for (String label : Splitter.on('|').split(astSignature)) {
+            if (label.isBlank()) {
+                continue;
+            }
+            counts.merge(label, 1, Integer::sum);
+        }
+        return counts;
+    }
+
+    private int computeAstControlFlowSimilarityPercent(String leftAstSignature, String rightAstSignature) {
+        String leftControl = extractControlFlowSignature(leftAstSignature);
+        String rightControl = extractControlFlowSignature(rightAstSignature);
+        if (leftControl.isBlank() || rightControl.isBlank()) {
+            return -1;
+        }
+        return computeAstLabelMultisetSimilarityPercent(leftControl, rightControl);
+    }
+
+    private static String extractControlFlowSignature(String astSignature) {
+        return Splitter.on('|')
+                .splitToStream(astSignature)
+                .map(String::strip)
+                .filter(label -> label.startsWith("N:"))
+                .filter(TreeSitterAnalyzer::isControlFlowLabel)
+                .collect(Collectors.joining("|"));
+    }
+
+    private static boolean isControlFlowLabel(String label) {
+        return label.contains("if")
+                || label.contains("else")
+                || label.contains("while")
+                || label.contains("for")
+                || label.contains("switch")
+                || label.contains("case")
+                || label.contains("try")
+                || label.contains("catch")
+                || label.contains("finally")
+                || label.contains("return")
+                || label.contains("throw")
+                || label.contains("break")
+                || label.contains("continue");
+    }
+
     protected static Set<String> shingles(List<String> tokens, int shingleSize) {
         int k = Math.max(1, shingleSize);
         if (tokens.size() < k) {

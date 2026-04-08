@@ -274,16 +274,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         if (left.astSignature().isBlank() || right.astSignature().isBlank()) {
             return tokenSimilarity;
         }
-        Set<String> leftAst = Set.copyOf(List.of(left.astSignature().split("\\|")));
-        Set<String> rightAst = Set.copyOf(List.of(right.astSignature().split("\\|")));
-        if (leftAst.isEmpty() || rightAst.isEmpty()) {
+        int astSimilarity = computeAstRefinementSimilarityPercent(left.astSignature(), right.astSignature());
+        if (astSimilarity == 0) {
             return tokenSimilarity;
         }
-        Set<String> intersection = new HashSet<>(leftAst);
-        intersection.retainAll(rightAst);
-        Set<String> union = new HashSet<>(leftAst);
-        union.addAll(rightAst);
-        int astSimilarity = union.isEmpty() ? 0 : (int) Math.round((intersection.size() * 100.0) / union.size());
         if (astSimilarity < weights.astSimilarityPercent()) {
             return 0;
         }
