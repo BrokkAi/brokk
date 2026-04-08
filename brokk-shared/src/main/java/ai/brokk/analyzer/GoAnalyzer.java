@@ -288,6 +288,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 yield CodeUnit.field(file, packageName, fieldShortName);
             }
             case "interface.method.definition" -> {
+                if (!isPackageLevelDeclaration(definitionNode)) {
+                    log.trace(
+                            "Skipping non-package-level Go interface method '{}' in file '{}'",
+                            simpleName,
+                            file.getFileName());
+                    yield null;
+                }
                 // simpleName is MethodName (e.g., "DoSomething")
                 // classChain is InterfaceName (e.g., "MyInterface")
                 // We want the CodeUnit's shortName to be "InterfaceName.MethodName".

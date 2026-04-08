@@ -970,6 +970,43 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testFunctionLocalInterfaceMethodsAreNotReportedAsDeclarations() throws IOException {
+        String source =
+                """
+                package ipnlocal
+
+                type LocalBackend struct{}
+
+                func (b *LocalBackend) PatchDiscoKey() {
+                    type patchDiscoKeyer interface {
+                        PatchDiscoKey()
+                    }
+                    var e any
+                    if _, ok := e.(patchDiscoKeyer); ok {
+                    }
+                }
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "local.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "local.go");
+            var declarations = inlineAnalyzer.getDeclarations(file);
+            var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+            assertTrue(
+                    fqns.contains("ipnlocal.LocalBackend.PatchDiscoKey"),
+                    "Expected method declaration to be present. Found: " + fqns);
+            assertFalse(
+                    fqns.contains("ipnlocal.patchDiscoKeyer"),
+                    "Function-local interface types should not be reported as declarations. Found: " + fqns);
+            assertFalse(
+                    fqns.contains("ipnlocal.patchDiscoKeyer.PatchDiscoKey"),
+                    "Function-local interface methods should not be reported as declarations. Found: " + fqns);
+        }
+    }
+
+    @Test
     void testGroupedFunctionTypedVarsAreReportedAsDeclarations() throws IOException {
         String source =
                 """
