@@ -123,6 +123,7 @@ public class Chrome
 
     private final RightPanel rightPanel;
     private final ToolsPane toolsPane;
+    private final Set<String> sessionApprovedTools = ConcurrentHashMap.newKeySet();
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
     private final JTabbedPane fileHistoryPane; // Bottom area for file history
     private int originalLeftVerticalDividerSize;
@@ -2245,24 +2246,35 @@ public class Chrome
 
     @Override
     public ApprovalResult beforeToolCall(ToolExecutionRequest request, boolean destructive) {
-        if (!destructive) {
+        if (!destructive || sessionApprovedTools.contains(request.name())) {
             return ApprovalResult.APPROVED;
         }
-        var resultHolder = new int[] {JOptionPane.NO_OPTION};
+        var hop = rightPanel.getHistoryOutputPanel();
+        var futureHolder = new CompletableFuture[] {null};
         try {
-            SwingUtilities.invokeAndWait(() -> resultHolder[0] = showConfirmDialog(
-                    "The agent wants to run: " + request.name() + "\n\nThis is a destructive operation. Allow it?",
-                    "Tool Approval",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE));
+            SwingUtilities.invokeAndWait(
+                    () -> futureHolder[0] = hop.showApprovalBanner(request.name(), request.arguments()));
         } catch (java.lang.reflect.InvocationTargetException e) {
-            logger.error("Error showing approval dialog", e);
+            logger.error("Error showing approval banner", e);
             return ApprovalResult.DENIED;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return ApprovalResult.DENIED;
         }
-        return resultHolder[0] == JOptionPane.YES_OPTION ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
+        try {
+            @SuppressWarnings("unchecked")
+            var choice = (HistoryOutputPanel.ApprovalChoice) futureHolder[0].get();
+            if (choice == HistoryOutputPanel.ApprovalChoice.ALLOW_SESSION) {
+                sessionApprovedTools.add(request.name());
+            }
+            return choice == HistoryOutputPanel.ApprovalChoice.DENY ? ApprovalResult.DENIED : ApprovalResult.APPROVED;
+        } catch (ExecutionException e) {
+            logger.error("Error waiting for approval", e);
+            return ApprovalResult.DENIED;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ApprovalResult.DENIED;
+        }
     }
 
     @Override

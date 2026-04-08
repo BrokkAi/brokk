@@ -95,6 +95,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel llmOutputContainer;
 
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JPanel outputSouthPanel;
+
+    @Nullable
+    private JPanel approvalBannerPanel;
+
+    @Nullable
+    private CompletableFuture<ApprovalChoice> approvalFuture;
+
+    public enum ApprovalChoice {
+        ALLOW,
+        ALLOW_SESSION,
+        DENY
+    }
+
     // Capture/notification bar container for fixed sizing in vertical layout
     @Nullable
     private JPanel captureOutputPanel;
@@ -266,8 +281,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var outputPanel = new JPanel(new BorderLayout());
         outputPanel.setBorder(BorderFactory.createEtchedBorder());
 
+        // South wrapper holds the approval banner slot + capture panel
+        outputSouthPanel = new JPanel();
+        outputSouthPanel.setLayout(new BoxLayout(outputSouthPanel, BoxLayout.Y_AXIS));
+        outputSouthPanel.add(capturePanel);
+
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
-        outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
+        outputPanel.add(outputSouthPanel, BorderLayout.SOUTH);
 
         // Container for the output area
         var centerContainer = new JPanel(new BorderLayout());
@@ -477,6 +497,90 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public JPanel getLlmOutputContainer() {
         return llmOutputContainer;
+    }
+
+    /**
+     * Shows an approval banner at the bottom of the output panel and returns a future
+     * that completes when the user makes a choice. Must be called on the EDT.
+     */
+    public CompletableFuture<ApprovalChoice> showApprovalBanner(String toolName, String arguments) {
+        assert SwingUtilities.isEventDispatchThread();
+        hideApprovalBanner();
+
+        approvalFuture = new CompletableFuture<>();
+
+        approvalBannerPanel = new JPanel(new BorderLayout(8, 0));
+        approvalBannerPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, UIManager.getColor("Component.borderColor")),
+                new EmptyBorder(10, 14, 10, 14)));
+        approvalBannerPanel.setBackground(UIManager.getColor("ToolBar.background"));
+
+        // Left: icon + description
+        var infoPanel = new JPanel(new BorderLayout(8, 2));
+        infoPanel.setOpaque(false);
+
+        var titleLabel = new JLabel("Agent wants to run: " + toolName);
+        titleLabel.setFont(
+                titleLabel.getFont().deriveFont(Font.BOLD, titleLabel.getFont().getSize() + 1f));
+        infoPanel.add(titleLabel, BorderLayout.NORTH);
+
+        if (arguments != null && !arguments.isBlank()) {
+            var preview = arguments.length() > 120 ? arguments.substring(0, 120) + "..." : arguments;
+            var detailLabel = new JLabel("<html><i>" + escapeHtml(preview) + "</i></html>");
+            detailLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+            infoPanel.add(detailLabel, BorderLayout.CENTER);
+        }
+
+        approvalBannerPanel.add(infoPanel, BorderLayout.CENTER);
+
+        // Right: buttons
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        buttonPanel.setOpaque(false);
+
+        var allowButton = new MaterialButton("Allow");
+        SwingUtil.applyPrimaryButtonStyle(allowButton);
+        allowButton.addActionListener(e -> resolveApproval(ApprovalChoice.ALLOW));
+
+        var sessionButton = new MaterialButton("Allow for Session");
+        sessionButton.addActionListener(e -> resolveApproval(ApprovalChoice.ALLOW_SESSION));
+
+        var denyButton = new MaterialButton("Deny");
+        denyButton.setForeground(UIManager.getColor("Actions.Red"));
+        denyButton.addActionListener(e -> resolveApproval(ApprovalChoice.DENY));
+
+        buttonPanel.add(allowButton);
+        buttonPanel.add(sessionButton);
+        buttonPanel.add(denyButton);
+
+        approvalBannerPanel.add(buttonPanel, BorderLayout.EAST);
+
+        outputSouthPanel.add(approvalBannerPanel, 0);
+        outputSouthPanel.revalidate();
+        outputSouthPanel.repaint();
+
+        return approvalFuture;
+    }
+
+    private void resolveApproval(ApprovalChoice choice) {
+        assert SwingUtilities.isEventDispatchThread();
+        if (approvalFuture != null) {
+            approvalFuture.complete(choice);
+            approvalFuture = null;
+        }
+        hideApprovalBanner();
+    }
+
+    public void hideApprovalBanner() {
+        if (approvalBannerPanel != null) {
+            outputSouthPanel.remove(approvalBannerPanel);
+            outputSouthPanel.revalidate();
+            outputSouthPanel.repaint();
+            approvalBannerPanel = null;
+        }
+    }
+
+    private static String escapeHtml(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     /**
@@ -1305,10 +1409,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             this.message = message;
             this.timestamp = timestamp;
         }
-    }
-
-    private static String escapeHtml(String s) {
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     // If the notifications window is open, rebuild it to reflect latest items.
