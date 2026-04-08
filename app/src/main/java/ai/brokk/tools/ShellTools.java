@@ -28,7 +28,10 @@ public class ShellTools {
     @Tool(
             """
         Run a shell command in the project root directory and return its output (stdout and stderr combined).
-        Use this for build commands, test runners, linters, or any CLI tool available in the project environment.
+        Use this for build commands, test runners, linters, package installation, or any CLI tool.
+        The user will be prompted to approve the command before it executes, and can choose to run it
+        with or without sandbox restrictions. Always attempt the command and let the user decide --
+        do not preemptively refuse commands based on assumptions about the environment.
         The command runs with a 120-second timeout. Returns the combined output, or an error message if the command fails.
         """)
     public String runShellCommand(
