@@ -42,6 +42,7 @@ import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.tools.ApprovalResult;
 import ai.brokk.util.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -2258,7 +2259,7 @@ public class Chrome
         try {
             SwingUtilities.invokeAndWait(() -> futureHolder[0] = hop.showApprovalBanner(
                     approval.title(), approval.description(), approval.sessionButtonLabel(), approval.showNoSandbox()));
-        } catch (java.lang.reflect.InvocationTargetException e) {
+        } catch (InvocationTargetException e) {
             logger.error("Error showing approval banner", e);
             return ApprovalResult.DENIED;
         } catch (InterruptedException e) {
@@ -2321,7 +2322,7 @@ public class Chrome
     @Nullable
     private static String extractJsonField(String json, String field) {
         try {
-            var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+            var node = new ObjectMapper().readTree(json);
             var value = node.get(field);
             return value != null && value.isTextual() ? value.asText() : null;
         } catch (Exception e) {

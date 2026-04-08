@@ -526,7 +526,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 titleLabel.getFont().deriveFont(Font.BOLD, titleLabel.getFont().getSize() + 1f));
         infoPanel.add(titleLabel, BorderLayout.NORTH);
 
-        if (description != null && !description.isBlank()) {
+        if (!description.isBlank()) {
             var preview = description.length() > 120 ? description.substring(0, 120) + "..." : description;
             var detailLabel = new JLabel("<html><i>" + escapeHtml(preview) + "</i></html>");
             detailLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
