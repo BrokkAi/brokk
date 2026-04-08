@@ -2248,12 +2248,21 @@ public class Chrome
         if (!destructive) {
             return ApprovalResult.APPROVED;
         }
-        int result = showConfirmDialog(
-                "The agent wants to run: " + request.name() + "\n\nThis is a destructive operation. Allow it?",
-                "Tool Approval",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
-        return result == JOptionPane.YES_OPTION ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
+        var resultHolder = new int[] {JOptionPane.NO_OPTION};
+        try {
+            SwingUtilities.invokeAndWait(() -> resultHolder[0] = showConfirmDialog(
+                    "The agent wants to run: " + request.name() + "\n\nThis is a destructive operation. Allow it?",
+                    "Tool Approval",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE));
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            logger.error("Error showing approval dialog", e);
+            return ApprovalResult.DENIED;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ApprovalResult.DENIED;
+        }
+        return resultHolder[0] == JOptionPane.YES_OPTION ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
     }
 
     @Override
