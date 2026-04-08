@@ -970,6 +970,39 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testGroupedFunctionTypedVarsAreReportedAsDeclarations() throws IOException {
+        String source =
+                """
+                package cli
+
+                var (
+                    debugCaptureCmd   func() error
+                    debugPortmapCmd   func() error
+                    debugPeerRelayCmd func() error
+                )
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "debug.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "debug.go");
+            var declarations = inlineAnalyzer.getDeclarations(file);
+            var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+            assertTrue(
+                    fqns.contains("cli._module_.debugCaptureCmd"),
+                    "Grouped function-typed vars should be reported as declarations. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("cli._module_.debugPortmapCmd"),
+                    "Grouped function-typed vars should be reported as declarations. Found: " + fqns);
+            assertTrue(
+                    fqns.contains("cli._module_.debugPeerRelayCmd"),
+                    "Grouped function-typed vars should be reported as declarations. Found: " + fqns);
+            assertEquals(3, fqns.size(), "Only the three grouped vars should be present. Found: " + fqns);
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";

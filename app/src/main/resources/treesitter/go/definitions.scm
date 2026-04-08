@@ -15,21 +15,17 @@
     name: (type_identifier) @type.name
     type: (_) @type.kind) @type.definition)
 
-(var_declaration
-  (var_spec
-    name: (identifier) @variable.name
-    ; type: (_) @variable.type ; optional for future use
-    ; value: (_) @variable.value ; optional for future use
-  ) @variable.definition ; @variable.definition now points to var_spec
-)
+(var_spec
+  name: (identifier) @variable.name
+  ; type: (_) @variable.type ; optional for future use
+  ; value: (_) @variable.value ; optional for future use
+) @variable.definition
 
-(const_declaration
-  (const_spec
-    name: (identifier) @constant.name
-    ; type: (_) @constant.type ; optional for future use
-    ; value: (_) @constant.value ; optional for future use
-  ) @constant.definition ; @constant.definition now points to const_spec
-)
+(const_spec
+  name: (identifier) @constant.name
+  ; type: (_) @constant.type ; optional for future use
+  ; value: (_) @constant.value ; optional for future use
+) @constant.definition
 
 (method_declaration
   receiver: (parameter_list
