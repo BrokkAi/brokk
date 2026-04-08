@@ -256,6 +256,31 @@ public class FileAnalysisAccumulator {
         }
     }
 
+    public FileAnalysisAccumulator moveTopLevelToChild(CodeUnit child, CodeUnit parent) {
+        if (parent.equals(child)) {
+            log.warn(
+                    "Ignoring self-parent move for {} kind={} source={}",
+                    parent.fqName(),
+                    parent.kind(),
+                    parent.source());
+            return this;
+        }
+
+        topLevelCUs.remove(child);
+
+        CodeUnit existingParent = childToParent.get(child);
+        if (existingParent != null && !existingParent.equals(parent)) {
+            Set<CodeUnit> siblings = children.get(existingParent);
+            if (siblings != null) {
+                siblings.remove(child);
+            }
+        }
+
+        children.computeIfAbsent(parent, k -> new LinkedHashSet<>()).add(child);
+        childToParent.put(child, parent);
+        return this;
+    }
+
     public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {
         Map<CodeUnit, CodeUnitProperties> localStates = new HashMap<>();
         var unionKeys = new HashSet<CodeUnit>();

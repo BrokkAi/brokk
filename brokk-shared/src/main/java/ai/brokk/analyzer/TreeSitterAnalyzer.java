@@ -743,6 +743,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return codeUnitProperties(codeUnit).childrenList();
     }
 
+    protected List<CodeUnit> orderChildrenForSkeleton(CodeUnit parent, List<CodeUnit> children) {
+        return children;
+    }
+
     protected List<String> signaturesOf(CodeUnit codeUnit) {
         return codeUnitProperties(codeUnit).signaturesList();
     }
@@ -1341,7 +1345,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
-        final List<CodeUnit> allChildren = childrenOf(cu);
+        final List<CodeUnit> allChildren = orderChildrenForSkeleton(cu, childrenOf(cu));
 
         final var kids = allChildren.stream()
                 .filter(child -> !headerOnly || child.isField())
@@ -2413,6 +2417,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         // Register modules from imports
                         wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
 
+                        postProcessFileAnalysis(file, acc, sourceContent, cuToCaptureName);
+
                         // Synthesize implicit constructors
                         for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
                             if (cu.isClass()) {
@@ -2655,6 +2661,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         String parentFqName = buildParentFqName(cu, classChain, scopeChain);
         return acc.getByFqName(parentFqName);
     }
+
+    protected void postProcessFileAnalysis(
+            ProjectFile file,
+            FileAnalysisAccumulator acc,
+            SourceContent sourceContent,
+            Map<CodeUnit, String> cuToCaptureName) {}
 
     private void wrapModulesFromImports(
             ProjectFile file,

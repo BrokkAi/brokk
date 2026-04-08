@@ -1040,6 +1040,57 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testReceiverMethodsDeclaredBeforeTypeAreNestedUnderTypeSkeleton() throws IOException {
+        String source =
+                """
+                package tstun
+
+                func (pc *peerConfigTable) snat() {}
+                func (pc *peerConfigTable) dnat() {}
+
+                type peerConfigTable struct {
+                    nativeAddr4 int
+                    nativeAddr6 int
+                }
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "wrap.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "wrap.go");
+            var skeletonRoots = inlineAnalyzer.getSkeletons(file).keySet().stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toSet());
+
+            assertTrue(
+                    skeletonRoots.contains("tstun.peerConfigTable"),
+                    "Expected peerConfigTable to be a top-level skeleton root. Found: " + skeletonRoots);
+            assertFalse(
+                    skeletonRoots.contains("tstun.peerConfigTable.snat"),
+                    "Receiver methods declared before the type should not remain top-level skeleton roots. Found: "
+                            + skeletonRoots);
+            assertFalse(
+                    skeletonRoots.contains("tstun.peerConfigTable.dnat"),
+                    "Receiver methods declared before the type should not remain top-level skeleton roots. Found: "
+                            + skeletonRoots);
+
+            var peerConfigTable = inlineAnalyzer.getDefinitions("tstun.peerConfigTable").stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertCodeEquals(
+                    """
+                    type peerConfigTable struct {
+                      nativeAddr4 int
+                      nativeAddr6 int
+                      func (pc *peerConfigTable) snat() { ... }
+                      func (pc *peerConfigTable) dnat() { ... }
+                    }
+                    """,
+                    inlineAnalyzer.getSkeleton(peerConfigTable).orElseThrow());
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";

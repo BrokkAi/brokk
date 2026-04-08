@@ -7,6 +7,7 @@ import ai.brokk.analyzer.cache.GoAnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -434,6 +435,53 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return cu.isClass() ? "}" : "";
+    }
+
+    @Override
+    protected List<CodeUnit> orderChildrenForSkeleton(CodeUnit parent, List<CodeUnit> children) {
+        if (!parent.isClass() || children.size() < 2) {
+            return children;
+        }
+
+        var ordered = new ArrayList<CodeUnit>(children.size());
+        for (var child : children) {
+            if (child.isField()) {
+                ordered.add(child);
+            }
+        }
+        for (var child : children) {
+            if (!child.isField()) {
+                ordered.add(child);
+            }
+        }
+        return ordered;
+    }
+
+    @Override
+    protected void postProcessFileAnalysis(
+            ProjectFile file,
+            FileAnalysisAccumulator acc,
+            SourceContent sourceContent,
+            Map<CodeUnit, String> cuToCaptureName) {
+        for (var cu : List.copyOf(acc.topLevelCUs())) {
+            if (!cu.isFunction()) {
+                continue;
+            }
+
+            String shortName = cu.shortName();
+            int lastDot = shortName.lastIndexOf('.');
+            if (lastDot <= 0) {
+                continue;
+            }
+
+            String parentShortName = shortName.substring(0, lastDot);
+            CodeUnit parent = acc.getByFqName(cu.packageName() + "." + parentShortName);
+            if (parent == null || !parent.isClass()) {
+                continue;
+            }
+
+            acc.moveTopLevelToChild(cu, parent);
+        }
     }
 
     @Override
