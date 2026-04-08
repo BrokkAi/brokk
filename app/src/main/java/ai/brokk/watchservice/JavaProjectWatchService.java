@@ -29,7 +29,9 @@ public class JavaProjectWatchService extends AbstractWatchService {
 
     private volatile boolean running = true;
     private volatile int pauseCount = 0;
-    @Nullable private volatile Thread watcherThread;
+
+    @Nullable
+    private volatile Thread watcherThread;
 
     /**
      * Create a LegacyProjectWatchService with multiple listeners.
