@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes;
 import ai.brokk.project.ICoreProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -10,9 +11,11 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -21,6 +24,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSNode;
+import org.treesitter.TSTreeCursor;
 
 /**
  * Shared base class for JavaScript and TypeScript analyzers.
@@ -38,6 +42,19 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static final Set<String> JS_LOG_BARE_NAMES = Set.of("log", "warn", "error", "exception");
     private static final Set<String> JS_LOG_RECEIVER_NAMES = Set.of("log", "logger", "console");
     private static final Set<String> JS_LOG_METHOD_NAMES = Set.of("log", "warn", "error", "exception");
+    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES = Set.copyOf(new HashSet<>(List.of(
+            IDENTIFIER, TypeScriptTreeSitterNodeTypes.IDENTIFIER, TypeScriptTreeSitterNodeTypes.PROPERTY_IDENTIFIER)));
+    private static final Set<String> CLONE_AST_STRING_TYPES = Set.copyOf(new HashSet<>(List.of(
+            STRING,
+            TEMPLATE_STRING,
+            TypeScriptTreeSitterNodeTypes.STRING,
+            TypeScriptTreeSitterNodeTypes.TEMPLATE_STRING)));
+    private static final Set<String> CLONE_AST_NUMBER_TYPES =
+            Set.copyOf(new HashSet<>(List.of(NUMBER, TypeScriptTreeSitterNodeTypes.NUMBER)));
+    private static final Set<String> CLONE_AST_IGNORED_TYPES = Set.of(
+            TypeScriptTreeSitterNodeTypes.ACCESSIBILITY_MODIFIER,
+            TypeScriptTreeSitterNodeTypes.MODIFIERS,
+            TypeScriptTreeSitterNodeTypes.TYPE_PARAMETERS);
 
     private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
@@ -87,6 +104,77 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             rows.add(buildRollUpStats(top, counts));
         }
         return List.copyOf(rows);
+    }
+
+    @Override
+    protected String buildCloneAstSignature(String source) {
+        return withFreshTree(source, "", tree -> {
+            TSNode root = tree.getRootNode();
+            if (root == null) {
+                return "";
+            }
+            SourceContent sourceContent = SourceContent.of(source);
+            var labels = new ArrayList<String>();
+            try (var cursor = new TSTreeCursor(root)) {
+                while (true) {
+                    TSNode node = cursor.currentNode();
+                    if (node == null) {
+                        break;
+                    }
+                    labels.add(normalizeJsTsAstLabel(node, sourceContent));
+                    if (!gotoNextDepthFirst(cursor, true)) {
+                        break;
+                    }
+                }
+            }
+            return String.join("|", labels);
+        });
+    }
+
+    @Override
+    protected int refineCloneSimilarityPercent(
+            CloneCandidateData left, CloneCandidateData right, int tokenSimilarity, CloneSmellWeights weights) {
+        if (left.astSignature().isBlank() || right.astSignature().isBlank()) {
+            return tokenSimilarity;
+        }
+        Set<String> leftAst = Set.copyOf(List.of(left.astSignature().split("\\|")));
+        Set<String> rightAst = Set.copyOf(List.of(right.astSignature().split("\\|")));
+        if (leftAst.isEmpty() || rightAst.isEmpty()) {
+            return tokenSimilarity;
+        }
+        Set<String> intersection = new HashSet<>(leftAst);
+        intersection.retainAll(rightAst);
+        Set<String> union = new HashSet<>(leftAst);
+        union.addAll(rightAst);
+        int astSimilarity = union.isEmpty() ? 0 : (int) Math.round((intersection.size() * 100.0) / union.size());
+        if (astSimilarity < weights.astSimilarityPercent()) {
+            return 0;
+        }
+        return Math.min(tokenSimilarity, astSimilarity);
+    }
+
+    private static String normalizeJsTsAstLabel(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        String text = sourceContent.substringFrom(node).strip();
+        if (CLONE_AST_IDENTIFIER_TYPES.contains(type)) {
+            return "ID";
+        }
+        if (CLONE_AST_STRING_TYPES.contains(type)) {
+            return "STR";
+        }
+        if (CLONE_AST_NUMBER_TYPES.contains(type)) {
+            return "NUM";
+        }
+        if (TypeScriptTreeSitterNodeTypes.TRUE.equals(text)
+                || TypeScriptTreeSitterNodeTypes.FALSE.equals(text)
+                || TRUE.equals(text)
+                || FALSE.equals(text)) {
+            return "BOOL";
+        }
+        if (CLONE_AST_IGNORED_TYPES.contains(type)) {
+            return "IGN";
+        }
+        return "N:" + type;
     }
 
     @Override

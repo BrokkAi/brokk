@@ -27,6 +27,17 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
     private static final Set<String> JAVA_COMMENT_NODE_TYPES = Set.of(LINE_COMMENT, BLOCK_COMMENT);
     private static final Set<String> LOG_RECEIVER_NAMES = Set.of("log", "logger");
+    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES =
+            Set.of(IDENTIFIER, TYPE_IDENTIFIER, SCOPED_IDENTIFIER, SCOPED_TYPE_IDENTIFIER);
+    private static final Set<String> CLONE_AST_STRING_TYPES = Set.of(STRING_LITERAL, CHARACTER_LITERAL);
+    private static final Set<String> CLONE_AST_NUMBER_TYPES = Set.of(
+            DECIMAL_INTEGER_LITERAL,
+            HEX_INTEGER_LITERAL,
+            OCTAL_INTEGER_LITERAL,
+            BINARY_INTEGER_LITERAL,
+            DECIMAL_FLOATING_POINT_LITERAL,
+            HEX_FLOATING_POINT_LITERAL);
+    private static final Set<String> CLONE_AST_IGNORED_TYPES = Set.of(MODIFIERS, TYPE_PARAMETERS);
 
     public JavaAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
@@ -282,19 +293,19 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     private static String normalizeAstLabel(TSNode node, SourceContent sourceContent) {
         String type = Objects.toString(node.getType(), "");
         String text = sourceContent.substringFrom(node).strip();
-        if (type.contains("identifier")) {
+        if (CLONE_AST_IDENTIFIER_TYPES.contains(type)) {
             return "ID";
         }
-        if (type.contains("string_literal")) {
+        if (CLONE_AST_STRING_TYPES.contains(type)) {
             return "STR";
         }
-        if (type.contains("decimal") || type.contains("integer") || type.contains("floating")) {
+        if (CLONE_AST_NUMBER_TYPES.contains(type)) {
             return "NUM";
         }
-        if ("true".equals(text) || "false".equals(text)) {
+        if (BOOLEAN_LITERAL.equals(type) || TRUE.equals(text) || FALSE.equals(text)) {
             return "BOOL";
         }
-        if ("modifiers".equals(type) || "type_parameters".equals(type)) {
+        if (CLONE_AST_IGNORED_TYPES.contains(type)) {
             return "IGN";
         }
         return "N:" + type;

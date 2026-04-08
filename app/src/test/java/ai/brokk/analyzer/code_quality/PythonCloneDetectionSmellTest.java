@@ -47,4 +47,56 @@ public class PythonCloneDetectionSmellTest extends AbstractCloneDetectionSmellTe
         var findings = analyze("pkg/a.py", a, "pkg/b.py", b, strictWeights);
         assertTrue(findings.isEmpty());
     }
+
+    @Test
+    void treatsExtraLoggingAsEquivalentClone() {
+        String a =
+                """
+                def alpha(value):
+                    total = value + 2
+                    if total > 20:
+                        return total * 3
+                    return total - 4
+                """;
+        String b =
+                """
+                def beta(seed):
+                    print(seed)
+                    amount = seed + 2
+                    if amount > 20:
+                        print(amount)
+                        return amount * 3
+                    print(amount - 4)
+                    return amount - 4
+                """;
+        var lenient = new IAnalyzer.CloneSmellWeights(12, 55, 2, 3, 70);
+        var findings = analyze("pkg/a.py", a, "pkg/b.py", b, lenient);
+        assertTrue(findings.stream()
+                .anyMatch(f -> f.enclosingFqName().contains("alpha")
+                        && f.peerEnclosingFqName().contains("beta")));
+    }
+
+    @Test
+    void astRefinementSuppressesDifferentControlFlow() {
+        String a =
+                """
+                def alpha(value):
+                    total = value + 2
+                    if total > 20:
+                        return total * 3
+                    return total - 4
+                """;
+        String b =
+                """
+                def beta(seed):
+                    amount = seed + 2
+                    while amount > 20:
+                        amount = amount - 1
+                    amount = amount * 3
+                    return amount
+                """;
+        var strict = new IAnalyzer.CloneSmellWeights(12, 50, 2, 3, 85);
+        var findings = analyze("pkg/a.py", a, "pkg/b.py", b, strict);
+        assertTrue(findings.isEmpty());
+    }
 }
