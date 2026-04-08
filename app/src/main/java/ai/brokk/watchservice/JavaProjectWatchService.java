@@ -29,7 +29,6 @@ public class JavaProjectWatchService extends AbstractWatchService {
 
     private volatile boolean running = true;
     private volatile int pauseCount = 0;
-    @Nullable private volatile Thread watcherThread;
 
     /**
      * Create a LegacyProjectWatchService with multiple listeners.
@@ -42,11 +41,10 @@ public class JavaProjectWatchService extends AbstractWatchService {
 
     @Override
     public void start(CompletableFuture<?> delayNotificationsUntilCompleted) {
-        var t = new Thread(
+        Thread watcherThread = new Thread(
                 () -> watch(delayNotificationsUntilCompleted),
                 "DirectoryWatcher@" + Long.toHexString(Thread.currentThread().threadId()));
-        this.watcherThread = t;
-        t.start();
+        watcherThread.start();
     }
 
     private void watch(CompletableFuture<?> delayNotificationsUntilCompleted) {
@@ -336,24 +334,10 @@ public class JavaProjectWatchService extends AbstractWatchService {
     }
 
     @Override
-    public void close() {
-        Thread t;
-        synchronized (this) {
-            running = false;
-            pauseCount = 0; // Ensure any waiting thread is woken up to exit
-            notifyAll();
-            t = watcherThread;
-        }
-        // Interrupt and join outside the synchronized block to avoid holding the monitor while waiting.
-        // The interrupt wakes the thread from WatchService.poll() so it exits promptly.
-        if (t != null) {
-            t.interrupt();
-            try {
-                t.join(5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
+    public synchronized void close() {
+        running = false;
+        pauseCount = 0; // Ensure any waiting thread is woken up to exit
+        notifyAll();
     }
 
     /**
