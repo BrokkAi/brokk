@@ -1,5 +1,6 @@
 import re
 import subprocess
+from pathlib import Path
 
 from brokk_code.git_utils import (
     _generate_worktree_name,
@@ -77,6 +78,19 @@ def test_worktree_flag_in_parser():
 
     args_default, _ = parser.parse_known_args([])
     assert args_default.worktree is False
+
+
+def test_worktree_preserves_relative_subdirectory_workspace():
+    """Nested workspaces should map to the same relative path in the worktree."""
+    from brokk_code.__main__ import _resolve_worktree_workspace_path
+
+    repo_root = Path("/repo")
+    workspace_path = repo_root / "nested" / "workspace"
+    worktree_path = Path("/repo/.brokk/worktrees/pure-bold-arch")
+
+    assert _resolve_worktree_workspace_path(workspace_path, repo_root, worktree_path) == (
+        worktree_path / "nested" / "workspace"
+    )
 
 
 def test_worktree_has_changes_clean(tmp_path):

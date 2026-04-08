@@ -1876,6 +1876,17 @@ async def run_headless_job(
 _NON_WORKSPACE_COMMANDS = {"install", "provider", "version", "logout", "login"}
 
 
+def _resolve_worktree_workspace_path(
+    workspace_path: Path, repo_root: Path, worktree_path: Path
+) -> Path:
+    """Map the selected workspace into the corresponding location inside a worktree."""
+    try:
+        relative_workspace = workspace_path.relative_to(repo_root)
+    except ValueError:
+        return worktree_path
+    return worktree_path / relative_workspace
+
+
 def main():
     parser = _build_parser()
     args, unknown = parser.parse_known_args()
@@ -1893,7 +1904,8 @@ def main():
 
         repo_root = resolve_workspace_dir(workspace_path)
         with worktree_context(repo_root) as wt_path:
-            _main_dispatch(args, wt_path, jar_path, unknown)
+            wt_workspace = _resolve_worktree_workspace_path(workspace_path, repo_root, wt_path)
+            _main_dispatch(args, wt_workspace, jar_path, unknown)
     else:
         _main_dispatch(args, workspace_path, jar_path, unknown)
 
