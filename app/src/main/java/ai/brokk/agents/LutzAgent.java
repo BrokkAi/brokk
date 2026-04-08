@@ -17,6 +17,7 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.executor.agents.ParallelCustomAgent;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcpclient.McpUtils;
@@ -277,6 +278,9 @@ public class LutzAgent {
             tools.add("callMcpTool");
         }
 
+        // Custom agents
+        tools.add("callCustomAgent");
+
         // Filter out analyzer-required tools at the very end
         return WorkspaceTools.filterByAnalyzerAvailability(tools, project);
     }
@@ -514,13 +518,18 @@ public class LutzAgent {
         return new SetupContextResult(preparedContext, referencedFragments);
     }
 
-    private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider, ParallelSearch parallelSearch) {
+    private ToolRegistry createToolRegistry(
+            WorkspaceTools wst,
+            Object toolProvider,
+            ParallelSearch parallelSearch,
+            ParallelCustomAgent parallelCustomAgent) {
         var builder = cm.getToolRegistry()
                 .builder()
                 .register(searchTools)
                 .register(wst)
                 .register(toolProvider)
-                .register(parallelSearch);
+                .register(parallelSearch)
+                .register(parallelCustomAgent);
         if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(new DependencyTools(cm));
         }
@@ -770,6 +779,7 @@ public class LutzAgent {
         private final List<ChatMessage> sessionMessages;
 
         private final ParallelSearch parallelSearch;
+        private final ParallelCustomAgent parallelCustomAgent;
         private final ToolRegistry tr;
 
         private SingleTurnAgent(
@@ -788,7 +798,8 @@ public class LutzAgent {
 
             this.parallelSearch =
                     new ParallelSearch(context.forSearchAgent(), agent.goal, agent.delegatedSearchModel());
-            this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch);
+            this.parallelCustomAgent = new ParallelCustomAgent(agent.cm, agent.model);
+            this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch, parallelCustomAgent);
         }
 
         private TurnOutcome executeTurn() throws InterruptedException {
@@ -996,7 +1007,23 @@ public class LutzAgent {
 
             var searchPartition = ToolRegistry.partitionByNames(primaryCalls, Set.of("callSearchAgent"));
             var searchAgentReqs = searchPartition.matchingRequests();
-            var otherPrimaryCalls = searchPartition.otherRequests();
+            var customAgentPartition =
+                    ToolRegistry.partitionByNames(searchPartition.otherRequests(), Set.of("callCustomAgent"));
+
+            // Split custom agent requests into read-only (parallel-eligible) and mutating (sequential)
+            var readOnlyCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
+            var otherPrimaryCalls = new ArrayList<>(customAgentPartition.otherRequests());
+            for (var req : customAgentPartition.matchingRequests()) {
+                var agentName = ParallelCustomAgent.extractAgentName(req, tr);
+                var agentDef = agentName != null
+                        ? agent.cm.getAgentStore().get(agentName).orElse(null)
+                        : null;
+                if (agentDef != null && agentDef.isReadOnly(agent.cm.getProject())) {
+                    readOnlyCustomAgentReqs.add(req);
+                } else {
+                    otherPrimaryCalls.add(req);
+                }
+            }
 
             for (var req : otherPrimaryCalls) {
                 ToolExecutionResult toolResult = executeTool(req);
@@ -1039,6 +1066,22 @@ public class LutzAgent {
 
                 executedNonHygiene = true;
                 nonHygieneToolCalls.add("callSearchAgent");
+            }
+
+            // Handle read-only custom agent requests in parallel
+            if (!readOnlyCustomAgentReqs.isEmpty()) {
+                var customResult = parallelCustomAgent.execute(readOnlyCustomAgentReqs, tr);
+                if (customResult.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
+                    return new TurnOutcome.Final(agent.errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.LLM_ERROR,
+                                    customResult.stopDetails().explanation()),
+                            context));
+                }
+                sessionMessages.addAll(customResult.toolExecutionMessages());
+
+                executedNonHygiene = true;
+                nonHygieneToolCalls.add("callCustomAgent");
             }
 
             boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;

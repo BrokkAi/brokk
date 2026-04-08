@@ -28,6 +28,7 @@ import ai.brokk.context.ContextFragments.PathFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
 import ai.brokk.exception.GlobalExceptionHandler;
+import ai.brokk.executor.agents.AgentStore;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
@@ -170,6 +171,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final ExceptionReporter exceptionReporter;
 
     private final ToolRegistry toolRegistry;
+    private final AgentStore agentStore;
 
     // Current session tracking
     private UUID currentSessionId;
@@ -274,6 +276,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .register(new GitTools(this))
                 .register(new ShellTools(this))
                 .build();
+
+        // set up layered agent store (project-level overrides user-level)
+        var projectAgentsDir = project.getRoot().resolve(".brokk").resolve("agents");
+        var userAgentsDir = Path.of(System.getProperty("user.home"), ".brokk", "agents");
+        this.agentStore = new AgentStore(projectAgentsDir, userAgentsDir);
 
         // dummy ConsoleIO until Chrome is constructed; necessary because Chrome starts submitting background tasks
         // immediately during construction, which means our own reference to it will still be null
@@ -2816,6 +2823,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public ToolRegistry getToolRegistry() {
         return toolRegistry;
+    }
+
+    @Override
+    public AgentStore getAgentStore() {
+        return agentStore;
     }
 
     /**

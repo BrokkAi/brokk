@@ -9,6 +9,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -20,9 +21,12 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.lib.AnyObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
+import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.FileTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
@@ -317,11 +321,8 @@ public class GitRepoData {
                 diffFormatter.setRepository(repository);
                 diffFormatter.setDetectRenames(true);
 
-                var newTreeIter = prepareTreeParser(newRef);
-                if (newTreeIter == null) return List.of();
-                return diffFormatter.scan(oldTreeIter, newTreeIter);
-            } catch (IOException e) {
-                throw new GitRepo.GitWrappedIOException(e);
+                return scanWithFallback(
+                        diffFormatter, () -> prepareTreeParser(oldRef), () -> prepareTreeParser(newRef), "scanDiffs");
             }
         }
 
@@ -332,12 +333,17 @@ public class GitRepoData {
         var changedPaths = new HashSet<String>();
 
         // Part 1: Paths changed between oldRef and HEAD (if they differ)
-        var headTreeIter = prepareTreeParser("HEAD");
-        if (headTreeIter != null && !oldRef.equals("HEAD")) {
+        if (!oldRef.equals("HEAD")) {
             try (var diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
                 diffFormatter.setRepository(repository);
                 diffFormatter.setDetectRenames(true);
-                for (var entry : diffFormatter.scan(oldTreeIter, headTreeIter)) {
+                List<DiffEntry> diffs = scanWithFallback(
+                        diffFormatter,
+                        () -> prepareTreeParser(oldRef),
+                        () -> prepareTreeParser("HEAD"),
+                        "Part 1 scanDiffs");
+
+                for (var entry : diffs) {
                     if (!"/dev/null".equals(entry.getOldPath())) {
                         changedPaths.add(entry.getOldPath());
                     }
@@ -345,8 +351,6 @@ public class GitRepoData {
                         changedPaths.add(entry.getNewPath());
                     }
                 }
-            } catch (IOException e) {
-                throw new GitRepo.GitWrappedIOException(e);
             }
             // Re-prepare oldTreeIter since DiffFormatter consumed it
             oldTreeIter = prepareTreeParser(oldRef);
@@ -374,10 +378,12 @@ public class GitRepoData {
             diffFormatter.setRepository(repository);
             diffFormatter.setDetectRenames(true);
             diffFormatter.setPathFilter(filterGroup);
-            var workingTreeIter = new FileTreeIterator(repository);
-            return diffFormatter.scan(oldTreeIter, workingTreeIter);
-        } catch (IOException e) {
-            throw new GitRepo.GitWrappedIOException(e);
+
+            return scanWithFallback(
+                    diffFormatter,
+                    () -> prepareTreeParser(oldRef),
+                    () -> new FileTreeIterator(repository),
+                    "Part 3 scanDiffs");
         }
     }
 
@@ -446,6 +452,91 @@ public class GitRepoData {
             logger.debug("File {} not found at ref {}, treating as empty", file, ref);
             return "";
         }
+    }
+
+    @FunctionalInterface
+    interface TreeIteratorSupplier {
+        @Nullable
+        AbstractTreeIterator get() throws IOException, GitAPIException;
+    }
+
+    /**
+     * Executes {@link DiffFormatter#scan} with a fallback that disables rename detection if a missing object is encountered.
+     */
+    static List<DiffEntry> scanWithFallback(
+            DiffFormatter df, @Nullable AnyObjectId oldTree, AnyObjectId newTree, String context) throws IOException {
+        boolean wasDetectRenames = df.isDetectRenames();
+        try {
+            return df.scan(oldTree, newTree);
+        } catch (Exception e) {
+            if (GitRepo.isMissingObjectException(e)) {
+                logger.trace("Missing object during {} scan; falling back by disabling rename detection.", context);
+                df.setDetectRenames(false);
+                try {
+                    return df.scan(oldTree, newTree);
+                } catch (Exception ex) {
+                    if (GitRepo.isMissingObjectException(ex)) {
+                        logger.warn("Fallback scan failed in {}: {}", context, ex.getMessage());
+                        return Collections.emptyList();
+                    }
+                    if (ex instanceof IOException io) throw io;
+                    throw new RuntimeException(ex);
+                }
+            }
+            if (e instanceof IOException io) throw io;
+            throw new RuntimeException(e);
+        } finally {
+            df.setDetectRenames(wasDetectRenames);
+        }
+    }
+
+    /**
+     * Executes {@link DiffFormatter#scan} with a fallback that disables rename detection if a missing object is encountered.
+     * Uses suppliers to recreate iterators for the retry because they are consumed by the first scan attempt.
+     */
+    static List<DiffEntry> scanWithFallback(
+            DiffFormatter df, TreeIteratorSupplier oldTreeProv, TreeIteratorSupplier newTreeProv, String context)
+            throws GitAPIException {
+        boolean wasDetectRenames = df.isDetectRenames();
+        try {
+            AbstractTreeIterator oldTree = oldTreeProv.get();
+            AbstractTreeIterator newTree = newTreeProv.get();
+            if (oldTree == null && newTree == null) return List.of();
+
+            return df.scan(orEmpty(oldTree), orEmpty(newTree));
+        } catch (Exception e) {
+            if (GitRepo.isMissingObjectException(e)) {
+                logger.trace("Missing object during {} scan; falling back by disabling rename detection.", context);
+                df.setDetectRenames(false);
+                try {
+                    AbstractTreeIterator oldTree = oldTreeProv.get();
+                    AbstractTreeIterator newTree = newTreeProv.get();
+                    if (oldTree == null && newTree == null) return List.of();
+
+                    return df.scan(orEmpty(oldTree), orEmpty(newTree));
+                } catch (Exception ex) {
+                    if (GitRepo.isMissingObjectException(ex)) {
+                        logger.warn("Fallback scan failed in {}: {}", context, ex.getMessage());
+                        return Collections.emptyList();
+                    }
+                    throw wrapException(context, ex);
+                }
+            }
+            throw wrapException(context, e);
+        } finally {
+            df.setDetectRenames(wasDetectRenames);
+        }
+    }
+
+    private static AbstractTreeIterator orEmpty(@Nullable AbstractTreeIterator it) {
+        return it != null ? it : new EmptyTreeIterator();
+    }
+
+    private static RuntimeException wrapException(String context, Exception e) throws GitAPIException {
+        if (e instanceof GitAPIException gae) throw gae;
+        if (e instanceof IOException io) throw new GitRepo.GitWrappedIOException("Scan failed in " + context, io);
+        if (e instanceof RuntimeException re) throw re;
+        return new RuntimeException(e);
     }
 
     /** Prepares an AbstractTreeIterator for the given commit-ish string. */

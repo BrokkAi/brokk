@@ -8,6 +8,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.executor.agents.AgentStore;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -325,6 +326,10 @@ public interface IContextManager {
     default void addFiles(Collection<ProjectFile> path) {}
 
     default IProject getProject() {
+        throw new UnsupportedOperationException();
+    }
+
+    default AgentStore getAgentStore() {
         throw new UnsupportedOperationException();
     }
 

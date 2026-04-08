@@ -22,6 +22,7 @@ public class TestAnalyzer
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
+    private final Map<CodeUnit, Integer> complexityMap = new HashMap<>();
     private final Map<CodeUnit, String> skeletons = new HashMap<>();
     private final Map<CodeUnit, String> sources = new HashMap<>();
     private final Map<ProjectFile, List<ImportInfo>> importInfoByFile = new HashMap<>();
@@ -235,6 +236,15 @@ public class TestAnalyzer
     @Override
     public List<CodeUnit> getDirectChildren(CodeUnit cu) {
         return List.of();
+    }
+
+    @Override
+    public int computeCyclomaticComplexity(CodeUnit cu) {
+        return complexityMap.getOrDefault(cu, IAnalyzer.super.computeCyclomaticComplexity(cu));
+    }
+
+    public void setComplexity(CodeUnit cu, int complexity) {
+        this.complexityMap.put(cu, complexity);
     }
 
     @Override

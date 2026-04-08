@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Integration test for ExceptionReporter that makes real HTTP calls to the staging server. This test is disabled by
@@ -35,6 +36,9 @@ import org.junit.jupiter.api.Test;
  */
 @Disabled("Integration test that requires staging server - run manually when needed")
 class ExceptionReporterIntegrationTest {
+
+    @TempDir
+    private Path tempDir;
 
     private Service service;
     private String originalBrokkKey;
@@ -63,7 +67,7 @@ class ExceptionReporterIntegrationTest {
         MainProject.setBrokkKey(stagingApiKey);
 
         // Create a minimal mock project for testing
-        var mockProject = new TestProject(Path.of(System.getProperty("java.io.tmpdir")));
+        var mockProject = new TestProject(tempDir);
         service = new Service(mockProject);
 
         System.out.println("✓ Test setup complete");

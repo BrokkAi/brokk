@@ -145,6 +145,7 @@ dependencies {
     implementation(libs.java.diff.utils)
     implementation(libs.jackson.databind)
     implementation(libs.jackson.smile)
+    implementation(libs.jackson.yaml)
     implementation(libs.jackson.jq)
     implementation(libs.lz4)
     implementation(libs.jspecify)
@@ -169,6 +170,9 @@ dependencies {
 
     // JGit and SSH
     implementation(libs.bundles.git)
+
+    // Shared analyzer, git, concurrent, and utility code
+    api(project(":brokk-shared"))
 
     // TreeSitter parsers
     implementation(project(":treesitter-provider"))
@@ -765,6 +769,17 @@ tasks.register<JavaExec>("runHeadlessCli") {
     description = "Runs the HeadlessExecCli"
     mainClass.set("ai.brokk.tools.HeadlessExecCli")
     classpath = sourceSets.main.get().runtimeClasspath
+}
+
+tasks.register<JavaExec>("runSftServer") {
+    group = "application"
+    description = "Runs the SftServer"
+    mainClass.set("ai.brokk.tools.SftServer")
+    classpath = sourceSets.main.get().runtimeClasspath
+    systemProperty("java.awt.headless", "true")
+    if (project.hasProperty("args")) {
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
+    }
 }
 
 tasks.register<JavaExec>("runSkeletonPrinter") {
