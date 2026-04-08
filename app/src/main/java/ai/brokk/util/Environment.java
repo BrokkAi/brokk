@@ -721,8 +721,16 @@ public class Environment {
         });
     }
 
-    private boolean isSystemTrayNotificationSupported() {
-        return !isMacOs() && SystemTray.isSupported();
+    boolean isSystemTrayNotificationSupported() {
+        // Only enable AWT SystemTray on platforms we explicitly intend to support (only Windows atm).
+        if (!isWindows()) return false;
+        try {
+            // sometimes also windows does not support it (i.e. headless)
+            return SystemTray.isSupported();
+        } catch (RuntimeException | Error e) {
+            logger.info("SystemTray not available; falling back", e);
+            return false;
+        }
     }
 
     private void sendLinuxNotification(String message) throws IOException {
@@ -730,12 +738,18 @@ public class Environment {
     }
 
     private synchronized void sendSystemTrayNotification(String message) {
-        assert SystemTray.isSupported(); // caller is responsible for checking
+        // Be defensive: ensure SystemTray notifications are only used on explicitly supported platforms.
+        // Callers should check isSystemTrayNotificationSupported(), but guard here as well to avoid crashes.
+        assert isSystemTrayNotificationSupported(); // caller is responsible for checking
+
+        if (!isSystemTrayNotificationSupported()) {
+            // If we somehow reached here on an unsupported platform, log and skip tray usage.
+            logger.info("SystemTray notifications are not supported on this platform; skipping tray notification.");
+            return;
+        }
 
         if (this.brokkTrayIcon == null) {
-            // Check if SystemTray is supported before attempting to get it.
-            // isSystemTrayNotificationSupported() already checks SystemTray.isSupported()
-            // but this method could theoretically be called directly.
+            // At this point SystemTray is supported on this platform, so interacting with it is allowed.
             SystemTray tray = SystemTray.getSystemTray();
             var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
             if (iconUrl == null) {
