@@ -254,6 +254,7 @@ _SKILLS: dict[str, str] = {
 # File writing helpers
 # ---------------------------------------------------------------------------
 
+
 def _atomic_write_json(path: Path, data: dict) -> None:
     text = json.dumps(data, indent=2) + "\n"
     with tempfile.NamedTemporaryFile(
@@ -281,6 +282,7 @@ def _write_text(path: Path, content: str) -> None:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def install_plugin(
     *,

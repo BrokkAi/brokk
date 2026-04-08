@@ -374,14 +374,10 @@ def test_build_jbang_mcp_core_command_defaults_to_bundled_version() -> None:
         executor_version=None,
     )
 
-    assert any(
-        f"brokk-core-{mcp_launcher.BUNDLED_EXECUTOR_VERSION}.jar" in arg for arg in command
-    )
+    assert any(f"brokk-core-{mcp_launcher.BUNDLED_EXECUTOR_VERSION}.jar" in arg for arg in command)
 
 
-def test_run_mcp_core_server_execs_direct_java_with_explicit_jar(
-    monkeypatch, tmp_path
-) -> None:
+def test_run_mcp_core_server_execs_direct_java_with_explicit_jar(monkeypatch, tmp_path) -> None:
     captured: dict[str, object] = {}
     dummy_jar = tmp_path / "brokk-core.jar"
     dummy_jar.write_text("dummy")
@@ -440,9 +436,7 @@ def test_run_mcp_core_server_falls_back_to_jbang(monkeypatch, tmp_path) -> None:
     assert any("brokk-core-0.99.0.jar" in arg for arg in command)
 
 
-def test_run_mcp_core_server_passthrough_args_with_jbang_separator(
-    monkeypatch, tmp_path
-) -> None:
+def test_run_mcp_core_server_passthrough_args_with_jbang_separator(monkeypatch, tmp_path) -> None:
     captured: dict[str, object] = {}
 
     def fake_execvpe(binary: str, command: list[str], env: dict[str, str]) -> None:
