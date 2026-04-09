@@ -215,6 +215,10 @@ public class FileAnalysisAccumulator {
         return hasBody.getOrDefault(cu, defaultValue);
     }
 
+    public boolean getIsTypeAlias(CodeUnit cu, boolean defaultValue) {
+        return isTypeAlias.getOrDefault(cu, defaultValue);
+    }
+
     /**
      * Returns a view of the children for the given CodeUnit.
      */
@@ -254,6 +258,34 @@ public class FileAnalysisAccumulator {
                 }
             }
         }
+    }
+
+    public FileAnalysisAccumulator moveTopLevelToChild(CodeUnit child, CodeUnit parent) {
+        if (parent.equals(child)) {
+            log.warn(
+                    "Ignoring self-parent move for {} kind={} source={}",
+                    parent.fqName(),
+                    parent.kind(),
+                    parent.source());
+            return this;
+        }
+
+        topLevelCUs.remove(child);
+
+        CodeUnit existingParent = childToParent.get(child);
+        if (existingParent != null && !existingParent.equals(parent)) {
+            Set<CodeUnit> siblings = children.get(existingParent);
+            if (siblings != null) {
+                siblings.remove(child);
+            }
+        }
+
+        // Intentionally append moved children after any children already attached to the parent.
+        // Go post-processing uses this to standardize receiver-method ordering instead of reconstructing
+        // mixed before/after-type source order.
+        children.computeIfAbsent(parent, k -> new LinkedHashSet<>()).add(child);
+        childToParent.put(child, parent);
+        return this;
     }
 
     public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {
