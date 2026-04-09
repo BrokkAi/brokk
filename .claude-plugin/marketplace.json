@@ -1,0 +1,14 @@
+{
+  "name": "brokk-marketplace",
+  "owner": {
+    "name": "Brokk AI",
+    "email": "support@brokk.ai"
+  },
+  "plugins": [
+    {
+      "name": "brokk",
+      "source": "./claude-plugin",
+      "description": "Semantic code intelligence -- symbol navigation, cross-reference analysis, and structural code understanding powered by tree-sitter"
+    }
+  ]
+}
