@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -18,7 +20,7 @@ def _plugin_manifest() -> dict:
             "powered by tree-sitter"
         ),
         "version": __version__,
-        "author": "Brokk AI",
+        "author": {"name": "Brokk AI"},
         "license": "Apache-2.0",
         "homepage": "https://github.com/BrokkAI/brokk",
         "keywords": [
@@ -32,11 +34,9 @@ def _plugin_manifest() -> dict:
 
 def _mcp_config(uvx_command: str) -> dict:
     return {
-        "mcpServers": {
-            "brokk": {
-                "command": uvx_command,
-                "args": ["brokk", "mcp-core"],
-            }
+        "brokk": {
+            "command": uvx_command,
+            "args": ["brokk", "mcp-core"],
         }
     }
 
@@ -285,35 +285,95 @@ def _write_text(path: Path, content: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def install_plugin(
-    *,
-    plugin_path: Path | None = None,
-    uvx_command: str = "uvx",
-    force: bool = False,
-) -> tuple[Path, bool]:
-    """Create the Claude Code plugin directory structure at ~/.claude/plugins/brokk/.
+_MARKETPLACE_NAME = "brokk-local"
 
-    Returns a tuple of (plugin root directory, whether this was a reinstall).
-    Raises ExistingBrokkCodeEntryError if the plugin already exists and force is False.
+
+def _marketplace_manifest() -> dict:
+    return {
+        "name": _MARKETPLACE_NAME,
+        "owner": {"name": "Brokk AI"},
+        "plugins": [
+            {
+                "name": _PLUGIN_DIR_NAME,
+                "source": f"./plugins/{_PLUGIN_DIR_NAME}",
+                "description": _plugin_manifest()["description"],
+            }
+        ],
+    }
+
+
+def _build_marketplace(
+    marketplace_root: Path,
+    uvx_command: str,
+) -> Path:
+    """Build the local marketplace directory structure.
+
+    Returns the plugin directory within the marketplace.
     """
-    root = plugin_path or (Path.home() / ".claude" / "plugins" / _PLUGIN_DIR_NAME)
-    is_reinstall = root.exists()
-    if is_reinstall and not force:
-        raise ExistingBrokkCodeEntryError(f"{root} already exists; use --force to overwrite it")
-    root.mkdir(parents=True, exist_ok=True)
+    # Marketplace manifest
+    market_meta = marketplace_root / _PLUGIN_META_DIR
+    market_meta.mkdir(parents=True, exist_ok=True)
+    _atomic_write_json(market_meta / "marketplace.json", _marketplace_manifest())
+
+    # Plugin inside the marketplace
+    plugin_root = marketplace_root / "plugins" / _PLUGIN_DIR_NAME
+    plugin_root.mkdir(parents=True, exist_ok=True)
 
     # Plugin manifest
-    meta_dir = root / _PLUGIN_META_DIR
-    meta_dir.mkdir(parents=True, exist_ok=True)
-    _atomic_write_json(meta_dir / "plugin.json", _plugin_manifest())
+    plugin_meta = plugin_root / _PLUGIN_META_DIR
+    plugin_meta.mkdir(parents=True, exist_ok=True)
+    _atomic_write_json(plugin_meta / "plugin.json", _plugin_manifest())
 
     # MCP server config
-    _atomic_write_json(root / ".mcp.json", _mcp_config(uvx_command))
+    _atomic_write_json(plugin_root / ".mcp.json", _mcp_config(uvx_command))
 
     # Skills
     for skill_name, skill_content in _SKILLS.items():
-        skill_dir = root / skill_name
+        skill_dir = plugin_root / "skills" / skill_name
         skill_dir.mkdir(parents=True, exist_ok=True)
         _write_text(skill_dir / "SKILL.md", skill_content)
 
+    return plugin_root
+
+
+def install_plugin(
+    *,
+    marketplace_path: Path | None = None,
+    uvx_command: str = "uvx",
+    force: bool = False,
+) -> tuple[Path, bool]:
+    """Create a local marketplace with the Brokk plugin and register it with Claude Code.
+
+    Returns a tuple of (marketplace root directory, whether this was a reinstall).
+    Raises ExistingBrokkCodeEntryError if the marketplace already exists and force is False.
+    """
+    root = marketplace_path or (
+        Path.home() / ".claude" / "plugins" / f"{_PLUGIN_DIR_NAME}-marketplace"
+    )
+    is_reinstall = root.exists()
+    if is_reinstall and not force:
+        raise ExistingBrokkCodeEntryError(f"{root} already exists; use --force to overwrite it")
+
+    _build_marketplace(root, uvx_command)
+
+    # Register the marketplace and install the plugin via the Claude CLI
+    claude_bin = shutil.which("claude")
+    if claude_bin:
+        _register_via_cli(claude_bin, root, force=force)
+
     return root, is_reinstall
+
+
+def _register_via_cli(claude_bin: str, marketplace_root: Path, *, force: bool) -> None:
+    """Use the claude CLI to add the marketplace and install the plugin."""
+    plugin_id = f"{_PLUGIN_DIR_NAME}@{_MARKETPLACE_NAME}"
+
+    # Add or update the marketplace
+    subprocess.run(
+        [claude_bin, "plugin", "marketplace", "add", str(marketplace_root)],
+        check=False,
+    )
+
+    # Install the plugin
+    cmd = [claude_bin, "plugin", "install", plugin_id]
+    subprocess.run(cmd, check=False)
