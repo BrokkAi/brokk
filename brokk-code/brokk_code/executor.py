@@ -19,7 +19,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.3.beta6"
+BUNDLED_EXECUTOR_VERSION = "0.23.3.beta7"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
