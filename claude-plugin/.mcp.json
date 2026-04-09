@@ -1,0 +1,9 @@
+{
+  "brokk": {
+    "command": "uvx",
+    "args": [
+      "brokk",
+      "mcp-core"
+    ]
+  }
+}

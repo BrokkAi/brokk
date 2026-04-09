@@ -1,0 +1,16 @@
+{
+  "name": "brokk",
+  "description": "Semantic code intelligence -- symbol navigation, cross-reference analysis, and structural code understanding powered by tree-sitter",
+  "version": "0.1.0",
+  "author": {
+    "name": "Brokk AI"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/BrokkAI/brokk",
+  "keywords": [
+    "code-intelligence",
+    "tree-sitter",
+    "code-navigation",
+    "semantic-search"
+  ]
+}
