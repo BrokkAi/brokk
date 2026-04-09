@@ -6,7 +6,7 @@
   "publisher": "brokk",
   "icon": "icon.png",
   "homepage": "https://brokk.ai",
-  "license": "Apache-2.0",
+  "license": "GPL-3.0-only",
   "engines": {
     "vscode": "^1.106.0"
   },

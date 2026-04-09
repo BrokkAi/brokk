@@ -209,4 +209,4 @@ For building from source, JVM heap tuning, headless executor CLI usage, contribu
 
 ## License
 
-Brokk is open source under the terms of the [LICENSE](LICENSE.txt) file in this repository.
+Brokk is licensed under the [GNU General Public License v3.0](LICENSE.txt).
