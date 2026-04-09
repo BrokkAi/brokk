@@ -36,7 +36,6 @@ from brokk_code.mcp_config import (
 from brokk_code.mcp_launcher import run_mcp_core_server, run_mcp_server
 from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
 from brokk_code.nvim_init_patch import wire_nvim_plugin_setup
-from brokk_code.plugin_config import install_plugin
 from brokk_code.settings import (
     Settings,
     get_brokk_properties_path,
@@ -912,7 +911,7 @@ def _build_parser() -> argparse.ArgumentParser:
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
-        choices=["zed", "intellij", "nvim", "neovim", "mcp", "plugin"],
+        choices=["zed", "intellij", "nvim", "neovim", "mcp"],
         help="Install target for integration settings",
     )
     install_parser.add_argument(
@@ -2151,14 +2150,6 @@ def _main_dispatch(
                     f"Installed Codex MCP summaries skill in {codex_sum_skill}",
                     f"Installed Claude MCP workspace skill in {claude_ws_skill}",
                     f"Installed Claude MCP summaries skill in {claude_sum_skill}",
-                ]
-            elif args.target == "plugin":
-                plugin_root, was_reinstall = install_plugin(
-                    force=args.force, uvx_command=uvx_command
-                )
-                verb = "Updated existing" if was_reinstall else "Installed"
-                messages = [
-                    f"{verb} Claude Code plugin in {plugin_root}",
                 ]
             else:
                 # Should not happen due to argparse choices
