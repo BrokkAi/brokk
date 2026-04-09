@@ -68,6 +68,20 @@ jobs:
           echo "jar_name=$(basename "$DEST_JAR")" >> $GITHUB_OUTPUT
           echo "Found JAR: $(basename "$DEST_JAR")"
 
+      - name: Get brokk-core JAR filename
+        id: core-jar
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SRC_JAR=$(find brokk-core/build/libs -name "brokk-core-*.jar" | head -1)
+          DEST_JAR="brokk-core/build/libs/brokk-core-${VERSION}.jar"
+          if [ "$SRC_JAR" != "$DEST_JAR" ]; then
+            cp "$SRC_JAR" "$DEST_JAR"
+            echo "Renamed $(basename "$SRC_JAR") -> $(basename "$DEST_JAR")"
+          fi
+          echo "jar_file=$DEST_JAR" >> $GITHUB_OUTPUT
+          echo "jar_name=$(basename "$DEST_JAR")" >> $GITHUB_OUTPUT
+          echo "Found brokk-core JAR: $(basename "$DEST_JAR")"
+
       - name: Create GitHub Release and Upload Asset
         uses: softprops/action-gh-release@v2
         with:
@@ -75,7 +89,9 @@ jobs:
           name: Release ${{ steps.version.outputs.version }}
           draft: false
           prerelease: false
-          files: ${{ steps.jar.outputs.jar_file }}
+          files: |
+            ${{ steps.jar.outputs.jar_file }}
+            ${{ steps.core-jar.outputs.jar_file }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload build artifacts
@@ -86,6 +102,9 @@ jobs:
             app/build/libs/*.jar
             !app/build/libs/*-sources.jar
             !app/build/libs/*-javadoc.jar
+            brokk-core/build/libs/*.jar
+            !brokk-core/build/libs/*-sources.jar
+            !brokk-core/build/libs/*-javadoc.jar
           retention-days: 90
 
       - name: Update package.json with JAR name
@@ -98,7 +117,7 @@ jobs:
           github_token: ${{ secrets.BROKK_RELEASES_TOKEN }}
           target_repository: 'BrokkAi/brokk-releases'
 
-      - name: Upload JAR to brokk-releases
+      - name: Upload JARs to brokk-releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
@@ -106,7 +125,9 @@ jobs:
           repository: BrokkAi/brokk-releases
           draft: false
           prerelease: false
-          files: ${{ steps.jar.outputs.jar_file }}
+          files: |
+            ${{ steps.jar.outputs.jar_file }}
+            ${{ steps.core-jar.outputs.jar_file }}
           token: ${{ secrets.BROKK_RELEASES_TOKEN }}
 
       - name: Update jbang catalog in brokk-releases
