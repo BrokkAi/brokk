@@ -33,7 +33,7 @@ from brokk_code.mcp_config import (
     install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
-from brokk_code.mcp_launcher import run_mcp_server
+from brokk_code.mcp_launcher import run_mcp_core_server, run_mcp_server
 from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
 from brokk_code.nvim_init_patch import wire_nvim_plugin_setup
 from brokk_code.settings import (
@@ -902,6 +902,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     mcp_parser = subparsers.add_parser("mcp", help="Run in MCP server mode", add_help=False)
     _add_common_runtime_args(mcp_parser)
+
+    mcp_core_parser = subparsers.add_parser(
+        "mcp-core", help="Run in MCP core (read-only) server mode", add_help=False
+    )
+    _add_common_runtime_args(mcp_core_parser)
 
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
@@ -1891,12 +1896,19 @@ def main():
     parser = _build_parser()
     args, unknown = parser.parse_known_args()
 
-    if unknown and args.command != "mcp":
+    if unknown and args.command not in ("mcp", "mcp-core"):
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     # Resolve paths early so they are available to all commands
     workspace_path = Path(args.workspace).resolve()
     jar_path = Path(args.jar).resolve() if args.jar else None
+
+    if jar_path is not None and args.command == "mcp-core" and "brokk-core" not in jar_path.name:
+        print(
+            "Warning: The specified jar doesn't appear to be a brokk-core jar."
+            " Expected a jar containing 'brokk-core' in the filename.",
+            file=sys.stderr,
+        )
 
     use_worktree = getattr(args, "worktree", False) and args.command not in _NON_WORKSPACE_COMMANDS
     if use_worktree:
@@ -2288,6 +2300,15 @@ def _main_dispatch(
 
     if args.command == "mcp":
         run_mcp_server(
+            workspace_dir=workspace_path,
+            jar_path=jar_path,
+            executor_version=args.executor_version,
+            passthrough_args=unknown,
+        )
+        return
+
+    if args.command == "mcp-core":
+        run_mcp_core_server(
             workspace_dir=workspace_path,
             jar_path=jar_path,
             executor_version=args.executor_version,

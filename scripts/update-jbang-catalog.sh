@@ -88,8 +88,9 @@ fi
 echo "Updating JBang catalog for version $VERSION..."
 echo "Using repository for releases: $REPO_SLUG"
 
-# Create the new JAR URL
+# Create the new JAR URLs
 JAR_URL="https://github.com/${REPO_SLUG}/releases/download/${VERSION}/brokk-${VERSION}.jar"
+CORE_JAR_URL="https://github.com/${REPO_SLUG}/releases/download/${VERSION}/brokk-core-${VERSION}.jar"
 
 # Check if the JAR URL exists (HEAD request only - no download)
 echo "Verifying JAR exists at: $JAR_URL"
@@ -106,6 +107,18 @@ if [ "$HTTP_STATUS" != "200" ]; then
 fi
 
 echo "OK: JAR confirmed to exist at $JAR_URL"
+
+# Check if the brokk-core JAR URL exists
+echo "Verifying brokk-core JAR exists at: $CORE_JAR_URL"
+CORE_HTTP_STATUS=$(curl -s -I -L --max-time 10 -w "%{http_code}" -o /dev/null "$CORE_JAR_URL" 2>/dev/null || echo "000")
+
+if [ "$CORE_HTTP_STATUS" != "200" ]; then
+    echo "Warning: brokk-core JAR not found at $CORE_JAR_URL (HTTP status: $CORE_HTTP_STATUS)"
+    echo "brokk-core alias will not be updated"
+    CORE_JAR_URL=""
+else
+    echo "OK: brokk-core JAR confirmed to exist at $CORE_JAR_URL"
+fi
 
 # Create new entry for this version
 NEW_ENTRY=$(jq -n --arg version "brokk-$VERSION" --arg url "$JAR_URL" '{
@@ -152,7 +165,7 @@ done
 
 
 # Process the catalog: update main aliases, keep the most recent N-1 other versions
-jq --arg url "$JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REPO_SLUG" --argjson versions_to_keep "$(echo "$VERSIONS_TO_KEEP" | jq -R -s 'split("\n") | map(select(length > 0))')" '
+jq --arg url "$JAR_URL" --arg core_url "$CORE_JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REPO_SLUG" --argjson versions_to_keep "$(echo "$VERSIONS_TO_KEEP" | jq -R -s 'split("\n") | map(select(length > 0))')" '
     # Update main brokk alias to point to new version
     .aliases.brokk."script-ref" = $url |
     .aliases.brokk."main" = "ai.brokk.cli.BrokkCli" |
@@ -163,6 +176,13 @@ jq --arg url "$JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REP
     .aliases."brokk-headless"."java" = "21" |
     .aliases."brokk-headless"."main" = "ai.brokk.executor.HeadlessExecutorMain" |
     .aliases."brokk-headless"."java-options" = ["--enable-native-access=ALL-UNNAMED"] |
+    # Create brokk-core alias (if core JAR URL is available)
+    (if $core_url != "" then
+        .aliases."brokk-core"."script-ref" = $core_url |
+        .aliases."brokk-core"."java" = "21" |
+        .aliases."brokk-core"."main" = "ai.brokk.mcpserver.BrokkCoreMcpServer" |
+        .aliases."brokk-core"."java-options" = ["--enable-native-access=ALL-UNNAMED"]
+    else . end) |
     # Create version aliases for the versions we want to keep
     ($versions_to_keep | map({
         key: ("brokk-" + .),
@@ -173,8 +193,8 @@ jq --arg url "$JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REP
             "java-options": ["--enable-native-access=ALL-UNNAMED"]
         }
     }) | from_entries) as $version_aliases |
-    # Rebuild the aliases object
-    .aliases = ({"brokk": .aliases.brokk, "brokk-headless": .aliases."brokk-headless"} + $version_aliases)
+    # Rebuild the aliases object (preserve brokk-core if it exists)
+    .aliases = ({"brokk": .aliases.brokk, "brokk-headless": .aliases."brokk-headless"} + (if .aliases."brokk-core" then {"brokk-core": .aliases."brokk-core"} else {} end) + $version_aliases)
 ' "$CATALOG_FILE" > "${CATALOG_FILE}.tmp"
 
 # Move the updated file back

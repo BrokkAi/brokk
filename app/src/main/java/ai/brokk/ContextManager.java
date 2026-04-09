@@ -270,8 +270,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Initialize exception reporter with lazy service access
         this.exceptionReporter = new ExceptionReporter(this.serviceProvider::get);
 
-        // set up global tools
-        this.toolRegistry = ToolRegistry.empty()
+        // Global tools: base must include builtins registered only on the root ToolRegistry (e.g. think).
+        // CustomAgentExecutor and other code build registries from this via builder(); an empty base omits think
+        // and breaks custom agents that list it in their tool allowlist.
+        this.toolRegistry = new ToolRegistry()
                 .builder()
                 .register(new GitTools(this))
                 .register(new ShellTools(this))
