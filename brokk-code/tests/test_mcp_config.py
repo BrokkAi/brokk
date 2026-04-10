@@ -328,6 +328,7 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, 
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest_data["name"] == "brokk"
     assert manifest_data["skills"] == "./skills/"
+    assert manifest_data["mcpServers"] == "./.mcp.json"
 
     mcp_data = json.loads(mcp_path.read_text(encoding="utf-8"))
     assert mcp_data["brokk"]["command"] == "uvx"

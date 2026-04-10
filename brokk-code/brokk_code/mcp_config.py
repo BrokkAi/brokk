@@ -875,6 +875,7 @@ def _build_codex_plugin_manifest() -> dict[str, Any]:
         ),
         "version": "0.1.0",
         "skills": "./skills/",
+        "mcpServers": "./.mcp.json",
         "author": {
             "name": "Brokk AI",
         },
