@@ -331,8 +331,9 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, 
     assert manifest_data["mcpServers"] == "./.mcp.json"
 
     mcp_data = json.loads(mcp_path.read_text(encoding="utf-8"))
-    assert mcp_data["brokk"]["command"] == "uvx"
-    assert mcp_data["brokk"]["args"] == ["brokk", "mcp-core"]
+    assert mcp_data["mcpServers"]["brokk"]["type"] == "stdio"
+    assert mcp_data["mcpServers"]["brokk"]["command"] == "uvx"
+    assert mcp_data["mcpServers"]["brokk"]["args"] == ["brokk", "mcp-core"]
 
     marketplace_data = json.loads(marketplace_path.read_text(encoding="utf-8"))
     assert marketplace_data["name"] == "brokk-local"

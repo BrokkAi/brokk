@@ -892,9 +892,12 @@ def _build_codex_plugin_manifest() -> dict[str, Any]:
 
 def _build_codex_plugin_mcp_config(uvx_command: str) -> dict[str, Any]:
     return {
-        _SERVER_NAME: {
-            "command": uvx_command,
-            "args": ["brokk", "mcp-core"],
+        "mcpServers": {
+            _SERVER_NAME: {
+                "type": "stdio",
+                "command": uvx_command,
+                "args": ["brokk", "mcp-core"],
+            }
         }
     }
 
