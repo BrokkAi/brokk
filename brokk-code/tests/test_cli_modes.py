@@ -910,6 +910,36 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     assert any("MCP runtime" in str(cmd[0]) for cmd in prefetched["commands"])
 
 
+def test_main_install_codex_plugin_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_install_codex_local_plugin(*, force: bool = False, uvx_command: Any = None):
+        captured["force"] = force
+        captured["uvx_command"] = uvx_command
+        return SimpleNamespace(
+            plugin_path=tmp_path / ".codex" / "plugins" / "brokk",
+            marketplace_path=tmp_path / ".agents" / "plugins" / "marketplace.json",
+        )
+
+    monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/local/bin/uv")
+    monkeypatch.setattr(
+        main_module,
+        "ensure_jbang_ready",
+        lambda: (_ for _ in ()).throw(AssertionError("jbang should not be required")),
+    )
+    monkeypatch.setattr(main_module, "install_codex_local_plugin", fake_install_codex_local_plugin)
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "codex-plugin", "--force"])
+
+    main_module.main()
+
+    output = capsys.readouterr().out
+    assert captured["force"] is True
+    assert captured["uvx_command"] == "/usr/local/bin/uvx"
+    assert "Installed Codex plugin files" in output
+    assert "Updated Codex marketplace" in output
+    assert "Restart Codex" in output
+
+
 def test_main_uses_git_repo_root_for_nested_workspace(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
     fake_app_module = ModuleType("brokk_code.app")

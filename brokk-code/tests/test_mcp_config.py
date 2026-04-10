@@ -8,6 +8,7 @@ from brokk_code.mcp_config import (
     configure_codex_mcp_settings,
     install_claude_mcp_summaries_skill,
     install_claude_mcp_workspace_skill,
+    install_codex_local_plugin,
     install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
@@ -303,6 +304,98 @@ def test_install_claude_mcp_summaries_skill_creates_expected_skill(monkeypatch, 
     assert "name: brokk-get-file-summaries" in content
     assert "getFileSummaries" in content
     assert "class skeletons" in content
+
+
+def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    install_result = install_codex_local_plugin()
+
+    plugin_dir = tmp_path / ".codex" / "plugins" / "brokk"
+    marketplace_path = tmp_path / ".agents" / "plugins" / "marketplace.json"
+    manifest_path = plugin_dir / ".codex-plugin" / "plugin.json"
+    mcp_path = plugin_dir / ".mcp.json"
+    workspace_skill = plugin_dir / "skills" / "workspace" / "SKILL.md"
+    review_skill = plugin_dir / "skills" / "review-pr" / "SKILL.md"
+
+    assert install_result.plugin_path == plugin_dir
+    assert install_result.marketplace_path == marketplace_path
+    assert manifest_path.exists()
+    assert mcp_path.exists()
+    assert workspace_skill.exists()
+    assert review_skill.exists()
+
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest_data["name"] == "brokk"
+    assert manifest_data["skills"] == "./skills/"
+
+    mcp_data = json.loads(mcp_path.read_text(encoding="utf-8"))
+    assert mcp_data["brokk"]["command"] == "uvx"
+    assert mcp_data["brokk"]["args"] == ["brokk", "mcp-core"]
+
+    marketplace_data = json.loads(marketplace_path.read_text(encoding="utf-8"))
+    assert marketplace_data["name"] == "brokk-local"
+    assert marketplace_data["plugins"][0]["name"] == "brokk"
+    assert marketplace_data["plugins"][0]["source"]["source"] == "local"
+    assert marketplace_data["plugins"][0]["source"]["path"] == "./.codex/plugins/brokk"
+    assert marketplace_data["plugins"][0]["interface"]["displayName"] == "Brokk"
+
+    review_content = review_skill.read_text(encoding="utf-8")
+    assert "name: brokk-review-pr" in review_content
+    assert "security-reviewer" in review_content
+    assert "architect-reviewer" in review_content
+    assert "Embedded Reviewer Prompts" in review_content
+
+
+def test_install_codex_local_plugin_preserves_existing_marketplace_entries(tmp_path) -> None:
+    plugin_dir = tmp_path / ".codex" / "plugins" / "brokk"
+    marketplace_path = tmp_path / ".agents" / "plugins" / "marketplace.json"
+    marketplace_path.parent.mkdir(parents=True)
+    marketplace_path.write_text(
+        json.dumps(
+            {
+                "name": "custom-marketplace",
+                "plugins": [
+                    {
+                        "name": "other-plugin",
+                        "source": {"source": "local", "path": "./plugins/other-plugin"},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    install_codex_local_plugin(plugin_path=plugin_dir, marketplace_path=marketplace_path)
+
+    marketplace_data = json.loads(marketplace_path.read_text(encoding="utf-8"))
+    assert marketplace_data["name"] == "custom-marketplace"
+    assert [plugin["name"] for plugin in marketplace_data["plugins"]] == [
+        "other-plugin",
+        "brokk",
+    ]
+
+
+def test_install_codex_local_plugin_rejects_conflicting_marketplace_entry(tmp_path) -> None:
+    plugin_dir = tmp_path / ".codex" / "plugins" / "brokk"
+    marketplace_path = tmp_path / ".agents" / "plugins" / "marketplace.json"
+    marketplace_path.parent.mkdir(parents=True)
+    marketplace_path.write_text(
+        json.dumps(
+            {
+                "plugins": [
+                    {
+                        "name": "brokk",
+                        "source": {"source": "local", "path": "./plugins/somewhere-else"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ExistingBrokkCodeEntryError):
+        install_codex_local_plugin(plugin_path=plugin_dir, marketplace_path=marketplace_path)
 
 
 def test_configure_codex_mcp_settings_recovers_malformed_delimiters(tmp_path, monkeypatch):

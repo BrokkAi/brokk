@@ -30,6 +30,7 @@ from brokk_code.mcp_config import (
     configure_codex_mcp_settings,
     install_claude_mcp_summaries_skill,
     install_claude_mcp_workspace_skill,
+    install_codex_local_plugin,
     install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
@@ -911,7 +912,7 @@ def _build_parser() -> argparse.ArgumentParser:
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
-        choices=["zed", "intellij", "nvim", "neovim", "mcp"],
+        choices=["zed", "intellij", "nvim", "neovim", "mcp", "codex-plugin"],
         help="Install target for integration settings",
     )
     install_parser.add_argument(
@@ -1960,9 +1961,11 @@ def _main_dispatch(
         try:
             uv_binary = ensure_uv_ready()
             uvx_command = str(Path(uv_binary).parent / "uvx")
-            jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
-            if args.verbose and not jbang_binary:
-                jbang_binary = "jbang"
+            jbang_binary: str | None = None
+            if args.target != "codex-plugin":
+                jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
+                if args.verbose and not jbang_binary:
+                    jbang_binary = "jbang"
             if args.target == "zed":
                 _ensure_install_api_key()
                 _ensure_install_github_token(
@@ -2150,6 +2153,19 @@ def _main_dispatch(
                     f"Installed Codex MCP summaries skill in {codex_sum_skill}",
                     f"Installed Claude MCP workspace skill in {claude_ws_skill}",
                     f"Installed Claude MCP summaries skill in {claude_sum_skill}",
+                ]
+            elif args.target == "codex-plugin":
+                install_result = install_codex_local_plugin(
+                    force=args.force,
+                    uvx_command=uvx_command,
+                )
+                messages = [
+                    f"Installed Codex plugin files in {install_result.plugin_path}",
+                    f"Updated Codex marketplace in {install_result.marketplace_path}",
+                    (
+                        "Restart Codex, open the plugin directory, choose the local "
+                        "marketplace, and install Brokk."
+                    ),
                 ]
             else:
                 # Should not happen due to argparse choices
