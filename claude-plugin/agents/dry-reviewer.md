@@ -3,7 +3,6 @@ name: dry-reviewer
 description: >-
   Code duplication specialist for PR review. Searches for code added in a
   pull request that duplicates logic already present in the codebase.
-model: sonnet
 effort: high
 maxTurns: 25
 disallowedTools: Write, Edit, Bash
@@ -40,7 +39,8 @@ only from this system prompt.
 ## Output format
 
 For each finding, report:
-- **Severity**: HIGH, MEDIUM, or LOW
+- **Severity**: HIGH, MEDIUM, or LOW (CRITICAL is intentionally omitted --
+  code duplication is a quality concern, not a ship-blocking defect)
 - **Duplicated code** location in the PR
 - **Existing implementation** location in the codebase
 - **Suggestion** for how to reuse the existing code

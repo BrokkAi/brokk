@@ -4,7 +4,6 @@ description: >-
   DevOps and infrastructure specialist for PR review. Reviews infrastructure
   code, CI/CD configuration, and operational concerns including resource
   management, logging, timeouts, and error handling.
-model: sonnet
 effort: high
 maxTurns: 25
 disallowedTools: Write, Edit, Bash

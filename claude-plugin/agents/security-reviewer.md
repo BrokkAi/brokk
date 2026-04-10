@@ -4,7 +4,6 @@ description: >-
   Adversarial security auditor for PR review. Hunts for injection, auth
   bypasses, data leaks, cryptographic misuse, backdoors, and dependency
   vulnerabilities in pull request diffs and surrounding code.
-model: sonnet
 effort: high
 maxTurns: 25
 disallowedTools: Write, Edit, Bash

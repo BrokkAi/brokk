@@ -4,7 +4,6 @@ description: >-
   Senior developer performing intent-verification review. Verifies that
   pull request code changes match the stated description, catches smuggled
   changes, scope creep, incomplete refactors, and missing tests.
-model: sonnet
 effort: high
 maxTurns: 25
 disallowedTools: Write, Edit, Bash

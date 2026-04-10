@@ -25,6 +25,10 @@ Before spawning agents, collect everything they will need.
 
 ### If a PR number is provided (e.g. `/review-pr 123`)
 
+First verify `gh` is available by running `gh --version`. If it is not
+installed, tell the user to install it from https://cli.github.com/ and
+authenticate with `gh auth login`.
+
 ```bash
 gh pr view 123 --json title,body,baseRefName,headRefName,files
 gh pr diff 123
@@ -35,7 +39,10 @@ gh pr diff 123
 Detect the default branch and diff against it:
 
 ```bash
-DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+if [ -z "$DEFAULT_BRANCH" ]; then
+  DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | sed 's/.*: //')
+fi
 git diff "$DEFAULT_BRANCH"...HEAD
 git log "$DEFAULT_BRANCH"..HEAD --oneline
 ```
@@ -67,16 +74,17 @@ tool calls. Each agent prompt MUST include:
 - The list of changed files
 - An instruction to use Brokk MCP tools for deep analysis beyond the diff
 
-The following agents are defined in `claude-plugin/agents/` and should each
-be spawned as a sub-agent:
+Spawn each of the following plugin agents **by name** using the `Agent` tool
+(e.g., `Agent` with `description: "Security review"` and the agent's name as
+the subagent). Pass the PR context as the agent's task prompt.
 
-| Agent | File | Focus |
-|-------|------|-------|
-| Security Reviewer | `security-reviewer.md` | Injection, auth bypass, data leaks, backdoors, CVEs |
-| DRY Reviewer | `dry-reviewer.md` | Code duplication, reimplemented functionality |
-| Senior Dev Reviewer | `senior-dev-reviewer.md` | Intent verification, smuggled changes, missing tests |
-| DevOps Reviewer | `devops-reviewer.md` | Infrastructure, CI/CD, operational concerns |
-| Architect Reviewer | `architect-reviewer.md` | Coupling, cohesion, SOLID, design patterns |
+| Agent Name | Focus |
+|------------|-------|
+| `security-reviewer` | Injection, auth bypass, data leaks, backdoors, CVEs |
+| `dry-reviewer` | Code duplication, reimplemented functionality |
+| `senior-dev-reviewer` | Intent verification, smuggled changes, missing tests |
+| `devops-reviewer` | Infrastructure, CI/CD, operational concerns |
+| `architect-reviewer` | Coupling, cohesion, SOLID, design patterns |
 
 ## Step 3 -- Consolidate the Report
 

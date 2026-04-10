@@ -4,7 +4,6 @@ description: >-
   Software architect evaluating code quality and design in PR review.
   Assesses coupling, cohesion, SOLID principles, abstraction levels,
   and consistency with existing codebase patterns.
-model: sonnet
 effort: high
 maxTurns: 25
 disallowedTools: Write, Edit, Bash
