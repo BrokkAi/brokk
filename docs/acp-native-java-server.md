@@ -91,7 +91,8 @@ The mapping is nearly 1:1:
 | IConsoleIO method | ACP equivalent |
 |---|---|
 | `llmOutput(token, type, meta)` | `context.sendMessage(text)` or `context.sendThought(text)` (choose based on `meta.isReasoning`) |
-| `beforeToolCall(request)` | `session/update` with tool_call (status: pending, includes toolName, args, destructive flag) |
+| `beforeToolCall(request, destructive)` | `session/request_permission` for approval (maps `ApprovalResult.APPROVED`/`DENIED` to allow/reject), then `session/update` with tool_call (status: pending, includes toolName, args, destructive flag) |
+| `beforeShellCommand(command)` | `session/request_permission` for shell execution approval, same `ApprovalResult` mapping |
 | `afterToolOutput(result)` | `session/update` with tool_call_update (status: completed/failed, includes resultText, elapsed) |
 | `showConfirmDialog(...)` | `session/request_permission` (blocks until client responds) |
 | `toolError(msg, title)` | `context.sendMessage(errorText)` formatted as markdown error block |
@@ -99,8 +100,19 @@ The mapping is nearly 1:1:
 | `setTaskInProgress(bool)` | Implicit in prompt turn lifecycle |
 | GUI-only methods (`updateGitRepo`, `disableActionButtons`, etc.) | no-op |
 
+`beforeToolCall` and `beforeShellCommand` are the primary permission-seeking
+methods -- the tools layer calls these, not `showConfirmDialog`, for most
+operations. `session/request_permission` is the unified ACP mechanism for all
+three.
+
 Everything downstream of IConsoleIO (Llm, CodeAgent, LutzAgent, ArchitectAgent,
 tools, etc.) is untouched.
+
+**Concurrency invariant**: `session/prompt` is serialized -- one prompt at a
+time per session. This matches the existing `JobRunner` single-thread model
+(`Executors.newSingleThreadExecutor`) and is required for the `setIo` swap
+pattern to be safe. `ContextManager.setIo()` is not synchronized, so concurrent
+prompt handling would corrupt the active console reference.
 
 ### Confirm dialogs become real permissions
 
@@ -115,8 +127,15 @@ The ACP spec defines four permission option kinds:
 - `reject_once` -- deny this specific invocation
 - `reject_always` -- deny all future invocations of this tool
 
-This enables fine-grained control over destructive operations (git reset, drop all
-context, shell commands) that were previously auto-approved in headless mode.
+**Scoping**: `allow_always` and `reject_always` must be scoped per-tool-name (or
+per-tool-category at most). A user granting `allow_always` for a file edit must
+not inadvertently auto-approve `git reset --hard` or `rm -rf`. The implementation
+must maintain a per-session permission cache keyed by tool name. Destructive
+operations (git reset, drop all context, shell commands with side effects) should
+be classified separately and require their own explicit `allow_always` grant.
+
+This enables fine-grained control over destructive operations that were previously
+auto-approved in headless mode.
 
 ### All configuration uses SessionConfigOption
 
@@ -155,6 +174,17 @@ _brokk/completions          - file/symbol completions (for @mention autocomplete
 _brokk/costs                - session cost breakdown
 _brokk/context/updated      - (notification) agent tells client context changed
 ```
+
+**Input validation**: `BrokkExtensionHandlers` must replicate the path validation
+logic from `ContextRouter.handlePostContextFiles` for `add_files`, `add_classes`,
+and `add_methods`. Specifically: reject absolute paths, normalize relative paths,
+verify workspace containment (`!absolutePath.startsWith(root)`), and verify the
+path resolves to a regular file. ACP messages come from an editor client that
+could be compromised or misbehaving -- treat all paths as untrusted input.
+
+**Destructive extensions**: `drop_all` and `clear` destroy state and should be
+routed through `session/request_permission` (or at minimum require confirmation)
+to prevent a misbehaving client from issuing these in a loop.
 
 The Java agent advertises these during `initialize` via `_meta` in
 `agentCapabilities`:
@@ -208,6 +238,55 @@ via `session/update` notifications (`user_message_chunk` and
 `BrokkAcpAgent.@LoadSession` reads the conversation history from ContextManager's
 task history and streams each entry back as the appropriate message type.
 
+### Logging must avoid stdout
+
+With stdio transport, stdout is exclusively reserved for JSON-RPC responses. Any
+log4j output, `System.out.println`, or stray print statement on stdout will
+corrupt the protocol stream and crash the client. This is a well-known pitfall
+with stdio-based protocols (LSP, MCP, ACP).
+
+**Requirements**:
+1. `AcpServerMain` must configure log4j to write exclusively to stderr (or to a
+   file via `--log-file` argument)
+2. All `System.out` usage in the startup path must be eliminated or redirected
+3. Libraries that write to stdout must be audited or their output redirected
+4. Consider a log4j appender that writes to stderr by default, with an optional
+   `--log-file <path>` argument for production deployments
+
+This constraint affects `AcpServerMain`, `BrokkAcpAgent`, and potentially any
+library code that writes to stdout.
+
+### Process lifecycle and shutdown
+
+The existing `HeadlessExecutorMain` has a sophisticated shutdown strategy:
+stdin-EOF monitoring as a parent-death signal, shutdown hooks for SIGTERM, and
+graceful JobRunner shutdown with a 5-second timeout. `AcpServerMain` must
+replicate these concerns.
+
+**Requirements**:
+1. **stdin EOF**: When the parent editor process dies, stdin closes. The ACP SDK's
+   `StdioAcpAgentTransport` may handle this internally -- verify and document. If
+   not, add explicit stdin-EOF monitoring as `HeadlessExecutorMain` does
+2. **SIGTERM/SIGINT**: Register a shutdown hook that gracefully shuts down
+   JobRunner, ContextManager, and any active analyzer processes with a timeout
+3. **Graceful timeout**: Allow up to 5 seconds for in-flight jobs to complete
+   before forcing shutdown, matching the current behavior
+4. **Orphan prevention**: Without explicit lifecycle handling, orphaned Java
+   processes could accumulate when editors crash or connections are interrupted
+
+### Readiness signaling
+
+The current `HeadlessExecutorMain` exposes `/health/live` and `/health/ready`
+HTTP endpoints. Clients poll these to verify the executor is operational before
+sending requests. With stdio transport, there is no HTTP equivalent.
+
+**Strategy**: The process does not read from stdin until fully initialized
+(implicit backpressure). The ACP `initialize` response serves as the readiness
+signal -- clients should not expect a response until the JVM, ContextManager, and
+analyzers are ready. If startup latency is a concern, consider writing a startup
+sentinel to stderr (e.g., `BROKK_READY`) that clients can watch for before
+sending `initialize`.
+
 ### File I/O and terminal execution
 
 The agents currently do their own file I/O and command execution directly.
@@ -215,6 +294,21 @@ Initially, keep this -- ACP's `fs/*` and `terminal/*` methods are optional
 capabilities, not requirements. Adopt them incrementally later for specific
 operations where editor mediation adds value (e.g., showing diffs in the editor,
 routing build output through `terminal/*`).
+
+### JobRunner integration
+
+`JobRunner` is currently tightly coupled to `HeadlessHttpConsole` -- it creates a
+`HeadlessHttpConsole` instance, uses `JobStore` for HTTP event persistence, and
+manages job status transitions. The ACP agent does not need the HTTP event
+streaming that `JobStore` provides (events go directly via `session/update`
+JSON-RPC notifications).
+
+**Approach**: Refactor `JobRunner` to accept any `IConsoleIO` instead of creating
+its own `HeadlessHttpConsole`. The `@Prompt` handler constructs an `AcpConsoleIO`,
+passes it to `JobRunner`, and `JobRunner` uses it for all output. `JobStore` event
+persistence becomes optional -- still useful for crash recovery and session reload,
+but the ACP transport handles real-time streaming. This is analogous to how
+`BrokkExternalMcpServer.callCodeAgent` already bypasses the HTTP console path.
 
 ### JobStore is kept as internal infrastructure
 
@@ -242,30 +336,36 @@ Goal: prove the architecture works end-to-end with a minimal ACP agent.
    - `showConfirmDialog()` -> `session/request_permission` with allow_once/reject_once options
    - `showNotification()` -> `context.sendMessage(text)` with formatting
    - GUI-only methods (`updateGitRepo`, `disableActionButtons`, etc.) -> no-op
-3. Create `BrokkAcpAgent` Java class (annotation-based, using the SDK):
+3. Create `BrokkAcpAgent` Java class (annotation-based, using the SDK) for
+   protocol lifecycle:
    - `@Initialize` -- return capabilities, agent info, advertise `_brokk/*` via `_meta`
    - `@NewSession` -- create session via ContextManager, return config options (mode, model, reasoning as `SessionConfigOption` selects), advertise slash commands
    - `@LoadSession` -- switch session via ContextManager, replay conversation history via `session/update` notifications (user_message_chunk, agent_message_chunk)
    - `@ListSessions` -- list sessions from ContextManager with cursor-based pagination
+   - `@Cancel` -- cancel active job
+4. Create `BrokkAcpPromptHandler` for prompt execution orchestration:
    - `@Prompt` -- intercept slash commands (`/context`, `/costs`), otherwise create AcpConsoleIO with `SyncPromptContext`, set as active IO, run job via JobRunner
    - `@SetConfigOption` -- handle mode/model/reasoning changes, return full config option list
-   - `@Cancel` -- cancel active job
-   - Custom method handlers for `_brokk/context/*` and `_brokk/completions`
-4. Create `AcpServerMain` entry point:
-   - Parse args: `--workspace-dir`, `--vendor`, `--brokk-api-key`
+   - This separation mirrors the existing `HeadlessExecutorMain` (lifecycle) / `JobRunner` (execution) split and prevents BrokkAcpAgent from becoming a god class
+5. Create `AcpServerMain` entry point:
+   - Parse args: `--workspace-dir`, `--vendor`, `--brokk-api-key`, `--proxy-setting`
+   - `--proxy-setting` accepts BROKK, LOCALHOST, STAGING (same as HeadlessExecutorMain) for LLM proxy routing
+   - Reuse `redactSensitiveArgs()` (or equivalent) before logging -- `--brokk-api-key` must never appear in log output
+   - Configure log4j to write exclusively to stderr (stdout reserved for JSON-RPC)
    - Create `MainProject` from workspace dir
    - Create `ContextManager`, initialize headless mode
-   - Instantiate `BrokkAcpAgent` with the ContextManager
+   - Instantiate `BrokkAcpAgent` and `BrokkAcpPromptHandler` with the ContextManager
    - Create `StdioAcpAgentTransport` and start the agent
+   - Register shutdown hook for graceful JobRunner/ContextManager shutdown (5s timeout)
    - Much simpler than `HeadlessExecutorMain` -- no HTTP server, no port allocation, no auth tokens
-5. Test directly with an ACP client (Zed or the SDK's `AcpClient.sync()` test harness)
-6. The existing Python ACP server continues working in parallel -- nothing breaks
+6. Test directly with an ACP client (Zed or the SDK's `AcpClient.sync()` test harness)
+7. The existing Python ACP server continues working in parallel -- nothing breaks
 
 The SDK offers three API styles (annotation-based, sync builder, async/Reactor).
 Use annotation-based (`@AcpAgent`, `@Initialize`, `@Prompt`, etc.) as it has
 the least boilerplate and matches this codebase's style.
 
-### Phase 2: brokk-code migrates to the Java ACP agent
+### Phase 2a: brokk-code migrates to the Java ACP agent
 
 Goal: brokk-code talks to the Java ACP server instead of the HTTP REST API.
 
@@ -281,6 +381,22 @@ Goal: brokk-code talks to the Java ACP server instead of the HTTP REST API.
 6. Verify session management (create, load, list, switch, rename, delete)
 7. Verify model/mode/reasoning config option flow
 
+### Phase 2b: brokk-vscode migrates to the Java ACP agent
+
+Goal: the VS Code extension talks to the Java ACP server instead of
+HeadlessExecutorMain over HTTP REST.
+
+`brokk-vscode/src/executor/lifecycle.ts` directly spawns `HeadlessExecutorMain`
+and communicates via HTTP REST. This is a separate client from brokk-code and
+must be migrated before Phase 3 can safely delete `HeadlessExecutorMain`.
+
+1. Update `lifecycle.ts` to spawn `AcpServerMain` instead of `HeadlessExecutorMain`
+2. Replace HTTP REST communication with ACP JSON-RPC over stdio
+3. Update VS Code extension's executor management to use ACP client SDK
+4. Port context operations, completions, and cost display to `_brokk/*` extensions
+5. Verify the full VS Code extension workflow end-to-end
+6. Phase 3 deletion is gated on both brokk-code AND brokk-vscode being migrated
+
 ### Phase 3: Remove the old infrastructure
 
 Goal: delete the code that's no longer needed.
@@ -291,7 +407,9 @@ Goal: delete the code that's no longer needed.
 4. Delete the Python `acp_server.py` (the `BrokkAcpBridge` and `BrokkAcpAgent` classes)
 5. Simplify `executor.py` / `ExecutorManager` -- it becomes a thin ACP client wrapper
 6. Remove HTTP client dependencies (`httpx`), auth token generation, port management
-7. Update deployment/packaging scripts
+7. Remove or replace the `runHeadlessExecutor` Gradle task in `app/build.gradle.kts` (add `runAcpServer` in Phase 1)
+8. Update `scripts/update-jbang-catalog.sh` to point the `brokk-headless` alias at `AcpServerMain` or remove it
+9. Update deployment/packaging scripts
 
 ### Phase 4: Leverage ACP-native features
 
@@ -320,12 +438,13 @@ Goal: adopt ACP capabilities that weren't available in the old architecture.
 
 | File | Purpose | Est. LOC |
 |---|---|---|
-| `app/.../acp/BrokkAcpAgent.java` | Main agent with @Initialize, @Prompt, etc. | ~400-500 |
+| `app/.../acp/BrokkAcpAgent.java` | Protocol lifecycle: @Initialize, @NewSession, @LoadSession, @ListSessions, @Cancel | ~200-250 |
+| `app/.../acp/BrokkAcpPromptHandler.java` | Prompt execution: @Prompt, @SetConfigOption, slash command interception | ~200-250 |
 | `app/.../acp/AcpConsoleIO.java` | IConsoleIO -> ACP session/update adapter (wraps SyncPromptContext) | ~200-250 |
-| `app/.../acp/AcpServerMain.java` | Entry point (arg parsing, wiring, StdioAcpAgentTransport) | ~100-150 |
-| `app/.../acp/BrokkExtensionHandlers.java` | `_brokk/*` custom method handlers | ~200-300 |
+| `app/.../acp/AcpServerMain.java` | Entry point (arg parsing, logging config, wiring, StdioAcpAgentTransport, shutdown hooks) | ~120-180 |
+| `app/.../acp/BrokkExtensionHandlers.java` | `_brokk/*` custom method handlers (with path validation) | ~200-300 |
 | Tests (unit + integration) | AcpConsoleIO tests, SDK test client integration | ~300-400 |
-| **Total new** | | **~1200-1600** |
+| **Total new** | | **~1220-1630** |
 
 ### Deleted files (Phase 3)
 
@@ -342,7 +461,13 @@ Net: significant reduction in codebase size and complexity.
 
 - [acp java-sdk](https://github.com/agentclientprotocol/java-sdk): `acp-core`, `acp-agent-support`, `acp-annotations`
 - Java 21 (already required by this project)
-- Optional: `acp-websocket-jetty` if HTTP/WebSocket transport is needed later
+- Optional: `acp-websocket-jetty` if HTTP/WebSocket transport is needed later.
+  **Security requirement**: any non-stdio transport MUST include authentication
+  equivalent to the current Bearer token scheme (UUID4 per-instance). Stdio is
+  inherently scoped to the spawning process, but WebSocket/HTTP exposes a network
+  port that any local (or remote) process could connect to. If WebSocket transport
+  is adopted, re-introduce `--auth-token` as a required argument and verify tokens
+  on every request
 
 ## References
 
