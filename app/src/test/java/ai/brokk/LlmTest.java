@@ -1,13 +1,20 @@
 package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.HistoryIo;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.exception.OverthinkingException;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.openai.OpenAiChatResponseMetadata;
+import dev.langchain4j.model.openai.OpenAiTokenUsage;
+import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -118,5 +125,80 @@ public class LlmTest {
         assertEquals(1, requestFiles.size());
         assertTrue(Files.readString(requestFiles.getFirst()).contains("hello"));
         assertEquals(List.of(), responseLogs);
+    }
+
+    @Test
+    void streamingResultFromResponse_preservesUsageForOverthinking() {
+        var tokenUsage = OpenAiTokenUsage.builder()
+                .inputTokenCount(123)
+                .inputTokensDetails(OpenAiTokenUsage.InputTokensDetails.builder()
+                        .cachedTokens(17)
+                        .build())
+                .outputTokenCount(45)
+                .outputTokensDetails(OpenAiTokenUsage.OutputTokensDetails.builder()
+                        .reasoningTokens(29)
+                        .build())
+                .totalTokenCount(168)
+                .build();
+        var response = ChatResponse.builder()
+                .aiMessage(new AiMessage(""))
+                .metadata(OpenAiChatResponseMetadata.builder()
+                        .modelName("test-model")
+                        .tokenUsage(tokenUsage)
+                        .finishReason(FinishReason.LENGTH)
+                        .created(1L)
+                        .build())
+                .build();
+
+        var result = Llm.StreamingResult.fromResponse(response, null, 42L);
+
+        assertTrue(result.error() instanceof OverthinkingException);
+        assertEquals(response, result.originalResponse());
+
+        var metadata = result.metadata();
+        assertNotNull(metadata);
+        assertEquals(123, metadata.inputTokens());
+        assertEquals(17, metadata.cachedInputTokens());
+        assertEquals(29, metadata.thinkingTokens());
+        assertEquals(45, metadata.outputTokens());
+        assertEquals("LENGTH", metadata.finishReason());
+        assertEquals(
+                TaskResult.StopReason.LLM_OVERTHINKING,
+                TaskResult.StopDetails.fromResponse(result).reason());
+    }
+
+    @Test
+    void streamingResultFormatted_includesReasoningForOverthinking() {
+        var response = ChatResponse.builder()
+                .aiMessage(new AiMessage("", "reasoning trace", null, List.of()))
+                .metadata(OpenAiChatResponseMetadata.builder()
+                        .modelName("test-model")
+                        .tokenUsage(OpenAiTokenUsage.builder()
+                                .inputTokenCount(10)
+                                .outputTokenCount(20)
+                                .totalTokenCount(30)
+                                .build())
+                        .finishReason(FinishReason.LENGTH)
+                        .build())
+                .build();
+
+        var result = Llm.StreamingResult.fromResponse(response, null, 42L);
+        var formatted = result.formatted();
+
+        assertTrue(formatted.contains("OverthinkingException"));
+        assertTrue(formatted.contains("## reasoningContent"));
+        assertTrue(formatted.contains("reasoning trace"));
+        assertTrue(formatted.contains("## text"));
+        assertTrue(formatted.contains("## metadata"));
+    }
+
+    @Test
+    void streamingResultFormatted_transportErrorWithoutResponse_staysErrorOnly() {
+        var result = new Llm.StreamingResult((Llm.NullSafeResponse) null, new RuntimeException("boom"), 0, 42L);
+        var formatted = result.formatted();
+
+        assertTrue(formatted.contains("RuntimeException"));
+        assertTrue(formatted.contains("[No response content available]"));
+        assertTrue(!formatted.contains("## reasoningContent"));
     }
 }
