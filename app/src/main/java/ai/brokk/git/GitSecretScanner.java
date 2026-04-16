@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -96,10 +97,11 @@ public class GitSecretScanner {
                 .forEach(key -> accumulator.add(key, SecretLocation.CURRENT, "", ""));
 
         HistoryScanResult history = scanHistory(commitCap, includeLowConfidence);
-        history.keysByCommit()
-                .forEach((commit, keys) -> keys.forEach(key -> {
+        history.commitOrder().forEach((commit, commitIndex) -> history.keysByCommit()
+                .getOrDefault(commit, Set.of())
+                .forEach(key -> {
                     var shortHash = repo.shortHash(commit);
-                    accumulator.add(key, SecretLocation.HISTORY, shortHash, shortHash);
+                    accumulator.add(key, SecretLocation.HISTORY, shortHash, shortHash, commitIndex);
                 }));
 
         var findings = accumulator.findings().stream()
@@ -180,6 +182,7 @@ public class GitSecretScanner {
         }
 
         var tasks = new ArrayList<BlobScanTask>();
+        var commitOrder = new LinkedHashMap<String, Integer>();
         int commitsScanned = 0;
         int missingEntriesSkipped = 0;
         int nonTextEntriesSkipped = 0;
@@ -190,6 +193,7 @@ public class GitSecretScanner {
             walk.markStart(walk.parseCommit(head));
             RevCommit commit;
             while ((commit = walk.next()) != null && commitsScanned < maxCommits) {
+                commitOrder.put(commit.getName(), commitsScanned);
                 commitsScanned++;
                 try (TreeWalk treeWalk = new TreeWalk(repository)) {
                     treeWalk.addTree(commit.getTree());
@@ -212,7 +216,7 @@ public class GitSecretScanner {
             }
         }
 
-        var keysByCommit = new HashMap<String, Set<SecretKey>>();
+        var keysByCommit = new LinkedHashMap<String, Set<SecretKey>>();
         try (LoggingExecutorService executor =
                 ExecutorsUtil.newVirtualThreadExecutor("brokk-secret-scan", SECRET_SCAN_PARALLELISM)) {
             var futures = tasks.stream()
@@ -233,7 +237,8 @@ public class GitSecretScanner {
             }
         }
 
-        return new HistoryScanResult(keysByCommit, commitsScanned, missingEntriesSkipped, nonTextEntriesSkipped);
+        return new HistoryScanResult(
+                keysByCommit, commitOrder, commitsScanned, missingEntriesSkipped, nonTextEntriesSkipped);
     }
 
     private static BlobScanResult scanBlob(Repository repository, BlobScanTask task, boolean includeLowConfidence) {
@@ -483,11 +488,12 @@ public class GitSecretScanner {
 
     private record HistoryScanResult(
             Map<String, Set<SecretKey>> keysByCommit,
+            Map<String, Integer> commitOrder,
             int commitsScanned,
             int missingEntriesSkipped,
             int nonTextEntriesSkipped) {
         static HistoryScanResult EMPTY() {
-            return new HistoryScanResult(Map.of(), 0, 0, 0);
+            return new HistoryScanResult(Map.of(), Map.of(), 0, 0, 0);
         }
     }
 
@@ -495,7 +501,11 @@ public class GitSecretScanner {
         private final Map<SecretKey, MutableSecretFinding> findings = new HashMap<>();
 
         void add(SecretKey key, SecretLocation location, String firstSeen, String lastSeen) {
-            findings.computeIfAbsent(key, MutableSecretFinding::new).add(location, firstSeen, lastSeen);
+            add(key, location, firstSeen, lastSeen, -1);
+        }
+
+        void add(SecretKey key, SecretLocation location, String firstSeen, String lastSeen, int commitIndex) {
+            findings.computeIfAbsent(key, MutableSecretFinding::new).add(location, firstSeen, lastSeen, commitIndex);
         }
 
         List<SecretFinding> findings() {
@@ -511,22 +521,29 @@ public class GitSecretScanner {
         private boolean history;
         private String firstSeenCommit = "";
         private String lastSeenCommit = "";
+        private int firstSeenCommitIndex = Integer.MIN_VALUE;
+        private int lastSeenCommitIndex = Integer.MAX_VALUE;
 
         MutableSecretFinding(SecretKey key) {
             this.key = key;
         }
 
-        void add(SecretLocation location, String firstSeen, String lastSeen) {
+        void add(SecretLocation location, String firstSeen, String lastSeen, int commitIndex) {
             if (location == SecretLocation.CURRENT) {
                 current = true;
                 return;
             }
             history = true;
-            if (!firstSeen.isBlank()) {
-                firstSeenCommit = firstSeen;
+            if (commitIndex < 0) {
+                return;
             }
-            if (!lastSeen.isBlank() && lastSeenCommit.isBlank()) {
+            if (!firstSeen.isBlank() && commitIndex > firstSeenCommitIndex) {
+                firstSeenCommit = firstSeen;
+                firstSeenCommitIndex = commitIndex;
+            }
+            if (!lastSeen.isBlank() && commitIndex < lastSeenCommitIndex) {
                 lastSeenCommit = lastSeen;
+                lastSeenCommitIndex = commitIndex;
             }
         }
 
