@@ -336,6 +336,47 @@ public interface IAnalyzer {
             List<String> reasons,
             String excerpt) {}
 
+    record TestAssertionWeights(
+            int noAssertionWeight,
+            int tautologicalAssertionWeight,
+            int constantTruthWeight,
+            int constantEqualityWeight,
+            int nullnessOnlyWeight,
+            int shallowAssertionOnlyWeight,
+            int overspecifiedLiteralWeight,
+            int anonymousTestDoubleWeight,
+            int repeatedAnonymousTestDoubleWeight,
+            int meaningfulAssertionCredit,
+            int meaningfulAssertionCreditCap,
+            int largeLiteralLengthThreshold) {
+
+        public static TestAssertionWeights defaults() {
+            return new TestAssertionWeights(
+                    5, // Test marker with no assertion-equivalent signal
+                    6, // Self-comparison or otherwise tautological assertion
+                    4, // assertTrue(true), assertFalse(false), etc.
+                    4, // assertEquals(1, 1), assertSame(null, null), etc.
+                    2, // assertNotNull/assertNull as the only assertion signal
+                    2, // Only shallow assertion kinds such as nullness/type checks
+                    2, // Large exact literals are often brittle review candidates
+                    3, // Inline anonymous test double
+                    5, // Repeated anonymous test double shape in the same file
+                    1, // Stronger semantic assertions reduce suspicion
+                    4, // Credit cap for meaningful assertions in one test
+                    120 // Literal length considered large enough to review
+                    );
+        }
+    }
+
+    record TestAssertionSmell(
+            ProjectFile file,
+            String enclosingFqName,
+            String assertionKind,
+            int score,
+            int assertionCount,
+            List<String> reasons,
+            String excerpt) {}
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
@@ -776,6 +817,14 @@ public interface IAnalyzer {
      * Returns suspicious exception handling sites for quality triage. The default implementation is unsupported.
      */
     default List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        return List.of();
+    }
+
+    /**
+     * Returns suspicious low-value or brittle test assertion sites for quality triage.
+     * The default implementation is unsupported.
+     */
+    default List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
         return List.of();
     }
 
