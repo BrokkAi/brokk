@@ -1962,7 +1962,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         TSNode candidate = invocation.getChildByFieldName("object");
         while (candidate != null && METHOD_INVOCATION.equals(candidate.getType())) {
             TSNode nameNode = candidate.getChildByFieldName("name");
-            if (nameNode != null && ASSERT_THAT.equals(sourceContent.substringFrom(nameNode).strip())) {
+            if (nameNode != null
+                    && ASSERT_THAT.equals(sourceContent.substringFrom(nameNode).strip())) {
                 return argumentNodes(candidate).stream().findFirst();
             }
             candidate = candidate.getChildByFieldName("object");
