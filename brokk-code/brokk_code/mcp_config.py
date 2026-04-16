@@ -914,7 +914,9 @@ def _marketplace_root(marketplace_path: Path) -> Path:
 
 def _relative_marketplace_source_path(*, plugin_path: Path, marketplace_path: Path) -> str:
     marketplace_root = _marketplace_root(marketplace_path)
-    relative_path = os.path.relpath(plugin_path, start=marketplace_root)
+    # `os.path.relpath` returns platform-specific separators. Marketplace JSON
+    # expects stable POSIX-style paths, so normalize to forward slashes.
+    relative_path = os.path.relpath(plugin_path, start=marketplace_root).replace("\\", "/")
     if relative_path.startswith("./") or relative_path.startswith("../"):
         return relative_path
     return f"./{relative_path}"
