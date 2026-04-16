@@ -389,7 +389,10 @@ public class GitSecretScanner {
             if (!absolutePath.startsWith(projectRoot)) {
                 return Optional.empty();
             }
-            return Optional.of(projectRoot.relativize(absolutePath).toString());
+            // JGit returns '/'-separated paths, but Path#toString uses OS-specific separators.
+            // Normalize to '/' so scan reports (and tests) are stable across platforms.
+            String rel = projectRoot.relativize(absolutePath).toString();
+            return Optional.of(rel.replace('\\', '/'));
         } catch (IllegalArgumentException e) {
             logger.debug("Skipping unmappable git path {}: {}", gitPath, e.getMessage());
             return Optional.empty();
