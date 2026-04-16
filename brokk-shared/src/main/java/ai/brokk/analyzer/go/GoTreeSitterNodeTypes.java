@@ -11,6 +11,17 @@ public final class GoTreeSitterNodeTypes {
     public static final String METHOD_DECLARATION = CommonTreeSitterNodeTypes.METHOD_DECLARATION;
 
     // ===== GO-SPECIFIC TYPES =====
+    // Control flow / expression nodes (used for assertion heuristics)
+    public static final String IF_STATEMENT = "if_statement";
+    public static final String EXPRESSION = "expression";
+    public static final String BINARY_EXPRESSION = "binary_expression";
+    public static final String CALL_EXPRESSION = "call_expression";
+
+    // Common expression leaf nodes (used for tautology checks)
+    public static final String IDENTIFIER = "identifier";
+    public static final String SELECTOR_EXPRESSION = "selector_expression";
+    public static final String PARENTHESIZED_EXPRESSION = "parenthesized_expression";
+
     // Type definitions
     public static final String STRUCT_TYPE = "struct_type";
     public static final String INTERFACE_TYPE = "interface_type";
@@ -42,6 +53,26 @@ public final class GoTreeSitterNodeTypes {
     public static final String POINTER_TYPE = "pointer_type";
     public static final String QUALIFIED_TYPE = "qualified_type";
     public static final String TYPE_IDENTIFIER = "type_identifier";
+
+    // Literals (best-effort node type names)
+    public static final String STRING_LITERAL = "string_literal";
+    public static final String CHAR_LITERAL = "char_literal";
+    public static final String INTEGER_LITERAL = "integer_literal";
+    public static final String FLOAT_LITERAL = "float_literal";
+    public static final String BOOLEAN_LITERAL = "boolean_literal";
+    public static final String NIL_LITERAL = "nil";
+    public static final String TRUE_LITERAL = "true";
+    public static final String FALSE_LITERAL = "false";
+
+    // ===== Test assertion smell labels (shared string values) =====
+    // These are semantic labels used in IAnalyzer.TestAssertionSmell.
+    public static final String TEST_ASSERTION_KIND_NO_ASSERTIONS = "no-assertions";
+    public static final String TEST_ASSERTION_KIND_CONSTANT_TRUTH = "constant-truth";
+    public static final String TEST_ASSERTION_KIND_CONSTANT_EQUALITY = "constant-equality";
+    public static final String TEST_ASSERTION_KIND_SELF_COMPARISON = "self-comparison";
+    public static final String TEST_ASSERTION_KIND_NULLNESS_ONLY = "nullness-only";
+    public static final String TEST_ASSERTION_KIND_SHALLOW_ONLY = "shallow-assertions-only";
+    public static final String TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL = "overspecified-literal";
 
     public static final String TEST_FUNCTION_PREFIX = "Test";
     public static final String TESTING_T = "testing.T";

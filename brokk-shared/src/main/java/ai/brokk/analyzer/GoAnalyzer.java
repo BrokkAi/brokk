@@ -11,6 +11,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1335,6 +1336,490 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         String lastToken =
                 lastSpace == -1 ? prefix : prefix.substring(lastSpace).trim();
         return "_".equals(lastToken);
+    }
+
+    private record AssertionSignal(
+            String kind,
+            int score,
+            boolean shallow,
+            boolean meaningful,
+            int startByte,
+            List<String> reasons,
+            String excerpt) {}
+
+    private record TestSmellCandidate(TestAssertionSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
+    }
+
+    @Override
+    public List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
+        checkStale("findTestAssertionSmells");
+        if (!containsTests(file)) {
+            return List.of();
+        }
+
+        TestAssertionWeights resolvedWeights = weights != null ? weights : TestAssertionWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file, source -> detectTestAssertionSmells(file, root, source, resolvedWeights), List.of());
+                },
+                List.of());
+    }
+
+    private List<TestAssertionSmell> detectTestAssertionSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
+        List<TSNode> testFunctions = testFunctionsOf(root, sourceContent);
+        if (testFunctions.isEmpty()) {
+            return List.of();
+        }
+
+        var candidates = new ArrayList<TestSmellCandidate>();
+        for (TSNode testFn : testFunctions) {
+            var signals = detectGoAssertionSignals(testFn, sourceContent, weights);
+            int assertionCount = signals.size();
+
+            String enclosing = enclosingCodeUnit(
+                            file,
+                            testFn.getStartPoint().getRow(),
+                            testFn.getEndPoint().getRow())
+                    .map(CodeUnit::fqName)
+                    .orElse(file.toString());
+
+            if (assertionCount == 0) {
+                var smell = new TestAssertionSmell(
+                        file,
+                        enclosing,
+                        TEST_ASSERTION_KIND_NO_ASSERTIONS,
+                        weights.noAssertionWeight(),
+                        0,
+                        List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
+                        sourceContent.substringFrom(testFn));
+                candidates.add(new TestSmellCandidate(smell, testFn.getStartByte()));
+                continue;
+            }
+
+            for (AssertionSignal signal : signals) {
+                if (signal.score() <= 0) continue;
+                candidates.add(new TestSmellCandidate(
+                        new TestAssertionSmell(
+                                file,
+                                enclosing,
+                                signal.kind(),
+                                signal.score(),
+                                assertionCount,
+                                List.copyOf(signal.reasons()),
+                                signal.excerpt()),
+                        signal.startByte()));
+            }
+
+            boolean allShallow = signals.stream().allMatch(AssertionSignal::shallow);
+            if (allShallow) {
+                int score = weights.shallowAssertionOnlyWeight()
+                        - meaningfulAssertionCredit(signals, weights, AssertionSignal::meaningful);
+                if (score > 0) {
+                    var smell = new TestAssertionSmell(
+                            file,
+                            enclosing,
+                            TEST_ASSERTION_KIND_SHALLOW_ONLY,
+                            score,
+                            assertionCount,
+                            List.of(TEST_ASSERTION_KIND_SHALLOW_ONLY),
+                            sourceContent.substringFrom(testFn));
+                    candidates.add(new TestSmellCandidate(smell, testFn.getStartByte()));
+                }
+            }
+        }
+
+        return candidates.stream()
+                .sorted(Comparator.comparingInt(TestSmellCandidate::score)
+                        .reversed()
+                        .thenComparing(c -> c.smell().file().toString())
+                        .thenComparing(c -> c.smell().enclosingFqName())
+                        .thenComparingInt(TestSmellCandidate::startByte))
+                .map(TestSmellCandidate::smell)
+                .toList();
+    }
+
+    private static int meaningfulAssertionCredit(
+            List<AssertionSignal> assertions,
+            TestAssertionWeights weights,
+            java.util.function.Predicate<AssertionSignal> predicate) {
+        long count = assertions.stream().filter(predicate).count();
+        int creditable = Math.min((int) count, Math.max(0, weights.meaningfulAssertionCreditCap()));
+        return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
+    }
+
+    private List<TSNode> testFunctionsOf(TSNode root, SourceContent sourceContent) {
+        // Reuse the same semantic criteria as containsTestMarkers(), but return the matching function nodes.
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    List<TSNode> out = new ArrayList<>();
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, root, sourceContent.text());
+                        TSQueryMatch match = new TSQueryMatch();
+
+                        while (cursor.nextMatch(match)) {
+                            boolean sawTestMarker = false;
+                            TSNode nameNode = null;
+                            TSNode paramsNode = null;
+                            TSNode functionNode = null;
+
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                TSNode node = capture.getNode();
+                                if (node == null) {
+                                    continue;
+                                }
+
+                                switch (captureName) {
+                                    case TEST_MARKER -> {
+                                        sawTestMarker = true;
+                                        functionNode = node;
+                                    }
+                                    case CAPTURE_TEST_CANDIDATE_NAME -> nameNode = node;
+                                    case CAPTURE_TEST_CANDIDATE_PARAMS -> paramsNode = node;
+                                }
+
+                                if (sawTestMarker && nameNode != null && paramsNode != null) {
+                                    break;
+                                }
+                            }
+
+                            if (!sawTestMarker || nameNode == null || paramsNode == null || functionNode == null) {
+                                continue;
+                            }
+
+                            String funcName =
+                                    sourceContent.substringFrom(nameNode).trim();
+                            if (!funcName.startsWith(TEST_FUNCTION_PREFIX)) {
+                                continue;
+                            }
+
+                            TSNode parent = nameNode.getParent();
+                            if (parent != null) {
+                                TSNode typeParams =
+                                        parent.getChildByFieldName(GO_SYNTAX_PROFILE.typeParametersFieldName());
+                                if (typeParams != null) {
+                                    continue;
+                                }
+                            }
+
+                            int totalIdentifierCount = 0;
+                            TSNode firstParamDecl = null;
+                            for (TSNode child : paramsNode.getNamedChildren()) {
+                                if (PARAMETER_DECLARATION.equals(child.getType())) {
+                                    if (firstParamDecl == null) {
+                                        firstParamDecl = child;
+                                    }
+                                    for (TSNode n : child.getNamedChildren()) {
+                                        if ("identifier".equals(n.getType())) {
+                                            totalIdentifierCount++;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (firstParamDecl == null || totalIdentifierCount != 1) {
+                                continue;
+                            }
+
+                            TSNode typeNode = firstParamDecl.getChildByFieldName(FIELD_TYPE);
+                            if (typeNode == null) {
+                                for (TSNode child : firstParamDecl.getNamedChildren()) {
+                                    String type = child.getType();
+                                    if (POINTER_TYPE.equals(type)
+                                            || QUALIFIED_TYPE.equals(type)
+                                            || TYPE_IDENTIFIER.equals(type)) {
+                                        typeNode = child;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (typeNode == null) {
+                                continue;
+                            }
+
+                            String typeText =
+                                    sourceContent.substringFrom(typeNode).trim();
+                            if (TESTING_T.equals(typeText) || POINTER_TESTING_T.equals(typeText)) {
+                                out.add(functionNode);
+                            }
+                        }
+                    }
+                    return out;
+                },
+                List.of());
+    }
+
+    private List<AssertionSignal> detectGoAssertionSignals(
+            TSNode testFn, SourceContent sourceContent, TestAssertionWeights weights) {
+        var ifStatements = new ArrayList<TSNode>();
+        collectNodesByType(testFn, Set.of(IF_STATEMENT), ifStatements);
+        if (ifStatements.isEmpty()) {
+            return List.of();
+        }
+
+        var signals = new ArrayList<AssertionSignal>();
+        for (TSNode ifStmt : ifStatements) {
+            var errorCalls = new ArrayList<TSNode>();
+            collectNodesByType(ifStmt, Set.of(CALL_EXPRESSION), errorCalls);
+            boolean hasErrorCall = false;
+            for (TSNode call : errorCalls) {
+                String callText = sourceContent.substringFrom(call).strip();
+                if (callText.contains("t.Errorf") || callText.contains("t.Fatalf")) {
+                    hasErrorCall = true;
+                    break;
+                }
+            }
+            if (!hasErrorCall) {
+                continue;
+            }
+
+            TSNode condition = ifStmt.getChildByFieldName("condition");
+            if (condition == null) {
+                var condCandidates = new ArrayList<TSNode>();
+                collectNodesByType(ifStmt, Set.of(BINARY_EXPRESSION, EXPRESSION), condCandidates);
+                if (condCandidates.isEmpty()) {
+                    continue;
+                }
+                condition = condCandidates.getFirst();
+            }
+
+            var signal = classifyGoAssertionFromConditionAndMessage(ifStmt, condition, sourceContent, weights);
+            if (signal != null && signal.score() > 0) {
+                signals.add(signal);
+            }
+        }
+
+        return signals;
+    }
+
+    private @Nullable AssertionSignal classifyGoAssertionFromConditionAndMessage(
+            TSNode ifStmt, TSNode condition, SourceContent sourceContent, TestAssertionWeights weights) {
+        int score = 0;
+        boolean shallow = false;
+        boolean meaningful = true;
+        String kind = "";
+        var reasons = new ArrayList<String>();
+
+        TSNode left = condition.getChildByFieldName("left");
+        TSNode right = condition.getChildByFieldName("right");
+        if (left == null || right == null) {
+            var exprs = new ArrayList<TSNode>();
+            collectNodesByType(condition, Set.of(EXPRESSION), exprs);
+            if (exprs.size() >= 2) {
+                left = exprs.getFirst();
+                right = exprs.get(1);
+            }
+        }
+        if (left == null || right == null) {
+            // Can't classify reliably.
+            return null;
+        }
+
+        boolean leftNil = isGoNilExpr(left);
+        boolean rightNil = isGoNilExpr(right);
+        boolean leftConst = isGoConstantExpr(left);
+        boolean rightConst = isGoConstantExpr(right);
+
+        if (leftConst && rightConst) {
+            score += weights.constantEqualityWeight();
+            kind = TEST_ASSERTION_KIND_CONSTANT_EQUALITY;
+            reasons.add(TEST_ASSERTION_KIND_CONSTANT_EQUALITY);
+            meaningful = false;
+        } else if (sameGoExpr(left, right, sourceContent)) {
+            score += weights.tautologicalAssertionWeight();
+            kind = TEST_ASSERTION_KIND_SELF_COMPARISON;
+            reasons.add(TEST_ASSERTION_KIND_SELF_COMPARISON);
+            meaningful = false;
+        } else if (leftNil || rightNil) {
+            score += weights.nullnessOnlyWeight();
+            kind = TEST_ASSERTION_KIND_NULLNESS_ONLY;
+            reasons.add(TEST_ASSERTION_KIND_NULLNESS_ONLY);
+            shallow = true;
+            meaningful = false;
+        }
+
+        boolean overspecified =
+                containsLargeGoStringLiteral(ifStmt, sourceContent, weights.largeLiteralLengthThreshold());
+        if (overspecified) {
+            score += weights.overspecifiedLiteralWeight();
+            kind = TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL;
+            reasons.add(TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL);
+            meaningful = false;
+            shallow = false;
+        }
+
+        if (score <= 0) {
+            return null;
+        }
+
+        return new AssertionSignal(
+                kind,
+                score,
+                shallow,
+                meaningful,
+                ifStmt.getStartByte(),
+                List.copyOf(reasons),
+                sourceContent.substringFrom(ifStmt));
+    }
+
+    private static boolean isGoNilExpr(TSNode expr) {
+        // Tree-sitter represents the `nil` keyword as its own named node type: "nil".
+        if (NIL_LITERAL.equals(expr.getType())) {
+            return true;
+        }
+        // Be defensive: nil may be wrapped in parens or other expression nodes.
+        return hasDescendantOfType(expr, NIL_LITERAL);
+    }
+
+    private static boolean isGoConstantExpr(TSNode expr) {
+        // nil/true/false are represented as dedicated named node types in the Go grammar.
+        if (NIL_LITERAL.equals(expr.getType())
+                || TRUE_LITERAL.equals(expr.getType())
+                || FALSE_LITERAL.equals(expr.getType())) {
+            return true;
+        }
+        return hasDescendantOfType(expr, NIL_LITERAL)
+                || hasDescendantOfType(expr, TRUE_LITERAL)
+                || hasDescendantOfType(expr, FALSE_LITERAL)
+                || hasDescendantOfType(expr, STRING_LITERAL)
+                || hasDescendantOfType(expr, INTEGER_LITERAL)
+                || hasDescendantOfType(expr, FLOAT_LITERAL)
+                || hasDescendantOfType(expr, BOOLEAN_LITERAL);
+    }
+
+    private static boolean sameGoExpr(TSNode left, TSNode right, SourceContent sourceContent) {
+        TSNode l = unwrapGoParenthesized(left);
+        TSNode r = unwrapGoParenthesized(right);
+        if (l == null || r == null) return false;
+        String lType = l.getType();
+        String rType = r.getType();
+        if (lType == null || rType == null || !lType.equals(rType)) return false;
+
+        String type = lType;
+        if (type.equals(IDENTIFIER) || type.equals(SELECTOR_EXPRESSION)) {
+            // Compare CST shape for common cases (including chained selectors).
+            return sameGoSelectorOrIdentifier(l, r, sourceContent);
+        }
+
+        if (type.equals(CALL_EXPRESSION)) {
+            return sameGoCallExpr(l, r, sourceContent);
+        }
+
+        if (type.equals(BINARY_EXPRESSION)) {
+            return sameGoBinaryExpr(l, r, sourceContent);
+        }
+
+        // Conservative fallback: trimmed CST text.
+        return sourceContent
+                .substringFrom(l)
+                .strip()
+                .equals(sourceContent.substringFrom(r).strip());
+    }
+
+    private static TSNode unwrapGoParenthesized(TSNode n) {
+        TSNode current = n;
+        // Parentheses may wrap expressions; unwrap up to 2 layers.
+        for (int i = 0; i < 2; i++) {
+            if (current == null) return n;
+            if (!PARENTHESIZED_EXPRESSION.equals(current.getType())) break;
+            if (current.getNamedChildCount() == 0) break;
+            TSNode child = current.getNamedChild(0);
+            if (child == null) break;
+            current = child;
+        }
+        return current;
+    }
+
+    private static boolean sameGoSelectorOrIdentifier(TSNode left, TSNode right, SourceContent sourceContent) {
+        // selector_expression has fields `operand` and `field`.
+        String leftType = left.getType();
+        String rightType = right.getType();
+        if (SELECTOR_EXPRESSION.equals(leftType) && SELECTOR_EXPRESSION.equals(rightType)) {
+            TSNode lOperand = left.getChildByFieldName("operand");
+            TSNode lField = left.getChildByFieldName("field");
+            TSNode rOperand = right.getChildByFieldName("operand");
+            TSNode rField = right.getChildByFieldName("field");
+            if (lOperand == null || lField == null || rOperand == null || rField == null) {
+                return false;
+            }
+            return sameGoExpr(lOperand, rOperand, sourceContent) && sameGoExpr(lField, rField, sourceContent);
+        }
+
+        // identifier (or leaf selectors) fallback to exact token text.
+        return sourceContent
+                .substringFrom(left)
+                .strip()
+                .equals(sourceContent.substringFrom(right).strip());
+    }
+
+    private static boolean sameGoCallExpr(TSNode left, TSNode right, SourceContent sourceContent) {
+        TSNode lFunc = left.getChildByFieldName("function");
+        TSNode rFunc = right.getChildByFieldName("function");
+        TSNode lArgsNode = left.getChildByFieldName("arguments");
+        TSNode rArgsNode = right.getChildByFieldName("arguments");
+        if (lFunc == null || rFunc == null || lArgsNode == null || rArgsNode == null) return false;
+
+        if (!sameGoExpr(lFunc, rFunc, sourceContent)) return false;
+
+        // Compare arguments by their top-level named children.
+        int lCount = lArgsNode.getNamedChildCount();
+        int rCount = rArgsNode.getNamedChildCount();
+        if (lCount != rCount) return false;
+        for (int i = 0; i < lCount; i++) {
+            TSNode lArg = lArgsNode.getNamedChild(i);
+            TSNode rArg = rArgsNode.getNamedChild(i);
+            if (lArg == null || rArg == null) return false;
+            if (!sameGoExpr(lArg, rArg, sourceContent)) return false;
+        }
+        return true;
+    }
+
+    private static boolean sameGoBinaryExpr(TSNode left, TSNode right, SourceContent sourceContent) {
+        TSNode lLeft = left.getChildByFieldName("left");
+        TSNode lRight = left.getChildByFieldName("right");
+        TSNode rLeft = right.getChildByFieldName("left");
+        TSNode rRight = right.getChildByFieldName("right");
+        if (lLeft == null || lRight == null || rLeft == null || rRight == null) return false;
+        if (!sameGoExpr(lLeft, rLeft, sourceContent)) return false;
+        if (!sameGoExpr(lRight, rRight, sourceContent)) return false;
+
+        return firstUnnamedChildType(left).equals(firstUnnamedChildType(right));
+    }
+
+    private static String firstUnnamedChildType(TSNode node) {
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (child == null) continue;
+            if (!child.isNamed()) {
+                String t = child.getType();
+                return t == null ? "" : t;
+            }
+        }
+        return "";
+    }
+
+    private static boolean containsLargeGoStringLiteral(TSNode root, SourceContent sourceContent, int threshold) {
+        var lits = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(STRING_LITERAL), lits);
+        for (TSNode lit : lits) {
+            if (sourceContent.substringFrom(lit).length() >= threshold) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
