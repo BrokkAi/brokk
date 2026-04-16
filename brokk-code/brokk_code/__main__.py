@@ -1960,7 +1960,9 @@ def _main_dispatch(
         prefetch_commands: list[tuple[str, list[str]]] = []
         try:
             uv_binary = ensure_uv_ready()
-            uvx_command = str(Path(uv_binary).parent / "uvx")
+            # Path/str conversions on Windows produce backslashes, but these values
+            # are written into JSON configs where we want stable POSIX-style paths.
+            uvx_command = str(Path(uv_binary).parent / "uvx").replace("\\", "/")
             jbang_binary: str | None = None
             if args.target != "codex-plugin":
                 jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
