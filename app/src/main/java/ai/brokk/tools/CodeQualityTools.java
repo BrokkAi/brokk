@@ -401,6 +401,105 @@ public class CodeQualityTools {
         return formatSecretScanReport(report, findingsCap);
     }
 
+    @Tool(
+            """
+            Detects low-value or brittle test assertion smells using language-aware weighted heuristics.
+            Uses analyzer test-marker detection as a fast filter, then scores tautological assertions,
+            shallow assertion-only tests, oversized exact literals, snapshots, and Java anonymous test doubles.""")
+    public String reportTestAssertionSmells(
+            @P("File paths relative to the project root.") List<String> filePaths,
+            @P("Minimum score to include a finding; values <= 0 default to 4.") int minScore,
+            @P("Maximum findings to emit; values <= 0 default to 80.") int maxFindings,
+            @P("Weight for tests with no assertion-equivalent calls; values < 0 use default.") int noAssertionWeight,
+            @P("Weight for self-comparison or tautological assertions; values < 0 use default.")
+                    int tautologicalAssertionWeight,
+            @P("Weight for assertTrue(true), assertFalse(false), and similar constants; values < 0 use default.")
+                    int constantTruthWeight,
+            @P("Weight for comparing two constant expressions; values < 0 use default.") int constantEqualityWeight,
+            @P("Weight for nullness-only assertions; values < 0 use default.") int nullnessOnlyWeight,
+            @P("Weight for tests whose assertions are all shallow; values < 0 use default.")
+                    int shallowAssertionOnlyWeight,
+            @P("Weight for oversized exact string literals; values < 0 use default.") int overspecifiedLiteralWeight,
+            @P("Weight for inline anonymous test doubles; values < 0 use default.") int anonymousTestDoubleWeight,
+            @P("Weight for repeated anonymous test double shapes; values < 0 use default.")
+                    int repeatedAnonymousTestDoubleWeight,
+            @P("Score credit subtracted per meaningful assertion; values < 0 use default.")
+                    int meaningfulAssertionCredit,
+            @P("Maximum meaningful assertions that earn credit; values < 0 use default.")
+                    int meaningfulAssertionCreditCap,
+            @P("String literal length considered oversized; values < 0 use default.") int largeLiteralLengthThreshold) {
+
+        int threshold = minScore > 0 ? minScore : 4;
+        int findingsCap = maxFindings > 0 ? maxFindings : 80;
+        var defaults = IAnalyzer.TestAssertionWeights.defaults();
+        var weights = new IAnalyzer.TestAssertionWeights(
+                pickWeight(noAssertionWeight, defaults.noAssertionWeight()),
+                pickWeight(tautologicalAssertionWeight, defaults.tautologicalAssertionWeight()),
+                pickWeight(constantTruthWeight, defaults.constantTruthWeight()),
+                pickWeight(constantEqualityWeight, defaults.constantEqualityWeight()),
+                pickWeight(nullnessOnlyWeight, defaults.nullnessOnlyWeight()),
+                pickWeight(shallowAssertionOnlyWeight, defaults.shallowAssertionOnlyWeight()),
+                pickWeight(overspecifiedLiteralWeight, defaults.overspecifiedLiteralWeight()),
+                pickWeight(anonymousTestDoubleWeight, defaults.anonymousTestDoubleWeight()),
+                pickWeight(repeatedAnonymousTestDoubleWeight, defaults.repeatedAnonymousTestDoubleWeight()),
+                pickWeight(meaningfulAssertionCredit, defaults.meaningfulAssertionCredit()),
+                pickWeight(meaningfulAssertionCreditCap, defaults.meaningfulAssertionCreditCap()),
+                pickWeight(largeLiteralLengthThreshold, defaults.largeLiteralLengthThreshold()));
+
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        var findings = new ArrayList<IAnalyzer.TestAssertionSmell>();
+        for (String path : filePaths) {
+            ProjectFile file = contextManager.toFile(path);
+            if (!file.exists() || !analyzer.containsTests(file)) {
+                continue;
+            }
+            findings.addAll(analyzer.findTestAssertionSmells(file, weights));
+        }
+
+        var filtered = findings.stream()
+                .filter(f -> f.score() >= threshold)
+                .sorted(Comparator.comparingInt(IAnalyzer.TestAssertionSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(IAnalyzer.TestAssertionSmell::enclosingFqName)
+                        .thenComparing(IAnalyzer.TestAssertionSmell::assertionKind))
+                .toList();
+
+        if (filtered.isEmpty()) {
+            return "No test assertion smells met minScore " + threshold + ".";
+        }
+        int shown = Math.min(findingsCap, filtered.size());
+        var lines = new ArrayList<String>();
+        lines.add("## Test assertion smells");
+        lines.add("");
+        lines.add("- Min score: %d".formatted(threshold));
+        lines.add("- Findings shown: %d of %d".formatted(shown, filtered.size()));
+        lines.add("- Weights: %s".formatted(formatWeights(weights)));
+        lines.add("");
+        lines.add("| Score | Kind | Assertions | Symbol | File | Reasons | Excerpt |");
+        lines.add("|------:|------|-----------:|--------|------|---------|---------|");
+        for (IAnalyzer.TestAssertionSmell finding : filtered.subList(0, shown)) {
+            String reasons = sanitizeTableCell(String.join(", ", finding.reasons()));
+            String kind = sanitizeTableCell(finding.assertionKind());
+            String symbol = sanitizeTableCell(finding.enclosingFqName());
+            String file = sanitizeTableCell(finding.file().toString());
+            lines.add("| %d | `%s` | %d | `%s` | `%s` | %s | `%s` |"
+                    .formatted(
+                            finding.score(),
+                            kind,
+                            finding.assertionCount(),
+                            symbol,
+                            file,
+                            "`" + reasons + "`",
+                            sanitizeTableCell(finding.excerpt())));
+        }
+        if (filtered.size() > shown) {
+            lines.add("");
+            lines.add("- Note: output truncated; increase maxFindings to see more.");
+        }
+        return String.join("\n", lines);
+    }
+
     private static String formatCommentDensityForUnit(CommentDensityStats s) {
         var lines = new ArrayList<String>();
         lines.add("## Comment density");
@@ -489,6 +588,27 @@ public class CodeQualityTools {
                                 w.meaningfulBodyCreditPerStatement(),
                                 w.meaningfulBodyStatementThreshold(),
                                 w.smallBodyMaxStatements());
+    }
+
+    private static String formatWeights(IAnalyzer.TestAssertionWeights w) {
+        return "noAssertion=%d, tautological=%d, constantTruth=%d, constantEquality=%d, nullnessOnly=%d,"
+                        .formatted(
+                                w.noAssertionWeight(),
+                                w.tautologicalAssertionWeight(),
+                                w.constantTruthWeight(),
+                                w.constantEqualityWeight(),
+                                w.nullnessOnlyWeight())
+                + " shallowOnly=%d, overspecifiedLiteral=%d, anonymousTestDouble=%d, repeatedAnonymousTestDouble=%d,"
+                        .formatted(
+                                w.shallowAssertionOnlyWeight(),
+                                w.overspecifiedLiteralWeight(),
+                                w.anonymousTestDoubleWeight(),
+                                w.repeatedAnonymousTestDoubleWeight())
+                + " meaningfulCredit=%d, meaningfulCreditCap=%d, largeLiteralLength=%d"
+                        .formatted(
+                                w.meaningfulAssertionCredit(),
+                                w.meaningfulAssertionCreditCap(),
+                                w.largeLiteralLengthThreshold());
     }
 
     @Blocking

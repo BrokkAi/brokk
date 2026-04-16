@@ -43,12 +43,16 @@ public final class JavaScriptTreeSitterNodeTypes {
     public static final String BINARY_EXPRESSION = "binary_expression";
     public static final String CALL_EXPRESSION = "call_expression";
     public static final String MEMBER_EXPRESSION = "member_expression";
+    public static final String ARGUMENTS = "arguments";
     public static final String IDENTIFIER = "identifier";
     public static final String STRING = "string";
     public static final String TEMPLATE_STRING = "template_string";
     public static final String NUMBER = "number";
     public static final String TRUE = "true";
     public static final String FALSE = "false";
+    public static final String PROPERTY_IDENTIFIER = "property_identifier";
+    public static final String NULL = "null";
+    public static final String UNDEFINED = "undefined";
 
     // ===== JAVASCRIPT-SPECIFIC TYPES =====
     // Class-like declarations
@@ -64,6 +68,47 @@ public final class JavaScriptTreeSitterNodeTypes {
     // These need to be filtered in Java code since #eq? predicate doesn't work in JNI Tree-sitter
     public static final String REQUIRE_CALL_CAPTURE_NAME = "module.require_call";
     public static final String REQUIRE_FUNC_CAPTURE_NAME = "_require_func";
+
+    public static final String FIELD_FUNCTION = "function";
+    public static final String FIELD_ARGUMENTS = "arguments";
+    public static final String FIELD_OBJECT = "object";
+    public static final String FIELD_PROPERTY = "property";
+    public static final String FIELD_LEFT = "left";
+    public static final String FIELD_RIGHT = "right";
+    public static final String FIELD_BODY = "body";
+
+    public static final String TEST_ASSERTION_KIND_EXPECT = "expect-assertion";
+    public static final String TEST_ASSERTION_KIND_ASSERT = "assert-assertion";
+    public static final String TEST_ASSERTION_KIND_MOCK_VERIFICATION = "mock-verification";
+    public static final String TEST_ASSERTION_KIND_NO_ASSERTIONS = "no-assertions";
+    public static final String TEST_ASSERTION_KIND_CONSTANT_TRUTH = "constant-truth";
+    public static final String TEST_ASSERTION_KIND_CONSTANT_EQUALITY = "constant-equality";
+    public static final String TEST_ASSERTION_KIND_SELF_COMPARISON = "self-comparison";
+    public static final String TEST_ASSERTION_KIND_NULLNESS_ONLY = "nullness-only";
+    public static final String TEST_ASSERTION_KIND_SHALLOW_ONLY = "shallow-assertions-only";
+    public static final String TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL = "overspecified-literal";
+    public static final String TEST_ASSERTION_KIND_SNAPSHOT = "snapshot-assertion";
+
+    public static final String TEST_FN_TEST = "test";
+    public static final String TEST_FN_IT = "it";
+    public static final String TEST_FN_DESCRIBE = "describe";
+    public static final String EXPECT = "expect";
+    public static final String ASSERT = "assert";
+    public static final String TO_BE = "toBe";
+    public static final String TO_EQUAL = "toEqual";
+    public static final String TO_STRICT_EQUAL = "toStrictEqual";
+    public static final String TO_BE_TRUTHY = "toBeTruthy";
+    public static final String TO_BE_FALSY = "toBeFalsy";
+    public static final String TO_BE_NULL = "toBeNull";
+    public static final String TO_BE_UNDEFINED = "toBeUndefined";
+    public static final String TO_MATCH_SNAPSHOT = "toMatchSnapshot";
+    public static final String TO_MATCH_INLINE_SNAPSHOT = "toMatchInlineSnapshot";
+    public static final String TO_CONTAIN = "toContain";
+    public static final String TO_HAVE_LENGTH = "toHaveLength";
+    public static final String TO_THROW = "toThrow";
+    public static final String TO_HAVE_BEEN_CALLED = "toHaveBeenCalled";
+    public static final String TO_HAVE_BEEN_CALLED_TIMES = "toHaveBeenCalledTimes";
+    public static final String TO_HAVE_BEEN_CALLED_WITH = "toHaveBeenCalledWith";
 
     public static final Set<String> COMMENT_NODE_TYPES = Set.of(
             CommonTreeSitterNodeTypes.COMMENT,
@@ -84,6 +129,37 @@ public final class JavaScriptTreeSitterNodeTypes {
             SWITCH_STATEMENT,
             TRY_STATEMENT,
             TERNARY_EXPRESSION);
+
+    public static final Set<String> TEST_FUNCTION_NAMES = Set.of(TEST_FN_TEST, TEST_FN_IT, TEST_FN_DESCRIBE);
+
+    public static final Set<String> EXPECT_TERMINAL_NAMES = Set.of(
+            TO_BE,
+            TO_EQUAL,
+            TO_STRICT_EQUAL,
+            TO_BE_TRUTHY,
+            TO_BE_FALSY,
+            TO_BE_NULL,
+            TO_BE_UNDEFINED,
+            TO_CONTAIN,
+            TO_HAVE_LENGTH,
+            TO_THROW,
+            TO_MATCH_SNAPSHOT,
+            TO_MATCH_INLINE_SNAPSHOT,
+            TO_HAVE_BEEN_CALLED,
+            TO_HAVE_BEEN_CALLED_TIMES,
+            TO_HAVE_BEEN_CALLED_WITH);
+
+    public static final Set<String> SHALLOW_EXPECT_TERMINAL_NAMES =
+            Set.of(TO_BE_TRUTHY, TO_BE_FALSY, TO_BE_NULL, TO_BE_UNDEFINED);
+
+    public static final Set<String> SNAPSHOT_EXPECT_TERMINAL_NAMES =
+            Set.of(TO_MATCH_SNAPSHOT, TO_MATCH_INLINE_SNAPSHOT);
+
+    public static final Set<String> MOCK_VERIFY_TERMINAL_NAMES =
+            Set.of(TO_HAVE_BEEN_CALLED, TO_HAVE_BEEN_CALLED_TIMES, TO_HAVE_BEEN_CALLED_WITH);
+
+    public static final Set<String> CONSTANT_LITERAL_TYPES =
+            Set.of(STRING, TEMPLATE_STRING, NUMBER, TRUE, FALSE, NULL, UNDEFINED);
 
     private JavaScriptTreeSitterNodeTypes() {}
 }
