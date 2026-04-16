@@ -8,6 +8,8 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitHotspotAnalyzer;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitSecretScanner;
+import ai.brokk.git.IGitRepo;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.io.IOException;
@@ -27,11 +29,13 @@ import org.jetbrains.annotations.Blocking;
  * Intended for {@link ai.brokk.executor.agents.CustomAgentExecutor custom agents} and similar tool loops.
  */
 public class CodeQualityTools {
-
     private static final String FINDING_PREFIX = "[CODE_QUALITY]";
 
     private static final String COMMENT_DENSITY_JAVA_ONLY =
             "Comment density is only available for Java symbols in this analyzer snapshot.";
+
+    private static final int DEFAULT_SECRET_MAX_FINDINGS = 100;
+    private static final int DEFAULT_SECRET_MAX_COMMITS = 2000;
 
     private final IContextManager contextManager;
 
@@ -372,6 +376,31 @@ public class CodeQualityTools {
         return String.join("\n", lines);
     }
 
+    @Blocking
+    @Tool(
+            """
+            Scans non-test text files for secret-looking strings, including current/default-branch files and git history.
+            Findings are heuristic and redacted for LLM triage. Use maxFindings/maxCommits to bound output and work.""")
+    public String reportSecretLikeCode(
+            @P("Maximum findings to emit; values <= 0 default to 100.") int maxFindings,
+            @P("Maximum commits to walk from HEAD; values <= 0 default to 2000.") int maxCommits,
+            @P("Include findings that only appear in history and are not present in the current/default branch.")
+                    boolean includeHistoryOnly,
+            @P("Include lower-confidence short credential-like assignments.") boolean includeLowConfidence)
+            throws GitAPIException, IOException {
+
+        int findingsCap = maxFindings > 0 ? maxFindings : DEFAULT_SECRET_MAX_FINDINGS;
+        int commitCap = maxCommits > 0 ? maxCommits : DEFAULT_SECRET_MAX_COMMITS;
+        IGitRepo projectRepo = contextManager.getProject().getRepo();
+
+        if (!(projectRepo instanceof GitRepo gitRepo)) {
+            return "Secret-like code scan requires a JGit-backed repository.";
+        }
+
+        var report = new GitSecretScanner(gitRepo).scan(commitCap, includeHistoryOnly, includeLowConfidence);
+        return formatSecretScanReport(report, findingsCap);
+    }
+
     @Tool(
             """
             Detects low-value or brittle test assertion smells using language-aware weighted heuristics.
@@ -481,6 +510,49 @@ public class CodeQualityTools {
                 .formatted(s.headerCommentLines(), s.inlineCommentLines(), s.spanLines()));
         lines.add("- Rolled-up: header %d, inline %d, span %d"
                 .formatted(s.rolledUpHeaderCommentLines(), s.rolledUpInlineCommentLines(), s.rolledUpSpanLines()));
+        return String.join("\n", lines);
+    }
+
+    private static String formatSecretScanReport(GitSecretScanner.SecretScanReport report, int maxFindings) {
+        var shown = report.findings()
+                .subList(0, Math.min(maxFindings, report.findings().size()));
+        boolean truncated = report.findings().size() > shown.size();
+        var lines = new ArrayList<String>();
+        lines.add("## brokk-secret-scan");
+        lines.add("");
+        lines.add("- Repository: `%s`".formatted(report.repository()));
+        lines.add("- Current/default ref scanned: `%s`".formatted(report.defaultRefDisplayName()));
+        if (report.defaultRefFallback()) {
+            lines.add("- Note: default branch could not be determined; fell back to `HEAD`.");
+        }
+        lines.add("- History commits scanned: %d (cap %d)".formatted(report.commitsScanned(), report.maxCommits()));
+        lines.add("- Missing git entries skipped: %d".formatted(report.missingEntriesSkipped()));
+        lines.add("- Non-text or oversized blobs skipped: %d".formatted(report.nonTextEntriesSkipped()));
+        lines.add("- Findings shown: %d of %d%s"
+                .formatted(shown.size(), report.findings().size(), truncated ? " (truncated)" : ""));
+        lines.add("");
+
+        if (shown.isEmpty()) {
+            lines.add("No secret-like code found.");
+            return String.join("\n", lines);
+        }
+
+        lines.add("| Location | Confidence | Rule | File:Line | First Seen | Last Seen | Redacted Excerpt |");
+        lines.add("|----------|------------|------|-----------|------------|-----------|------------------|");
+        for (GitSecretScanner.SecretFinding finding : shown) {
+            String firstSeen = finding.firstSeenCommit().isBlank() ? "-" : finding.firstSeenCommit();
+            String lastSeen = finding.lastSeenCommit().isBlank() ? "-" : finding.lastSeenCommit();
+            lines.add("| %s | %s | `%s` | `%s:%d` | `%s` | `%s` | `%s` |"
+                    .formatted(
+                            finding.location(),
+                            finding.confidence(),
+                            sanitizeTableCell(finding.rule()),
+                            sanitizeTableCell(finding.path()),
+                            finding.line(),
+                            firstSeen,
+                            lastSeen,
+                            sanitizeTableCell(finding.sample())));
+        }
         return String.join("\n", lines);
     }
 
