@@ -1952,23 +1952,22 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     private static List<TSNode> comparableAssertionArgs(List<TSNode> args) {
-        if (args.size() >= 3 && isStringLiteral(args.getFirst())) {
+        if (args.size() >= 4 && isStringLiteral(args.getFirst())) {
             return args.subList(1, 3);
         }
         return args.subList(0, Math.min(2, args.size()));
     }
 
     private static Optional<TSNode> assertThatArgument(TSNode invocation, SourceContent sourceContent) {
-        TSNode objectNode = invocation.getChildByFieldName("object");
-        if (objectNode == null || !METHOD_INVOCATION.equals(objectNode.getType())) {
-            return Optional.empty();
+        TSNode candidate = invocation.getChildByFieldName("object");
+        while (candidate != null && METHOD_INVOCATION.equals(candidate.getType())) {
+            TSNode nameNode = candidate.getChildByFieldName("name");
+            if (nameNode != null && ASSERT_THAT.equals(sourceContent.substringFrom(nameNode).strip())) {
+                return argumentNodes(candidate).stream().findFirst();
+            }
+            candidate = candidate.getChildByFieldName("object");
         }
-        TSNode nameNode = objectNode.getChildByFieldName("name");
-        if (nameNode == null
-                || !ASSERT_THAT.equals(sourceContent.substringFrom(nameNode).strip())) {
-            return Optional.empty();
-        }
-        return argumentNodes(objectNode).stream().findFirst();
+        return Optional.empty();
     }
 
     private static boolean isSelfComparison(TSNode node, SourceContent sourceContent) {

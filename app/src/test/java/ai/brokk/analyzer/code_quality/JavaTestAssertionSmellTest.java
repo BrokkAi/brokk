@@ -325,6 +325,46 @@ public class JavaTestAssertionSmellTest extends AbstractBrittleTestSuite {
         assertTrue(findings.isEmpty());
     }
 
+    @Test
+    void junitTrailingMessageDoesNotHideExpectedAndActual() {
+        String code =
+                """
+                package com.example;
+                import org.junit.jupiter.api.Test;
+                import static org.junit.jupiter.api.Assertions.assertEquals;
+
+                public class SampleTest {
+                    @Test
+                    void trailingMessage() {
+                        assertEquals("expected", "expected", "message");
+                    }
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(hasReason(findings, "constant-equality"));
+    }
+
+    @Test
+    void assertJChainedExtractionCountsAsAssertionEquivalent() {
+        String code =
+                """
+                package com.example;
+                import org.junit.jupiter.api.Test;
+                import static org.assertj.core.api.Assertions.assertThat;
+
+                public class SampleTest {
+                    @Test
+                    void chainedAssertJ() {
+                        Result result = new Result("expected");
+                        assertThat(result).extracting(Result::name).isEqualTo("expected");
+                    }
+                    record Result(String name) {}
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(findings.isEmpty());
+    }
+
     @Override
     protected List<IAnalyzer.TestAssertionSmell> analyze(
             String source, String path, IAnalyzer.TestAssertionWeights weights) {

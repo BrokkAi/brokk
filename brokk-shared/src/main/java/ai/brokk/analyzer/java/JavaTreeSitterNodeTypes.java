@@ -103,7 +103,6 @@ public final class JavaTreeSitterNodeTypes {
     public static final String CHARACTER_LITERAL = "character_literal";
     public static final String BOOLEAN_LITERAL = "boolean_literal";
     public static final String NULL_LITERAL = "null_literal";
-    public static final String MODIFIERS = "modifiers";
     public static final String TYPE_PARAMETERS = "type_parameters";
 
     // Keywords that can be literal values
