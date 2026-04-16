@@ -40,15 +40,18 @@ public final class JavaTreeSitterNodeTypes {
     // Annotations
     public static final String ANNOTATION = "annotation";
     public static final String MARKER_ANNOTATION = "marker_annotation";
+    public static final String MODIFIERS = "modifiers";
 
     // Comments
     public static final String LINE_COMMENT = CommonTreeSitterNodeTypes.LINE_COMMENT;
     public static final String BLOCK_COMMENT = CommonTreeSitterNodeTypes.BLOCK_COMMENT;
 
     // Reference node types (used in isAccessExpression)
+    public static final String ARGUMENT_LIST = "argument_list";
     public static final String METHOD_INVOCATION = "method_invocation";
     public static final String FIELD_ACCESS = "field_access";
     public static final String OBJECT_CREATION_EXPRESSION = "object_creation_expression";
+    public static final String CLASS_BODY = "class_body";
     public static final String TYPE_IDENTIFIER = "type_identifier";
     public static final String SCOPED_TYPE_IDENTIFIER = "scoped_type_identifier";
     public static final String CLASS_LITERAL = "class_literal";
@@ -106,6 +109,39 @@ public final class JavaTreeSitterNodeTypes {
     public static final String FALSE = "false";
     public static final String NULL = "null";
 
+    // Common Java testing method names
+    public static final String ASSERT_THAT = "assertThat";
+    public static final String ASSERT_TRUE = "assertTrue";
+    public static final String ASSERT_FALSE = "assertFalse";
+    public static final String ASSERT_EQUALS = "assertEquals";
+    public static final String ASSERT_SAME = "assertSame";
+    public static final String ASSERT_NOT_NULL = "assertNotNull";
+    public static final String ASSERT_NULL = "assertNull";
+    public static final String ASSERT_INSTANCE_OF = "assertInstanceOf";
+    public static final String FAIL = "fail";
+    public static final String EQUALS = "equals";
+    public static final String IS_EQUAL_TO = "isEqualTo";
+    public static final String IS_SAME_AS = "isSameAs";
+    public static final String IS_TRUE = "isTrue";
+    public static final String IS_FALSE = "isFalse";
+    public static final String IS_NULL = "isNull";
+    public static final String IS_NOT_NULL = "isNotNull";
+    public static final String IS_INSTANCE_OF = "isInstanceOf";
+
+    // Test assertion smell labels
+    public static final String TEST_ASSERTION_KIND_JUNIT = "junit-assertion";
+    public static final String TEST_ASSERTION_KIND_ASSERTJ = "assertj-assertion";
+    public static final String TEST_ASSERTION_KIND_MOCK_VERIFICATION = "mock-verification";
+    public static final String TEST_ASSERTION_KIND_NO_ASSERTIONS = "no-assertions";
+    public static final String TEST_ASSERTION_KIND_CONSTANT_TRUTH = "constant-truth";
+    public static final String TEST_ASSERTION_KIND_CONSTANT_EQUALITY = "constant-equality";
+    public static final String TEST_ASSERTION_KIND_SELF_COMPARISON = "self-comparison";
+    public static final String TEST_ASSERTION_KIND_NULLNESS_ONLY = "nullness-only";
+    public static final String TEST_ASSERTION_KIND_SHALLOW_ONLY = "shallow-assertions-only";
+    public static final String TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL = "overspecified-literal";
+    public static final String TEST_ASSERTION_KIND_ANONYMOUS_TEST_DOUBLE = "anonymous-test-double";
+    public static final String TEST_ASSERTION_REASON_REUSABLE_TEST_DOUBLE = "reusable-test-double-candidate";
+
     public static final Set<String> DECLARATION_TYPES = Set.of(
             METHOD_DECLARATION,
             FIELD_DECLARATION,
@@ -143,6 +179,61 @@ public final class JavaTreeSitterNodeTypes {
             SWITCH_EXPRESSION,
             TRY_STATEMENT,
             TRY_WITH_RESOURCES_STATEMENT);
+
+    public static final Set<String> JUNIT_ASSERTION_NAMES = Set.of(
+            "assertArrayEquals",
+            "assertDoesNotThrow",
+            ASSERT_EQUALS,
+            ASSERT_FALSE,
+            ASSERT_INSTANCE_OF,
+            "assertIterableEquals",
+            "assertLinesMatch",
+            "assertNotEquals",
+            ASSERT_NOT_NULL,
+            "assertNotSame",
+            ASSERT_NULL,
+            ASSERT_SAME,
+            "assertThrows",
+            "assertThrowsExactly",
+            "assertTimeout",
+            "assertTimeoutPreemptively",
+            ASSERT_TRUE,
+            FAIL);
+
+    public static final Set<String> SHALLOW_ASSERTION_NAMES = Set.of(ASSERT_NOT_NULL, ASSERT_NULL, ASSERT_INSTANCE_OF);
+
+    public static final Set<String> ASSERTJ_TERMINAL_NAMES = Set.of(
+            IS_EQUAL_TO,
+            IS_SAME_AS,
+            "isNotEqualTo",
+            IS_TRUE,
+            IS_FALSE,
+            IS_NULL,
+            IS_NOT_NULL,
+            IS_INSTANCE_OF,
+            "hasMessage",
+            "hasMessageContaining",
+            "containsExactly",
+            "containsExactlyInAnyOrder");
+
+    public static final Set<String> ASSERTJ_SHALLOW_TERMINAL_NAMES = Set.of(IS_NULL, IS_NOT_NULL, IS_INSTANCE_OF);
+
+    public static final Set<String> MOCKITO_VERIFY_NAMES =
+            Set.of("verify", "verifyNoInteractions", "verifyNoMoreInteractions", "verifyZeroInteractions", "inOrder");
+
+    public static final Set<String> CONSTANT_LITERAL_TYPES = Set.of(
+            STRING_LITERAL,
+            CHARACTER_LITERAL,
+            DECIMAL_INTEGER_LITERAL,
+            HEX_INTEGER_LITERAL,
+            OCTAL_INTEGER_LITERAL,
+            BINARY_INTEGER_LITERAL,
+            DECIMAL_FLOATING_POINT_LITERAL,
+            HEX_FLOATING_POINT_LITERAL,
+            TRUE,
+            FALSE,
+            NULL,
+            NULL_LITERAL);
 
     private JavaTreeSitterNodeTypes() {}
 }
