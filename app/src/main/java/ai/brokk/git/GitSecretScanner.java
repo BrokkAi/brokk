@@ -4,6 +4,7 @@ import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
+import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -389,7 +390,12 @@ public class GitSecretScanner {
             if (!absolutePath.startsWith(projectRoot)) {
                 return Optional.empty();
             }
-            return Optional.of(projectRoot.relativize(absolutePath).toString());
+            String rel = projectRoot.relativize(absolutePath).toString();
+            // Normalize Windows separators to '/', but don't rewrite legitimate backslashes on POSIX.
+            if (File.separatorChar == '\\') {
+                rel = rel.replace('\\', '/');
+            }
+            return Optional.of(rel);
         } catch (IllegalArgumentException e) {
             logger.debug("Skipping unmappable git path {}: {}", gitPath, e.getMessage());
             return Optional.empty();
