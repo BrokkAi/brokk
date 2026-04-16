@@ -10,6 +10,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.ToolExecutionHelper;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -178,9 +179,7 @@ public class JanitorAgent {
             var req = dropRequest
                     .or(() -> performedInitialRequest)
                     .orElseThrow(() -> new IllegalStateException("Llm tool call REQUIRED should prevent this"));
-            io.beforeToolCall(req);
-            var toolResult = tr.executeTool(req);
-            io.afterToolOutput(toolResult);
+            var toolResult = ToolExecutionHelper.executeWithApproval(io, tr, req);
 
             // always done on fatal/internal error
             if (Set.of(ToolExecutionResult.Status.FATAL, ToolExecutionResult.Status.INTERNAL_ERROR)

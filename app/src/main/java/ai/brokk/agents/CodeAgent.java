@@ -24,6 +24,7 @@ import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
 import ai.brokk.tools.SearchReplaceBlockFormatter;
+import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -359,6 +360,7 @@ public class CodeAgent {
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         TaskResult.StopDetails stopDetails;
+        boolean loggedSingleTurnDryRun = false;
 
         var parser = EditBlockParser.instance;
         // We'll collect the conversation as ChatMessages to store in context history.
@@ -399,7 +401,7 @@ public class CodeAgent {
         }
 
         logger.debug("Starting task: {} with options {}", userInput, options);
-        TaskResult.TaskMeta meta;
+        @Nullable TaskResult.TaskMeta meta = null;
         while (true) {
             if (Thread.interrupted()) {
                 logger.debug("CodeAgent interrupted");
@@ -434,6 +436,12 @@ public class CodeAgent {
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         suppressed,
                         userInput.trim());
+                if (shouldUseSingleTurnDryRun(isSingleTurnDryRunEnabled(), cs)) {
+                    coder.logRequestOnly(allMessagesForLlm);
+                    loggedSingleTurnDryRun = true;
+                    stopDetails = singleTurnDryRunStopDetails(cs);
+                    break;
+                }
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
@@ -551,7 +559,7 @@ public class CodeAgent {
                             "LLM indicated response was partial after %d clean blocks; asking to continue"
                                     .formatted(blocksToApply.size());
                 }
-                cs = cs.withNextRequest(messageForContinue);
+                cs = cs.withRetryRequest(messageForContinue, TaskResult.StopReason.PARSE_ERROR);
                 report(consoleLogForContinue);
                 continue;
             }
@@ -597,7 +605,7 @@ public class CodeAgent {
                     UserMessage nextRequestForLintFailure =
                             new UserMessage("The following Java syntax issues were detected. Please fix them:\n\n"
                                     + diagnosticMessages);
-                    cs = cs.withNextRequest(nextRequestForLintFailure);
+                    cs = cs.withRetryRequest(nextRequestForLintFailure, TaskResult.StopReason.BUILD_ERROR);
                     es = es.afterBuildFailure(diagnosticMessages.toString());
                     continue;
                 }
@@ -625,6 +633,28 @@ public class CodeAgent {
             throw new IllegalStateException("verifyPhase returned unexpected Step type " + verifyOutcome);
         }
 
+        if (meta != null
+                && shouldLogSingleTurnFailureFollowup(
+                        isSingleTurnDryRunEnabled(), loggedSingleTurnDryRun, cs, stopDetails)) {
+            var followupRequest = buildSingleTurnFollowupRequest(cs, es, stopDetails);
+            if (followupRequest != null) {
+                var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
+                if (!es.showBuildError()) {
+                    suppressed.add(SpecialTextType.BUILD_RESULTS);
+                }
+                var followupMessages = CodePrompts.instance.collectCodeMessages(
+                        model,
+                        meta,
+                        context,
+                        prologue,
+                        cs.taskMessages(),
+                        followupRequest,
+                        suppressed,
+                        userInput.trim());
+                coder.logRequestOnly(followupMessages);
+            }
+        }
+
         // everyone reports their own reasons for stopping, except for interruptions
         if (stopDetails.reason() == TaskResult.StopReason.INTERRUPTED) {
             reportComplete(TaskResult.StopReason.INTERRUPTED, "Cancelled by user.");
@@ -640,6 +670,75 @@ public class CodeAgent {
         var tr = new TaskResult(context, stopDetails);
         logger.debug("Task result: {}", tr);
         return tr;
+    }
+
+    static boolean shouldUseSingleTurnDryRun(boolean singleTurnEnabled, ConversationState cs) {
+        return singleTurnEnabled && !cs.rawMessages().isEmpty();
+    }
+
+    static TaskResult.StopDetails singleTurnDryRunStopDetails(ConversationState cs) {
+        var stopReason = requireNonNull(cs.nextStopReason(), "Dry-run retry should preserve its stop reason");
+        return new TaskResult.StopDetails(stopReason, "Single-turn dry run logged the next request.");
+    }
+
+    static boolean shouldLogSingleTurnFailureFollowup(
+            boolean singleTurnEnabled,
+            boolean loggedSingleTurnDryRun,
+            ConversationState cs,
+            TaskResult.StopDetails stopDetails) {
+        return singleTurnEnabled
+                && !loggedSingleTurnDryRun
+                && !cs.rawMessages().isEmpty()
+                && stopDetails.reason() != TaskResult.StopReason.SUCCESS
+                && stopDetails.reason() != TaskResult.StopReason.INTERRUPTED;
+    }
+
+    static @Nullable UserMessage buildSingleTurnFollowupRequest(
+            ConversationState cs, EditState es, TaskResult.StopDetails stopDetails) {
+        if (cs.nextRequest() != null) {
+            return cs.nextRequest();
+        }
+        if (stopDetails.reason() == TaskResult.StopReason.BUILD_ERROR
+                && !es.lastBuildError().isBlank()) {
+            var buildPrompt =
+                    """
+                    The build failed.
+                    Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
+                    You should use the conversation history to understand your earlier thinking; since your changes
+                    have been incorporated into the Workspace, look at the current state of those files before
+                    generate SEARCH/REPLACE blocks. You have already made changes, but you made mistakes;
+                    that is why the build is failing!
+
+                    IMPORTANT: If solving the build or failure requires editing files or using APIs you do not have
+                    in your Workspace, do your best to explain the problem but DO NOT provide any edits.
+                    Otherwise, provide the edits as usual.
+
+                    <build_output>
+                    %s
+                    </build_output>
+                    """
+                            .formatted(es.lastBuildError());
+            return new UserMessage(buildPrompt.trim());
+        }
+
+        var explanation = stopDetails.explanation().trim();
+        var followupPrompt =
+                """
+                Your previous attempt ended unsuccessfully with stop reason %s.
+
+                Explanation:
+                %s
+
+                Continue working toward the original goal using the current workspace state.
+                If you can fix the problem with edits in the current workspace, provide SEARCH/REPLACE blocks.
+                Otherwise, explain why no safe edits are possible and do not provide edits.
+                """
+                        .formatted(stopDetails.reason(), explanation.isEmpty() ? "(none provided)" : explanation);
+        return new UserMessage(followupPrompt.trim());
+    }
+
+    private static boolean isSingleTurnDryRunEnabled() {
+        return Environment.isBooleanFlagEnabled(System.getenv("BRK_CODEAGENT_SINGLE_TURN"));
     }
 
     void report(String message) {
@@ -702,7 +801,7 @@ public class CodeAgent {
                         TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
             }
 
-            var nextCs = cs.withNextRequest(messageForRetry);
+            var nextCs = cs.withRetryRequest(messageForRetry, TaskResult.StopReason.PARSE_ERROR);
             // In the case of a parse error, we still want to update totalBlocksParsed with what we found
             var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
             report(consoleLogForRetry);
@@ -868,7 +967,7 @@ public class CodeAgent {
         cs.appendMessage(streamingResultFromLlm.aiMessage());
 
         // Null out nextRequest after use (Task 3)
-        var nextCs = cs.withNextRequest(null);
+        var nextCs = cs.clearNextRequest();
         return new Step.Continue(nextCs, es);
     }
 
@@ -1148,7 +1247,7 @@ public class CodeAgent {
                         retryRequest = new UserMessage(Messages.getText(retryRequest) + "\n\n" + harnessNote);
                     }
 
-                    csForStep = cs.withNextRequest(retryRequest);
+                    csForStep = cs.withRetryRequest(retryRequest, TaskResult.StopReason.APPLY_ERROR);
                     esForStep = es.afterApply(
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
@@ -1561,6 +1660,7 @@ public class CodeAgent {
             List<ChatMessage> rawMessages,
             List<ChatMessage> taskMessages,
             @Nullable UserMessage nextRequest,
+            @Nullable TaskResult.StopReason nextStopReason,
             int turnStartIndex,
             String originalGoal) {
 
@@ -1569,11 +1669,24 @@ public class CodeAgent {
                 @Nullable UserMessage nextRequest,
                 int turnStartIndex,
                 String originalGoal) {
-            this(new ArrayList<>(taskMessages), taskMessages, nextRequest, turnStartIndex, originalGoal);
+            this(new ArrayList<>(taskMessages), taskMessages, nextRequest, null, turnStartIndex, originalGoal);
         }
 
-        ConversationState withNextRequest(@Nullable UserMessage request) {
-            return new ConversationState(rawMessages, taskMessages, request, turnStartIndex, originalGoal);
+        ConversationState(
+                List<ChatMessage> rawMessages,
+                List<ChatMessage> taskMessages,
+                @Nullable UserMessage nextRequest,
+                int turnStartIndex,
+                String originalGoal) {
+            this(rawMessages, taskMessages, nextRequest, null, turnStartIndex, originalGoal);
+        }
+
+        ConversationState withRetryRequest(UserMessage request, TaskResult.StopReason stopReason) {
+            return new ConversationState(rawMessages, taskMessages, request, stopReason, turnStartIndex, originalGoal);
+        }
+
+        ConversationState clearNextRequest() {
+            return new ConversationState(rawMessages, taskMessages, null, null, turnStartIndex, originalGoal);
         }
 
         /**
@@ -1610,7 +1723,12 @@ public class CodeAgent {
             compactedMessages.add(new UserMessage(originalGoal));
             compactedMessages.add(new AiMessage(summaryText));
             return new ConversationState(
-                    rawMessages, compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
+                    rawMessages,
+                    compactedMessages,
+                    retryRequest,
+                    TaskResult.StopReason.BUILD_ERROR,
+                    compactedMessages.size(),
+                    originalGoal);
         }
 
         static String extractReasoning(List<ChatMessage> messages) {
@@ -1636,7 +1754,7 @@ public class CodeAgent {
                 logger.warn("Invalid turnStartIndex {}; cannot replace current turn messages safely.", turnStartIndex);
                 // Fall back: just append a synthetic message (should never happen in practice)
                 msgs.add(new AiMessage(summaryText));
-                return new ConversationState(rawMessages, msgs, nextRequest, msgs.size(), originalGoal);
+                return new ConversationState(rawMessages, msgs, nextRequest, nextStopReason, msgs.size(), originalGoal);
             }
 
             var startMsg = msgs.get(turnStartIndex);
@@ -1664,7 +1782,7 @@ public class CodeAgent {
             logger.debug("Replaced current turn messages (from index {}) with synthetic summary.", turnStartIndex);
 
             // After replacement, the next turn should start at the end of the current msgs
-            return new ConversationState(rawMessages, msgs, nextRequest, msgs.size(), originalGoal);
+            return new ConversationState(rawMessages, msgs, nextRequest, nextStopReason, msgs.size(), originalGoal);
         }
     }
 

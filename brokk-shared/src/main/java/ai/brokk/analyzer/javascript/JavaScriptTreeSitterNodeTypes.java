@@ -44,6 +44,11 @@ public final class JavaScriptTreeSitterNodeTypes {
     public static final String CALL_EXPRESSION = "call_expression";
     public static final String MEMBER_EXPRESSION = "member_expression";
     public static final String IDENTIFIER = "identifier";
+    public static final String STRING = "string";
+    public static final String TEMPLATE_STRING = "template_string";
+    public static final String NUMBER = "number";
+    public static final String TRUE = "true";
+    public static final String FALSE = "false";
 
     // ===== JAVASCRIPT-SPECIFIC TYPES =====
     // Class-like declarations

@@ -8,6 +8,7 @@ import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.tools.ApprovalResult;
 import ai.brokk.tools.ToolExecutionResult;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -331,12 +332,14 @@ public class HeadlessHttpConsole extends MemoryConsole {
     }
 
     @Override
-    public void beforeToolCall(ToolExecutionRequest request) {
+    public ApprovalResult beforeToolCall(ToolExecutionRequest request, boolean destructive) {
         var data = new HashMap<String, Object>();
         putIfNonNull(data, "id", request.id());
         putIfNonNull(data, "name", request.name());
         putIfNonNull(data, "arguments", request.arguments());
+        data.put("destructive", destructive);
         appendEvent("TOOL_CALL", data);
+        return ApprovalResult.APPROVED;
     }
 
     @Override

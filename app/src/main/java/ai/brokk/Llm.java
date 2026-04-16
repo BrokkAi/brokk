@@ -718,6 +718,18 @@ public class Llm {
         }
     }
 
+    public void logRequestOnly(List<ChatMessage> rawMessages) {
+        logRequestOnly(rawMessages, requestOptions());
+    }
+
+    public void logRequestOnly(List<ChatMessage> rawMessages, RequestOptions options) {
+        var messages = Messages.forLlm(rawMessages);
+        if (messages.isEmpty()) {
+            throw new IllegalArgumentException("Cannot log request with empty message list");
+        }
+        logRequest(buildChatRequest(messages, options));
+    }
+
     private record ToolContractCheck(StreamingResult rawResult, StreamingResult processedResult, List<String> errors) {}
 
     private ToolContractCheck checkToolContractAndPostProcess(StreamingResult result, ToolContext toolContext) {
@@ -778,7 +790,7 @@ public class Llm {
                     attempt,
                     LogDescription.getShortDescription(description, 12));
 
-            response = doSingleSendMessage(model, messages, options);
+            response = doSingleSendMessage(messages, options);
             lastError = response.error;
             if (!response.isEmpty() && (lastError == null || allowPartialResponses)) {
                 // Success!
@@ -842,23 +854,25 @@ public class Llm {
     /**
      * Sends messages to model in a single attempt.
      */
-    private StreamingResult doSingleSendMessage(
-            StreamingChatModel model, List<ChatMessage> messages, RequestOptions options) throws InterruptedException {
+    private StreamingResult doSingleSendMessage(List<ChatMessage> messages, RequestOptions options)
+            throws InterruptedException {
         // Note: writeRequestToHistory is now called *within* this method,
         // right before doSingleStreamingCall, to ensure it uses the final `messagesToSend`.
+        var request = buildChatRequest(messages, options);
+        return doSingleStreamingCall(request);
+    }
 
+    private ChatRequest buildChatRequest(List<ChatMessage> messages, RequestOptions options) {
         var toolContext = options.toolContext();
         var tools = toolContext.toolSpecifications();
         var toolChoice = toolContext.toolChoice();
 
-        // Build request with parameters (always include base params for previousResponseId/metadata)
         var requestBuilder = ChatRequest.builder().messages(messages);
         var paramsBuilder = getParamsBuilder(options);
 
         if (!tools.isEmpty()) {
             paramsBuilder = paramsBuilder.toolSpecifications(tools);
             if (contextManager.getService().supportsParallelCalls(model)) {
-                // can't just blindly call .parallelToolCalls(boolean), litellm will barf if it sees the option at all
                 paramsBuilder = paramsBuilder.parallelToolCalls(true);
             }
             if (toolChoice == ToolChoice.REQUIRED && contextManager.getService().supportsToolChoiceRequired(model)) {
@@ -866,8 +880,7 @@ public class Llm {
             }
         }
 
-        var request = requestBuilder.parameters(paramsBuilder.build()).build();
-        return doSingleStreamingCall(request);
+        return requestBuilder.parameters(paramsBuilder.build()).build();
     }
 
     private void prettyPrintToolCalls(ToolContext toolContext, List<ToolExecutionRequest> requests) {
@@ -1209,9 +1222,8 @@ public class Llm {
 
     /**
      * The result of a streaming call. Exactly one of (chatResponse, error) is not null UNLESS if the LLM hangs up
-     * abruptly after starting its response. In that case we'll forge a NullSafeResponse with the partial result and
-     * also include the error that we got from the HTTP layer. In this case chatResponse and error will both be
-     * non-null, but chatResponse.originalResponse will be null.
+     * abruptly after starting its response, or the provider reports a complete response that still maps to a semantic
+     * failure such as overthinking. In those cases chatResponse and error will both be non-null.
      *
      * <p>Generally, callers should use the helper methods isEmpty, isPartial, etc. instead of manually inspecting the
      * contents of chatResponse.
@@ -1229,9 +1241,6 @@ public class Llm {
                 boolean isLength = originalResponse.finishReason() == FinishReason.LENGTH;
                 if (isLength && nsr.isEmpty()) {
                     error = new OverthinkingException("Model reached max output tokens before generating text");
-                    // If we set error, we must ensure NullSafeResponse doesn't have the originalResponse
-                    // to satisfy the constructor assertion.
-                    nsr = new NullSafeResponse(nsr.text(), nsr.reasoningContent(), nsr.toolRequests(), null);
                 }
             }
             return new StreamingResult(nsr, error, 0, elapsedMs);
@@ -1241,11 +1250,6 @@ public class Llm {
             if (error == null) {
                 // If there's no error, we must have a chatResponse.
                 assert chatResponse != null;
-            } else {
-                // If there is an error, chatResponse may or may not be present.
-                // If chatResponse IS present, its originalResponse MUST be null,
-                // indicating it's a partial/synthetic response accompanying an error.
-                assert chatResponse == null || chatResponse.originalResponse == null;
             }
         }
 
@@ -1370,6 +1374,47 @@ public class Llm {
 
         public String formatted() {
             if (error != null) {
+                if (chatResponse != null) {
+                    String metadataJson = "{}";
+                    try {
+                        Map<String, Object> metadata = new HashMap<>();
+                        var meta = metadata();
+                        if (meta != null) {
+                            metadata.put("inputTokens", meta.inputTokens());
+                            metadata.put("cachedInputTokens", meta.cachedInputTokens());
+                            metadata.put("thinkingTokens", meta.thinkingTokens());
+                            metadata.put("outputTokens", meta.outputTokens());
+                            if (meta.costUsd() != null) metadata.put("costUsd", meta.costUsd());
+                            if (meta.modelName() != null) metadata.put("modelName", meta.modelName());
+                            if (meta.finishReason() != null) metadata.put("finishReason", meta.finishReason());
+                            if (meta.created() != null) metadata.put("created", meta.created());
+                            if (meta.serviceTier() != null) metadata.put("serviceTier", meta.serviceTier());
+                        }
+                        metadata.put("elapsedMs", elapsedMs);
+                        metadataJson =
+                                objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(metadata);
+                    } catch (JsonProcessingException e) {
+                        logger.error("Failed to serialize components for formatted()", e);
+                    }
+
+                    return """
+                        [Error: %s]
+
+                        ## reasoningContent
+                        %s
+
+                        ## text
+                        %s
+
+                        ## metadata
+                        %s
+                        """
+                            .formatted(
+                                    ExceptionReporter.formatStackTrace(error),
+                                    requireNonNullElse(chatResponse.reasoningContent(), ""),
+                                    requireNonNullElse(chatResponse.text(), ""),
+                                    metadataJson);
+                }
                 String contentToShow;
                 // text() helper method returns chatResponse.text() or "" if chatResponse is null.
                 if (!text().isEmpty()) {

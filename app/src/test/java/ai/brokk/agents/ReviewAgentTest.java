@@ -20,17 +20,16 @@ import ai.brokk.util.ReviewParser.CodeExcerpt;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.openai.OpenAiChatResponseMetadata;
+import dev.langchain4j.model.openai.OpenAiTokenUsage;
+import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -572,22 +571,41 @@ class ReviewAgentTest {
         assertEquals("file2.java", retryResult.resolvedExcerpts().get(1).file().toString());
     }
 
-    private static class TestScriptedLanguageModel implements StreamingChatModel {
-        private final List<String> responses;
-        private final AtomicInteger index = new AtomicInteger(0);
+    @Test
+    void testRetryInStages_ignoresErroredCorrectionResponses() throws InterruptedException, ReviewGenerationException {
+        TestProject project = new TestProject(tempDir);
+        IContextManager cm = new TestContextManager(project);
+        var changes = new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
-        TestScriptedLanguageModel(String... responses) {
-            this.responses = List.of(responses);
-        }
+        String invalidReview =
+                """
+                ## Design Notes
+                ### Missing Recommendation
+                This note is malformed because it omits the recommendation section.
+                """;
 
-        @Override
-        public void chat(ChatRequest request, StreamingChatResponseHandler handler) {
-            int i = index.getAndIncrement();
-            String content = i < responses.size() ? responses.get(i) : responses.getLast();
-            AiMessage aiMessage = AiMessage.from(content);
-            handler.onPartialResponse(content);
-            handler.onCompleteResponse(
-                    ChatResponse.builder().aiMessage(aiMessage).build());
-        }
+        var overthinkingResponse = ChatResponse.builder()
+                .aiMessage(new AiMessage(""))
+                .metadata(OpenAiChatResponseMetadata.builder()
+                        .modelName("test-model")
+                        .tokenUsage(OpenAiTokenUsage.builder()
+                                .inputTokenCount(20)
+                                .outputTokenCount(5)
+                                .totalTokenCount(25)
+                                .build())
+                        .finishReason(FinishReason.LENGTH)
+                        .build())
+                .build();
+        var model = new TestScriptedLanguageModel(
+                ChatResponse.builder().aiMessage(new AiMessage(invalidReview)).build(), overthinkingResponse);
+        var llm = new Llm(model, "test", TaskResult.Type.REVIEW, cm, false, false, false, false);
+        var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
+
+        ReviewAgent.RetryResult retryResult = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
+
+        assertEquals(0, retryResult.retryCount());
+        assertEquals("## Design Notes", retryResult.mergedResponseText().strip());
+        assertFalse(retryResult.mergedResponseText().contains("Missing Recommendation"));
     }
 }

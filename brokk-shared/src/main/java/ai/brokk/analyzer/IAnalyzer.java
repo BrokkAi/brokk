@@ -336,6 +336,35 @@ public interface IAnalyzer {
             List<String> reasons,
             String excerpt) {}
 
+    record CloneSmellWeights(
+            int minNormalizedTokens,
+            int minSimilarityPercent,
+            int shingleSize,
+            int minSharedShingles,
+            int astSimilarityPercent) {
+
+        public static CloneSmellWeights defaults() {
+            return new CloneSmellWeights(
+                    12, // Keep small-but-real helper clones in scope.
+                    60, // More tolerant to logging/guard/ceremony noise.
+                    2, // Bigrams better tolerate scattered fluff statements.
+                    3, // Allow meaningful overlap without requiring near identity.
+                    70 // Structural refinement remains strong but less brittle.
+                    );
+        }
+    }
+
+    record CloneSmell(
+            ProjectFile file,
+            String enclosingFqName,
+            ProjectFile peerFile,
+            String peerEnclosingFqName,
+            int score,
+            int normalizedTokenCount,
+            List<String> reasons,
+            String excerpt,
+            String peerExcerpt) {}
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
@@ -777,6 +806,23 @@ public interface IAnalyzer {
      */
     default List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
         return List.of();
+    }
+
+    /**
+     * Returns suspicious structural clones for quality triage. The default implementation is unsupported.
+     */
+    default List<CloneSmell> findStructuralCloneSmells(ProjectFile file, CloneSmellWeights weights) {
+        return List.of();
+    }
+
+    /**
+     * Returns suspicious structural clones for multiple files in one pass. Default implementation delegates to the
+     * single-file API for compatibility.
+     */
+    default List<CloneSmell> findStructuralCloneSmells(List<ProjectFile> files, CloneSmellWeights weights) {
+        return files.stream()
+                .flatMap(file -> findStructuralCloneSmells(file, weights).stream())
+                .toList();
     }
 
     /**

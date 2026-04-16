@@ -56,7 +56,7 @@ class PrReviewExecutor {
 
         String responseText = "";
         List<ChatMessage> responseMessages = List.of();
-        if (response != null && response.chatResponse() != null) {
+        if (response != null && response.error() == null && response.chatResponse() != null) {
             var aiMessage = response.aiMessage();
             responseMessages = List.of(aiMessage);
             responseText = Messages.getText(aiMessage);
