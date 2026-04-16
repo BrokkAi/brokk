@@ -1353,6 +1353,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
     }
 
+    private record GoAssertionAnalysis(
+            int assertionCount,
+            int shallowAssertionCount,
+            int meaningfulAssertionCount,
+            List<AssertionSignal> smells) {}
+
     @Override
     public List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
         checkStale("findTestAssertionSmells");
@@ -1383,8 +1389,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         var candidates = new ArrayList<TestSmellCandidate>();
         for (TSNode testFn : testFunctions) {
-            var signals = detectGoAssertionSignals(testFn, sourceContent, weights);
-            int assertionCount = signals.size();
+            var analysis = analyzeGoAssertions(testFn, sourceContent, weights);
+            var signals = analysis.smells();
+            int assertionCount = analysis.assertionCount();
 
             String enclosing = enclosingCodeUnit(
                             file,
@@ -1420,10 +1427,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                         signal.startByte()));
             }
 
-            boolean allShallow = signals.stream().allMatch(AssertionSignal::shallow);
+            boolean allShallow = analysis.shallowAssertionCount() == assertionCount;
             if (allShallow) {
                 int score = weights.shallowAssertionOnlyWeight()
-                        - meaningfulAssertionCredit(signals, weights, AssertionSignal::meaningful);
+                        - meaningfulAssertionCredit(analysis.meaningfulAssertionCount(), weights);
                 if (score > 0) {
                     var smell = new TestAssertionSmell(
                             file,
@@ -1448,12 +1455,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 .toList();
     }
 
-    private static int meaningfulAssertionCredit(
-            List<AssertionSignal> assertions,
-            TestAssertionWeights weights,
-            java.util.function.Predicate<AssertionSignal> predicate) {
-        long count = assertions.stream().filter(predicate).count();
-        int creditable = Math.min((int) count, Math.max(0, weights.meaningfulAssertionCreditCap()));
+    private static int meaningfulAssertionCredit(int meaningfulAssertionCount, TestAssertionWeights weights) {
+        int creditable = Math.min(meaningfulAssertionCount, Math.max(0, weights.meaningfulAssertionCreditCap()));
         return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
     }
 
@@ -1561,15 +1564,18 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 List.of());
     }
 
-    private List<AssertionSignal> detectGoAssertionSignals(
+    private GoAssertionAnalysis analyzeGoAssertions(
             TSNode testFn, SourceContent sourceContent, TestAssertionWeights weights) {
         var ifStatements = new ArrayList<TSNode>();
         collectNodesByType(testFn, Set.of(IF_STATEMENT), ifStatements);
         if (ifStatements.isEmpty()) {
-            return List.of();
+            return new GoAssertionAnalysis(0, 0, 0, List.of());
         }
 
         var signals = new ArrayList<AssertionSignal>();
+        int assertionCount = 0;
+        int shallowAssertionCount = 0;
+        int meaningfulAssertionCount = 0;
         for (TSNode ifStmt : ifStatements) {
             var errorCalls = new ArrayList<TSNode>();
             collectNodesByType(ifStmt, Set.of(CALL_EXPRESSION), errorCalls);
@@ -1584,24 +1590,40 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             if (!hasErrorCall) {
                 continue;
             }
+            assertionCount++;
 
             TSNode condition = ifStmt.getChildByFieldName("condition");
             if (condition == null) {
                 var condCandidates = new ArrayList<TSNode>();
                 collectNodesByType(ifStmt, Set.of(BINARY_EXPRESSION, EXPRESSION), condCandidates);
                 if (condCandidates.isEmpty()) {
+                    // If we detect an assertion-shaped branch but cannot parse condition shape, treat it as non-shallow
+                    // and meaningful to avoid false "no assertions"/"all shallow" outcomes.
+                    meaningfulAssertionCount++;
                     continue;
                 }
                 condition = condCandidates.getFirst();
             }
 
             var signal = classifyGoAssertionFromConditionAndMessage(ifStmt, condition, sourceContent, weights);
+            if (signal != null) {
+                if (signal.shallow()) {
+                    shallowAssertionCount++;
+                }
+                if (signal.meaningful()) {
+                    meaningfulAssertionCount++;
+                }
+            } else {
+                // No smell classification => still a real assertion check.
+                meaningfulAssertionCount++;
+            }
             if (signal != null && signal.score() > 0) {
                 signals.add(signal);
             }
         }
 
-        return signals;
+        return new GoAssertionAnalysis(
+                assertionCount, shallowAssertionCount, meaningfulAssertionCount, List.copyOf(signals));
     }
 
     private @Nullable AssertionSignal classifyGoAssertionFromConditionAndMessage(

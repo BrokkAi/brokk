@@ -39,6 +39,12 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         }
     }
 
+    private record RustAssertionAnalysis(
+            int assertionCount,
+            int shallowAssertionCount,
+            int meaningfulAssertionCount,
+            List<AssertionSignal> smells) {}
+
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForRust(reference);
@@ -721,17 +727,19 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
         var functions = new ArrayList<TSNode>();
         collectNodesByType(root, Set.of(FUNCTION_ITEM), functions);
-
-        var testAttrNodes = testAttributeItems(root, sourceContent);
+        var testFunctions = rustFunctionsWithDirectTestAttribute(root, sourceContent);
+        boolean fallbackAllFunctionsAsTests =
+                testFunctions.isEmpty() && sourceContent.text().contains(TEST_ATTRIBUTE_MARKER);
 
         var candidates = new ArrayList<TestSmellCandidate>();
         for (TSNode function : functions) {
-            if (!isRustTestFunction(function, testAttrNodes)) {
+            if (!fallbackAllFunctionsAsTests && !testFunctions.contains(function)) {
                 continue;
             }
 
-            var signals = detectRustAssertionSignals(function, sourceContent, weights);
-            int assertionCount = signals.size();
+            var analysis = analyzeRustAssertions(function, sourceContent, weights);
+            var signals = analysis.smells();
+            int assertionCount = analysis.assertionCount();
 
             String enclosing = enclosingCodeUnit(
                             file,
@@ -767,10 +775,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                         signal.startByte()));
             }
 
-            boolean allShallow = signals.stream().allMatch(AssertionSignal::shallow);
+            boolean allShallow = analysis.shallowAssertionCount() == assertionCount;
             if (allShallow) {
                 int score = weights.shallowAssertionOnlyWeight()
-                        - meaningfulAssertionCredit(signals, weights, AssertionSignal::meaningful);
+                        - meaningfulAssertionCredit(analysis.meaningfulAssertionCount(), weights);
                 if (score > 0) {
                     var smell = new TestAssertionSmell(
                             file,
@@ -795,22 +803,21 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 .toList();
     }
 
-    private static int meaningfulAssertionCredit(
-            List<AssertionSignal> assertions,
-            TestAssertionWeights weights,
-            java.util.function.Predicate<AssertionSignal> predicate) {
-        long count = assertions.stream().filter(predicate).count();
-        int creditable = Math.min((int) count, Math.max(0, weights.meaningfulAssertionCreditCap()));
+    private static int meaningfulAssertionCredit(int meaningfulAssertionCount, TestAssertionWeights weights) {
+        int creditable = Math.min(meaningfulAssertionCount, Math.max(0, weights.meaningfulAssertionCreditCap()));
         return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
     }
 
-    private List<AssertionSignal> detectRustAssertionSignals(
+    private RustAssertionAnalysis analyzeRustAssertions(
             TSNode testFn, SourceContent sourceContent, TestAssertionWeights weights) {
         var macros = new ArrayList<TSNode>();
         collectNodesByType(testFn, Set.of(MACRO_INVOCATION), macros);
-        if (macros.isEmpty()) return List.of();
+        if (macros.isEmpty()) return new RustAssertionAnalysis(0, 0, 0, List.of());
 
         var signals = new ArrayList<AssertionSignal>();
+        int assertionCount = 0;
+        int shallowAssertionCount = 0;
+        int meaningfulAssertionCount = 0;
         for (TSNode macro : macros) {
             String macroText = sourceContent.substringFrom(macro).stripLeading();
             if (!(macroText.contains("assert!")
@@ -819,9 +826,20 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                     || macroText.contains("assert_matches!"))) {
                 continue;
             }
+            assertionCount++;
 
             if (macroText.contains("assert_eq!") || macroText.contains("assert_ne!")) {
                 var signal = classifyRustEqLikeMacro(macro, sourceContent, weights);
+                if (signal != null) {
+                    if (signal.shallow()) {
+                        shallowAssertionCount++;
+                    }
+                    if (signal.meaningful()) {
+                        meaningfulAssertionCount++;
+                    }
+                } else {
+                    meaningfulAssertionCount++;
+                }
                 if (signal != null && signal.score() > 0) {
                     signals.add(signal);
                 }
@@ -830,6 +848,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
             if (macroText.contains("assert_matches!")) {
                 var signal = classifyRustMatchesMacro(macro, sourceContent, weights);
+                if (signal != null) {
+                    if (signal.shallow()) {
+                        shallowAssertionCount++;
+                    }
+                    if (signal.meaningful()) {
+                        meaningfulAssertionCount++;
+                    }
+                } else {
+                    meaningfulAssertionCount++;
+                }
                 if (signal != null && signal.score() > 0) {
                     signals.add(signal);
                 }
@@ -838,6 +866,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
             if (macroText.contains("assert!")) {
                 var signal = classifyRustAssertMacro(macro, sourceContent, weights);
+                if (signal != null) {
+                    if (signal.shallow()) {
+                        shallowAssertionCount++;
+                    }
+                    if (signal.meaningful()) {
+                        meaningfulAssertionCount++;
+                    }
+                } else {
+                    meaningfulAssertionCount++;
+                }
                 if (signal != null && signal.score() > 0) {
                     signals.add(signal);
                 }
@@ -845,13 +883,17 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         }
 
         signals.sort(Comparator.comparingInt(AssertionSignal::startByte));
-        return signals;
+        return new RustAssertionAnalysis(
+                assertionCount, shallowAssertionCount, meaningfulAssertionCount, List.copyOf(signals));
     }
 
     private @Nullable AssertionSignal classifyRustEqLikeMacro(
             TSNode macro, SourceContent sourceContent, TestAssertionWeights weights) {
-        var exprs = new ArrayList<TSNode>();
+        List<TSNode> exprs = new ArrayList<>();
         collectNodesByType(macro, Set.of(EXPRESSION), exprs);
+        if (exprs.size() < 2) {
+            exprs = rustMacroArgumentNodes(macro);
+        }
         if (exprs.size() < 2) {
             return null;
         }
@@ -912,8 +954,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     private @Nullable AssertionSignal classifyRustAssertMacro(
             TSNode macro, SourceContent sourceContent, TestAssertionWeights weights) {
-        var exprs = new ArrayList<TSNode>();
+        List<TSNode> exprs = new ArrayList<>();
         collectNodesByType(macro, Set.of(EXPRESSION), exprs);
+        if (exprs.isEmpty()) {
+            exprs = rustMacroArgumentNodes(macro);
+        }
         if (exprs.isEmpty()) return null;
         TSNode condition = exprs.getFirst();
 
@@ -978,6 +1023,42 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 sourceContent.substringFrom(macro));
     }
 
+    private static List<TSNode> rustMacroArgumentNodes(TSNode macro) {
+        var args = new ArrayList<TSNode>();
+        TSNode tokenTree = null;
+
+        int childCount = macro.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = macro.getChild(i);
+            if (child != null && TOKEN_TREE.equals(child.getType())) {
+                tokenTree = child;
+                break;
+            }
+        }
+        if (tokenTree == null) {
+            var tokenTrees = new ArrayList<TSNode>();
+            collectNodesByType(macro, Set.of(TOKEN_TREE), tokenTrees);
+            if (!tokenTrees.isEmpty()) {
+                tokenTree = tokenTrees.getFirst();
+            }
+        }
+        if (tokenTree == null) {
+            return args;
+        }
+
+        int namedCount = tokenTree.getNamedChildCount();
+        for (int i = 0; i < namedCount; i++) {
+            TSNode child = tokenTree.getNamedChild(i);
+            if (child == null) continue;
+            String type = child.getType();
+            if (type == null) continue;
+            // Keep argument-like nodes; ignore punctuation-like wrappers if present.
+            if (ATTRIBUTE_ITEM.equals(type)) continue;
+            args.add(child);
+        }
+        return args;
+    }
+
     private static boolean containsLargeRustStringLiteral(TSNode root, SourceContent sourceContent, int threshold) {
         var stringLits = new ArrayList<TSNode>();
         collectNodesByType(root, Set.of(STRING_LITERAL), stringLits);
@@ -990,18 +1071,35 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return false;
     }
 
-    private static boolean isRustTestFunction(TSNode function, List<TSNode> testAttrNodes) {
-        int fnStartRow = function.getStartPoint().getRow();
-        int fnStartByte = function.getStartByte();
-        for (TSNode attr : testAttrNodes) {
-            if (attr.getEndByte() <= fnStartByte) {
-                int rowDelta = fnStartRow - attr.getEndPoint().getRow();
-                if (rowDelta >= 0 && rowDelta <= 25 && fnStartByte - attr.getEndByte() <= 20000) {
-                    return true;
+    private Set<TSNode> rustFunctionsWithDirectTestAttribute(TSNode root, SourceContent sourceContent) {
+        var testFunctions = new HashSet<TSNode>();
+        for (TSNode attrItem : testAttributeItems(root, sourceContent)) {
+            if (!isRustTestAttributeItem(attrItem, sourceContent)) {
+                continue;
+            }
+
+            // Shape 1: attribute_item is nested under the function_item.
+            TSNode parent = attrItem.getParent();
+            if (parent != null && FUNCTION_ITEM.equals(parent.getType())) {
+                testFunctions.add(parent);
+                continue;
+            }
+
+            // Shape 2: attribute_item is a sibling immediately preceding the function_item.
+            TSNode next = attrItem.getNextSibling();
+            while (next != null) {
+                String nextType = next.getType();
+                if (ATTRIBUTE_ITEM.equals(nextType)) {
+                    next = next.getNextSibling();
+                    continue;
                 }
+                if (FUNCTION_ITEM.equals(nextType)) {
+                    testFunctions.add(next);
+                }
+                break;
             }
         }
-        return false;
+        return testFunctions;
     }
 
     private static boolean isRustNoneExpr(TSNode expr, SourceContent sourceContent) {
@@ -1083,10 +1181,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
                                 TSNode attrItemNode = capture.getNode();
                                 if (attrItemNode == null) continue;
-                                String content = sourceContent.substringFrom(attrItemNode);
-                                // Rust attributes look like #[test] or #[cfg(test)]
-                                if (content.contains(TEST_ATTRIBUTE_MARKER)
-                                        || content.contains(CFG_TEST_ATTRIBUTE_MARKER)) {
+                                if (isRustTestContextAttributeItem(attrItemNode, sourceContent)) {
                                     attrs.add(attrItemNode);
                                 }
                             }
@@ -1095,6 +1190,39 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                     return attrs;
                 },
                 List.of());
+    }
+
+    private static boolean isRustTestAttributeItem(TSNode attrItemNode, SourceContent sourceContent) {
+        var ids = rustAttributeIdentifiers(attrItemNode, sourceContent);
+        // `#[test]` parses to identifier list containing `test` (typically as the first identifier).
+        return !ids.isEmpty() && "test".equals(ids.getFirst());
+    }
+
+    private static boolean isRustTestContextAttributeItem(TSNode attrItemNode, SourceContent sourceContent) {
+        var ids = rustAttributeIdentifiers(attrItemNode, sourceContent);
+        if (ids.isEmpty()) {
+            return false;
+        }
+        // test context is either:
+        //  - `#[test]` (first identifier is test), or
+        //  - `#[cfg(test)]` (first identifier cfg and one nested identifier test).
+        if ("test".equals(ids.getFirst())) {
+            return true;
+        }
+        return "cfg".equals(ids.getFirst()) && ids.stream().anyMatch("test"::equals);
+    }
+
+    private static List<String> rustAttributeIdentifiers(TSNode attrItemNode, SourceContent sourceContent) {
+        var idNodes = new ArrayList<TSNode>();
+        collectNodesByType(attrItemNode, Set.of(IDENTIFIER), idNodes);
+        if (idNodes.isEmpty()) {
+            return List.of();
+        }
+        var ids = new ArrayList<String>(idNodes.size());
+        for (TSNode idNode : idNodes) {
+            ids.add(sourceContent.substringFrom(idNode).strip());
+        }
+        return ids;
     }
 
     private static boolean sameRustExpr(TSNode left, TSNode right, SourceContent sourceContent) {
