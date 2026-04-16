@@ -181,7 +181,7 @@ public class GitSecretScanner {
             return HistoryScanResult.EMPTY();
         }
 
-        var tasks = new ArrayList<BlobScanTask>();
+        var keysByCommit = new LinkedHashMap<String, Set<SecretKey>>();
         var commitOrder = new LinkedHashMap<String, Integer>();
         int commitsScanned = 0;
         int missingEntriesSkipped = 0;
@@ -189,12 +189,17 @@ public class GitSecretScanner {
         Path workTreeRoot = repo.getWorkTreeRoot();
         Path projectRoot = repo.getProjectRoot().toAbsolutePath().normalize();
 
-        try (RevWalk walk = new RevWalk(repository)) {
+        try (RevWalk walk = new RevWalk(repository);
+                LoggingExecutorService executor =
+                        ExecutorsUtil.newVirtualThreadExecutor("brokk-secret-scan", SECRET_SCAN_PARALLELISM)) {
             walk.markStart(walk.parseCommit(head));
             RevCommit commit;
             while ((commit = walk.next()) != null && commitsScanned < maxCommits) {
-                commitOrder.put(commit.getName(), commitsScanned);
+                String commitName = commit.getName();
+                commitOrder.put(commitName, commitsScanned);
                 commitsScanned++;
+
+                var futures = new ArrayList<CompletableFuture<BlobScanResult>>();
                 try (TreeWalk treeWalk = new TreeWalk(repository)) {
                     treeWalk.addTree(commit.getTree());
                     treeWalk.setRecursive(true);
@@ -207,32 +212,26 @@ public class GitSecretScanner {
                         if (projectPath.isEmpty() || looksLikeTestPath(projectPath.get())) {
                             continue;
                         }
-                        tasks.add(new BlobScanTask(commit.getName(), projectPath.get(), treeWalk.getObjectId(0)));
+                        var task = new BlobScanTask(commitName, projectPath.get(), treeWalk.getObjectId(0));
+                        futures.add(LoggingFuture.supplyAsync(
+                                () -> scanBlob(repository, task, includeLowConfidence), executor));
                     }
                 } catch (MissingObjectException e) {
                     missingEntriesSkipped++;
-                    logger.debug("Skipping missing tree while scanning {}: {}", repo.shortHash(commit.getName()), e);
+                    logger.debug("Skipping missing tree while scanning {}: {}", repo.shortHash(commitName), e);
+                    continue;
                 }
-            }
-        }
 
-        var keysByCommit = new LinkedHashMap<String, Set<SecretKey>>();
-        try (LoggingExecutorService executor =
-                ExecutorsUtil.newVirtualThreadExecutor("brokk-secret-scan", SECRET_SCAN_PARALLELISM)) {
-            var futures = tasks.stream()
-                    .map(task ->
-                            LoggingFuture.supplyAsync(() -> scanBlob(repository, task, includeLowConfidence), executor))
-                    .toList();
-
-            LoggingFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-            for (var future : futures) {
-                BlobScanResult result = future.join();
-                missingEntriesSkipped += result.missingEntriesSkipped();
-                nonTextEntriesSkipped += result.nonTextEntriesSkipped();
-                if (!result.keys().isEmpty()) {
-                    keysByCommit
-                            .computeIfAbsent(result.commit(), ignored -> new HashSet<>())
-                            .addAll(result.keys());
+                LoggingFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                for (var future : futures) {
+                    BlobScanResult result = future.join();
+                    missingEntriesSkipped += result.missingEntriesSkipped();
+                    nonTextEntriesSkipped += result.nonTextEntriesSkipped();
+                    if (!result.keys().isEmpty()) {
+                        keysByCommit
+                                .computeIfAbsent(result.commit(), ignored -> new HashSet<>())
+                                .addAll(result.keys());
+                    }
                 }
             }
         }
