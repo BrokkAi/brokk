@@ -289,9 +289,9 @@ public class CodeQualityTools {
 
     @Tool(
             """
-            Detects low-value or brittle Java test assertion smells using weighted heuristics.
+            Detects low-value or brittle test assertion smells using language-aware weighted heuristics.
             Uses analyzer test-marker detection as a fast filter, then scores tautological assertions,
-            shallow assertion-only tests, oversized exact literals, and anonymous test doubles.""")
+            shallow assertion-only tests, oversized exact literals, snapshots, and Java anonymous test doubles.""")
     public String reportTestAssertionSmells(
             @P("File paths relative to the project root.") List<String> filePaths,
             @P("Minimum score to include a finding; values <= 0 default to 4.") int minScore,

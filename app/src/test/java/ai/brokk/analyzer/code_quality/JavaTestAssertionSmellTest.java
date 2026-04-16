@@ -29,7 +29,7 @@ public class JavaTestAssertionSmellTest extends AbstractBrittleTestSuite {
                 }
                 """;
         var findings = analyze(code);
-        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("self-comparison")));
+        assertTrue(hasReason(findings, "self-comparison"));
     }
 
     @Test
@@ -50,8 +50,8 @@ public class JavaTestAssertionSmellTest extends AbstractBrittleTestSuite {
                 }
                 """;
         var findings = analyze(code);
-        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("constant-truth")));
-        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("constant-equality")));
+        assertTrue(hasReason(findings, "constant-truth"));
+        assertTrue(hasReason(findings, "constant-equality"));
     }
 
     @Test
@@ -72,7 +72,7 @@ public class JavaTestAssertionSmellTest extends AbstractBrittleTestSuite {
                 }
                 """;
         var findings = analyze(code);
-        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("no-assertions")));
+        assertTrue(hasReason(findings, "no-assertions"));
     }
 
     @Test
@@ -113,8 +113,8 @@ public class JavaTestAssertionSmellTest extends AbstractBrittleTestSuite {
                 }
                 """;
         var findings = analyze(code);
-        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("nullness-only")));
-        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("shallow-assertions-only")));
+        assertTrue(hasReason(findings, "nullness-only"));
+        assertTrue(hasReason(findings, "shallow-assertions-only"));
     }
 
     @Test
@@ -143,7 +143,7 @@ public class JavaTestAssertionSmellTest extends AbstractBrittleTestSuite {
                 }
                 """;
         var findings = analyze(code);
-        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("anonymous-test-double")));
+        assertTrue(hasReason(findings, "anonymous-test-double"));
     }
 
     @Test
@@ -229,6 +229,100 @@ public class JavaTestAssertionSmellTest extends AbstractBrittleTestSuite {
         var tuned = analyze(code, tunedWeights);
         assertFalse(defaults.isEmpty(), "Default heuristics should flag constant truth");
         assertEquals(0, tuned.size(), "Zeroed smell weights should suppress the same finding");
+    }
+
+    @Test
+    void flagsAssertJTautologiesAndConstants() {
+        String code =
+                """
+                package com.example;
+                import org.junit.jupiter.api.Test;
+                import static org.assertj.core.api.Assertions.assertThat;
+
+                public class SampleTest {
+                    @Test
+                    void assertj() {
+                        String value = "x";
+                        assertThat(value).isEqualTo(value);
+                        assertThat(true).isTrue();
+                    }
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(hasReason(findings, "self-comparison"));
+        assertTrue(hasReason(findings, "constant-truth"));
+    }
+
+    @Test
+    void mockitoVerifyCountsAsAssertionEquivalent() {
+        String code =
+                """
+                package com.example;
+                import org.junit.jupiter.api.Test;
+                import static org.mockito.Mockito.mock;
+                import static org.mockito.Mockito.verify;
+
+                public class SampleTest {
+                    interface Sink {
+                        void send(String value);
+                    }
+
+                    @Test
+                    void verifiesInteraction() {
+                        Sink sink = mock(Sink.class);
+                        sink.send("value");
+                        verify(sink).send("value");
+                    }
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(findings.isEmpty());
+    }
+
+    @Test
+    void flagsOverspecifiedLargeLiteral() {
+        String literal = "a".repeat(defaultWeights().largeLiteralLengthThreshold());
+        String code =
+                """
+                package com.example;
+                import org.junit.jupiter.api.Test;
+                import static org.junit.jupiter.api.Assertions.assertEquals;
+
+                public class SampleTest {
+                    @Test
+                    void largeLiteral() {
+                        assertEquals("%s", result());
+                    }
+
+                    String result() {
+                        return "";
+                    }
+                }
+                """
+                        .formatted(literal);
+        var findings = analyze(code);
+        assertTrue(hasReason(findings, "overspecified-literal"));
+    }
+
+    @Test
+    void assertThrowsCountsAsAssertionEquivalent() {
+        String code =
+                """
+                package com.example;
+                import org.junit.jupiter.api.Test;
+                import static org.junit.jupiter.api.Assertions.assertThrows;
+
+                public class SampleTest {
+                    @Test
+                    void throwsMeaningfully() {
+                        assertThrows(IllegalArgumentException.class, () -> {
+                            throw new IllegalArgumentException("boom");
+                        });
+                    }
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(findings.isEmpty());
     }
 
     @Override

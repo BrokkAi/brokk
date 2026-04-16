@@ -17,6 +17,18 @@ abstract class AbstractBrittleTestSuite {
         return analyze(source, path, IAnalyzer.TestAssertionWeights.defaults());
     }
 
+    protected boolean hasReason(List<IAnalyzer.TestAssertionSmell> findings, String reason) {
+        return findings.stream().anyMatch(finding -> finding.reasons().contains(reason));
+    }
+
+    protected boolean hasKind(List<IAnalyzer.TestAssertionSmell> findings, String kind) {
+        return findings.stream().anyMatch(finding -> finding.assertionKind().equals(kind));
+    }
+
+    protected IAnalyzer.TestAssertionWeights defaultWeights() {
+        return IAnalyzer.TestAssertionWeights.defaults();
+    }
+
     protected String defaultTestPath() {
         return "com/example/SampleTest.java";
     }
