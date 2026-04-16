@@ -45,7 +45,7 @@ class EnvironmentTest {
             String output = Environment.instance.runShellCommand(
                     "echo hello > test.txt && cat test.txt",
                     tmpRoot,
-                    true,
+                    SandboxPolicy.WORKSPACE_WRITE,
                     s -> {}, // no-op consumer
                     Environment.UNLIMITED_TIMEOUT);
             assertEquals("hello", output.trim());
@@ -72,9 +72,32 @@ class EnvironmentTest {
             assertThrows(
                     Environment.FailureException.class,
                     () -> Environment.instance.runShellCommand(
-                            cmd, tmpRoot, true, s -> {}, Environment.UNLIMITED_TIMEOUT));
+                            cmd, tmpRoot, SandboxPolicy.WORKSPACE_WRITE, s -> {}, Environment.UNLIMITED_TIMEOUT));
 
             assertFalse(Files.exists(outsideTarget), "File should not have been created outside sandbox");
+        } finally {
+            FileUtil.deleteRecursively(tmpRoot);
+        }
+    }
+
+    @Test
+    void readOnlySandboxBlocksAllWrites() throws Exception {
+        Assumptions.assumeTrue(
+                Environment.isSandboxAvailable(), "Required sandboxing tool not available on this platform");
+        Assumptions.assumeFalse(Environment.isWindows(), "Sandboxing not supported on Windows for this test");
+
+        Path tmpRoot = Files.createTempDirectory(Environment.getHomePath(), "brokk-sandbox-test");
+        try {
+            // In READ_ONLY mode, even writes inside the workspace root should be blocked
+            String cmd = "echo fail > '" + tmpRoot.resolve("inside.txt") + "'";
+            assertThrows(
+                    Environment.FailureException.class,
+                    () -> Environment.instance.runShellCommand(
+                            cmd, tmpRoot, SandboxPolicy.READ_ONLY, s -> {}, Environment.UNLIMITED_TIMEOUT));
+
+            assertFalse(
+                    Files.exists(tmpRoot.resolve("inside.txt")),
+                    "File should not have been created in READ_ONLY sandbox");
         } finally {
             FileUtil.deleteRecursively(tmpRoot);
         }
@@ -90,5 +113,15 @@ class EnvironmentTest {
                     Environment.instance.runShellCommand("echo test", tmpRoot, s -> {}, Duration.ofSeconds(-1));
                 },
                 "Negative timeout should throw IllegalArgumentException");
+    }
+
+    @Test
+    void isBooleanFlagEnabled_requiresExplicitTrue() {
+        assertTrue(Environment.isBooleanFlagEnabled("true"));
+        assertTrue(Environment.isBooleanFlagEnabled(" TRUE "));
+        assertFalse(Environment.isBooleanFlagEnabled("false"));
+        assertFalse(Environment.isBooleanFlagEnabled("0"));
+        assertFalse(Environment.isBooleanFlagEnabled(""));
+        assertFalse(Environment.isBooleanFlagEnabled(null));
     }
 }

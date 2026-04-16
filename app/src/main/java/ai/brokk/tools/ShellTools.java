@@ -2,6 +2,7 @@ package ai.brokk.tools;
 
 import ai.brokk.IContextManager;
 import ai.brokk.util.Environment;
+import ai.brokk.util.SandboxPolicy;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.time.Duration;
@@ -23,10 +24,14 @@ public class ShellTools {
     }
 
     @Blocking
+    @Destructive
     @Tool(
             """
         Run a shell command in the project root directory and return its output (stdout and stderr combined).
-        Use this for build commands, test runners, linters, or any CLI tool available in the project environment.
+        Use this for build commands, test runners, linters, package installation, or any CLI tool.
+        The user will be prompted to approve the command before it executes, and can choose to run it
+        with or without sandbox restrictions. Always attempt the command and let the user decide --
+        do not preemptively refuse commands based on assumptions about the environment.
         The command runs with a 120-second timeout. Returns the combined output, or an error message if the command fails.
         """)
     public String runShellCommand(
@@ -36,6 +41,8 @@ public class ShellTools {
         var project = cm.getProject();
         var root = project.getRoot();
         var shellConfig = project.getShellConfig();
+        var sandboxPolicy =
+                ToolExecutionHelper.isSandboxOverridden() ? SandboxPolicy.NONE : SandboxPolicy.WORKSPACE_WRITE;
 
         Deque<String> lines = new ArrayDeque<>(MAX_OUTPUT_LINES);
 
@@ -43,6 +50,7 @@ public class ShellTools {
             Environment.instance.runShellCommand(
                     command,
                     root,
+                    sandboxPolicy,
                     line -> {
                         synchronized (lines) {
                             if (lines.size() >= MAX_OUTPUT_LINES) {
@@ -53,7 +61,8 @@ public class ShellTools {
                     },
                     DEFAULT_TIMEOUT,
                     shellConfig,
-                    Map.of());
+                    Map.of(),
+                    null);
 
             synchronized (lines) {
                 return String.join("\n", lines);

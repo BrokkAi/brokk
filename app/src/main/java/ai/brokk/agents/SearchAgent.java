@@ -18,6 +18,7 @@ import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.SearchTools;
+import ai.brokk.tools.ToolExecutionHelper;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolOutput;
 import ai.brokk.tools.ToolRegistry;
@@ -233,13 +234,13 @@ public class SearchAgent {
                 if (parallelRequests.size() > 1) {
                     for (var request : parallelRequests) {
                         metrics.recordToolCall(request.name());
-                        io.beforeToolCall(request);
                         Context snapshotContext = context;
-                        parallelFutures.put(
-                                request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
-                                        .register(new WorkspaceTools(snapshotContext))
-                                        .build()
-                                        .executeTool(request)));
+                        parallelFutures.put(request, LoggingFuture.supplyCallableVirtual(() -> {
+                            var registry = ToolRegistry.fromBase(toolRegistry)
+                                    .register(new WorkspaceTools(snapshotContext))
+                                    .build();
+                            return ToolExecutionHelper.executeWithApproval(io, registry, request);
+                        }));
                     }
                 }
                 Runnable cancelOutstandingParallelFutures = () -> parallelFutures.values().stream()
@@ -259,16 +260,14 @@ public class SearchAgent {
                             String msg = cause == null ? "Unknown error" : cause.getMessage();
                             toolResult =
                                     ToolExecutionResult.internalError(request, msg == null ? "Unknown error" : msg);
+                            io.afterToolOutput(toolResult);
                         }
-                        io.afterToolOutput(toolResult);
                     } else {
                         metrics.recordToolCall(request.name());
-                        io.beforeToolCall(request);
                         var executionRegistry = ToolRegistry.fromBase(toolRegistry)
                                 .register(new WorkspaceTools(context))
                                 .build();
-                        toolResult = executionRegistry.executeTool(request);
-                        io.afterToolOutput(toolResult);
+                        toolResult = ToolExecutionHelper.executeWithApproval(io, executionRegistry, request);
                     }
                     llm.recordToolExecution(toolResult);
                     messages.add(toolResult.toMessage());

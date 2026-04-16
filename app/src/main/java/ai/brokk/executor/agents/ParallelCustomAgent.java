@@ -181,7 +181,7 @@ public class ParallelCustomAgent {
 
     private CustomAgentTaskResult executeCustomAgentRequest(
             ToolExecutionRequest request, ToolRegistry tr, IConsoleIO taskIo) throws InterruptedException {
-        taskIo.beforeToolCall(request);
+        taskIo.beforeToolCall(request, false);
 
         String agentName;
         String task;

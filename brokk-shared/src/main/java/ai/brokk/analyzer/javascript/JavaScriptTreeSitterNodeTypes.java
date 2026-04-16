@@ -45,12 +45,12 @@ public final class JavaScriptTreeSitterNodeTypes {
     public static final String MEMBER_EXPRESSION = "member_expression";
     public static final String ARGUMENTS = "arguments";
     public static final String IDENTIFIER = "identifier";
-    public static final String PROPERTY_IDENTIFIER = "property_identifier";
     public static final String STRING = "string";
     public static final String TEMPLATE_STRING = "template_string";
     public static final String NUMBER = "number";
     public static final String TRUE = "true";
     public static final String FALSE = "false";
+    public static final String PROPERTY_IDENTIFIER = "property_identifier";
     public static final String NULL = "null";
     public static final String UNDEFINED = "undefined";
 

@@ -18,6 +18,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -29,6 +30,7 @@ import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
+import org.treesitter.TSTreeCursor;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
@@ -39,6 +41,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     private static final Set<String> PYTHON_LOG_RECEIVER_NAMES = Set.of("log", "logger");
     private static final Set<String> PYTHON_LOG_RECEIVER_EXTRA_SUFFIXES = Set.of("logging");
     private static final Set<String> PYTHON_LOG_METHOD_NAMES = Set.of("log", "warning", "error", "exception");
+    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES = Set.of(IDENTIFIER, KEYWORD_IDENTIFIER);
+    private static final Set<String> CLONE_AST_STRING_TYPES = Set.of(STRING, STRING_CONTENT, INTERPOLATION);
+    private static final Set<String> CLONE_AST_NUMBER_TYPES = Set.of(INTEGER, FLOAT);
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -67,6 +72,90 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             rows.add(buildRollUpStats(top, counts));
         }
         return List.copyOf(rows);
+    }
+
+    @Override
+    protected String buildCloneAstSignature(String source) {
+        return withFreshTree(source, "", tree -> {
+            TSNode root = tree.getRootNode();
+            if (root == null) {
+                return "";
+            }
+            SourceContent sourceContent = SourceContent.of(source);
+            var labels = new ArrayList<String>();
+            try (var cursor = new TSTreeCursor(root)) {
+                while (true) {
+                    TSNode node = cursor.currentNode();
+                    if (node == null) {
+                        break;
+                    }
+                    labels.add(normalizePythonAstLabel(node, sourceContent));
+                    if (!gotoNextDepthFirst(cursor, true)) {
+                        break;
+                    }
+                }
+            }
+            return String.join("|", labels);
+        });
+    }
+
+    @Override
+    protected int refineCloneSimilarityPercent(
+            CloneCandidateData left, CloneCandidateData right, int tokenSimilarity, CloneSmellWeights weights) {
+        if (left.astSignature().isBlank() || right.astSignature().isBlank()) {
+            return tokenSimilarity;
+        }
+        int astSimilarity = computeAstRefinementSimilarityPercent(left.astSignature(), right.astSignature());
+        if (astSimilarity == 0) {
+            return tokenSimilarity;
+        }
+        if (astSimilarity < weights.astSimilarityPercent()) {
+            return 0;
+        }
+        return Math.min(tokenSimilarity, astSimilarity);
+    }
+
+    @Override
+    protected String normalizeCloneLeafToken(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        String token = sourceContent.substringFrom(node).strip();
+        if (token.isEmpty() || COMMENT_NODE_TYPES.contains(type)) {
+            return "";
+        }
+        if (CLONE_AST_IDENTIFIER_TYPES.contains(type)) {
+            return "ID";
+        }
+        if (CLONE_AST_STRING_TYPES.contains(type)) {
+            return "STR";
+        }
+        if (CLONE_AST_NUMBER_TYPES.contains(type)) {
+            return "NUM";
+        }
+        if (BOOLEAN.equals(type) || TRUE.equals(token) || FALSE.equals(token)) {
+            return "BOOL";
+        }
+        if (token.length() == 1 && !Character.isLetterOrDigit(token.charAt(0))) {
+            return "OP:" + token;
+        }
+        return "T:" + type;
+    }
+
+    private static String normalizePythonAstLabel(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        String text = sourceContent.substringFrom(node).strip();
+        if (CLONE_AST_IDENTIFIER_TYPES.contains(type)) {
+            return "ID";
+        }
+        if (CLONE_AST_STRING_TYPES.contains(type)) {
+            return "STR";
+        }
+        if (CLONE_AST_NUMBER_TYPES.contains(type)) {
+            return "NUM";
+        }
+        if (BOOLEAN.equals(type) || TRUE.equals(text) || FALSE.equals(text)) {
+            return "BOOL";
+        }
+        return "N:" + type;
     }
 
     @Override

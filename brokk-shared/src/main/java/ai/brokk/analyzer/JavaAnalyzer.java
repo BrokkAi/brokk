@@ -18,6 +18,7 @@ import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
+import org.treesitter.TSTreeCursor;
 import org.treesitter.TreeSitterJava;
 
 public class JavaAnalyzer extends TreeSitterAnalyzer
@@ -26,6 +27,17 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
     private static final Set<String> JAVA_COMMENT_NODE_TYPES = Set.of(LINE_COMMENT, BLOCK_COMMENT);
     private static final Set<String> LOG_RECEIVER_NAMES = Set.of("log", "logger");
+    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES =
+            Set.of(IDENTIFIER, TYPE_IDENTIFIER, SCOPED_IDENTIFIER, SCOPED_TYPE_IDENTIFIER);
+    private static final Set<String> CLONE_AST_STRING_TYPES = Set.of(STRING_LITERAL, CHARACTER_LITERAL);
+    private static final Set<String> CLONE_AST_NUMBER_TYPES = Set.of(
+            DECIMAL_INTEGER_LITERAL,
+            HEX_INTEGER_LITERAL,
+            OCTAL_INTEGER_LITERAL,
+            BINARY_INTEGER_LITERAL,
+            DECIMAL_FLOATING_POINT_LITERAL,
+            HEX_FLOATING_POINT_LITERAL);
+    private static final Set<String> CLONE_AST_IGNORED_TYPES = Set.of(MODIFIERS, TYPE_PARAMETERS);
 
     public JavaAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
@@ -229,6 +241,68 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     @Override
     protected String bodyPlaceholder() {
         return "{...}";
+    }
+
+    @Override
+    protected String buildCloneAstSignature(String source) {
+        return withFreshTree(source, "", tree -> {
+            TSNode root = tree.getRootNode();
+            if (root == null) {
+                return "";
+            }
+            SourceContent sourceContent = SourceContent.of(source);
+            var labels = new ArrayList<String>();
+            try (var cursor = new TSTreeCursor(root)) {
+                while (true) {
+                    TSNode node = cursor.currentNode();
+                    if (node == null) {
+                        break;
+                    }
+                    labels.add(normalizeAstLabel(node, sourceContent));
+                    if (!gotoNextDepthFirst(cursor, true)) {
+                        break;
+                    }
+                }
+            }
+            return String.join("|", labels);
+        });
+    }
+
+    @Override
+    protected int refineCloneSimilarityPercent(
+            CloneCandidateData left, CloneCandidateData right, int tokenSimilarity, CloneSmellWeights weights) {
+        if (left.astSignature().isBlank() || right.astSignature().isBlank()) {
+            return tokenSimilarity;
+        }
+        int astSimilarity = computeAstRefinementSimilarityPercent(left.astSignature(), right.astSignature());
+        if (astSimilarity == 0) {
+            return tokenSimilarity;
+        }
+        if (astSimilarity < weights.astSimilarityPercent()) {
+            return 0;
+        }
+        return Math.min(tokenSimilarity, astSimilarity);
+    }
+
+    private static String normalizeAstLabel(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        String text = sourceContent.substringFrom(node).strip();
+        if (CLONE_AST_IDENTIFIER_TYPES.contains(type)) {
+            return "ID";
+        }
+        if (CLONE_AST_STRING_TYPES.contains(type)) {
+            return "STR";
+        }
+        if (CLONE_AST_NUMBER_TYPES.contains(type)) {
+            return "NUM";
+        }
+        if (BOOLEAN_LITERAL.equals(type) || TRUE.equals(text) || FALSE.equals(text)) {
+            return "BOOL";
+        }
+        if (CLONE_AST_IGNORED_TYPES.contains(type)) {
+            return "IGN";
+        }
+        return "N:" + type;
     }
 
     @Override

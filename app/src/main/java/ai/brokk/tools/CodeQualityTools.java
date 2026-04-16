@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -278,6 +279,90 @@ public class CodeQualityTools {
                             symbol,
                             file,
                             "`" + reasons + "`",
+                            sanitizeTableCell(finding.excerpt())));
+        }
+        if (filtered.size() > shown) {
+            lines.add("");
+            lines.add("- Note: output truncated; increase maxFindings to see more.");
+        }
+        return String.join("\n", lines);
+    }
+
+    @Tool(
+            """
+            Detects duplicated implementation patterns across functions using normalized token similarity.
+            Uses analyzer-provided structural clone smells (with AST refinement) for high-recall triage.
+            Tune similarity and size thresholds to reduce noise.""")
+    public String reportStructuralCloneSmells(
+            @P("File paths relative to the project root.") List<String> filePaths,
+            @P("Minimum similarity score (0-100) to include; values <= 0 default to 60.") int minScore,
+            @P("Minimum normalized token count; values <= 0 default to 12.") int minNormalizedTokens,
+            @P("Shingle size used for token overlap; values <= 0 default to 2.") int shingleSize,
+            @P("Minimum shared shingles before scoring; values <= 0 default to 3.") int minSharedShingles,
+            @P("AST refinement threshold (0-100); values <= 0 default to 70.") int astSimilarityPercent,
+            @P("Maximum findings to emit; values <= 0 default to 80.") int maxFindings) {
+
+        var defaults = IAnalyzer.CloneSmellWeights.defaults();
+        int threshold = minScore > 0 ? minScore : defaults.minSimilarityPercent();
+        int findingsCap = maxFindings > 0 ? maxFindings : 80;
+        var weights = new IAnalyzer.CloneSmellWeights(
+                minNormalizedTokens > 0 ? minNormalizedTokens : defaults.minNormalizedTokens(),
+                threshold,
+                shingleSize > 0 ? shingleSize : defaults.shingleSize(),
+                minSharedShingles > 0 ? minSharedShingles : defaults.minSharedShingles(),
+                astSimilarityPercent > 0 ? astSimilarityPercent : defaults.astSimilarityPercent());
+
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        List<ProjectFile> files = filePaths.stream()
+                .map(contextManager::toFile)
+                .filter(ProjectFile::exists)
+                .toList();
+        var findings = new ArrayList<>(analyzer.findStructuralCloneSmells(files, weights));
+        var deduped = new LinkedHashMap<String, IAnalyzer.CloneSmell>();
+        for (IAnalyzer.CloneSmell finding : findings) {
+            String left = finding.file() + "#" + finding.enclosingFqName();
+            String right = finding.peerFile() + "#" + finding.peerEnclosingFqName();
+            String key = left.compareTo(right) <= 0 ? left + "||" + right : right + "||" + left;
+            deduped.putIfAbsent(key, finding);
+        }
+        var filtered = deduped.values().stream()
+                .filter(f -> f.score() >= threshold)
+                .sorted(Comparator.comparingInt(IAnalyzer.CloneSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(IAnalyzer.CloneSmell::enclosingFqName)
+                        .thenComparing(f -> f.peerFile().toString())
+                        .thenComparing(IAnalyzer.CloneSmell::peerEnclosingFqName))
+                .toList();
+        if (filtered.isEmpty()) {
+            return "No structural clone smells met minScore " + threshold + ".";
+        }
+
+        int shown = Math.min(findingsCap, filtered.size());
+        var lines = new ArrayList<String>();
+        lines.add("## Structural clone smells");
+        lines.add("");
+        lines.add("- Min score: %d".formatted(threshold));
+        lines.add("- Findings shown: %d of %d".formatted(shown, filtered.size()));
+        lines.add("- Weights: minTokens=%d, shingleSize=%d, minShared=%d, astThreshold=%d"
+                .formatted(
+                        weights.minNormalizedTokens(),
+                        weights.shingleSize(),
+                        weights.minSharedShingles(),
+                        weights.astSimilarityPercent()));
+        lines.add("");
+        lines.add("| Score | Tokens | Symbol | Peer Symbol | Reasons | Excerpt |");
+        lines.add("|------:|-------:|--------|-------------|---------|---------|");
+        for (IAnalyzer.CloneSmell finding : filtered.subList(0, shown)) {
+            lines.add("| %d | %d | `%s` (%s) | `%s` (%s) | `%s` | `%s` |"
+                    .formatted(
+                            finding.score(),
+                            finding.normalizedTokenCount(),
+                            sanitizeTableCell(finding.enclosingFqName()),
+                            sanitizeTableCell(finding.file().toString()),
+                            sanitizeTableCell(finding.peerEnclosingFqName()),
+                            sanitizeTableCell(finding.peerFile().toString()),
+                            sanitizeTableCell(String.join(", ", finding.reasons())),
                             sanitizeTableCell(finding.excerpt())));
         }
         if (filtered.size() > shown) {

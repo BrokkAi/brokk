@@ -107,6 +107,25 @@ class ContextManagerTest {
     }
 
     @Test
+    void globalToolRegistryIncludesThinkAndBuilderInheritsIt() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-think-tools");
+        var project = new MainProject(tempDir);
+        var cm = new ContextManager(project);
+        try {
+            assertTrue(
+                    cm.getToolRegistry().isRegistered("think"),
+                    "ContextManager base registry must expose builtin think for custom agents");
+            var extended = cm.getToolRegistry().builder().build();
+            assertTrue(
+                    extended.isRegistered("think"),
+                    "Registry builder copies must retain think (CustomAgentExecutor builds this way)");
+            assertEquals(1, extended.getTools(List.of("think")).size());
+        } finally {
+            project.close();
+        }
+    }
+
+    @Test
     public void testDropHistoryEntryBySequence() throws Exception {
         var tempDir = Files.createTempDirectory("ctxmgr-test");
         var project = new MainProject(tempDir);
