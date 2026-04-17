@@ -331,11 +331,11 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
         int score = 0;
         var reasons = new ArrayList<String>();
-        String catchTypeLower = catchType.toLowerCase(Locale.ROOT);
-        if (catchTypeLower.contains("exception")) {
+        String normalizedCatchType = normalizeTypeNameForGenericCheck(catchType);
+        if (isGenericExceptionType(normalizedCatchType)) {
             score += weights.genericExceptionWeight();
             reasons.add("generic-catch:Exception");
-        } else if (catchTypeLower.contains("throwable")) {
+        } else if (isGenericThrowableType(normalizedCatchType)) {
             score += weights.genericThrowableWeight();
             reasons.add("generic-catch:Throwable");
         }
@@ -460,7 +460,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         if (LOG_RECEIVER_NAMES.contains(receiverName)) {
             return true;
         }
-        return LOG_METHOD_NAMES.contains(methodName) || methodName.startsWith("log");
+        return LOG_METHOD_NAMES.contains(methodName);
     }
 
     private static @Nullable TSNode firstNamedChildOfType(TSNode node, Set<String> candidateTypes) {
@@ -483,6 +483,22 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         }
         int lastDot = cleaned.lastIndexOf('.');
         return (lastDot >= 0 ? cleaned.substring(lastDot + 1) : cleaned).strip();
+    }
+
+    private static String normalizeTypeNameForGenericCheck(String typeText) {
+        String cleaned = typeText.strip().toLowerCase(Locale.ROOT);
+        if (cleaned.startsWith("global::")) {
+            cleaned = cleaned.substring("global::".length());
+        }
+        return cleaned;
+    }
+
+    private static boolean isGenericExceptionType(String normalizedTypeName) {
+        return "exception".equals(normalizedTypeName) || "system.exception".equals(normalizedTypeName);
+    }
+
+    private static boolean isGenericThrowableType(String normalizedTypeName) {
+        return "throwable".equals(normalizedTypeName) || "system.throwable".equals(normalizedTypeName);
     }
 
     private static String compactCatchExcerpt(String text) {
