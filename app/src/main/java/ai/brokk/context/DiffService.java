@@ -6,7 +6,6 @@ import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.concurrent.ComputedValue;
-import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoData.FileDiff;
@@ -93,8 +92,7 @@ public final class DiffService {
             var revision = history.getGitState(k.prev().id())
                     .map(ContextHistory.GitState::commitHash)
                     .orElse("HEAD");
-            return LoggingFuture.supplyAsync(
-                    () -> diff(k.curr(), castNonNull(k.prev()), revision), cm.getBackgroundTasks());
+            return cm.submitMaintenanceTask("Computing diff", () -> diff(k.curr(), castNonNull(k.prev()), revision));
         });
     }
 

@@ -197,7 +197,7 @@ public class RustLanguage implements DependencyImportable {
             SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
         }
 
-        chrome.getContextManager().submitBackgroundTask("Copying Rust crate: " + pkg.displayName(), () -> {
+        chrome.getContextManager().submitMaintenanceTask("Copying Rust crate: " + pkg.displayName(), () -> {
             try {
                 Files.createDirectories(targetRoot.getParent());
                 if (Files.exists(targetRoot)) {

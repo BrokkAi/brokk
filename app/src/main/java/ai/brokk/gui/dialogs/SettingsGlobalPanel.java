@@ -1327,7 +1327,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         this.balanceField.setText("Loading...");
         var contextManager = chrome.getContextManager();
         var models = contextManager.getService();
-        contextManager.submitBackgroundTask("Refreshing user balance", () -> {
+        contextManager.submitMaintenanceTask("Refreshing user balance", () -> {
             try {
                 float balance = models.getUserBalance();
                 SwingUtilities.invokeLater(() -> this.balanceField.setText(String.format("$%.2f", balance)));
@@ -2416,7 +2416,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             return;
         }
 
-        chrome.getContextManager().submitBackgroundTask("Disconnecting OpenAI", () -> {
+        chrome.getContextManager().submitMaintenanceTask("Disconnecting OpenAI", () -> {
             String error = Service.disconnectCodexOauth();
             SwingUtilities.invokeLater(() -> {
                 if (error == null) {

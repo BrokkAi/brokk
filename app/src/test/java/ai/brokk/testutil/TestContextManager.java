@@ -22,8 +22,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
@@ -202,13 +200,6 @@ public final class TestContextManager implements IContextManager {
             throws InterruptedException {
         return new ai.brokk.TaskResult(
                 liveContext(), new ai.brokk.TaskResult.StopDetails(ai.brokk.TaskResult.StopReason.SUCCESS));
-    }
-
-    private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();
-
-    @Override
-    public ExecutorService getBackgroundTasks() {
-        return backgroundTasks;
     }
 
     @Override

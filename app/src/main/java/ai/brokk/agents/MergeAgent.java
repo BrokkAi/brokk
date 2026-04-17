@@ -197,10 +197,10 @@ public class MergeAgent {
                 "Submitting background tasks for commit explanations. Ours: {} commits, Theirs: {} commits.",
                 annotations.ourCommits().size(),
                 annotations.theirCommits().size());
-        Future<String> oursFuture = cm.submitBackgroundTask("Explain relevant OUR commits", () -> {
+        Future<String> oursFuture = cm.submitMaintenanceTask("Explain relevant OUR commits", () -> {
             return buildCommitExplanations("Our relevant commits", annotations.ourCommits());
         });
-        Future<String> theirsFuture = cm.submitBackgroundTask("Explain relevant THEIR commits", () -> {
+        Future<String> theirsFuture = cm.submitMaintenanceTask("Explain relevant THEIR commits", () -> {
             return buildCommitExplanations("Their relevant commits", annotations.theirCommits());
         });
 

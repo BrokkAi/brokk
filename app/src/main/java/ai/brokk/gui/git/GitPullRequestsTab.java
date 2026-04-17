@@ -12,7 +12,6 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
-import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.FilterBox;
 import ai.brokk.gui.PrTitleFormatter;
 import ai.brokk.gui.components.GitHubTokenMissingPanel;
@@ -45,8 +44,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -136,10 +135,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private boolean isShowingError = false;
 
     @Nullable
-    private SwingWorker<Map<Integer, String>, Void> activeCiFetcher;
+    private CompletableFuture<Map<Integer, String>> activeCiFetcher;
 
     @Nullable
-    private SwingWorker<Map<Integer, List<String>>, Void> activePrFilesFetcher;
+    private CompletableFuture<Map<Integer, List<String>>> activePrFilesFetcher;
 
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
@@ -498,7 +497,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     viewPrDiffButton.setEnabled(singlePrSelected);
                     updatePrTableContextMenuState();
 
-                    this.contextManager.submitBackgroundTask("Updating PR #" + prNumber + " local status", () -> {
+                    this.contextManager.submitMaintenanceTask("Updating PR #" + prNumber + " local status", () -> {
                         SwingUtilities.invokeLater(() -> {
                             int currentRow = prTable.getSelectedRow();
                             if (currentRow != -1
@@ -806,7 +805,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
 
                     if (!futuresToCancelAndAwait.isEmpty()) {
-                        contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
+                        contextManager.submitMaintenanceTask("Finalizing cancellations and refreshing PR data", () -> {
                             for (Future<?> f : futuresToCancelAndAwait) {
                                 try {
                                     f.get();
@@ -847,7 +846,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
 
                     if (!futuresToCancelAndAwait.isEmpty()) {
-                        contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
+                        contextManager.submitMaintenanceTask("Finalizing cancellations and refreshing PR data", () -> {
                             for (Future<?> f : futuresToCancelAndAwait) {
                                 try {
                                     f.get();
@@ -1020,7 +1019,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         labelChoices.clear();
         assigneeChoices.clear();
 
-        var future = contextManager.submitBackgroundTask("Fetching GitHub Pull Requests", () -> {
+        var future = contextManager.submitMaintenanceTask("Fetching GitHub Pull Requests", () -> {
             try {
                 var project = contextManager.getProject();
                 GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
@@ -1111,7 +1110,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         loadMoreButton.setEnabled(false);
         refreshPrButton.setToolTipText("Loading more PRs...");
 
-        var future = contextManager.submitBackgroundTask("Loading more PRs", () -> {
+        var future = contextManager.submitMaintenanceTask("Loading more PRs", () -> {
             try {
                 var result = StreamingPaginationHelper.loadBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
 
@@ -1309,81 +1308,34 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         fetchCiStatusesForDisplayedPrs();
     }
 
-    private class CiStatusFetcherWorker extends ExceptionAwareSwingWorker<Map<Integer, String>, Void> {
-        private final List<GHPullRequest> prsToFetch;
-
-        public CiStatusFetcherWorker(List<GHPullRequest> prsToFetch) {
-            super(chrome);
-            this.prsToFetch = prsToFetch;
-        }
-
-        @Override
-        protected Map<Integer, String> doInBackground() {
-            Map<Integer, String> fetchedStatuses = new HashMap<>();
-            for (GHPullRequest prToFetch : prsToFetch) {
-                if (isCancelled()) {
-                    break;
-                }
-                try {
-                    if (prToFetch.isMerged()) { // This can throw IOException
-                        fetchedStatuses.put(prToFetch.getNumber(), "Merged");
-                    } else {
-                        String status = getCiStatus(prToFetch); // This can throw IOException
-                        fetchedStatuses.put(prToFetch.getNumber(), status);
-                    }
-                } catch (IOException e) {
-                    logger.warn(
-                            "Failed to get status (merged/CI) for PR #{} due to IOException: {}",
-                            prToFetch.getNumber(),
-                            e);
-                    fetchedStatuses.put(prToFetch.getNumber(), "Err");
-                }
+    private Map<Integer, String> fetchCiStatuses(List<GHPullRequest> prsToFetch) {
+        Map<Integer, String> fetchedStatuses = new HashMap<>();
+        for (var prToFetch : prsToFetch) {
+            if (Thread.currentThread().isInterrupted()) {
+                break;
             }
-            return fetchedStatuses;
-        }
-
-        @Override
-        protected void done() {
-            if (isCancelled()) {
-                logger.debug("CI status fetch worker cancelled.");
-                return;
-            }
-            // Centralized exception handling
-            super.done();
-
-            Map<Integer, String> newStatuses;
             try {
-                newStatuses = get();
-            } catch (InterruptedException | ExecutionException ignored) {
-                // Already handled by ExceptionAwareSwingWorker.done()
-                return;
-            }
-
-            ciStatusCache.putAll(newStatuses);
-
-            // Update the table model with new CI statuses
-            for (int i = 0; i < prTableModel.getRowCount(); i++) {
-                Object prNumCellObj = prTableModel.getValueAt(i, PR_COL_NUMBER);
-                if (prNumCellObj instanceof String prNumCell && prNumCell.startsWith("#")) {
-                    try {
-                        int prNumberInTable = Integer.parseInt(prNumCell.substring(1));
-                        if (newStatuses.containsKey(prNumberInTable)) {
-                            prTableModel.setValueAt(newStatuses.get(prNumberInTable), i, PR_COL_STATUS);
-                        }
-                    } catch (NumberFormatException nfe) {
-                        logger.trace("Skipping Status update for non-PR row in table: {}", prNumCell);
-                    }
+                if (prToFetch.isMerged()) {
+                    fetchedStatuses.put(prToFetch.getNumber(), "Merged");
+                } else {
+                    var status = getCiStatus(prToFetch);
+                    fetchedStatuses.put(prToFetch.getNumber(), status);
                 }
+            } catch (IOException e) {
+                logger.warn(
+                        "Failed to get status (merged/CI) for PR #{} due to IOException: {}", prToFetch.getNumber(), e);
+                fetchedStatuses.put(prToFetch.getNumber(), "Err");
             }
         }
+        return fetchedStatuses;
     }
 
     private void fetchCiStatusesForDisplayedPrs() {
         assert SwingUtilities.isEventDispatchThread();
 
         List<GHPullRequest> prsRequiringCiFetch = new ArrayList<>();
-        for (GHPullRequest pr : displayedPrs) {
-            String currentStatusInCache = ciStatusCache.get(pr.getNumber());
+        for (var pr : displayedPrs) {
+            var currentStatusInCache = ciStatusCache.get(pr.getNumber());
             if (currentStatusInCache == null
                     || "?".equals(currentStatusInCache)
                     || "...".equals(currentStatusInCache)
@@ -1399,143 +1351,116 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             activeCiFetcher.cancel(true);
         }
 
-        activeCiFetcher = new CiStatusFetcherWorker(prsRequiringCiFetch);
-        contextManager.getBackgroundTasks().submit(activeCiFetcher);
-    }
-
-    private class PrFilesFetcherWorker extends ExceptionAwareSwingWorker<Map<Integer, List<String>>, Void> {
-        private final List<GHPullRequest> prsToFetchFilesFor;
-        private final IProject project;
-
-        public PrFilesFetcherWorker(List<GHPullRequest> prsToFetchFilesFor, IProject project) {
-            super(chrome);
-            this.prsToFetchFilesFor = prsToFetchFilesFor;
-            this.project = project;
-        }
-
-        @Override
-        protected Map<Integer, List<String>> doInBackground() {
-            Map<Integer, List<String>> fetchedFilesMap = new HashMap<>();
-            var repo = getRepo();
-
-            for (GHPullRequest pr : prsToFetchFilesFor) {
-                if (isCancelled()) break;
-                try {
-                    String headSha = pr.getHead().getSha();
-                    String baseSha = pr.getBase().getSha();
-                    int prNumber = pr.getNumber();
-                    boolean headLocallyAvailable;
-                    boolean baseLocallyAvailable;
-
-                    GitHubAuth auth;
+        activeCiFetcher =
+                contextManager.submitMaintenanceTask("Fetching CI status", () -> fetchCiStatuses(prsRequiringCiFetch));
+        activeCiFetcher.thenAccept(newStatuses -> SwingUtilities.invokeLater(() -> {
+            ciStatusCache.putAll(newStatuses);
+            for (int i = 0; i < prTableModel.getRowCount(); i++) {
+                var prNumCellObj = prTableModel.getValueAt(i, PR_COL_NUMBER);
+                if (prNumCellObj instanceof String prNumCell && prNumCell.startsWith("#")) {
                     try {
-                        auth = GitHubAuth.getOrCreateInstance(this.project);
-                    } catch (IOException e) {
-                        logger.warn(
-                                "Failed to get GitHubAuth instance in PrFilesFetcherWorker for PR #{}: {}",
-                                prNumber,
-                                e.getMessage(),
-                                e);
-                        throw new RuntimeException(
-                                "Failed to initialize GitHubAuth for PR #" + prNumber + ": " + e.getMessage(), e);
-                    }
-
-                    // Ensure head SHA is available
-                    String headFetchRefSpec =
-                            String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
-                    headLocallyAvailable = GitHostUtil.ensureShaIsLocal(repo, headSha, headFetchRefSpec, "origin");
-
-                    if (!headLocallyAvailable) {
-                        // If direct PR head fetch fails, try fetching the source branch if it's from origin
-                        if (pr.getHead()
-                                .getRepository()
-                                .getFullName()
-                                .equals(auth.getOwner() + "/" + auth.getRepoName())) {
-                            String headBranchName = pr.getHead()
-                                    .getRef(); // e.g., "feature/my-branch" or "refs/heads/feature/my-branch"
-                            if (headBranchName.startsWith("refs/heads/"))
-                                headBranchName = headBranchName.substring("refs/heads/".length());
-                            String headBranchFetchRefSpec = String.format(
-                                    "+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
-                            headLocallyAvailable =
-                                    GitHostUtil.ensureShaIsLocal(repo, headSha, headBranchFetchRefSpec, "origin");
-                        } else {
-                            logger.warn(
-                                    "PR #{} head {} is from a fork. Initial fetch failed and advanced fork fetching not yet implemented in PrFilesFetcherWorker.",
-                                    prNumber,
-                                    repo.shortHash(headSha));
-                            // headLocallyAvailable remains the result of the first ensureShaIsLocal attempt
+                        int prNumberInTable = Integer.parseInt(prNumCell.substring(1));
+                        if (newStatuses.containsKey(prNumberInTable)) {
+                            prTableModel.setValueAt(newStatuses.get(prNumberInTable), i, PR_COL_STATUS);
                         }
+                    } catch (NumberFormatException nfe) {
+                        logger.trace("Skipping Status update for non-PR row in table: {}", prNumCell);
                     }
-
-                    // Ensure base SHA is available
-                    String baseBranchName = pr.getBase().getRef(); // e.g. "main"
-                    String baseFetchRefSpec =
-                            String.format("+refs/heads/%s:refs/remotes/origin/%s", baseBranchName, baseBranchName);
-                    baseLocallyAvailable = GitHostUtil.ensureShaIsLocal(repo, baseSha, baseFetchRefSpec, "origin");
-
-                    if (headLocallyAvailable && baseLocallyAvailable) {
-                        List<String> changedFiles;
-                        try {
-                            // Always use the PR's base SHA for diffing, which represents the exact
-                            // commit the PR was created from. This ensures we only show files that
-                            // actually changed in the PR, not additional changes in the target branch.
-                            String mergeBase = repo.getMergeBase(headSha, baseSha);
-
-                            if (mergeBase != null) {
-                                changedFiles = repo.listFilesChangedBetweenCommits(mergeBase, headSha).stream()
-                                        .map(mf -> mf.file().toString())
-                                        .collect(Collectors.toList());
-                            } else {
-                                // Fallback to direct diff if merge base calculation fails
-                                changedFiles = repo.listFilesChangedBetweenCommits(baseSha, headSha).stream()
-                                        .map(mf -> mf.file().toString())
-                                        .collect(Collectors.toList());
-                            }
-                        } catch (Exception e) {
-                            logger.warn(
-                                    "Error calculating changed files for PR #{}, using fallback diff: {}",
-                                    prNumber,
-                                    e.getMessage());
-                            changedFiles = repo.listFilesChangedBetweenCommits(baseSha, headSha).stream()
-                                    .map(mf -> mf.file().toString())
-                                    .collect(Collectors.toList());
-                        }
-                        fetchedFilesMap.put(prNumber, changedFiles);
-                    } else {
-                        String missingShasMsg = "";
-                        if (!headLocallyAvailable) missingShasMsg += "head (" + repo.shortHash(headSha) + ")";
-                        if (!baseLocallyAvailable) {
-                            if (!missingShasMsg.isEmpty()) missingShasMsg += " and ";
-                            missingShasMsg += "base (" + repo.shortHash(baseSha) + ")";
-                        }
-                        logger.warn(
-                                "Could not make {} SHA(s) for PR #{} fully available locally to list files.",
-                                missingShasMsg,
-                                prNumber);
-                        fetchedFilesMap.put(
-                                prNumber,
-                                List.of(
-                                        "Error: Could not make required SHAs locally available. Ensure refs are fetched."));
-                    }
-                } catch (Exception e) {
-                    logger.error("Error fetching or processing files for PR #{}", pr.getNumber(), e);
-                    fetchedFilesMap.put(pr.getNumber(), List.of("Error fetching files: " + e.getMessage()));
                 }
             }
-            return fetchedFilesMap;
-        }
+        }));
+    }
 
-        @Override
-        protected void done() {
-            if (isCancelled()) {
-                logger.debug("PR files fetcher worker cancelled.");
-                return;
+    private Map<Integer, List<String>> fetchPrFiles(List<GHPullRequest> prsToFetchFilesFor, IProject project) {
+        Map<Integer, List<String>> fetchedFilesMap = new HashMap<>();
+        var repo = getRepo();
+
+        for (var pr : prsToFetchFilesFor) {
+            if (Thread.currentThread().isInterrupted()) break;
+            try {
+                var headSha = pr.getHead().getSha();
+                var baseSha = pr.getBase().getSha();
+                int prNumber = pr.getNumber();
+                boolean headLocallyAvailable;
+                boolean baseLocallyAvailable;
+
+                GitHubAuth auth;
+                try {
+                    auth = GitHubAuth.getOrCreateInstance(project);
+                } catch (IOException e) {
+                    logger.warn("Failed to get GitHubAuth instance for PR #{}: {}", prNumber, e.getMessage(), e);
+                    throw new RuntimeException(
+                            "Failed to initialize GitHubAuth for PR #" + prNumber + ": " + e.getMessage(), e);
+                }
+
+                // Ensure head SHA is available
+                var headFetchRefSpec =
+                        String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
+                headLocallyAvailable = GitHostUtil.ensureShaIsLocal(repo, headSha, headFetchRefSpec, "origin");
+
+                if (!headLocallyAvailable) {
+                    // If direct PR head fetch fails, try fetching the source branch if it's from origin
+                    if (pr.getHead().getRepository().getFullName().equals(auth.getOwner() + "/" + auth.getRepoName())) {
+                        var headBranchName = pr.getHead().getRef();
+                        if (headBranchName.startsWith("refs/heads/"))
+                            headBranchName = headBranchName.substring("refs/heads/".length());
+                        var headBranchFetchRefSpec =
+                                String.format("+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
+                        headLocallyAvailable =
+                                GitHostUtil.ensureShaIsLocal(repo, headSha, headBranchFetchRefSpec, "origin");
+                    } else {
+                        logger.warn(
+                                "PR #{} head {} is from a fork. Initial fetch failed and advanced fork fetching not yet implemented.",
+                                prNumber,
+                                repo.shortHash(headSha));
+                    }
+                }
+
+                // Ensure base SHA is available
+                var baseBranchName = pr.getBase().getRef();
+                var baseFetchRefSpec =
+                        String.format("+refs/heads/%s:refs/remotes/origin/%s", baseBranchName, baseBranchName);
+                baseLocallyAvailable = GitHostUtil.ensureShaIsLocal(repo, baseSha, baseFetchRefSpec, "origin");
+
+                if (headLocallyAvailable && baseLocallyAvailable) {
+                    List<String> changedFiles;
+                    try {
+                        var mergeBase = repo.getMergeBase(headSha, baseSha);
+                        var diffBase = (mergeBase != null) ? mergeBase : baseSha;
+                        changedFiles = repo.listFilesChangedBetweenCommits(diffBase, headSha).stream()
+                                .map(mf -> mf.file().toString())
+                                .collect(Collectors.toList());
+                    } catch (Exception e) {
+                        logger.warn(
+                                "Error calculating changed files for PR #{}, using fallback diff: {}",
+                                prNumber,
+                                e.getMessage());
+                        changedFiles = repo.listFilesChangedBetweenCommits(baseSha, headSha).stream()
+                                .map(mf -> mf.file().toString())
+                                .collect(Collectors.toList());
+                    }
+                    fetchedFilesMap.put(prNumber, changedFiles);
+                } else {
+                    var missingShasMsg = "";
+                    if (!headLocallyAvailable) missingShasMsg += "head (" + repo.shortHash(headSha) + ")";
+                    if (!baseLocallyAvailable) {
+                        if (!missingShasMsg.isEmpty()) missingShasMsg += " and ";
+                        missingShasMsg += "base (" + repo.shortHash(baseSha) + ")";
+                    }
+                    logger.warn(
+                            "Could not make {} SHA(s) for PR #{} fully available locally to list files.",
+                            missingShasMsg,
+                            prNumber);
+                    fetchedFilesMap.put(
+                            prNumber,
+                            List.of("Error: Could not make required SHAs locally available. Ensure refs are fetched."));
+                }
+            } catch (Exception e) {
+                logger.error("Error fetching or processing files for PR #{}", pr.getNumber(), e);
+                fetchedFilesMap.put(pr.getNumber(), List.of("Error fetching files: " + e.getMessage()));
             }
-
-            // Centralized exception handling
-            super.done();
         }
+        return fetchedFilesMap;
     }
 
     @Nullable
@@ -1712,7 +1637,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prCommitsTableModel.setRowCount(0);
         prCommitsTableModel.addRow(new Object[] {"Loading commits..."});
 
-        var future = contextManager.submitBackgroundTask("Fetching commits for PR #" + prNumber, () -> {
+        var future = contextManager.submitMaintenanceTask("Fetching commits for PR #" + prNumber, () -> {
             List<ICommitInfo> newCommitList = new ArrayList<>();
             try {
                 var project = contextManager.getProject();
@@ -2030,46 +1955,34 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             activePrFilesFetcher.cancel(true);
         }
 
-        activePrFilesFetcher = new PrFilesFetcherWorker(List.of(pr), contextManager.getProject()) {
-            @Override
-            protected void done() {
-                if (isCancelled()) {
-                    logger.debug("PR files fetcher worker cancelled.");
-                    return;
-                }
-                try {
-                    Map<Integer, List<String>> newFilesData = get();
-                    // Update the files table directly for the fetched PR
-                    List<String> files = newFilesData.get(pr.getNumber());
-                    SwingUtilities.invokeLater(() -> {
-                        // Only update if this PR is still selected
-                        int selectedRow = prTable.getSelectedRow();
-                        if (selectedRow >= 0
-                                && selectedRow < displayedPrs.size()
-                                && displayedPrs.get(selectedRow).getNumber() == pr.getNumber()) {
-                            prFilesTableModel.setRowCount(0);
-                            if (files == null || files.isEmpty()) {
-                                prFilesTableModel.addRow(new Object[] {"No files changed in this PR"});
+        var project = contextManager.getProject();
+        activePrFilesFetcher =
+                contextManager.submitMaintenanceTask("Fetching PR files", () -> fetchPrFiles(List.of(pr), project));
+        activePrFilesFetcher.thenAccept(newFilesData -> {
+            var files = newFilesData.get(pr.getNumber());
+            SwingUtilities.invokeLater(() -> {
+                // Only update if this PR is still selected
+                int selectedRow = prTable.getSelectedRow();
+                if (selectedRow >= 0
+                        && selectedRow < displayedPrs.size()
+                        && displayedPrs.get(selectedRow).getNumber() == pr.getNumber()) {
+                    prFilesTableModel.setRowCount(0);
+                    if (files == null || files.isEmpty()) {
+                        prFilesTableModel.addRow(new Object[] {"No files changed in this PR"});
+                    } else {
+                        for (var file : files) {
+                            if (file.startsWith("Error:")) {
+                                prFilesTableModel.addRow(new Object[] {file});
                             } else {
-                                for (String file : files) {
-                                    if (file.startsWith("Error:")) {
-                                        prFilesTableModel.addRow(new Object[] {file});
-                                    } else {
-                                        // Format as "<file name> - full file path"
-                                        String fileName = file.substring(file.lastIndexOf('/') + 1);
-                                        String displayText = fileName + " - " + file;
-                                        prFilesTableModel.addRow(new Object[] {displayText});
-                                    }
-                                }
+                                var fileName = file.substring(file.lastIndexOf('/') + 1);
+                                var displayText = fileName + " - " + file;
+                                prFilesTableModel.addRow(new Object[] {displayText});
                             }
                         }
-                    });
-                } catch (InterruptedException | ExecutionException e) {
-                    throw new RuntimeException(e);
+                    }
                 }
-            }
-        };
-        contextManager.getBackgroundTasks().submit(activePrFilesFetcher);
+            });
+        });
     }
 
     /**

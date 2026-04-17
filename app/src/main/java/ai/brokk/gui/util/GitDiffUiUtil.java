@@ -176,7 +176,7 @@ public interface GitDiffUiUtil {
         var dialogTitle = "Diff: " + file.getFileName() + " (" + shortCommitId + ")";
         var parentCommitId = commitId + "^";
 
-        cm.submitBackgroundTask("Loading history diff for " + file.getFileName(), () -> {
+        cm.submitMaintenanceTask("Loading history diff for " + file.getFileName(), () -> {
             try {
                 var parentContent = repo.getFileContent(parentCommitId, file);
                 var commitContent = repo.getFileContent(commitId, file);
@@ -201,7 +201,7 @@ public interface GitDiffUiUtil {
     static void viewFileAtRevision(ContextManager cm, Chrome chrome, String commitId, String filePath) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitBackgroundTask("View file at revision", () -> {
+        cm.submitMaintenanceTask("View file at revision", () -> {
             var file = new ProjectFile(cm.getRoot(), filePath);
             try {
                 final String content = repo.getFileContent(commitId, file);
@@ -369,7 +369,7 @@ public interface GitDiffUiUtil {
         var repo = cm.getProject().getRepo();
         var file = new ProjectFile(cm.getRoot(), filePath);
 
-        cm.submitBackgroundTask("Loading compare-with-local for " + file.getFileName(), () -> {
+        cm.submitMaintenanceTask("Loading compare-with-local for " + file.getFileName(), () -> {
             // Figure out the base commit ID and title components
             String baseCommitId;
             String baseCommitTitle;
@@ -457,7 +457,7 @@ public interface GitDiffUiUtil {
     static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo) {
         var repo = (GitRepo) cm.getProject().getRepo();
 
-        cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
+        cm.submitMaintenanceTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
                 var files = repo.listFilesChangedInCommit(commitInfo.id()).stream()
                         .map(IGitRepo.ModifiedFile::file)
@@ -501,7 +501,7 @@ public interface GitDiffUiUtil {
     static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo, String targetFileName) {
         var repo = (GitRepo) cm.getProject().getRepo();
 
-        cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
+        cm.submitMaintenanceTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
                 var files = repo.listFilesChangedInCommit(commitInfo.id()).stream()
                         .map(IGitRepo.ModifiedFile::file)
@@ -559,7 +559,7 @@ public interface GitDiffUiUtil {
     }
 
     static void compareCommitToLocal(ContextManager contextManager, Chrome chrome, ICommitInfo commitInfo) {
-        contextManager.submitBackgroundTask("Comparing commit to local", () -> {
+        contextManager.submitMaintenanceTask("Comparing commit to local", () -> {
             var repo = (GitRepo) contextManager.getProject().getRepo();
             try {
                 var changedFiles = repo.listFilesChangedInCommit(commitInfo.id()).stream()
@@ -784,7 +784,7 @@ public interface GitDiffUiUtil {
     static void openPrDiffPanel(ContextManager contextManager, Chrome chrome, GHPullRequest pr, String targetFileName) {
         String targetFilePath = extractFilePathFromDisplay(targetFileName);
 
-        contextManager.submitBackgroundTask("Opening PR diff", () -> {
+        contextManager.submitMaintenanceTask("Opening PR diff", () -> {
             try {
                 var repo = (GitRepo) contextManager.getProject().getRepo();
 

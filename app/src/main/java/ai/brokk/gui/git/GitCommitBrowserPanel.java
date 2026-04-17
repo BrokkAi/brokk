@@ -1160,7 +1160,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             return;
         }
 
-        contextManager.submitBackgroundTask("Fetching changes for commits", () -> {
+        contextManager.submitMaintenanceTask("Fetching changes for commits", () -> {
             var allChangedFiles = commits.stream()
                     .flatMap((ICommitInfo ci) -> safeChangedFiles(getRepo(), ci))
                     .collect(Collectors.toSet());
@@ -1283,7 +1283,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void loadStashesInPanel() {
-        contextManager.submitBackgroundTask("Fetching stashes", () -> {
+        contextManager.submitMaintenanceTask("Fetching stashes", () -> {
             try {
                 var stashes = getRepo().listStashes();
                 setCommits(stashes, Collections.emptySet(), false, false, STASHES_VIRTUAL_BRANCH);
@@ -1300,7 +1300,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void loadCommitsForBranchInPanel(String branchName) {
-        contextManager.submitBackgroundTask("Fetching commits and state for " + branchName, () -> {
+        contextManager.submitMaintenanceTask("Fetching commits and state for " + branchName, () -> {
             try {
                 var commits = getRepo().listCommitsDetailed(branchName);
                 // branchName here is guaranteed not to be STASHES_VIRTUAL_BRANCH or starting with "Search:"
@@ -1369,7 +1369,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void searchCommitsInPanel(String query) {
-        contextManager.submitBackgroundTask("Searching commits for: " + query, () -> {
+        contextManager.submitMaintenanceTask("Searching commits for: " + query, () -> {
             try {
                 var searchResults = getRepo().searchCommits(query);
                 // For search results, unpushed status and push/pull buttons are less relevant,

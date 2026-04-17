@@ -430,7 +430,7 @@ public class GitWorktreeTab extends JPanel {
 
                     int choice = dialogFuture.get();
                     if (choice == JOptionPane.YES_OPTION) {
-                        contextManager.submitBackgroundTask("Pruning stale worktrees", () -> {
+                        contextManager.submitMaintenanceTask("Pruning stale worktrees", () -> {
                             try {
                                 gitRepo.worktrees().pruneWorktrees();
                                 chrome.showNotification(

@@ -160,6 +160,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final LoggingExecutorService historyCompressionExecutor =
             ExecutorsUtil.newFixedThreadExecutor("HistoryCompress-", 5);
 
+    // All non-analyzer, non-test, non-build tracked tasks (I/O, network, LLM, git ops, UI bookkeeping)
+    private final LoggingExecutorService maintenanceTasks = createLoggingExecutorService(new ThreadPoolExecutor(
+            4,
+            4,
+            60L,
+            TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(),
+            ExecutorsUtil.createNamedThreadFactory("MaintenanceTask")));
+
     private final LoggingExecutorService syncExecutor = createLoggingExecutorService(
             Executors.newSingleThreadExecutor(ExecutorsUtil.createNamedThreadFactory("SessionSync")));
 
@@ -209,11 +218,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @SuppressWarnings("NullAway.Init")
     private AbstractWatchService watchService;
-
-    @Override
-    public ExecutorService getBackgroundTasks() {
-        return backgroundTasks;
-    }
 
     @Override
     public void addContextListener(ContextListener listener) {
@@ -300,7 +304,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions = new UserActionManager(this.io);
 
         // Begin monitoring for excessive memory usage
-        this.lowMemoryWatcherManager = new LowMemoryWatcherManager(this.backgroundTasks);
+        this.lowMemoryWatcherManager = new LowMemoryWatcherManager(this.maintenanceTasks);
         this.lowMemoryWatcherManager.registerWithStrongReference(
                 () -> LowMemoryWatcherManager.LowMemoryWarningManager.alertUser(this.io),
                 LowMemoryWatcher.LowMemoryWatcherType.ONLY_AFTER_GC);
@@ -350,7 +354,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private CompletableFuture<Void> migrateToSessionsV3IfNeeded() {
         if (project instanceof MainProject mainProject && !mainProject.isMigrationsToSessionsV3Complete()) {
-            return submitBackgroundTask("Quarantine unreadable sessions", () -> {
+            return submitMaintenanceTask("Quarantine unreadable sessions", () -> {
                 var sessionManager = project.getSessionManager();
 
                 // Scan .zip files directly and quarantine unreadable ones; exercise history loading to trigger
@@ -438,7 +442,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 && !project.getRemoteProjectName().isBlank();
 
         // Load saved context history or create a new one
-        CompletableFuture<Void> contextTask = submitBackgroundTask("Loading saved context", () -> {
+        CompletableFuture<Void> contextTask = submitMaintenanceTask("Loading saved context", () -> {
             try {
                 initializeCurrentSessionAndHistory(false);
             } finally {
@@ -624,7 +628,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param changedFiles Set of files that changed (may be empty for backward compatibility)
      */
     void handleTrackedFileChange(Set<ProjectFile> changedFiles) {
-        submitBackgroundTask("Update for FS changes", () -> {
+        submitMaintenanceTask("Update for FS changes", () -> {
             // Invalidate caches
             project.getRepo().invalidateCaches();
             project.invalidateAllFiles();
@@ -666,7 +670,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Submits a background task to clean up old LLM session history directories. */
     private void cleanupOldHistoryAsync() {
-        submitBackgroundTask("Cleaning up LLM history", this::cleanupOldHistory);
+        submitMaintenanceTask("Cleaning up LLM history", this::cleanupOldHistory);
     }
 
     /**
@@ -1390,6 +1394,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var syncExecutorFuture = syncExecutor.shutdownAndAwait(awaitMillis, "syncExecutor");
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
+        var maintenanceFuture = maintenanceTasks.shutdownAndAwait(awaitMillis, "maintenanceTasks");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
         var historyCompressionFuture =
                 historyCompressionExecutor.shutdownAndAwait(awaitMillis, "historyCompressionExecutor");
@@ -1397,6 +1402,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return CompletableFuture.allOf(
                         contextActionFuture,
                         backgroundFuture,
+                        maintenanceFuture,
                         userActionsFuture,
                         syncExecutorFuture,
                         historyCompressionFuture)
@@ -1854,7 +1860,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A CompletableFuture that will return the description string.
      */
     public CompletableFuture<String> submitSummarizePastedImage(Image pastedImage) {
-        return submitBackgroundTask("Summarizing pasted image", () -> {
+        return submitMaintenanceTask("Summarizing pasted image", () -> {
             try {
                 // Convert AWT Image to LangChain4j Image (requires Base64 encoding)
                 var l4jImage = ImageUtil.toL4JImage(pastedImage);
@@ -1887,10 +1893,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    @Override
-    public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+    private <T> CompletableFuture<T> submitTrackedTask(
+            LoggingExecutorService executor, String taskDescription, Callable<T> task) {
         taskDescriptions.put(task, taskDescription);
-        return backgroundTasks.submit(() -> {
+        return executor.submit(() -> {
             try {
                 io.backgroundOutput(taskDescription);
                 return task.call();
@@ -1913,6 +1919,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 });
             }
         });
+    }
+
+    @Override
+    public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+        return submitTrackedTask(backgroundTasks, taskDescription, task);
+    }
+
+    @Override
+    public <T> CompletableFuture<T> submitMaintenanceTask(String taskDescription, Callable<T> task) {
+        return submitTrackedTask(maintenanceTasks, taskDescription, task);
     }
 
     /**
@@ -1940,7 +1956,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // No details found, run the BuildAgent asynchronously
-        buildAgentFuture = submitBackgroundTask("Inferring build details", () -> {
+        buildAgentFuture = submitMaintenanceTask("Inferring build details", () -> {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Inferring project build details");
 
             // Check if task was cancelled before starting
@@ -1994,7 +2010,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public void reloadService() {
         if (isReloadingService.compareAndSet(false, true)) {
             // Run reinit in the background so callers don't block; notify UI listeners when finished.
-            submitBackgroundTask("Reloading service", () -> {
+            submitMaintenanceTask("Reloading service", () -> {
                 try {
                     serviceProvider.reinit(project);
                     // Notify registered listeners on the EDT so they can safely update Swing UI.
@@ -2064,7 +2080,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns a CompletableFuture for the style guide content.
      */
     public CompletableFuture<String> ensureGuidesAsync() {
-        return submitBackgroundTask("Loading project guides", () -> {
+        return submitMaintenanceTask("Loading project guides", () -> {
             // Handle style guide off EDT
             String existingStyleGuide = project.getStyleGuide();
             if (!existingStyleGuide.isEmpty()) {
@@ -2219,7 +2235,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns a CompletableFuture for the regenerated style guide content.
      */
     public CompletableFuture<String> regenerateStyleGuideAsync() {
-        return submitBackgroundTask("Regenerating style guide", () -> {
+        return submitMaintenanceTask("Regenerating style guide", () -> {
             if (!project.hasGit()) {
                 logger.info("No Git repository found, skipping style guide regeneration.");
                 styleGenerationSkipped = true;
@@ -2462,7 +2478,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<ContextHistory> loadSessionHistoryAsync(UUID sessionId) {
         return LoggingFuture.supplyAsync(
-                () -> project.getSessionManager().loadHistory(sessionId, this), backgroundTasks);
+                () -> project.getSessionManager().loadHistory(sessionId, this), maintenanceTasks);
     }
 
     /**
@@ -2664,7 +2680,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A CompletableFuture representing the completion of the session rename task
      */
     public CompletableFuture<Void> renameSessionAsync(UUID sessionId, Future<String> newNameFuture) {
-        return submitBackgroundTask("Renaming session", () -> {
+        return submitMaintenanceTask("Renaming session", () -> {
             try {
                 String newName = newNameFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 project.getSessionManager().renameSession(sessionId, newName);
@@ -2842,7 +2858,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return; // Only relevant when using the Brokk proxy
         }
 
-        submitBackgroundTask("Balance Check", () -> {
+        submitMaintenanceTask("Balance Check", () -> {
             try {
                 float balance = serviceProvider.get().getUserBalance();
                 logger.debug("Checked balance: ${}", String.format("%.2f", balance));

@@ -1941,7 +1941,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        contextManager.submitBackgroundTask("Compute diff window entries", () -> {
+        contextManager.submitMaintenanceTask("Compute diff window entries", () -> {
             // Build a multi-file BrokkDiffPanel like showFileHistoryDiff, but with our per-file old/new buffers
             var prevOfCtx = contextManager.getContextHistory().previousOf(ctx);
             String actionDesc = ctx.getAction(prevOfCtx).renderNowOr(Context.SUMMARIZING);
@@ -1960,7 +1960,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             var diffPairFutures = new ArrayList<CompletableFuture<BufferedSourcePair>>();
             for (var de : diffs) {
-                var task = contextManager.submitBackgroundTask("Compute diff window entry for:" + de, () -> {
+                var task = contextManager.submitMaintenanceTask("Compute diff window entry for:" + de, () -> {
                     String pathDisplay;
                     var files = de.fragment().sourceFiles().join();
                     if (!files.isEmpty()) {

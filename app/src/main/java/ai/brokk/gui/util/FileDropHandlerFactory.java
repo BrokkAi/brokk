@@ -202,11 +202,11 @@ public final class FileDropHandlerFactory {
                             };
 
                             // Prefer ContextManager.submitContextTask when available for correct task scoping;
-                            // otherwise fall back to the generic submitBackgroundTask.
+                            // otherwise fall back to the generic submitMaintenanceTask.
                             if (cm instanceof ContextManager cmConcrete) {
                                 cmConcrete.submitContextTask(additionTask);
                             } else {
-                                cm.submitBackgroundTask("Add dropped files", additionTask);
+                                cm.submitMaintenanceTask("Add dropped files", additionTask);
                             }
                         } else if (decision == ContextSizeGuard.Decision.CANCELLED) {
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");

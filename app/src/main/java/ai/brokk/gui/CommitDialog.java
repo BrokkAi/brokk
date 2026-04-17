@@ -242,7 +242,7 @@ public class CommitDialog extends BaseThemedDialog {
         commitMessageArea.setEnabled(false);
         regenerateButton.setEnabled(false);
 
-        contextManager.submitBackgroundTask("Committing changes", () -> {
+        contextManager.submitMaintenanceTask("Committing changes", () -> {
             try {
                 GitWorkflow.CommitResult result = workflowService.commit(filesToCommit, msg);
                 var repo = (GitRepo) chrome.contextManager.getRepo();

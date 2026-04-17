@@ -646,7 +646,7 @@ public class WorkspaceChip extends JPanel {
                     .map(f -> (ContextFragments.SummaryFragment) f)
                     .toList();
             contextManager
-                    .submitBackgroundTask(
+                    .submitMaintenanceTask(
                             "Aggregating summaries",
                             () -> ContextFragments.SummaryFragment.combinedText(fragmentsToProcess))
                     .thenAccept(combinedText -> SwingUtilities.invokeLater(() -> {
@@ -825,7 +825,7 @@ public class WorkspaceChip extends JPanel {
                             .distinct()
                             .toList();
             contextManager
-                    .submitBackgroundTask(
+                    .submitMaintenanceTask(
                             "Compute AGENTS.md",
                             () -> ProjectGuideResolver.resolve(candidateFiles, contextManager.getProject()))
                     .thenAccept(content -> SwingUtilities.invokeLater(() -> {

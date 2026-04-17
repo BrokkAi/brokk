@@ -852,7 +852,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
             // Offload expensive file enumeration and filtering to background thread
             var cm = chrome.getContextManager();
-            cm.submitBackgroundTask("Enumerate project files", () -> {
+            cm.submitMaintenanceTask("Enumerate project files", () -> {
                         var files = chrome.getProject().getRepo().getTrackedFiles().stream()
                                 .filter(ProjectFile::isText);
                         var filtered = ALL_LANGUAGES_OPTION.equals(langSel)
@@ -973,7 +973,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         }
 
         // Run heavy work off the EDT using the background executor.
-        cm.getBackgroundTasks().submit(() -> {
+        cm.submitMaintenanceTask("Estimating cost", () -> {
             double cost;
             boolean hadError = false;
             try {
@@ -1036,7 +1036,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
     private void fetchUserBalance() {
         var cm = chrome.getContextManager();
-        cm.submitBackgroundTask("Fetch balance", () -> cm.getService().getUserBalance())
+        cm.submitMaintenanceTask("Fetch balance", () -> cm.getService().getUserBalance())
                 .thenAccept(balance -> userBalance = balance);
     }
 
@@ -1101,7 +1101,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         int generation = tokenWarningGeneration.incrementAndGet();
 
         // Run heavy work off the EDT using the background executor.
-        cm.getBackgroundTasks().submit(() -> {
+        cm.submitMaintenanceTask("Checking token limits", () -> {
             long workspaceTokens = 0L;
             long historyTokens = 0L;
             boolean hadError = false;
@@ -1249,7 +1249,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             return;
         }
         var cm = chrome.getContextManager();
-        cm.submitBackgroundTask("Attach files", () -> fragments.stream()
+        cm.submitMaintenanceTask("Attach files", () -> fragments.stream()
                         .flatMap(frag -> frag.referencedFiles().join().stream())
                         .collect(Collectors.toCollection(ArrayList::new)))
                 .thenAccept(flist -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(flist)));

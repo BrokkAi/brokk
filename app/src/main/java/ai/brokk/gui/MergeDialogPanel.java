@@ -346,7 +346,7 @@ public class MergeDialogPanel extends BaseThemedDialog {
             return;
         }
 
-        contextManager.submitBackgroundTask("Checking merge conflicts", () -> {
+        contextManager.submitMaintenanceTask("Checking merge conflicts", () -> {
             String conflictResultString;
             try {
                 if (selectedTargetBranch.equals(sourceBranch)) {

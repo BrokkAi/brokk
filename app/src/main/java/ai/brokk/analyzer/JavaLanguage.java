@@ -121,7 +121,7 @@ public class JavaLanguage implements JvmLanguage, DependencyImportable {
         Decompiler.decompileJar(
                 chrome,
                 pkg.sourcePath(),
-                chrome.getContextManager()::submitBackgroundTask,
+                chrome.getContextManager()::submitMaintenanceTask,
                 () -> SwingUtilities.invokeLater(() -> {
                     if (lifecycle != null) lifecycle.dependencyImportFinished(depName);
                 }));

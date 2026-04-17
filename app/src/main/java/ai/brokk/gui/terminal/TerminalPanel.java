@@ -276,7 +276,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 final var p1 = selStart;
                 final var p2 = selEnd;
                 future = c.getContextManager()
-                        .submitBackgroundTask(
+                        .submitMaintenanceTask(
                                 "Capturing terminal selection", () -> finalDisplay.getSelectionText(p1, p2));
             } else {
                 if (displayPanel == null) {
@@ -287,7 +287,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
 
                 final var finalDisplay = displayPanel;
                 future = c.getContextManager()
-                        .submitBackgroundTask("Capturing terminal buffer", finalDisplay::getFullBufferText);
+                        .submitMaintenanceTask("Capturing terminal buffer", finalDisplay::getFullBufferText);
             }
 
             future.thenAcceptAsync(this::submitCapturedContent, SwingUtilities::invokeLater)

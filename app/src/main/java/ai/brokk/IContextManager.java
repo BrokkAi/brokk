@@ -33,7 +33,6 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -153,10 +152,6 @@ public interface IContextManager {
         default void onLiveDependenciesChanged() {}
     }
 
-    default ExecutorService getBackgroundTasks() {
-        throw new UnsupportedOperationException();
-    }
-
     /**
      * Returns the live, unfrozen context that we can edit.
      *
@@ -264,6 +259,21 @@ public interface IContextManager {
      */
     default CompletableFuture<Void> submitBackgroundTask(String taskDescription, Runnable task) {
         return submitBackgroundTask(taskDescription, () -> {
+            task.run();
+            return null;
+        });
+    }
+
+    default <T> CompletableFuture<T> submitMaintenanceTask(String taskDescription, Callable<T> task) {
+        try {
+            return CompletableFuture.completedFuture(task.call());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    default CompletableFuture<Void> submitMaintenanceTask(String taskDescription, Runnable task) {
+        return submitMaintenanceTask(taskDescription, () -> {
             task.run();
             return null;
         });

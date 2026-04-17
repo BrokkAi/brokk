@@ -230,7 +230,7 @@ public class PythonLanguage implements DependencyImportable {
             SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
         }
 
-        chrome.getContextManager().submitBackgroundTask("Copying Python package: " + pkg.displayName(), () -> {
+        chrome.getContextManager().submitMaintenanceTask("Copying Python package: " + pkg.displayName(), () -> {
             try {
                 Files.createDirectories(targetRoot.getParent());
                 if (Files.exists(targetRoot)) {

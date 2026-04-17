@@ -209,7 +209,7 @@ public class DiffDisplayCore {
     private void createAsync(
             int index, FileComparisonInfo expectedInfo, int targetLine, ReviewParser.DiffSide targetSide) {
         int generation = updateGeneration.get();
-        contextManager.submitBackgroundTask("Computing diff: " + expectedInfo.getDisplayName(), () -> {
+        contextManager.submitMaintenanceTask("Computing diff: " + expectedInfo.getDisplayName(), () -> {
             // Expensive I/O and CPU work (diffing) happens here on a virtual thread
             var diffNode = FileComparisonHelper.createDiffNode(
                     expectedInfo.leftSource(), expectedInfo.rightSource(), contextManager, isMultipleCommitsContext);
