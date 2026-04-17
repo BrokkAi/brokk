@@ -760,6 +760,352 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 false);
     }
 
+    private static final String TEST_ASSERTION_KIND_NO_ASSERTIONS = "no-assertions";
+    private static final String TEST_ASSERTION_KIND_CONSTANT_TRUTH = "constant-truth";
+    private static final String TEST_ASSERTION_KIND_CONSTANT_EQUALITY = "constant-equality";
+    private static final String TEST_ASSERTION_KIND_SELF_COMPARISON = "self-comparison";
+    private static final String TEST_ASSERTION_KIND_NULLNESS_ONLY = "nullness-only";
+    private static final String TEST_ASSERTION_KIND_SHALLOW_ONLY = "shallow-assertions-only";
+    private static final String TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL = "overspecified-literal";
+
+    private static final Set<String> PHPUNIT_ASSERT_TRUE_FALSE = Set.of("asserttrue", "assertfalse");
+    private static final Set<String> PHPUNIT_ASSERT_COMPARISONS =
+            Set.of("assertequals", "assertsame", "assertnotequals", "assertnotsame");
+    private static final Set<String> PHPUNIT_NULLNESS_ASSERTIONS = Set.of("assertnull", "assertnotnull");
+    private static final Set<String> PHPUNIT_ASSERTION_EQUIVALENT_TERMINALS = Set.of("fail");
+
+    @Override
+    public List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
+        checkStale("findTestAssertionSmells");
+        if (!containsTests(file)) {
+            return List.of();
+        }
+        TestAssertionWeights resolvedWeights = weights != null ? weights : TestAssertionWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file, source -> detectTestAssertionSmells(file, root, source, resolvedWeights), List.of());
+                },
+                List.of());
+    }
+
+    private List<TestAssertionSmell> detectTestAssertionSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
+        var candidates = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION), candidates);
+        var findings = new ArrayList<TestSmellCandidate>();
+        for (TSNode fn : candidates) {
+            if (!isTestFunction(fn, sourceContent)) {
+                continue;
+            }
+            analyzeTestFunction(file, fn, sourceContent, weights, findings);
+        }
+        return findings.stream()
+                .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
+                .map(TestSmellCandidate::smell)
+                .toList();
+    }
+
+    private boolean isTestFunction(TSNode functionNode, SourceContent sourceContent) {
+        TSNode nameNode = functionNode.getChildByFieldName(NAME);
+        if (nameNode != null) {
+            String nameText = sourceContent.substringFrom(nameNode).strip();
+            if (nameText.toLowerCase(Locale.ROOT).startsWith("test")) {
+                return true;
+            }
+        }
+        return findPrecedingComments(functionNode).stream()
+                .anyMatch(comment -> sourceContent.substringFrom(comment).contains(TEST_TAG_AT_TEST));
+    }
+
+    private void analyzeTestFunction(
+            ProjectFile file,
+            TSNode functionNode,
+            SourceContent sourceContent,
+            TestAssertionWeights weights,
+            List<TestSmellCandidate> out) {
+        TSNode body = functionNode.getChildByFieldName(PHP_SYNTAX_PROFILE.bodyFieldName());
+        if (body == null) {
+            return;
+        }
+
+        List<TSNode> calls = collectCallLikeNodes(body);
+        List<AssertionSignal> assertions = calls.stream()
+                .map(call -> assertionSignal(call, sourceContent, weights))
+                .flatMap(Optional::stream)
+                .toList();
+
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        functionNode.getStartPoint().getRow(),
+                        functionNode.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+
+        int assertionCount = assertions.size();
+        if (assertionCount == 0) {
+            addTestSmellCandidate(
+                    file,
+                    enclosing,
+                    TEST_ASSERTION_KIND_NO_ASSERTIONS,
+                    weights.noAssertionWeight(),
+                    0,
+                    List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
+                    sourceContent.substringFrom(functionNode),
+                    functionNode.getStartByte(),
+                    out);
+            return;
+        }
+
+        assertions.stream()
+                .filter(signal -> signal.baseScore() > 0)
+                .forEach(signal -> addTestSmellCandidate(
+                        file,
+                        enclosing,
+                        signal.kind(),
+                        signal.baseScore(),
+                        assertionCount,
+                        signal.reasons(),
+                        signal.excerpt(),
+                        signal.startByte(),
+                        out));
+
+        boolean allShallow = assertions.stream().allMatch(AssertionSignal::shallow);
+        if (allShallow) {
+            int score = weights.shallowAssertionOnlyWeight()
+                    - testMeaningfulAssertionCredit(assertions, weights, AssertionSignal::meaningful);
+            if (score > 0) {
+                addTestSmellCandidate(
+                        file,
+                        enclosing,
+                        TEST_ASSERTION_KIND_SHALLOW_ONLY,
+                        score,
+                        assertionCount,
+                        List.of(TEST_ASSERTION_KIND_SHALLOW_ONLY),
+                        sourceContent.substringFrom(functionNode),
+                        functionNode.getStartByte(),
+                        out);
+            }
+        }
+    }
+
+    private record AssertionSignal(
+            String kind,
+            int baseScore,
+            boolean shallow,
+            boolean meaningful,
+            int startByte,
+            List<String> reasons,
+            String excerpt) {}
+
+    private Optional<AssertionSignal> assertionSignal(
+            TSNode call, SourceContent sourceContent, TestAssertionWeights weights) {
+        TSNode functionNode = call.getChildByFieldName("function");
+        if (functionNode == null) {
+            functionNode = call.getChildByFieldName("name");
+        }
+        if (functionNode == null && call.getNamedChildCount() > 0) {
+            functionNode = call.getNamedChild(0);
+        }
+        String terminalLower = terminalCallName(functionNode, sourceContent).toLowerCase(Locale.ROOT);
+        if (terminalLower.isBlank()) {
+            return Optional.empty();
+        }
+
+        boolean assertionEquivalent = terminalLower.startsWith("assert")
+                || terminalLower.startsWith("expectexception")
+                || PHPUNIT_ASSERTION_EQUIVALENT_TERMINALS.contains(terminalLower);
+        if (!assertionEquivalent) {
+            return Optional.empty();
+        }
+
+        String excerpt = sourceContent.substringFrom(call);
+        int score = 0;
+        var reasons = new ArrayList<String>();
+        boolean shallow = false;
+        boolean meaningful = true;
+        String kind = "phpunit-assertion";
+
+        List<TSNode> args = callArgumentNodes(call);
+
+        if (PHPUNIT_ASSERT_TRUE_FALSE.contains(terminalLower) && !args.isEmpty()) {
+            TSNode arg = args.getLast();
+            String argText = sourceContent.substringFrom(arg).strip().toLowerCase(Locale.ROOT);
+            boolean constantTruth = terminalLower.equals("asserttrue") && "true".equals(argText);
+            boolean constantFalse = terminalLower.equals("assertfalse") && "false".equals(argText);
+            if (constantTruth || constantFalse) {
+                score += weights.constantTruthWeight();
+                reasons.add(TEST_ASSERTION_KIND_CONSTANT_TRUTH);
+                kind = TEST_ASSERTION_KIND_CONSTANT_TRUTH;
+                meaningful = false;
+            }
+            if (isSelfComparison(arg, sourceContent)) {
+                score += weights.tautologicalAssertionWeight();
+                reasons.add(TEST_ASSERTION_KIND_SELF_COMPARISON);
+                kind = TEST_ASSERTION_KIND_SELF_COMPARISON;
+                meaningful = false;
+            }
+        }
+
+        if (PHPUNIT_ASSERT_COMPARISONS.contains(terminalLower) && args.size() >= 2) {
+            TSNode left = args.get(0);
+            TSNode right = args.get(1);
+            if (isConstantExpression(left, sourceContent) && isConstantExpression(right, sourceContent)) {
+                score += weights.constantEqualityWeight();
+                reasons.add(TEST_ASSERTION_KIND_CONSTANT_EQUALITY);
+                kind = TEST_ASSERTION_KIND_CONSTANT_EQUALITY;
+                meaningful = false;
+            } else if (sameExpression(left, right, sourceContent)) {
+                score += weights.tautologicalAssertionWeight();
+                reasons.add(TEST_ASSERTION_KIND_SELF_COMPARISON);
+                kind = TEST_ASSERTION_KIND_SELF_COMPARISON;
+                meaningful = false;
+            }
+        }
+
+        if (PHPUNIT_NULLNESS_ASSERTIONS.contains(terminalLower) && args.size() <= 2) {
+            score += weights.nullnessOnlyWeight();
+            reasons.add(TEST_ASSERTION_KIND_NULLNESS_ONLY);
+            kind = TEST_ASSERTION_KIND_NULLNESS_ONLY;
+            shallow = true;
+            meaningful = false;
+        }
+
+        if (containsOverspecifiedLiteral(args, sourceContent, weights)) {
+            score += weights.overspecifiedLiteralWeight();
+            reasons.add(TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL);
+            kind = TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL;
+        }
+
+        return Optional.of(new AssertionSignal(
+                kind, score, shallow, meaningful, call.getStartByte(), List.copyOf(reasons), excerpt));
+    }
+
+    private static List<TSNode> collectCallLikeNodes(TSNode root) {
+        var out = new ArrayList<TSNode>();
+        try (var cursor = new TSTreeCursor(root)) {
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return out;
+                }
+                String type = Objects.toString(current.getType(), "");
+                if (type.endsWith(CALL_EXPRESSION) || CALL_EXPRESSION.equals(type)) {
+                    out.add(current);
+                }
+                if (!gotoNextDepthFirst(cursor, true)) {
+                    return out;
+                }
+            }
+        }
+    }
+
+    private static String terminalCallName(@Nullable TSNode functionNode, SourceContent sourceContent) {
+        if (functionNode == null) {
+            return "";
+        }
+
+        if (NAME.equals(functionNode.getType())) {
+            return sourceContent.substringFrom(functionNode).strip();
+        }
+
+        TSNode nameNode = functionNode.getChildByFieldName(NAME);
+        if (nameNode != null) {
+            return sourceContent.substringFrom(nameNode).strip();
+        }
+
+        TSNode memberNode = functionNode.getChildByFieldName("member");
+        if (memberNode != null) {
+            return sourceContent.substringFrom(memberNode).strip();
+        }
+
+        TSNode propertyNode = functionNode.getChildByFieldName("property");
+        if (propertyNode != null) {
+            return sourceContent.substringFrom(propertyNode).strip();
+        }
+
+        return "";
+    }
+
+    private static List<TSNode> callArgumentNodes(TSNode call) {
+        TSNode args = call.getChildByFieldName("arguments");
+        if (args == null) {
+            for (int i = 0; i < call.getNamedChildCount(); i++) {
+                TSNode child = call.getNamedChild(i);
+                if (child != null && ARGUMENTS.equals(child.getType())) {
+                    args = child;
+                    break;
+                }
+            }
+        }
+        if (args == null) {
+            return List.of();
+        }
+        var out = new ArrayList<TSNode>();
+        for (int i = 0; i < args.getNamedChildCount(); i++) {
+            TSNode child = args.getNamedChild(i);
+            if (child != null) {
+                if (ARGUMENT.equals(child.getType()) && child.getNamedChildCount() == 1) {
+                    TSNode inner = child.getNamedChild(0);
+                    if (inner != null) {
+                        out.add(inner);
+                        continue;
+                    }
+                }
+                out.add(child);
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    private static boolean isSelfComparison(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        if (!type.endsWith(BINARY_EXPRESSION)) {
+            return false;
+        }
+        TSNode left = node.getChildByFieldName("left");
+        TSNode right = node.getChildByFieldName("right");
+        if ((left == null || right == null) && node.getNamedChildCount() >= 2) {
+            left = node.getNamedChild(0);
+            right = node.getNamedChild(1);
+        }
+        return left != null && right != null && sameExpression(left, right, sourceContent);
+    }
+
+    private static boolean sameExpression(TSNode left, TSNode right, SourceContent sourceContent) {
+        return sourceContent
+                .substringFrom(left)
+                .strip()
+                .equals(sourceContent.substringFrom(right).strip());
+    }
+
+    private static final Set<String> CONSTANT_LITERAL_TYPES =
+            Set.of(INTEGER, FLOAT, STRING, ENCAPSED_STRING, BOOLEAN, BOOLEAN_LITERAL, NULL, NULL_LITERAL);
+
+    private static boolean isConstantExpression(TSNode node, SourceContent sourceContent) {
+        if (CONSTANT_LITERAL_TYPES.contains(node.getType())) {
+            return true;
+        }
+        String text = sourceContent.substringFrom(node).strip().toLowerCase(Locale.ROOT);
+        return "true".equals(text) || "false".equals(text) || "null".equals(text);
+    }
+
+    private static boolean containsOverspecifiedLiteral(
+            List<TSNode> args, SourceContent sourceContent, TestAssertionWeights weights) {
+        return args.stream().anyMatch(arg -> {
+            String type = Objects.toString(arg.getType(), "");
+            if (!STRING.equals(type) && !ENCAPSED_STRING.equals(type)) {
+                return false;
+            }
+            return sourceContent.substringFrom(arg).length() >= weights.largeLiteralLengthThreshold();
+        });
+    }
+
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPhp(reference);
