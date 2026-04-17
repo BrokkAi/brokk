@@ -1353,6 +1353,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
     }
 
+    private record GoTestFunction(TSNode function, String testParamName) {}
+
     private record GoAssertionAnalysis(
             int assertionCount,
             int shallowAssertionCount,
@@ -1382,21 +1384,21 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     private List<TestAssertionSmell> detectTestAssertionSmells(
             ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
-        List<TSNode> testFunctions = testFunctionsOf(root, sourceContent);
+        List<GoTestFunction> testFunctions = testFunctionsOf(root, sourceContent);
         if (testFunctions.isEmpty()) {
             return List.of();
         }
 
         var candidates = new ArrayList<TestSmellCandidate>();
-        for (TSNode testFn : testFunctions) {
-            var analysis = analyzeGoAssertions(testFn, sourceContent, weights);
+        for (GoTestFunction testFn : testFunctions) {
+            var analysis = analyzeGoAssertions(testFn.function(), testFn.testParamName(), sourceContent, weights);
             var signals = analysis.smells();
             int assertionCount = analysis.assertionCount();
 
             String enclosing = enclosingCodeUnit(
                             file,
-                            testFn.getStartPoint().getRow(),
-                            testFn.getEndPoint().getRow())
+                            testFn.function().getStartPoint().getRow(),
+                            testFn.function().getEndPoint().getRow())
                     .map(CodeUnit::fqName)
                     .orElse(file.toString());
 
@@ -1408,8 +1410,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                         weights.noAssertionWeight(),
                         0,
                         List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
-                        sourceContent.substringFrom(testFn));
-                candidates.add(new TestSmellCandidate(smell, testFn.getStartByte()));
+                        sourceContent.substringFrom(testFn.function()));
+                candidates.add(new TestSmellCandidate(smell, testFn.function().getStartByte()));
                 continue;
             }
 
@@ -1439,8 +1441,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             score,
                             assertionCount,
                             List.of(TEST_ASSERTION_KIND_SHALLOW_ONLY),
-                            sourceContent.substringFrom(testFn));
-                    candidates.add(new TestSmellCandidate(smell, testFn.getStartByte()));
+                            sourceContent.substringFrom(testFn.function()));
+                    candidates.add(
+                            new TestSmellCandidate(smell, testFn.function().getStartByte()));
                 }
             }
         }
@@ -1460,12 +1463,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
     }
 
-    private List<TSNode> testFunctionsOf(TSNode root, SourceContent sourceContent) {
+    private List<GoTestFunction> testFunctionsOf(TSNode root, SourceContent sourceContent) {
         // Reuse the same semantic criteria as containsTestMarkers(), but return the matching function nodes.
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
-                    List<TSNode> out = new ArrayList<>();
+                    List<GoTestFunction> out = new ArrayList<>();
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
                         cursor.exec(query, root, sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
@@ -1518,20 +1521,26 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
                             int totalIdentifierCount = 0;
                             TSNode firstParamDecl = null;
+                            String testParamName = null;
                             for (TSNode child : paramsNode.getNamedChildren()) {
                                 if (PARAMETER_DECLARATION.equals(child.getType())) {
                                     if (firstParamDecl == null) {
                                         firstParamDecl = child;
                                     }
                                     for (TSNode n : child.getNamedChildren()) {
-                                        if ("identifier".equals(n.getType())) {
+                                        if (IDENTIFIER.equals(n.getType())) {
                                             totalIdentifierCount++;
+                                            if (testParamName == null) {
+                                                testParamName = sourceContent
+                                                        .substringFrom(n)
+                                                        .trim();
+                                            }
                                         }
                                     }
                                 }
                             }
 
-                            if (firstParamDecl == null || totalIdentifierCount != 1) {
+                            if (firstParamDecl == null || totalIdentifierCount != 1 || testParamName == null) {
                                 continue;
                             }
 
@@ -1555,7 +1564,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             String typeText =
                                     sourceContent.substringFrom(typeNode).trim();
                             if (TESTING_T.equals(typeText) || POINTER_TESTING_T.equals(typeText)) {
-                                out.add(functionNode);
+                                out.add(new GoTestFunction(functionNode, testParamName));
                             }
                         }
                     }
@@ -1565,7 +1574,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     private GoAssertionAnalysis analyzeGoAssertions(
-            TSNode testFn, SourceContent sourceContent, TestAssertionWeights weights) {
+            TSNode testFn, String testParamName, SourceContent sourceContent, TestAssertionWeights weights) {
         var ifStatements = new ArrayList<TSNode>();
         collectNodesByType(testFn, Set.of(IF_STATEMENT), ifStatements);
         if (ifStatements.isEmpty()) {
@@ -1581,8 +1590,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             collectNodesByType(ifStmt, Set.of(CALL_EXPRESSION), errorCalls);
             boolean hasErrorCall = false;
             for (TSNode call : errorCalls) {
-                String callText = sourceContent.substringFrom(call).strip();
-                if (callText.contains("t.Errorf") || callText.contains("t.Fatalf")) {
+                if (isTestFailureCall(call, testParamName, sourceContent)) {
                     hasErrorCall = true;
                     break;
                 }
@@ -1624,6 +1632,27 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         return new GoAssertionAnalysis(
                 assertionCount, shallowAssertionCount, meaningfulAssertionCount, List.copyOf(signals));
+    }
+
+    private static boolean isTestFailureCall(TSNode call, String testParamName, SourceContent sourceContent) {
+        TSNode functionExpr = call.getChildByFieldName("function");
+        if (functionExpr == null || !SELECTOR_EXPRESSION.equals(functionExpr.getType())) {
+            return false;
+        }
+
+        TSNode receiver = functionExpr.getChildByFieldName("operand");
+        TSNode field = functionExpr.getChildByFieldName("field");
+        if (receiver == null || field == null) {
+            return false;
+        }
+
+        String receiverName = sourceContent.substringFrom(receiver).trim();
+        if (!testParamName.equals(receiverName)) {
+            return false;
+        }
+
+        String methodName = sourceContent.substringFrom(field).trim();
+        return "Errorf".equals(methodName) || "Fatalf".equals(methodName);
     }
 
     private @Nullable AssertionSignal classifyGoAssertionFromConditionAndMessage(
