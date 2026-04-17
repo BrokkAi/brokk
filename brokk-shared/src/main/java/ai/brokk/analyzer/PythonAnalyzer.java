@@ -208,11 +208,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             }
         }
         return findings.stream()
-                .sorted(Comparator.comparingInt(TestSmellCandidate::score)
-                        .reversed()
-                        .thenComparing(c -> c.smell().file().toString())
-                        .thenComparing(c -> c.smell().enclosingFqName())
-                        .thenComparingInt(TestSmellCandidate::startByte))
+                .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
                 .map(TestSmellCandidate::smell)
                 .toList();
     }
@@ -619,12 +615,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                 List.copyOf(reasons),
                 compactCatchExcerpt(excerptSource));
         out.add(new TestSmellCandidate(smell, startByte));
-    }
-
-    private record TestSmellCandidate(TestAssertionSmell smell, int startByte) {
-        int score() {
-            return smell.score();
-        }
     }
 
     private record AssertionSignal(

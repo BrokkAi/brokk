@@ -1649,11 +1649,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             }
         }
         return findings.stream()
-                .sorted(Comparator.comparingInt(TestSmellCandidate::score)
-                        .reversed()
-                        .thenComparing(c -> c.smell().file().toString())
-                        .thenComparing(c -> c.smell().enclosingFqName())
-                        .thenComparingInt(TestSmellCandidate::startByte))
+                .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
                 .map(TestSmellCandidate::smell)
                 .toList();
     }
@@ -2097,11 +2093,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         var findings = new ArrayList<SmellCandidate>();
         collectCatchSmells(file, root, sourceContent, weights, findings);
         return findings.stream()
-                .sorted(Comparator.comparingInt(SmellCandidate::score)
-                        .reversed()
-                        .thenComparing(c -> c.smell().file().toString())
-                        .thenComparing(c -> c.smell().enclosingFqName())
-                        .thenComparingInt(SmellCandidate::startByte))
+                .sorted(EXCEPTION_SMELL_CANDIDATE_COMPARATOR)
                 .map(SmellCandidate::smell)
                 .toList();
     }
@@ -2277,18 +2269,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             return compact;
         }
         return compact.substring(0, 180) + "...";
-    }
-
-    private record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
-        int score() {
-            return smell.score();
-        }
-    }
-
-    private record TestSmellCandidate(TestAssertionSmell smell, int startByte) {
-        int score() {
-            return smell.score();
-        }
     }
 
     private record AssertionSignal(

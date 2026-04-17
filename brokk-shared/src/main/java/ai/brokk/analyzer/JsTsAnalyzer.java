@@ -10,7 +10,6 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
@@ -237,11 +236,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                         .ifPresent(callback ->
                                 analyzeTestCallback(file, call, callback, sourceContent, weights, findings)));
         return findings.stream()
-                .sorted(Comparator.comparingInt(TestSmellCandidate::score)
-                        .reversed()
-                        .thenComparing(c -> c.smell().file().toString())
-                        .thenComparing(c -> c.smell().enclosingFqName())
-                        .thenComparingInt(TestSmellCandidate::startByte))
+                .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
                 .map(TestSmellCandidate::smell)
                 .toList();
     }
@@ -545,12 +540,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 List.copyOf(reasons),
                 compactCatchExcerpt(excerptSource));
         out.add(new TestSmellCandidate(smell, startByte));
-    }
-
-    private record TestSmellCandidate(TestAssertionSmell smell, int startByte) {
-        int score() {
-            return smell.score();
-        }
     }
 
     private record AssertionSignal(

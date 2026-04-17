@@ -39,12 +39,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             List<String> reasons,
             String excerpt) {}
 
-    private record TestSmellCandidate(TestAssertionSmell smell, int startByte) {
-        int score() {
-            return smell.score();
-        }
-    }
-
     private record RustAssertionAnalysis(
             int assertionCount,
             int shallowAssertionCount,
@@ -744,11 +738,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         }
 
         return findings.stream()
-                .sorted(Comparator.comparingInt(SmellCandidate::score)
-                        .reversed()
-                        .thenComparing(c -> c.smell().file().toString())
-                        .thenComparing(c -> c.smell().enclosingFqName())
-                        .thenComparingInt(SmellCandidate::startByte))
+                .sorted(EXCEPTION_SMELL_CANDIDATE_COMPARATOR)
                 .map(SmellCandidate::smell)
                 .toList();
     }
@@ -1016,12 +1006,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return compact.substring(0, 180) + "...";
     }
 
-    private record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
-        int score() {
-            return smell.score();
-        }
-    }
-
     @Override
     public List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
         checkStale("findTestAssertionSmells");
@@ -1112,11 +1096,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         }
 
         return candidates.stream()
-                .sorted(Comparator.comparingInt(TestSmellCandidate::score)
-                        .reversed()
-                        .thenComparing(c -> c.smell().file().toString())
-                        .thenComparing(c -> c.smell().enclosingFqName())
-                        .thenComparingInt(TestSmellCandidate::startByte))
+                .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
                 .map(TestSmellCandidate::smell)
                 .toList();
     }

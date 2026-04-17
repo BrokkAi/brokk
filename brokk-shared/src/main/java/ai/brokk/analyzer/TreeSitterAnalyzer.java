@@ -63,6 +63,38 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
+    /**
+     * Common candidate wrapper used by multiple language analyzers for stable sorting of smells.
+     *
+     * <p>Several analyzers historically carried their own private copy of these small record helpers.
+     * Centralizing them here keeps behavior consistent and avoids drift.
+     */
+    protected record TestSmellCandidate(TestAssertionSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
+    }
+
+    protected record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
+    }
+
+    protected static final Comparator<TestSmellCandidate> TEST_SMELL_CANDIDATE_COMPARATOR = Comparator.comparingInt(
+                    TestSmellCandidate::score)
+            .reversed()
+            .thenComparing(c -> c.smell().file().toString())
+            .thenComparing(c -> c.smell().enclosingFqName())
+            .thenComparingInt(TestSmellCandidate::startByte);
+
+    protected static final Comparator<SmellCandidate> EXCEPTION_SMELL_CANDIDATE_COMPARATOR = Comparator.comparingInt(
+                    SmellCandidate::score)
+            .reversed()
+            .thenComparing(c -> c.smell().file().toString())
+            .thenComparing(c -> c.smell().enclosingFqName())
+            .thenComparingInt(SmellCandidate::startByte);
+
     private volatile boolean isStale = false;
     private final AtomicBoolean staleWarningLogged = new AtomicBoolean(false);
 
