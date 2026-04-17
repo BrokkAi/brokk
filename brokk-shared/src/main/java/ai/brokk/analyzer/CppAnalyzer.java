@@ -389,26 +389,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     private static int countBodyStatements(TSNode bodyNode) {
+        // Count "executable" statements in the body, including nested statements, but avoid
+        // inflating counts for wrapper/control statements like "if_statement" that contain the
+        // real recovery logic inside.
         int statements = 0;
-        for (int i = 0; i < bodyNode.getChildCount(); i++) {
-            TSNode child = bodyNode.getChild(i);
-            if (child == null) {
-                continue;
-            }
-            if (!child.isNamed()) {
-                continue;
-            }
-            if (CPP_COMMENT_NODE_TYPES.contains(child.getType())) {
-                continue;
-            }
-            statements++;
-        }
-        if (statements > 0) {
-            return statements;
-        }
-
-        // Fallback: some grammars represent compound bodies with minimal direct named children.
-        // Count only statement-like descendants to avoid overcounting identifiers and literals.
         var stack = new ArrayDeque<TSNode>();
         stack.push(bodyNode);
         while (!stack.isEmpty()) {
@@ -422,7 +406,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 if (CPP_COMMENT_NODE_TYPES.contains(type)) {
                     continue;
                 }
-                if (isStatementLikeNodeType(type)) {
+                if (isExecutableStatementNodeType(type)) {
                     statements++;
                 }
                 stack.push(child);
@@ -431,9 +415,25 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         return statements;
     }
 
-    private static boolean isStatementLikeNodeType(String type) {
-        return DECLARATION.equals(type) || type.endsWith("_statement");
+    private static boolean isExecutableStatementNodeType(String type) {
+        if (DECLARATION.equals(type)) {
+            return true;
+        }
+        if (!type.endsWith("_statement")) {
+            return false;
+        }
+        return !CPP_WRAPPER_STATEMENT_TYPES.contains(type);
     }
+
+    private static final Set<String> CPP_WRAPPER_STATEMENT_TYPES = Set.of(
+            COMPOUND_STATEMENT,
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "do_statement",
+            "switch_statement",
+            "try_statement",
+            "labeled_statement");
 
     private static String extractCatchType(TSNode catchNode, TSNode bodyNode, SourceContent sourceContent) {
         int bodyStart = bodyNode.getStartByte();
