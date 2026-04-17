@@ -2175,9 +2175,7 @@ public class ContextFragments {
                 }
             }
 
-            rawTextBlocks.stream()
-                    .filter(text -> !text.isBlank())
-                    .forEach(rendered::add);
+            rawTextBlocks.stream().filter(text -> !text.isBlank()).forEach(rendered::add);
 
             return String.join("\n\n", rendered);
         }
