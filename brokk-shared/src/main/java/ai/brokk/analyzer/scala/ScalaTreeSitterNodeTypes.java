@@ -40,5 +40,23 @@ public class ScalaTreeSitterNodeTypes {
     public static final String IMPORT_DECLARATION_NODE = "import_declaration";
     public static final String SCALATEST_IMPORT_SNIPPET = "org.scalatest";
 
+    // Exception handling (Scala)
+    public static final String TRY_EXPRESSION = "try_expression";
+    public static final String CATCH_CLAUSE = "catch_clause";
+    public static final String CASE_CLAUSE = "case_clause";
+    public static final String CASE_BLOCK = "case_block";
+    public static final String INDENTED_CASES = "indented_cases";
+    public static final String BLOCK = "block";
+    public static final String INDENTED_BLOCK = "indented_block";
+    public static final String TYPED_PATTERN = "typed_pattern";
+    public static final String GUARD = "guard";
+    public static final String THROW_EXPRESSION = "throw_expression";
+    public static final String UNIT = "unit";
+    public static final String COMMENT = "comment";
+    public static final String BLOCK_COMMENT = "block_comment";
+    public static final String LINE_COMMENT = "line_comment";
+    public static final String SPAN = "span";
+    public static final String FIELD_EXPRESSION = "field_expression";
+
     private ScalaTreeSitterNodeTypes() {}
 }
