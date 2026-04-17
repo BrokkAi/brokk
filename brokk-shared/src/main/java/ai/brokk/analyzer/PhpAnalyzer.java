@@ -6,6 +6,7 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.PhpAnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import java.util.*;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
 
@@ -222,6 +223,235 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String getLanguageSpecificIndent() {
         return "  ";
+    }
+
+    @Override
+    public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        checkStale("findExceptionHandlingSmells");
+        ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file,
+                            source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights),
+                            List.of());
+                },
+                List.of());
+    }
+
+    private static final Set<String> PHP_COMMENT_NODE_TYPES = Set.of(COMMENT);
+    private static final Pattern PHP_LOG_ONLY_PATTERN = Pattern.compile(
+            "(?i)(?:\\$this\\s*->\\s*(?:logger|log)|\\$(?:logger|log))\\s*->\\s*(?:error|warn|warning|info|debug|trace)\\b"
+                    + "|\\bLog\\s*::\\s*(?:error|warn|warning|info|debug|trace)\\b"
+                    + "|\\berror_log\\s*\\(");
+
+    private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        var findings = new ArrayList<SmellCandidate>();
+        collectCatchSmells(file, root, sourceContent, weights, findings);
+        return findings.stream()
+                .sorted(Comparator.comparingInt(SmellCandidate::score)
+                        .reversed()
+                        .thenComparing(c -> c.smell().file().toString())
+                        .thenComparing(c -> c.smell().enclosingFqName())
+                        .thenComparingInt(SmellCandidate::startByte))
+                .map(SmellCandidate::smell)
+                .toList();
+    }
+
+    private void collectCatchSmells(
+            ProjectFile file,
+            TSNode node,
+            SourceContent sourceContent,
+            ExceptionSmellWeights weights,
+            List<SmellCandidate> out) {
+        if (node == null) {
+            return;
+        }
+        if (CATCH_CLAUSE.equals(node.getType())) {
+            analyzeCatchClause(file, node, sourceContent, weights).ifPresent(out::add);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child != null) {
+                collectCatchSmells(file, child, sourceContent, weights, out);
+            }
+        }
+    }
+
+    private record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
+    }
+
+    private Optional<SmellCandidate> analyzeCatchClause(
+            ProjectFile file, TSNode catchClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        TSNode bodyNode = catchClause.getChildByFieldName("body");
+        if (bodyNode == null) {
+            bodyNode = firstNamedChildOfType(catchClause, COMPOUND_STATEMENT);
+        }
+        if (bodyNode == null) {
+            return Optional.empty();
+        }
+
+        int bodyStatements = countBodyStatements(bodyNode);
+        boolean hasAnyComment = hasDescendantOfType(bodyNode, COMMENT);
+        boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
+        boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
+        boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
+        boolean throwPresent = hasDescendantOfType(bodyNode, THROW_STATEMENT);
+        boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !throwPresent;
+
+        String catchType = extractCatchType(catchClause, sourceContent);
+        List<String> normalizedTypes = normalizeCatchTypesForScoring(catchType);
+
+        int score = 0;
+        var reasons = new ArrayList<String>();
+        if (normalizedTypes.contains("Throwable")) {
+            score += weights.genericThrowableWeight();
+            reasons.add("generic-catch:Throwable");
+        } else if (normalizedTypes.contains("Exception")) {
+            score += weights.genericExceptionWeight();
+            reasons.add("generic-catch:Exception");
+        } else if (normalizedTypes.contains("RuntimeException")) {
+            score += weights.genericRuntimeExceptionWeight();
+            reasons.add("generic-catch:RuntimeException");
+        }
+        if (emptyBody) {
+            score += weights.emptyBodyWeight();
+            reasons.add("empty-body");
+        }
+        if (commentOnlyBody) {
+            score += weights.commentOnlyBodyWeight();
+            reasons.add("comment-only-body");
+        }
+        if (smallBody) {
+            score += weights.smallBodyWeight();
+            reasons.add("small-body:" + bodyStatements);
+        }
+        if (logOnly) {
+            score += weights.logOnlyWeight();
+            reasons.add("log-only-body");
+        }
+
+        int creditStatements = Math.min(bodyStatements, Math.max(0, weights.meaningfulBodyStatementThreshold()));
+        int bodyCredit = Math.max(0, weights.meaningfulBodyCreditPerStatement()) * creditStatements;
+        if (bodyCredit > 0) {
+            score -= bodyCredit;
+            reasons.add("meaningful-body-credit:" + bodyCredit);
+        }
+        if (score <= 0) {
+            return Optional.empty();
+        }
+
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        catchClause.getStartPoint().getRow(),
+                        catchClause.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        var smell = new ExceptionHandlingSmell(
+                file,
+                enclosing,
+                catchType,
+                score,
+                bodyStatements,
+                List.copyOf(reasons),
+                compactCatchExcerpt(sourceContent.substringFrom(catchClause)));
+        return Optional.of(new SmellCandidate(smell, catchClause.getStartByte()));
+    }
+
+    private static int countBodyStatements(TSNode bodyNode) {
+        int statements = 0;
+        for (int i = 0; i < bodyNode.getNamedChildCount(); i++) {
+            TSNode child = bodyNode.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (PHP_COMMENT_NODE_TYPES.contains(child.getType())) {
+                continue;
+            }
+            statements++;
+        }
+        return statements;
+    }
+
+    private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
+        TSNode statement = firstNonCommentNamedChild(bodyNode, PHP_COMMENT_NODE_TYPES);
+        if (statement == null) {
+            return false;
+        }
+        String text = sourceContent.substringFrom(statement).strip();
+        if (text.isEmpty()) {
+            return false;
+        }
+        return PHP_LOG_ONLY_PATTERN.matcher(text).find();
+    }
+
+    private static String extractCatchType(TSNode catchClause, SourceContent sourceContent) {
+        TSNode typeNode = catchClause.getChildByFieldName("type");
+        if (typeNode != null) {
+            String type = sourceContent.substringFrom(typeNode).strip();
+            if (!type.isEmpty()) {
+                return type.replaceAll("\\s+", " ");
+            }
+        }
+
+        for (int i = 0; i < catchClause.getNamedChildCount(); i++) {
+            TSNode child = catchClause.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            String type = Objects.toString(child.getType(), "");
+            if (COMPOUND_STATEMENT.equals(type) || VARIABLE_NAME.equals(type) || COMMENT.equals(type)) {
+                continue;
+            }
+            String text = sourceContent.substringFrom(child).strip();
+            if (!text.isEmpty()) {
+                return text.replaceAll("\\s+", " ");
+            }
+        }
+
+        return "<unknown>";
+    }
+
+    private static List<String> normalizeCatchTypesForScoring(String catchType) {
+        if (catchType.isBlank() || "<unknown>".equals(catchType)) {
+            return List.of();
+        }
+        return Arrays.stream(catchType.split("\\|"))
+                .map(String::strip)
+                .filter(s -> !s.isEmpty())
+                .map(s -> s.startsWith("\\") ? s.substring(1) : s)
+                .map(s -> {
+                    int lastSep = s.lastIndexOf('\\');
+                    return lastSep >= 0 ? s.substring(lastSep + 1) : s;
+                })
+                .toList();
+    }
+
+    private static String compactCatchExcerpt(String text) {
+        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        if (compact.length() <= 180) {
+            return compact;
+        }
+        return compact.substring(0, 180) + "...";
+    }
+
+    private static @Nullable TSNode firstNamedChildOfType(TSNode node, String type) {
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child != null && type.equals(child.getType())) {
+                return child;
+            }
+        }
+        return null;
     }
 
     private String extractModifiers(TSNode methodNode, SourceContent sourceContent) {
