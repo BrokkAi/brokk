@@ -47,6 +47,8 @@ public record AgentDefinition(
             "reportCommentDensityForFiles",
             "reportExceptionHandlingSmells",
             "reportStructuralCloneSmells",
+            "reportSecretLikeCode",
+            "reportTestAssertionSmells",
             "analyzeGitHotspots");
 
     /**
@@ -74,6 +76,8 @@ public record AgentDefinition(
             "reportCommentDensityForFiles",
             "reportExceptionHandlingSmells",
             "reportStructuralCloneSmells",
+            "reportSecretLikeCode",
+            "reportTestAssertionSmells",
             "analyzeGitHotspots",
             // terminal / built-in
             "answer",
@@ -124,6 +128,8 @@ public record AgentDefinition(
             "reportCommentDensityForFiles",
             "reportExceptionHandlingSmells",
             "reportStructuralCloneSmells",
+            "reportSecretLikeCode",
+            "reportTestAssertionSmells",
             "analyzeGitHotspots",
             // Terminal
             "answer",
