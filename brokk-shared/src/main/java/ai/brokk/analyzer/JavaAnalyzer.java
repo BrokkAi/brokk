@@ -18,12 +18,26 @@ import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
+import org.treesitter.TSTreeCursor;
 import org.treesitter.TreeSitterJava;
 
 public class JavaAnalyzer extends TreeSitterAnalyzer
         implements ImportAnalysisProvider, TypeHierarchyProvider, JvmBasedAnalyzer {
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
+    private static final Set<String> JAVA_COMMENT_NODE_TYPES = Set.of(LINE_COMMENT, BLOCK_COMMENT);
+    private static final Set<String> LOG_RECEIVER_NAMES = Set.of("log", "logger");
+    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES =
+            Set.of(IDENTIFIER, TYPE_IDENTIFIER, SCOPED_IDENTIFIER, SCOPED_TYPE_IDENTIFIER);
+    private static final Set<String> CLONE_AST_STRING_TYPES = Set.of(STRING_LITERAL, CHARACTER_LITERAL);
+    private static final Set<String> CLONE_AST_NUMBER_TYPES = Set.of(
+            DECIMAL_INTEGER_LITERAL,
+            HEX_INTEGER_LITERAL,
+            OCTAL_INTEGER_LITERAL,
+            BINARY_INTEGER_LITERAL,
+            DECIMAL_FLOATING_POINT_LITERAL,
+            HEX_FLOATING_POINT_LITERAL);
+    private static final Set<String> CLONE_AST_IGNORED_TYPES = Set.of(MODIFIERS, TYPE_PARAMETERS);
 
     public JavaAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
@@ -227,6 +241,68 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     @Override
     protected String bodyPlaceholder() {
         return "{...}";
+    }
+
+    @Override
+    protected String buildCloneAstSignature(String source) {
+        return withFreshTree(source, "", tree -> {
+            TSNode root = tree.getRootNode();
+            if (root == null) {
+                return "";
+            }
+            SourceContent sourceContent = SourceContent.of(source);
+            var labels = new ArrayList<String>();
+            try (var cursor = new TSTreeCursor(root)) {
+                while (true) {
+                    TSNode node = cursor.currentNode();
+                    if (node == null) {
+                        break;
+                    }
+                    labels.add(normalizeAstLabel(node, sourceContent));
+                    if (!gotoNextDepthFirst(cursor, true)) {
+                        break;
+                    }
+                }
+            }
+            return String.join("|", labels);
+        });
+    }
+
+    @Override
+    protected int refineCloneSimilarityPercent(
+            CloneCandidateData left, CloneCandidateData right, int tokenSimilarity, CloneSmellWeights weights) {
+        if (left.astSignature().isBlank() || right.astSignature().isBlank()) {
+            return tokenSimilarity;
+        }
+        int astSimilarity = computeAstRefinementSimilarityPercent(left.astSignature(), right.astSignature());
+        if (astSimilarity == 0) {
+            return tokenSimilarity;
+        }
+        if (astSimilarity < weights.astSimilarityPercent()) {
+            return 0;
+        }
+        return Math.min(tokenSimilarity, astSimilarity);
+    }
+
+    private static String normalizeAstLabel(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        String text = sourceContent.substringFrom(node).strip();
+        if (CLONE_AST_IDENTIFIER_TYPES.contains(type)) {
+            return "ID";
+        }
+        if (CLONE_AST_STRING_TYPES.contains(type)) {
+            return "STR";
+        }
+        if (CLONE_AST_NUMBER_TYPES.contains(type)) {
+            return "NUM";
+        }
+        if (BOOLEAN_LITERAL.equals(type) || TRUE.equals(text) || FALSE.equals(text)) {
+            return "BOOL";
+        }
+        if (CLONE_AST_IGNORED_TYPES.contains(type)) {
+            return "IGN";
+        }
+        return "N:" + type;
     }
 
     @Override
@@ -1460,6 +1536,771 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     @Override
+    public int computeCyclomaticComplexity(CodeUnit cu) {
+        if (!cu.isFunction()) return 0;
+
+        return getSource(cu, false)
+                .map(source -> {
+                    try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
+                        TSNode root = tree.getRootNode();
+                        if (root == null) return 1;
+
+                        SourceContent content = SourceContent.of(source);
+                        int complexity = 1; // Base complexity
+
+                        Deque<TSNode> stack = new ArrayDeque<>();
+                        stack.push(root);
+
+                        while (!stack.isEmpty()) {
+                            TSNode node = stack.pop();
+                            String type = node.getType();
+                            if (type == null) {
+                                continue;
+                            }
+
+                            switch (type) {
+                                case IF_STATEMENT,
+                                        FOR_STATEMENT,
+                                        ENHANCED_FOR_STATEMENT,
+                                        WHILE_STATEMENT,
+                                        DO_STATEMENT,
+                                        CATCH_CLAUSE,
+                                        CONDITIONAL_EXPRESSION -> complexity++;
+                                case SWITCH_LABEL -> {
+                                    // Only count if not the 'default' case
+                                    if (!content.substringFrom(node).contains("default")) {
+                                        complexity++;
+                                    }
+                                }
+                                case BINARY_EXPRESSION -> {
+                                    // Check for && or ||
+                                    String operator = content.substringFrom(node);
+                                    if (operator.contains("&&") || operator.contains("||")) {
+                                        complexity++;
+                                    }
+                                }
+                            }
+
+                            for (int i = 0; i < node.getNamedChildCount(); i++) {
+                                TSNode child = node.getNamedChild(i);
+                                if (child != null) {
+                                    stack.push(child);
+                                }
+                            }
+                        }
+                        return complexity;
+                    } catch (Exception e) {
+                        log.warn("Failed to compute complexity for {} using AST; falling back", cu.fqName(), e);
+                        return super.computeCyclomaticComplexity(cu);
+                    }
+                })
+                .orElse(0);
+    }
+
+    @Override
+    public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        checkStale("findExceptionHandlingSmells");
+        ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file,
+                            source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights),
+                            List.of());
+                },
+                List.of());
+    }
+
+    @Override
+    public List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
+        checkStale("findTestAssertionSmells");
+        if (!containsTests(file)) {
+            return List.of();
+        }
+        TestAssertionWeights resolvedWeights = weights != null ? weights : TestAssertionWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file, source -> detectTestAssertionSmells(file, root, source, resolvedWeights), List.of());
+                },
+                List.of());
+    }
+
+    private List<TestAssertionSmell> detectTestAssertionSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
+        var testMethods = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(METHOD_DECLARATION), testMethods);
+        var anonymousShapeCounts = anonymousTestDoubleShapeCounts(testMethods, sourceContent);
+        var findings = new ArrayList<TestSmellCandidate>();
+        for (TSNode method : testMethods) {
+            if (isTestMethod(method, sourceContent)) {
+                analyzeTestMethodAssertions(file, method, sourceContent, weights, findings);
+                analyzeAnonymousTestDoubles(file, method, sourceContent, weights, anonymousShapeCounts, findings);
+            }
+        }
+        return findings.stream()
+                .sorted(Comparator.comparingInt(TestSmellCandidate::score)
+                        .reversed()
+                        .thenComparing(c -> c.smell().file().toString())
+                        .thenComparing(c -> c.smell().enclosingFqName())
+                        .thenComparingInt(TestSmellCandidate::startByte))
+                .map(TestSmellCandidate::smell)
+                .toList();
+    }
+
+    private void analyzeTestMethodAssertions(
+            ProjectFile file,
+            TSNode method,
+            SourceContent sourceContent,
+            TestAssertionWeights weights,
+            List<TestSmellCandidate> out) {
+        TSNode body = method.getChildByFieldName("body");
+        if (body == null) {
+            return;
+        }
+        var invocations = new ArrayList<TSNode>();
+        collectNodesByType(body, Set.of(METHOD_INVOCATION), invocations);
+        List<AssertionSignal> assertions = invocations.stream()
+                .map(invocation -> assertionSignal(invocation, sourceContent, weights))
+                .flatMap(Optional::stream)
+                .toList();
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        method.getStartPoint().getRow(),
+                        method.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        int assertionCount = assertions.size();
+
+        if (assertionCount == 0) {
+            addTestSmell(
+                    file,
+                    enclosing,
+                    TEST_ASSERTION_KIND_NO_ASSERTIONS,
+                    weights.noAssertionWeight(),
+                    0,
+                    List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
+                    sourceContent.substringFrom(method),
+                    method.getStartByte(),
+                    out);
+            return;
+        }
+
+        for (AssertionSignal assertion : assertions) {
+            int score = assertion.baseScore();
+            if (score <= 0) {
+                continue;
+            }
+            addTestSmell(
+                    file,
+                    enclosing,
+                    assertion.kind(),
+                    score,
+                    assertionCount,
+                    assertion.reasons(),
+                    assertion.excerpt(),
+                    assertion.startByte(),
+                    out);
+        }
+
+        boolean allShallow = assertions.stream().allMatch(AssertionSignal::shallow);
+        if (allShallow) {
+            int score = weights.shallowAssertionOnlyWeight()
+                    - meaningfulAssertionCredit(assertions, weights, AssertionSignal::meaningful);
+            if (score > 0) {
+                addTestSmell(
+                        file,
+                        enclosing,
+                        TEST_ASSERTION_KIND_SHALLOW_ONLY,
+                        score,
+                        assertionCount,
+                        List.of(TEST_ASSERTION_KIND_SHALLOW_ONLY),
+                        sourceContent.substringFrom(method),
+                        method.getStartByte(),
+                        out);
+            }
+        }
+    }
+
+    private void analyzeAnonymousTestDoubles(
+            ProjectFile file,
+            TSNode method,
+            SourceContent sourceContent,
+            TestAssertionWeights weights,
+            Map<String, Integer> anonymousShapeCounts,
+            List<TestSmellCandidate> out) {
+        var creations = new ArrayList<TSNode>();
+        collectNodesByType(method, Set.of(OBJECT_CREATION_EXPRESSION), creations);
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        method.getStartPoint().getRow(),
+                        method.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        for (TSNode creation : creations) {
+            TSNode classBody = firstNamedChildOfType(creation, CLASS_BODY);
+            TSNode typeNode = creation.getChildByFieldName("type");
+            if (classBody == null || typeNode == null) {
+                continue;
+            }
+            String shape = anonymousTestDoubleShape(creation, sourceContent);
+            boolean repeated = anonymousShapeCounts.getOrDefault(shape, 0) > 1;
+            int score = repeated ? weights.repeatedAnonymousTestDoubleWeight() : weights.anonymousTestDoubleWeight();
+            var reasons = new ArrayList<String>();
+            reasons.add(TEST_ASSERTION_KIND_ANONYMOUS_TEST_DOUBLE);
+            if (repeated) {
+                reasons.add(TEST_ASSERTION_REASON_REUSABLE_TEST_DOUBLE);
+            }
+            addTestSmell(
+                    file,
+                    enclosing,
+                    TEST_ASSERTION_KIND_ANONYMOUS_TEST_DOUBLE,
+                    score,
+                    0,
+                    reasons,
+                    sourceContent.substringFrom(creation),
+                    creation.getStartByte(),
+                    out);
+        }
+    }
+
+    private Optional<AssertionSignal> assertionSignal(
+            TSNode invocation, SourceContent sourceContent, TestAssertionWeights weights) {
+        String methodName = methodInvocationName(invocation, sourceContent);
+        String text = sourceContent.substringFrom(invocation).strip();
+        if (methodName.isBlank() || text.isBlank()) {
+            return Optional.empty();
+        }
+
+        if (JUNIT_ASSERTION_NAMES.contains(methodName)) {
+            return Optional.of(classifyJunitAssertion(invocation, methodName, sourceContent, text, weights));
+        }
+        if (MOCKITO_VERIFY_NAMES.contains(methodName)) {
+            return Optional.of(new AssertionSignal(
+                    TEST_ASSERTION_KIND_MOCK_VERIFICATION, 0, false, true, invocation.getStartByte(), List.of(), text));
+        }
+        if (ASSERTJ_TERMINAL_NAMES.contains(methodName)
+                && assertThatArgument(invocation, sourceContent).isPresent()) {
+            return Optional.of(classifyAssertJAssertion(invocation, methodName, sourceContent, text, weights));
+        }
+        return Optional.empty();
+    }
+
+    private AssertionSignal classifyJunitAssertion(
+            TSNode invocation,
+            String methodName,
+            SourceContent sourceContent,
+            String text,
+            TestAssertionWeights weights) {
+        List<TSNode> args = argumentNodes(invocation);
+        int score = 0;
+        var reasons = new ArrayList<String>();
+        boolean shallow = SHALLOW_ASSERTION_NAMES.contains(methodName);
+        boolean meaningful = !shallow && !FAIL.equals(methodName);
+        String kind = TEST_ASSERTION_KIND_JUNIT;
+
+        if ((ASSERT_TRUE.equals(methodName) || ASSERT_FALSE.equals(methodName)) && !args.isEmpty()) {
+            TSNode arg = args.getLast();
+            boolean constantTruth = (ASSERT_TRUE.equals(methodName) && TRUE.equals(arg.getType()))
+                    || (ASSERT_FALSE.equals(methodName) && FALSE.equals(arg.getType()));
+            if (constantTruth) {
+                score += weights.constantTruthWeight();
+                reasons.add(TEST_ASSERTION_KIND_CONSTANT_TRUTH);
+                kind = TEST_ASSERTION_KIND_CONSTANT_TRUTH;
+                meaningful = false;
+            }
+            if (isSelfComparison(arg, sourceContent)) {
+                score += weights.tautologicalAssertionWeight();
+                reasons.add(TEST_ASSERTION_KIND_SELF_COMPARISON);
+                kind = TEST_ASSERTION_KIND_SELF_COMPARISON;
+                meaningful = false;
+            }
+        }
+
+        if ((ASSERT_EQUALS.equals(methodName) || ASSERT_SAME.equals(methodName)) && args.size() >= 2) {
+            var comparableArgs = comparableAssertionArgs(args);
+            TSNode expected = comparableArgs.get(0);
+            TSNode actual = comparableArgs.get(1);
+            if (isConstantExpression(expected) && isConstantExpression(actual)) {
+                score += weights.constantEqualityWeight();
+                reasons.add(TEST_ASSERTION_KIND_CONSTANT_EQUALITY);
+                kind = TEST_ASSERTION_KIND_CONSTANT_EQUALITY;
+                meaningful = false;
+            } else if (sameExpression(expected, actual, sourceContent)) {
+                score += weights.tautologicalAssertionWeight();
+                reasons.add(TEST_ASSERTION_KIND_SELF_COMPARISON);
+                kind = TEST_ASSERTION_KIND_SELF_COMPARISON;
+                meaningful = false;
+            }
+        }
+
+        if ((ASSERT_NOT_NULL.equals(methodName) || ASSERT_NULL.equals(methodName)) && args.size() <= 2) {
+            score += weights.nullnessOnlyWeight();
+            reasons.add(TEST_ASSERTION_KIND_NULLNESS_ONLY);
+            kind = TEST_ASSERTION_KIND_NULLNESS_ONLY;
+            meaningful = false;
+        }
+
+        if (containsOverspecifiedLiteral(args, sourceContent, weights)) {
+            score += weights.overspecifiedLiteralWeight();
+            reasons.add(TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL);
+            kind = TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL;
+        }
+
+        return new AssertionSignal(
+                kind, score, shallow, meaningful, invocation.getStartByte(), List.copyOf(reasons), text);
+    }
+
+    private AssertionSignal classifyAssertJAssertion(
+            TSNode invocation,
+            String methodName,
+            SourceContent sourceContent,
+            String text,
+            TestAssertionWeights weights) {
+        List<TSNode> args = argumentNodes(invocation);
+        int score = 0;
+        var reasons = new ArrayList<String>();
+        boolean shallow = ASSERTJ_SHALLOW_TERMINAL_NAMES.contains(methodName);
+        boolean meaningful = !shallow;
+        String kind = TEST_ASSERTION_KIND_ASSERTJ;
+
+        Optional<TSNode> assertThatArg = assertThatArgument(invocation, sourceContent);
+        if (assertThatArg.isPresent() && args.size() == 1) {
+            TSNode expected = assertThatArg.get();
+            TSNode actual = args.getFirst();
+            if ((IS_EQUAL_TO.equals(methodName) || IS_SAME_AS.equals(methodName))
+                    && isConstantExpression(expected)
+                    && isConstantExpression(actual)) {
+                score += weights.constantEqualityWeight();
+                reasons.add(TEST_ASSERTION_KIND_CONSTANT_EQUALITY);
+                kind = TEST_ASSERTION_KIND_CONSTANT_EQUALITY;
+                meaningful = false;
+            } else if ((IS_EQUAL_TO.equals(methodName) || IS_SAME_AS.equals(methodName))
+                    && sameExpression(expected, actual, sourceContent)) {
+                score += weights.tautologicalAssertionWeight();
+                reasons.add(TEST_ASSERTION_KIND_SELF_COMPARISON);
+                kind = TEST_ASSERTION_KIND_SELF_COMPARISON;
+                meaningful = false;
+            }
+        }
+        if ((IS_TRUE.equals(methodName) || IS_FALSE.equals(methodName)) && assertThatArg.isPresent()) {
+            TSNode arg = assertThatArg.get();
+            boolean constantTruth = (IS_TRUE.equals(methodName) && TRUE.equals(arg.getType()))
+                    || (IS_FALSE.equals(methodName) && FALSE.equals(arg.getType()));
+            if (constantTruth) {
+                score += weights.constantTruthWeight();
+                reasons.add(TEST_ASSERTION_KIND_CONSTANT_TRUTH);
+                kind = TEST_ASSERTION_KIND_CONSTANT_TRUTH;
+                meaningful = false;
+            }
+        }
+        if (shallow) {
+            score += weights.nullnessOnlyWeight();
+            reasons.add(TEST_ASSERTION_KIND_NULLNESS_ONLY);
+            kind = TEST_ASSERTION_KIND_NULLNESS_ONLY;
+            meaningful = false;
+        }
+        if (containsOverspecifiedLiteral(args, sourceContent, weights)) {
+            score += weights.overspecifiedLiteralWeight();
+            reasons.add(TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL);
+            kind = TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL;
+        }
+        return new AssertionSignal(
+                kind, score, shallow, meaningful, invocation.getStartByte(), List.copyOf(reasons), text);
+    }
+
+    private static boolean isTestMethod(TSNode method, SourceContent sourceContent) {
+        TSNode modifiers = firstNamedChildOfType(method, MODIFIERS);
+        if (modifiers == null) {
+            return false;
+        }
+        var annotations = new ArrayList<TSNode>();
+        collectNodesByType(modifiers, Set.of(ANNOTATION, MARKER_ANNOTATION), annotations);
+        return annotations.stream()
+                .map(annotation -> annotationName(annotation, sourceContent))
+                .anyMatch(TEST_ANNOTATIONS::contains);
+    }
+
+    private static String methodInvocationName(TSNode invocation, SourceContent sourceContent) {
+        TSNode nameNode = invocation.getChildByFieldName("name");
+        return nameNode == null ? "" : sourceContent.substringFrom(nameNode).strip();
+    }
+
+    private static List<TSNode> argumentNodes(TSNode invocation) {
+        TSNode arguments = invocation.getChildByFieldName("arguments");
+        if (arguments == null || !ARGUMENT_LIST.equals(arguments.getType())) {
+            return List.of();
+        }
+        var args = new ArrayList<TSNode>();
+        for (int i = 0; i < arguments.getNamedChildCount(); i++) {
+            TSNode child = arguments.getNamedChild(i);
+            if (child != null) {
+                args.add(child);
+            }
+        }
+        return List.copyOf(args);
+    }
+
+    private static List<TSNode> comparableAssertionArgs(List<TSNode> args) {
+        if (args.size() >= 4 && isStringLiteral(args.getFirst())) {
+            return args.subList(1, 3);
+        }
+        return args.subList(0, Math.min(2, args.size()));
+    }
+
+    private static Optional<TSNode> assertThatArgument(TSNode invocation, SourceContent sourceContent) {
+        TSNode candidate = invocation.getChildByFieldName("object");
+        while (candidate != null && METHOD_INVOCATION.equals(candidate.getType())) {
+            TSNode nameNode = candidate.getChildByFieldName("name");
+            if (nameNode != null
+                    && ASSERT_THAT.equals(sourceContent.substringFrom(nameNode).strip())) {
+                return argumentNodes(candidate).stream().findFirst();
+            }
+            candidate = candidate.getChildByFieldName("object");
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isSelfComparison(TSNode node, SourceContent sourceContent) {
+        if (BINARY_EXPRESSION.equals(node.getType())) {
+            TSNode left = node.getChildByFieldName("left");
+            TSNode right = node.getChildByFieldName("right");
+            return left != null && right != null && sameExpression(left, right, sourceContent);
+        }
+        if (METHOD_INVOCATION.equals(node.getType()) && EQUALS.equals(methodInvocationName(node, sourceContent))) {
+            TSNode objectNode = node.getChildByFieldName("object");
+            return objectNode != null
+                    && argumentNodes(node).stream()
+                            .findFirst()
+                            .map(arg -> sameExpression(objectNode, arg, sourceContent))
+                            .orElse(false);
+        }
+        return false;
+    }
+
+    private static boolean sameExpression(TSNode left, TSNode right, SourceContent sourceContent) {
+        return sourceContent
+                .substringFrom(left)
+                .strip()
+                .equals(sourceContent.substringFrom(right).strip());
+    }
+
+    private static boolean isConstantExpression(TSNode node) {
+        return CONSTANT_LITERAL_TYPES.contains(node.getType());
+    }
+
+    private static boolean isStringLiteral(TSNode node) {
+        return STRING_LITERAL.equals(node.getType());
+    }
+
+    private static boolean containsOverspecifiedLiteral(
+            List<TSNode> args, SourceContent sourceContent, TestAssertionWeights weights) {
+        return args.stream()
+                .anyMatch(arg -> isStringLiteral(arg)
+                        && sourceContent.substringFrom(arg).length() >= weights.largeLiteralLengthThreshold());
+    }
+
+    private static int meaningfulAssertionCredit(
+            List<AssertionSignal> assertions,
+            TestAssertionWeights weights,
+            java.util.function.Predicate<AssertionSignal> predicate) {
+        long count = assertions.stream().filter(predicate).count();
+        int creditable = Math.min((int) count, Math.max(0, weights.meaningfulAssertionCreditCap()));
+        return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
+    }
+
+    private static String annotationName(TSNode annotation, SourceContent sourceContent) {
+        TSNode nameNode = annotation.getChildByFieldName("name");
+        String rawName = nameNode == null
+                ? sourceContent.substringFrom(annotation).strip()
+                : sourceContent.substringFrom(nameNode).strip();
+        rawName = rawName.replaceFirst("^@\\s*", "");
+        int lastDot = rawName.lastIndexOf('.');
+        return lastDot >= 0 ? rawName.substring(lastDot + 1) : rawName;
+    }
+
+    private static @Nullable TSNode firstNamedChildOfType(TSNode node, String type) {
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child != null && type.equals(child.getType())) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private void addTestSmell(
+            ProjectFile file,
+            String enclosing,
+            String assertionKind,
+            int score,
+            int assertionCount,
+            List<String> reasons,
+            String excerptSource,
+            int startByte,
+            List<TestSmellCandidate> out) {
+        if (score <= 0 || reasons.isEmpty()) {
+            return;
+        }
+        var smell = new TestAssertionSmell(
+                file,
+                enclosing,
+                assertionKind,
+                score,
+                assertionCount,
+                List.copyOf(reasons),
+                compactCatchExcerpt(excerptSource));
+        out.add(new TestSmellCandidate(smell, startByte));
+    }
+
+    private static Map<String, Integer> anonymousTestDoubleShapeCounts(
+            List<TSNode> testMethods, SourceContent sourceContent) {
+        return testMethods.stream()
+                .filter(method -> isTestMethod(method, sourceContent))
+                .flatMap(method -> {
+                    var creations = new ArrayList<TSNode>();
+                    collectNodesByType(method, Set.of(OBJECT_CREATION_EXPRESSION), creations);
+                    return creations.stream()
+                            .filter(creation -> firstNamedChildOfType(creation, CLASS_BODY) != null)
+                            .map(creation -> anonymousTestDoubleShape(creation, sourceContent));
+                })
+                .collect(Collectors.toMap(shape -> shape, shape -> 1, Integer::sum));
+    }
+
+    private static String anonymousTestDoubleShape(TSNode creation, SourceContent sourceContent) {
+        TSNode typeNode = creation.getChildByFieldName("type");
+        String type = typeNode == null
+                ? "<unknown>"
+                : sourceContent.substringFrom(typeNode).strip();
+        var methods = new ArrayList<TSNode>();
+        collectNodesByType(creation, Set.of(METHOD_DECLARATION), methods);
+        String methodNames = methods.stream()
+                .map(method -> method.getChildByFieldName("name"))
+                .filter(Objects::nonNull)
+                .map(sourceContent::substringFrom)
+                .collect(Collectors.joining(","));
+        return type + "#" + methodNames;
+    }
+
+    private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        var findings = new ArrayList<SmellCandidate>();
+        collectCatchSmells(file, root, sourceContent, weights, findings);
+        return findings.stream()
+                .sorted(Comparator.comparingInt(SmellCandidate::score)
+                        .reversed()
+                        .thenComparing(c -> c.smell().file().toString())
+                        .thenComparing(c -> c.smell().enclosingFqName())
+                        .thenComparingInt(SmellCandidate::startByte))
+                .map(SmellCandidate::smell)
+                .toList();
+    }
+
+    private void collectCatchSmells(
+            ProjectFile file,
+            TSNode node,
+            SourceContent sourceContent,
+            ExceptionSmellWeights weights,
+            List<SmellCandidate> out) {
+        if (node == null) {
+            return;
+        }
+        if (CATCH_CLAUSE.equals(node.getType())) {
+            analyzeCatchClause(file, node, sourceContent, weights).ifPresent(out::add);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child != null) {
+                collectCatchSmells(file, child, sourceContent, weights, out);
+            }
+        }
+    }
+
+    private Optional<SmellCandidate> analyzeCatchClause(
+            ProjectFile file, TSNode catchNode, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        TSNode catchParam = null;
+        for (TSNode child : catchNode.getNamedChildren()) {
+            if (CATCH_FORMAL_PARAMETER.equals(child.getType())) {
+                catchParam = child;
+                break;
+            }
+        }
+        if (catchParam == null) {
+            return Optional.empty();
+        }
+
+        TSNode typeNode = catchParam.getChildByFieldName("type");
+        String catchType = sourceContent.substringFrom(typeNode).strip();
+        if (catchType.isEmpty()) {
+            TSNode nameNode = catchParam.getChildByFieldName("name");
+            String paramText = sourceContent.substringFrom(catchParam).strip();
+            if (nameNode != null) {
+                String name = sourceContent.substringFrom(nameNode).strip();
+                int nameIdx = paramText.lastIndexOf(name);
+                if (nameIdx > 0) {
+                    catchType = paramText.substring(0, nameIdx).strip();
+                }
+            }
+            if (catchType.isEmpty()) {
+                catchType = paramText;
+            }
+        }
+        if (catchType.isEmpty()) {
+            return Optional.empty();
+        }
+
+        TSNode bodyNode = catchNode.getChildByFieldName("body");
+        if (bodyNode == null) {
+            bodyNode = catchNode.getNamedChildren().stream()
+                    .filter(child -> BLOCK.equals(child.getType()))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (bodyNode == null) {
+            return Optional.empty();
+        }
+        String bodyText = sourceContent.substringFrom(bodyNode);
+        int bodyStatements = countBodyExpressions(bodyNode);
+        boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
+        boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
+        boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
+        boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
+        boolean throwPresent = hasDescendantOfType(bodyNode, THROW_STATEMENT);
+        boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !throwPresent;
+
+        int score = 0;
+        var reasons = new ArrayList<String>();
+        if (catchType.contains("Throwable")) {
+            score += weights.genericThrowableWeight();
+            reasons.add("generic-catch:Throwable");
+        } else if (catchType.contains("Exception")) {
+            if (catchType.contains("RuntimeException")) {
+                score += weights.genericRuntimeExceptionWeight();
+                reasons.add("generic-catch:RuntimeException");
+            } else {
+                score += weights.genericExceptionWeight();
+                reasons.add("generic-catch:Exception");
+            }
+        }
+        if (emptyBody) {
+            score += weights.emptyBodyWeight();
+            reasons.add("empty-body");
+        }
+        if (commentOnlyBody) {
+            score += weights.commentOnlyBodyWeight();
+            reasons.add("comment-only-body");
+        }
+        if (smallBody) {
+            score += weights.smallBodyWeight();
+            reasons.add("small-body:" + bodyStatements);
+        }
+        if (logOnly) {
+            score += weights.logOnlyWeight();
+            reasons.add("log-only-body");
+        }
+
+        int creditStatements = Math.min(bodyStatements, Math.max(0, weights.meaningfulBodyStatementThreshold()));
+        int bodyCredit = Math.max(0, weights.meaningfulBodyCreditPerStatement()) * creditStatements;
+        if (bodyCredit > 0) {
+            score -= bodyCredit;
+            reasons.add("meaningful-body-credit:" + bodyCredit);
+        }
+
+        if (score <= 0) {
+            return Optional.empty();
+        }
+
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        catchNode.getStartPoint().getRow(),
+                        catchNode.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        String excerpt = compactCatchExcerpt(sourceContent.substringFrom(catchNode));
+        var smell = new ExceptionHandlingSmell(
+                file, enclosing, catchType, score, bodyStatements, List.copyOf(reasons), excerpt);
+        return Optional.of(new SmellCandidate(smell, catchNode.getStartByte()));
+    }
+
+    private static int countBodyExpressions(TSNode bodyNode) {
+        int expressions = 0;
+        for (int i = 0; i < bodyNode.getNamedChildCount(); i++) {
+            TSNode child = bodyNode.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            String type = child.getType();
+            if (LINE_COMMENT.equals(type) || BLOCK_COMMENT.equals(type)) {
+                continue;
+            }
+            if (CATCH_BODY_MEANINGFUL_STATEMENT_TYPES.contains(type)) {
+                expressions++;
+            }
+        }
+        return expressions;
+    }
+
+    private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
+        TSNode statement = firstNonCommentNamedChild(bodyNode, JAVA_COMMENT_NODE_TYPES);
+        if (statement == null || !EXPRESSION_STATEMENT.equals(statement.getType())) {
+            return false;
+        }
+        TSNode invocation = findFirstNamedDescendant(statement, METHOD_INVOCATION);
+        if (invocation == null) {
+            return false;
+        }
+        TSNode objectNode = invocation.getChildByFieldName("object");
+        if (objectNode == null) {
+            return false;
+        }
+        String receiverText = sourceContent.substringFrom(objectNode).strip().toLowerCase(Locale.ROOT);
+        if (receiverText.isEmpty()) {
+            return false;
+        }
+        return LOG_RECEIVER_NAMES.contains(receiverText)
+                || LOG_RECEIVER_NAMES.stream().anyMatch(name -> receiverText.endsWith("." + name));
+    }
+
+    private static String compactCatchExcerpt(String text) {
+        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        if (compact.length() <= 180) {
+            return compact;
+        }
+        return compact.substring(0, 180) + "...";
+    }
+
+    private record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
+    }
+
+    private record TestSmellCandidate(TestAssertionSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
+    }
+
+    private record AssertionSignal(
+            String kind,
+            int baseScore,
+            boolean shallow,
+            boolean meaningful,
+            int startByte,
+            List<String> reasons,
+            String excerpt) {}
+
+    @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
@@ -1518,5 +2359,130 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     }
                 },
                 List.of());
+    }
+
+    private static final class CommentAgg {
+        int headerLines;
+        int inlineLines;
+    }
+
+    @Override
+    public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        checkStale("commentDensity");
+        if (!Languages.JAVA.equals(Languages.fromExtension(cu.source().extension()))) {
+            return Optional.empty();
+        }
+        Map<String, CommentAgg> aggs = collectCommentAggregates(cu.source());
+        CommentDensityStats stats = buildRollUpStats(cu, aggs);
+        return Optional.of(stats);
+    }
+
+    @Override
+    public List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        checkStale("commentDensityByTopLevel");
+        if (!Languages.JAVA.equals(Languages.fromExtension(file.extension()))) {
+            return List.of();
+        }
+        Map<String, CommentAgg> aggs = collectCommentAggregates(file);
+        List<CommentDensityStats> rows = new ArrayList<>();
+        for (CodeUnit top : getTopLevelDeclarations(file)) {
+            rows.add(buildRollUpStats(top, aggs));
+        }
+        return List.copyOf(rows);
+    }
+
+    /**
+     * Walks the parse tree for line_comment and block_comment nodes, associates each with the smallest enclosing
+     * declaration span (using {@link Range#commentStartByte()} through {@link Range#endByte()}), and classifies
+     * header vs inline: header if the comment ends on or before the declaration {@link Range#startByte()}.
+     */
+    private Map<String, CommentAgg> collectCommentAggregates(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    List<TSNode> comments = new ArrayList<>();
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Map.of();
+                    }
+                    collectCommentNodes(root, comments);
+                    Map<String, CommentAgg> map = new HashMap<>();
+                    for (TSNode c : comments) {
+                        int cs = c.getStartByte();
+                        int ce = c.getEndByte();
+                        Optional<OwningRange> own = findOwningRangeForComment(file, cs, ce);
+                        if (own.isEmpty()) {
+                            continue;
+                        }
+                        OwningRange or = own.get();
+                        Range r = or.range();
+                        boolean header = ce <= r.startByte();
+                        int lines = c.getEndPoint().getRow() - c.getStartPoint().getRow() + 1;
+                        CommentAgg agg = map.computeIfAbsent(or.cu().fqName(), k -> new CommentAgg());
+                        if (header) {
+                            agg.headerLines += lines;
+                        } else {
+                            agg.inlineLines += lines;
+                        }
+                    }
+                    return map;
+                },
+                Map.of());
+    }
+
+    private record OwningRange(CodeUnit cu, Range range) {}
+
+    private Optional<OwningRange> findOwningRangeForComment(ProjectFile file, int cs, int ce) {
+        return enclosingCodeUnitByCommentBytes(file, cs, ce).flatMap(cu -> rangesOf(cu).stream()
+                .filter(r -> cs >= r.commentStartByte() && ce <= r.endByte())
+                .min(Comparator.comparingInt(r -> r.endByte() - r.commentStartByte()))
+                .map(r -> new OwningRange(cu, r)));
+    }
+
+    private static void collectCommentNodes(TSNode node, List<TSNode> out) {
+        if (node == null) {
+            return;
+        }
+        String t = node.getType();
+        if (LINE_COMMENT.equals(t) || BLOCK_COMMENT.equals(t)) {
+            out.add(node);
+            return;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode ch = node.getChild(i);
+            if (ch != null) {
+                collectCommentNodes(ch, out);
+            }
+        }
+    }
+
+    private int spanLines(CodeUnit cu) {
+        return rangesOf(cu).stream()
+                .mapToInt(r -> r.endLine() - r.startLine() + 1)
+                .sum();
+    }
+
+    /**
+     * Non-class units: rolled-up fields mirror own lines. Class units: rolled-up sums descendant comment lines and
+     * span lines (child spans summed; not deduplicated against the outer class span).
+     */
+    private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentAgg> aggs) {
+        CommentAgg own = aggs.getOrDefault(cu.fqName(), new CommentAgg());
+        int span = spanLines(cu);
+        String path = cu.source().toString();
+        if (!cu.isClass()) {
+            return new CommentDensityStats(
+                    cu.fqName(), path, own.headerLines, own.inlineLines, span, own.headerLines, own.inlineLines, span);
+        }
+        int rh = own.headerLines;
+        int ri = own.inlineLines;
+        int rs = span;
+        for (CodeUnit ch : getDirectChildren(cu)) {
+            CommentDensityStats chs = buildRollUpStats(ch, aggs);
+            rh += chs.rolledUpHeaderCommentLines();
+            ri += chs.rolledUpInlineCommentLines();
+            rs += chs.rolledUpSpanLines();
+        }
+        return new CommentDensityStats(cu.fqName(), path, own.headerLines, own.inlineLines, span, rh, ri, rs);
     }
 }

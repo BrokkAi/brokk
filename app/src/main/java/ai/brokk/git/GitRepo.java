@@ -2805,6 +2805,27 @@ public class GitRepo implements Closeable, IGitRepo {
         throw new NoDefaultBranchException("Repository has no local branches and no default can be determined.");
     }
 
+    static boolean isMissingObjectException(Throwable t) {
+        Throwable curr = t;
+        while (curr != null) {
+            if (curr instanceof MissingObjectException) {
+                return true;
+            }
+            String msg = curr.getMessage();
+            if (msg != null) {
+                String lower = msg.toLowerCase(Locale.ROOT);
+                if (lower.contains("missing blob")
+                        || lower.contains("missing tree")
+                        || lower.contains("missing commit")
+                        || lower.contains("missingobjectexception")) {
+                    return true;
+                }
+            }
+            curr = curr.getCause();
+        }
+        return false;
+    }
+
     // Add near other small helper types/records
     public static final class Canonicalizer {
         private final Map<String, Integer> indexByCommit; // commitId -> index in window (0 = newest)
@@ -2843,27 +2864,6 @@ public class GitRepo implements Closeable, IGitRepo {
 
         // A single rename observed in a commit's diff (old -> new)
         public record RenameEdge(ProjectFile old, ProjectFile newPath) {}
-    }
-
-    static boolean isMissingObjectException(Throwable t) {
-        Throwable curr = t;
-        while (curr != null) {
-            if (curr instanceof MissingObjectException) {
-                return true;
-            }
-            String msg = curr.getMessage();
-            if (msg != null) {
-                String lower = msg.toLowerCase(Locale.ROOT);
-                if (lower.contains("missing blob")
-                        || lower.contains("missing tree")
-                        || lower.contains("missing commit")
-                        || lower.contains("missingobjectexception")) {
-                    return true;
-                }
-            }
-            curr = curr.getCause();
-        }
-        return false;
     }
 
     /**

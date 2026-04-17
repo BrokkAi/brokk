@@ -6,15 +6,19 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -26,16 +30,851 @@ import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
+import org.treesitter.TSTreeCursor;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
 
     private static final Pattern WILDCARD_IMPORT_PATTERN = Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
+    private static final Set<String> PYTHON_LOG_BARE_NAMES = Set.of("log", "logger", "warning", "error", "exception");
+    private static final Set<String> PYTHON_LOG_RECEIVER_NAMES = Set.of("log", "logger");
+    private static final Set<String> PYTHON_LOG_RECEIVER_EXTRA_SUFFIXES = Set.of("logging");
+    private static final Set<String> PYTHON_LOG_METHOD_NAMES = Set.of("log", "warning", "error", "exception");
+    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES = Set.of(IDENTIFIER, KEYWORD_IDENTIFIER);
+    private static final Set<String> CLONE_AST_STRING_TYPES = Set.of(STRING, STRING_CONTENT, INTERPOLATION);
+    private static final Set<String> CLONE_AST_NUMBER_TYPES = Set.of(INTEGER, FLOAT);
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPython(reference);
+    }
+
+    @Override
+    public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+        checkStale("commentDensity");
+        if (!"py".equals(cu.source().extension())) {
+            return Optional.empty();
+        }
+        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(cu.source(), COMMENT_NODE_TYPES);
+        return Optional.of(buildRollUpStats(cu, counts));
+    }
+
+    @Override
+    public List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
+        checkStale("commentDensityByTopLevel");
+        if (!"py".equals(file.extension())) {
+            return List.of();
+        }
+        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(file, COMMENT_NODE_TYPES);
+        List<CommentDensityStats> rows = new ArrayList<>();
+        for (CodeUnit top : getTopLevelDeclarations(file)) {
+            rows.add(buildRollUpStats(top, counts));
+        }
+        return List.copyOf(rows);
+    }
+
+    @Override
+    protected String buildCloneAstSignature(String source) {
+        return withFreshTree(source, "", tree -> {
+            TSNode root = tree.getRootNode();
+            if (root == null) {
+                return "";
+            }
+            SourceContent sourceContent = SourceContent.of(source);
+            var labels = new ArrayList<String>();
+            try (var cursor = new TSTreeCursor(root)) {
+                while (true) {
+                    TSNode node = cursor.currentNode();
+                    if (node == null) {
+                        break;
+                    }
+                    labels.add(normalizePythonAstLabel(node, sourceContent));
+                    if (!gotoNextDepthFirst(cursor, true)) {
+                        break;
+                    }
+                }
+            }
+            return String.join("|", labels);
+        });
+    }
+
+    @Override
+    protected int refineCloneSimilarityPercent(
+            CloneCandidateData left, CloneCandidateData right, int tokenSimilarity, CloneSmellWeights weights) {
+        if (left.astSignature().isBlank() || right.astSignature().isBlank()) {
+            return tokenSimilarity;
+        }
+        int astSimilarity = computeAstRefinementSimilarityPercent(left.astSignature(), right.astSignature());
+        if (astSimilarity == 0) {
+            return tokenSimilarity;
+        }
+        if (astSimilarity < weights.astSimilarityPercent()) {
+            return 0;
+        }
+        return Math.min(tokenSimilarity, astSimilarity);
+    }
+
+    @Override
+    protected String normalizeCloneLeafToken(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        String token = sourceContent.substringFrom(node).strip();
+        if (token.isEmpty() || COMMENT_NODE_TYPES.contains(type)) {
+            return "";
+        }
+        if (CLONE_AST_IDENTIFIER_TYPES.contains(type)) {
+            return "ID";
+        }
+        if (CLONE_AST_STRING_TYPES.contains(type)) {
+            return "STR";
+        }
+        if (CLONE_AST_NUMBER_TYPES.contains(type)) {
+            return "NUM";
+        }
+        if (BOOLEAN.equals(type) || TRUE.equals(token) || FALSE.equals(token)) {
+            return "BOOL";
+        }
+        if (token.length() == 1 && !Character.isLetterOrDigit(token.charAt(0))) {
+            return "OP:" + token;
+        }
+        return "T:" + type;
+    }
+
+    private static String normalizePythonAstLabel(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        String text = sourceContent.substringFrom(node).strip();
+        if (CLONE_AST_IDENTIFIER_TYPES.contains(type)) {
+            return "ID";
+        }
+        if (CLONE_AST_STRING_TYPES.contains(type)) {
+            return "STR";
+        }
+        if (CLONE_AST_NUMBER_TYPES.contains(type)) {
+            return "NUM";
+        }
+        if (BOOLEAN.equals(type) || TRUE.equals(text) || FALSE.equals(text)) {
+            return "BOOL";
+        }
+        return "N:" + type;
+    }
+
+    @Override
+    public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        checkStale("findExceptionHandlingSmells");
+        ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file,
+                            source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights),
+                            List.of());
+                },
+                List.of());
+    }
+
+    @Override
+    public List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
+        checkStale("findTestAssertionSmells");
+        if (!containsTests(file)) {
+            return List.of();
+        }
+        TestAssertionWeights resolvedWeights = weights != null ? weights : TestAssertionWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file, source -> detectTestAssertionSmells(file, root, source, resolvedWeights), List.of());
+                },
+                List.of());
+    }
+
+    private List<TestAssertionSmell> detectTestAssertionSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
+        var functions = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(FUNCTION_DEFINITION), functions);
+        var findings = new ArrayList<TestSmellCandidate>();
+        for (TSNode function : functions) {
+            if (isTestFunction(function, sourceContent)) {
+                analyzeTestFunction(file, function, sourceContent, weights, findings);
+            }
+        }
+        return findings.stream()
+                .sorted(Comparator.comparingInt(TestSmellCandidate::score)
+                        .reversed()
+                        .thenComparing(c -> c.smell().file().toString())
+                        .thenComparing(c -> c.smell().enclosingFqName())
+                        .thenComparingInt(TestSmellCandidate::startByte))
+                .map(TestSmellCandidate::smell)
+                .toList();
+    }
+
+    private void analyzeTestFunction(
+            ProjectFile file,
+            TSNode function,
+            SourceContent sourceContent,
+            TestAssertionWeights weights,
+            List<TestSmellCandidate> out) {
+        TSNode body = function.getChildByFieldName(FIELD_BODY);
+        if (body == null) {
+            body = firstNamedChildOfType(function, BLOCK);
+        }
+        if (body == null) {
+            return;
+        }
+        var signals = new ArrayList<AssertionSignal>();
+        var assertStatements = new ArrayList<TSNode>();
+        collectNodesByType(body, Set.of(ASSERT_STATEMENT), assertStatements);
+        assertStatements.stream()
+                .map(assertNode -> classifyAssertStatement(assertNode, sourceContent, weights))
+                .forEach(signals::add);
+        var calls = new ArrayList<TSNode>();
+        collectNodesByType(body, Set.of(CALL), calls);
+        calls.stream()
+                .map(call -> assertionSignal(call, sourceContent, weights))
+                .flatMap(Optional::stream)
+                .forEach(signals::add);
+
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        function.getStartPoint().getRow(),
+                        function.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        int assertionCount = signals.size();
+        if (assertionCount == 0) {
+            addTestSmell(
+                    file,
+                    enclosing,
+                    TEST_ASSERTION_KIND_NO_ASSERTIONS,
+                    weights.noAssertionWeight(),
+                    0,
+                    List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
+                    sourceContent.substringFrom(function),
+                    function.getStartByte(),
+                    out);
+            return;
+        }
+
+        signals.stream()
+                .filter(signal -> signal.baseScore() > 0)
+                .forEach(signal -> addTestSmell(
+                        file,
+                        enclosing,
+                        signal.kind(),
+                        signal.baseScore(),
+                        assertionCount,
+                        signal.reasons(),
+                        signal.excerpt(),
+                        signal.startByte(),
+                        out));
+
+        boolean allShallow = signals.stream().allMatch(AssertionSignal::shallow);
+        if (allShallow) {
+            int score = weights.shallowAssertionOnlyWeight()
+                    - meaningfulAssertionCredit(signals, weights, AssertionSignal::meaningful);
+            if (score > 0) {
+                addTestSmell(
+                        file,
+                        enclosing,
+                        TEST_ASSERTION_KIND_SHALLOW_ONLY,
+                        score,
+                        assertionCount,
+                        List.of(TEST_ASSERTION_KIND_SHALLOW_ONLY),
+                        sourceContent.substringFrom(function),
+                        function.getStartByte(),
+                        out);
+            }
+        }
+    }
+
+    private AssertionSignal classifyAssertStatement(
+            TSNode assertNode, SourceContent sourceContent, TestAssertionWeights weights) {
+        TSNode expression = firstNamedChild(assertNode);
+        int score = 0;
+        var reasons = new ArrayList<String>();
+        String kind = TEST_ASSERTION_KIND_PY_ASSERT;
+        boolean shallow = false;
+        boolean meaningful = true;
+        if (expression != null) {
+            if (TRUE.equals(expression.getType())) {
+                score += weights.constantTruthWeight();
+                reasons.add(TEST_ASSERTION_KIND_CONSTANT_TRUTH);
+                kind = TEST_ASSERTION_KIND_CONSTANT_TRUTH;
+                meaningful = false;
+            } else if (isSelfComparison(expression, sourceContent)) {
+                score += weights.tautologicalAssertionWeight();
+                reasons.add(TEST_ASSERTION_KIND_SELF_COMPARISON);
+                kind = TEST_ASSERTION_KIND_SELF_COMPARISON;
+                meaningful = false;
+            } else if (isNullnessCheck(expression, sourceContent)) {
+                score += weights.nullnessOnlyWeight();
+                reasons.add(TEST_ASSERTION_KIND_NULLNESS_ONLY);
+                kind = TEST_ASSERTION_KIND_NULLNESS_ONLY;
+                shallow = true;
+                meaningful = false;
+            }
+        }
+        return new AssertionSignal(
+                kind,
+                score,
+                shallow,
+                meaningful,
+                assertNode.getStartByte(),
+                List.copyOf(reasons),
+                sourceContent.substringFrom(assertNode));
+    }
+
+    private Optional<AssertionSignal> assertionSignal(
+            TSNode call, SourceContent sourceContent, TestAssertionWeights weights) {
+        TSNode function = call.getChildByFieldName(FIELD_FUNCTION);
+        if (function == null) {
+            return Optional.empty();
+        }
+        String methodName = callableName(function, sourceContent);
+        if (methodName.isBlank()) {
+            return Optional.empty();
+        }
+        if (UNITTEST_ASSERTION_NAMES.contains(methodName)) {
+            return Optional.of(classifyUnittestAssertion(call, methodName, sourceContent, weights));
+        }
+        if (MOCK_ASSERTION_NAMES.contains(methodName)) {
+            return Optional.of(new AssertionSignal(
+                    TEST_ASSERTION_KIND_MOCK_VERIFICATION,
+                    0,
+                    false,
+                    true,
+                    call.getStartByte(),
+                    List.of(),
+                    sourceContent.substringFrom(call)));
+        }
+        if (PYTEST_RAISES.equals(methodName) && isReceiverNamed(function, PYTEST, sourceContent)) {
+            return Optional.of(new AssertionSignal(
+                    TEST_ASSERTION_KIND_PYTEST_RAISES,
+                    0,
+                    false,
+                    true,
+                    call.getStartByte(),
+                    List.of(),
+                    sourceContent.substringFrom(call)));
+        }
+        return Optional.empty();
+    }
+
+    private AssertionSignal classifyUnittestAssertion(
+            TSNode call, String methodName, SourceContent sourceContent, TestAssertionWeights weights) {
+        List<TSNode> args = argumentNodes(call);
+        int score = 0;
+        var reasons = new ArrayList<String>();
+        boolean shallow = SHALLOW_ASSERTION_NAMES.contains(methodName);
+        boolean meaningful = !shallow;
+        String kind = TEST_ASSERTION_KIND_UNITTEST;
+        if (("assertTrue".equals(methodName) || "assertFalse".equals(methodName)) && !args.isEmpty()) {
+            TSNode arg = args.getFirst();
+            boolean constantTruth = ("assertTrue".equals(methodName) && TRUE.equals(arg.getType()))
+                    || ("assertFalse".equals(methodName) && FALSE.equals(arg.getType()));
+            if (constantTruth) {
+                score += weights.constantTruthWeight();
+                reasons.add(TEST_ASSERTION_KIND_CONSTANT_TRUTH);
+                kind = TEST_ASSERTION_KIND_CONSTANT_TRUTH;
+                meaningful = false;
+            }
+        }
+        if (("assertEqual".equals(methodName) || "assertIs".equals(methodName)) && args.size() >= 2) {
+            TSNode expected = args.get(0);
+            TSNode actual = args.get(1);
+            if (isConstantExpression(expected) && isConstantExpression(actual)) {
+                score += weights.constantEqualityWeight();
+                reasons.add(TEST_ASSERTION_KIND_CONSTANT_EQUALITY);
+                kind = TEST_ASSERTION_KIND_CONSTANT_EQUALITY;
+                meaningful = false;
+            } else if (sameExpression(expected, actual, sourceContent)) {
+                score += weights.tautologicalAssertionWeight();
+                reasons.add(TEST_ASSERTION_KIND_SELF_COMPARISON);
+                kind = TEST_ASSERTION_KIND_SELF_COMPARISON;
+                meaningful = false;
+            }
+        }
+        if (SHALLOW_ASSERTION_NAMES.contains(methodName)) {
+            score += weights.nullnessOnlyWeight();
+            reasons.add(TEST_ASSERTION_KIND_NULLNESS_ONLY);
+            kind = TEST_ASSERTION_KIND_NULLNESS_ONLY;
+            meaningful = false;
+        }
+        if (containsOverspecifiedLiteral(args, sourceContent, weights)) {
+            score += weights.overspecifiedLiteralWeight();
+            reasons.add(TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL);
+            kind = TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL;
+        }
+        return new AssertionSignal(
+                kind,
+                score,
+                shallow,
+                meaningful,
+                call.getStartByte(),
+                List.copyOf(reasons),
+                sourceContent.substringFrom(call));
+    }
+
+    private static boolean isTestFunction(TSNode function, SourceContent sourceContent) {
+        TSNode parent = function.getParent();
+        if (parent != null
+                && DECORATED_DEFINITION.equals(parent.getType())
+                && hasPytestFixtureDecorator(parent, sourceContent)) {
+            return false;
+        }
+        TSNode nameNode = function.getChildByFieldName(FIELD_NAME);
+        if (nameNode != null && sourceContent.substringFrom(nameNode).startsWith("test_")) {
+            return true;
+        }
+        return parent != null
+                && DECORATED_DEFINITION.equals(parent.getType())
+                && parent.getNamedChildren().stream()
+                        .anyMatch(child -> DECORATOR.equals(child.getType()) && isPytestMarkNode(child, sourceContent));
+    }
+
+    private static boolean hasPytestFixtureDecorator(TSNode decoratedDefinition, SourceContent sourceContent) {
+        return decoratedDefinition.getNamedChildren().stream()
+                .filter(child -> DECORATOR.equals(child.getType()))
+                .anyMatch(decorator -> {
+                    TSNode expression = decorator.getNamedChild(0);
+                    if (expression == null) {
+                        return false;
+                    }
+                    TSNode target = CALL.equals(expression.getType())
+                            ? expression.getChildByFieldName(FIELD_FUNCTION)
+                            : expression;
+                    return target != null
+                            && attributeSegments(target, sourceContent).equals(List.of(PYTEST, FIXTURE));
+                });
+    }
+
+    private static boolean isPytestMarkNode(TSNode decoratorNode, SourceContent sourceContent) {
+        TSNode expression = decoratorNode.getNamedChild(0);
+        if (expression == null) {
+            return false;
+        }
+        TSNode target = CALL.equals(expression.getType()) ? expression.getChildByFieldName(FIELD_FUNCTION) : expression;
+        if (target == null) {
+            return false;
+        }
+        var segments = attributeSegments(target, sourceContent);
+        return segments.size() >= 2 && PYTEST.equals(segments.get(0)) && MARK.equals(segments.get(1));
+    }
+
+    private static List<String> attributeSegments(TSNode node, SourceContent sourceContent) {
+        var segments = new ArrayList<String>();
+        TSNode current = node;
+        while (current != null) {
+            if (ATTRIBUTE.equals(current.getType())) {
+                TSNode attributeNode = current.getChildByFieldName(FIELD_ATTRIBUTE);
+                if (attributeNode != null) {
+                    segments.add(0, sourceContent.substringFrom(attributeNode));
+                }
+                current = current.getChildByFieldName(FIELD_OBJECT);
+            } else if (IDENTIFIER.equals(current.getType())) {
+                segments.add(0, sourceContent.substringFrom(current));
+                break;
+            } else {
+                break;
+            }
+        }
+        return List.copyOf(segments);
+    }
+
+    private static String callableName(TSNode function, SourceContent sourceContent) {
+        if (IDENTIFIER.equals(function.getType())) {
+            return sourceContent.substringFrom(function).strip();
+        }
+        if (ATTRIBUTE.equals(function.getType())) {
+            TSNode attributeNode = function.getChildByFieldName(FIELD_ATTRIBUTE);
+            return attributeNode == null
+                    ? ""
+                    : sourceContent.substringFrom(attributeNode).strip();
+        }
+        return "";
+    }
+
+    private static boolean isReceiverNamed(TSNode function, String name, SourceContent sourceContent) {
+        if (!ATTRIBUTE.equals(function.getType())) {
+            return false;
+        }
+        TSNode objectNode = function.getChildByFieldName(FIELD_OBJECT);
+        return objectNode != null
+                && name.equals(sourceContent.substringFrom(objectNode).strip());
+    }
+
+    private static List<TSNode> argumentNodes(TSNode call) {
+        TSNode args = call.getChildByFieldName(FIELD_ARGUMENTS);
+        if (args == null) {
+            args = firstNamedChildOfType(call, ARGUMENT_LIST);
+        }
+        if (args == null) {
+            return List.of();
+        }
+        var out = new ArrayList<TSNode>();
+        for (int i = 0; i < args.getNamedChildCount(); i++) {
+            TSNode child = args.getNamedChild(i);
+            if (child != null) {
+                out.add(child);
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    private static boolean isSelfComparison(TSNode node, SourceContent sourceContent) {
+        if (!COMPARISON_OPERATOR.equals(node.getType())) {
+            return false;
+        }
+        TSNode left = node.getChildByFieldName(FIELD_LEFT);
+        TSNode right = node.getChildByFieldName(FIELD_RIGHT);
+        if ((left == null || right == null) && node.getNamedChildCount() >= 2) {
+            left = node.getNamedChild(0);
+            right = node.getNamedChild(1);
+        }
+        return left != null && right != null && sameExpression(left, right, sourceContent);
+    }
+
+    private static boolean isNullnessCheck(TSNode node, SourceContent sourceContent) {
+        if (!COMPARISON_OPERATOR.equals(node.getType())) {
+            return false;
+        }
+        return sourceContent.substringFrom(node).contains("None");
+    }
+
+    private static boolean sameExpression(TSNode left, TSNode right, SourceContent sourceContent) {
+        return sourceContent
+                .substringFrom(left)
+                .strip()
+                .equals(sourceContent.substringFrom(right).strip());
+    }
+
+    private static boolean isConstantExpression(TSNode node) {
+        return CONSTANT_LITERAL_TYPES.contains(node.getType());
+    }
+
+    private static boolean containsOverspecifiedLiteral(
+            List<TSNode> args, SourceContent sourceContent, TestAssertionWeights weights) {
+        return args.stream()
+                .anyMatch(arg -> STRING.equals(arg.getType())
+                        && sourceContent.substringFrom(arg).length() >= weights.largeLiteralLengthThreshold());
+    }
+
+    private static int meaningfulAssertionCredit(
+            List<AssertionSignal> assertions,
+            TestAssertionWeights weights,
+            java.util.function.Predicate<AssertionSignal> predicate) {
+        long count = assertions.stream().filter(predicate).count();
+        int creditable = Math.min((int) count, Math.max(0, weights.meaningfulAssertionCreditCap()));
+        return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
+    }
+
+    private static @Nullable TSNode firstNamedChild(TSNode node) {
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child != null) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private static @Nullable TSNode firstNamedChildOfType(TSNode node, String type) {
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child != null && type.equals(child.getType())) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private static void addTestSmell(
+            ProjectFile file,
+            String enclosing,
+            String assertionKind,
+            int score,
+            int assertionCount,
+            List<String> reasons,
+            String excerptSource,
+            int startByte,
+            List<TestSmellCandidate> out) {
+        if (score <= 0 || reasons.isEmpty()) {
+            return;
+        }
+        var smell = new TestAssertionSmell(
+                file,
+                enclosing,
+                assertionKind,
+                score,
+                assertionCount,
+                List.copyOf(reasons),
+                compactCatchExcerpt(excerptSource));
+        out.add(new TestSmellCandidate(smell, startByte));
+    }
+
+    private record TestSmellCandidate(TestAssertionSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
+    }
+
+    private record AssertionSignal(
+            String kind,
+            int baseScore,
+            boolean shallow,
+            boolean meaningful,
+            int startByte,
+            List<String> reasons,
+            String excerpt) {}
+
+    private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        var clauses = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(EXCEPT_CLAUSE), clauses);
+        return clauses.stream()
+                .map(clause -> analyzeExceptClause(file, clause, sourceContent, weights))
+                .flatMap(Optional::stream)
+                .sorted(Comparator.comparingInt(ExceptionHandlingSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(ExceptionHandlingSmell::enclosingFqName))
+                .toList();
+    }
+
+    private Optional<ExceptionHandlingSmell> analyzeExceptClause(
+            ProjectFile file, TSNode exceptClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        TSNode bodyNode = exceptClause.getNamedChildren().stream()
+                .filter(child -> BLOCK.equals(child.getType()))
+                .findFirst()
+                .orElse(null);
+        if (bodyNode == null) {
+            return Optional.empty();
+        }
+
+        int bodyStatements = countBodyExpressions(bodyNode);
+        String bodyText = sourceContent.substringFrom(bodyNode);
+        boolean hasAnyComment = bodyText.contains("#");
+        boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
+        boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
+        boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
+        boolean raisePresent = hasDescendantOfType(bodyNode, RAISE_STATEMENT);
+        boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !raisePresent;
+
+        String catchType = extractExceptType(exceptClause, sourceContent);
+        int score = 0;
+        var reasons = new ArrayList<String>();
+        if (catchType.equals("<bare>") || catchType.contains("BaseException")) {
+            score += weights.genericThrowableWeight();
+            reasons.add("generic-catch:BaseException");
+        } else if (catchType.contains("Exception")) {
+            score += weights.genericExceptionWeight();
+            reasons.add("generic-catch:Exception");
+        }
+        if (emptyBody) {
+            score += weights.emptyBodyWeight();
+            reasons.add("empty-body");
+        }
+        if (commentOnlyBody) {
+            score += weights.commentOnlyBodyWeight();
+            reasons.add("comment-only-body");
+        }
+        if (smallBody) {
+            score += weights.smallBodyWeight();
+            reasons.add("small-body:" + bodyStatements);
+        }
+        if (logOnly) {
+            score += weights.logOnlyWeight();
+            reasons.add("log-only-body");
+        }
+
+        int creditStatements = Math.min(bodyStatements, Math.max(0, weights.meaningfulBodyStatementThreshold()));
+        int bodyCredit = Math.max(0, weights.meaningfulBodyCreditPerStatement()) * creditStatements;
+        if (bodyCredit > 0) {
+            score -= bodyCredit;
+            reasons.add("meaningful-body-credit:" + bodyCredit);
+        }
+        if (score <= 0) {
+            return Optional.empty();
+        }
+
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        exceptClause.getStartPoint().getRow(),
+                        exceptClause.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        return Optional.of(new ExceptionHandlingSmell(
+                file,
+                enclosing,
+                catchType,
+                score,
+                bodyStatements,
+                List.copyOf(reasons),
+                compactCatchExcerpt(sourceContent.substringFrom(exceptClause))));
+    }
+
+    private static int countBodyExpressions(TSNode bodyNode) {
+        int expressions = 0;
+        for (int i = 0; i < bodyNode.getNamedChildCount(); i++) {
+            TSNode child = bodyNode.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (CATCH_BODY_MEANINGFUL_STATEMENT_TYPES.contains(child.getType())) {
+                expressions++;
+            }
+        }
+        return expressions;
+    }
+
+    private static String extractExceptType(TSNode exceptClause, SourceContent sourceContent) {
+        String text = sourceContent.substringFrom(exceptClause).strip();
+        if (!text.startsWith("except")) {
+            return "<unknown>";
+        }
+        int colonIdx = text.indexOf(':');
+        String head = colonIdx >= 0 ? text.substring(0, colonIdx) : text;
+        String remainder = head.substring("except".length()).strip();
+        if (remainder.isEmpty()) {
+            return "<bare>";
+        }
+        int asIdx = remainder.indexOf(" as ");
+        return (asIdx >= 0 ? remainder.substring(0, asIdx) : remainder).strip();
+    }
+
+    private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
+        TSNode statement = firstNonCommentNamedChild(bodyNode, COMMENT_NODE_TYPES);
+        if (statement == null || !EXPRESSION_STATEMENT.equals(statement.getType())) {
+            return false;
+        }
+        TSNode callNode = findFirstNamedDescendant(statement, CALL);
+        if (callNode == null) {
+            return false;
+        }
+        TSNode functionNode = callNode.getChildByFieldName(FIELD_FUNCTION);
+        if (functionNode == null) {
+            return false;
+        }
+        if (IDENTIFIER.equals(functionNode.getType())) {
+            String bare = sourceContent.substringFrom(functionNode).strip().toLowerCase(Locale.ROOT);
+            return PYTHON_LOG_BARE_NAMES.contains(bare);
+        }
+        if (!ATTRIBUTE.equals(functionNode.getType())) {
+            return false;
+        }
+        TSNode objectNode = functionNode.getChildByFieldName(FIELD_OBJECT);
+        TSNode attributeNode = functionNode.getChildByFieldName(FIELD_ATTRIBUTE);
+        if (objectNode == null || attributeNode == null) {
+            return false;
+        }
+        String receiver = sourceContent.substringFrom(objectNode).strip().toLowerCase(Locale.ROOT);
+        String method = sourceContent.substringFrom(attributeNode).strip().toLowerCase(Locale.ROOT);
+        boolean loggerLikeReceiver = PYTHON_LOG_RECEIVER_NAMES.contains(receiver)
+                || PYTHON_LOG_RECEIVER_NAMES.stream().anyMatch(name -> receiver.endsWith("." + name))
+                || PYTHON_LOG_RECEIVER_EXTRA_SUFFIXES.stream().anyMatch(receiver::endsWith);
+        boolean loggerLikeMethod = PYTHON_LOG_METHOD_NAMES.contains(method);
+        return loggerLikeReceiver && loggerLikeMethod;
+    }
+
+    private static String compactCatchExcerpt(String text) {
+        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        if (compact.length() <= 180) {
+            return compact;
+        }
+        return compact.substring(0, 180) + "...";
+    }
+
+    private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentLineBreakdown> counts) {
+        CommentLineBreakdown own = counts.getOrDefault(cu.fqName(), new CommentLineBreakdown(0, 0));
+        int span = rangesOf(cu).stream()
+                .mapToInt(r -> r.endLine() - r.startLine() + 1)
+                .sum();
+        String path = cu.source().toString();
+        if (!cu.isClass()) {
+            return new CommentDensityStats(
+                    cu.fqName(),
+                    path,
+                    own.headerLines(),
+                    own.inlineLines(),
+                    span,
+                    own.headerLines(),
+                    own.inlineLines(),
+                    span);
+        }
+        int rh = own.headerLines();
+        int ri = own.inlineLines();
+        int rs = span;
+        for (CodeUnit ch : getDirectChildren(cu)) {
+            CommentDensityStats child = buildRollUpStats(ch, counts);
+            rh += child.rolledUpHeaderCommentLines();
+            ri += child.rolledUpInlineCommentLines();
+            rs += child.rolledUpSpanLines();
+        }
+        return new CommentDensityStats(cu.fqName(), path, own.headerLines(), own.inlineLines(), span, rh, ri, rs);
+    }
+
+    @Override
+    public int computeCyclomaticComplexity(CodeUnit cu) {
+        if (!cu.isFunction()) return 0;
+
+        return getSource(cu, false)
+                .map(source -> {
+                    try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
+                        TSNode root = tree.getRootNode();
+                        if (root == null) return 1;
+
+                        SourceContent content = SourceContent.of(source);
+                        int complexity = 1; // Base complexity
+
+                        Deque<TSNode> stack = new ArrayDeque<>();
+                        stack.push(root);
+
+                        while (!stack.isEmpty()) {
+                            TSNode node = stack.pop();
+                            String type = node.getType();
+                            if (type == null) {
+                                continue;
+                            }
+
+                            switch (type) {
+                                case IF_STATEMENT,
+                                        ELIF_CLAUSE,
+                                        FOR_STATEMENT,
+                                        WHILE_STATEMENT,
+                                        EXCEPT_CLAUSE,
+                                        CONDITIONAL_EXPRESSION,
+                                        CASE_CLAUSE -> complexity++;
+                                case BOOLEAN_OPERATOR -> {
+                                    String op = content.substringFrom(node);
+                                    if (op.contains("and") || op.contains("or")) {
+                                        complexity++;
+                                    }
+                                }
+                            }
+
+                            for (int i = 0; i < node.getNamedChildCount(); i++) {
+                                TSNode child = node.getNamedChild(i);
+                                if (child != null) {
+                                    stack.push(child);
+                                }
+                            }
+                        }
+                        return complexity;
+                    } catch (Exception e) {
+                        log.warn("Failed to compute complexity for {} using AST; falling back", cu.fqName(), e);
+                        return super.computeCyclomaticComplexity(cu);
+                    }
+                })
+                .orElse(0);
     }
 
     @Override

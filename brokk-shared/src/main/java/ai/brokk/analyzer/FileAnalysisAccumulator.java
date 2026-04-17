@@ -13,11 +13,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Mutable accumulator for per-file analysis state.
  */
 public class FileAnalysisAccumulator {
+    private static final Logger log = LoggerFactory.getLogger(FileAnalysisAccumulator.class);
     private final Set<CodeUnit> topLevelCUs = new LinkedHashSet<>();
     private final Map<CodeUnit, Set<CodeUnit>> children = new LinkedHashMap<>();
     private final Map<CodeUnit, CodeUnit> childToParent = new HashMap<>();
@@ -44,9 +47,18 @@ public class FileAnalysisAccumulator {
 
     /**
      * Adds a parent-child relationship. Mutations should only be performed via these APIs.
+     * If parent and child are equal, the edge is ignored and a WARN is logged (self-parenting is invalid).
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addChild(CodeUnit parent, CodeUnit child) {
+        if (parent.equals(child)) {
+            log.warn(
+                    "Ignoring self-parent edge for {} kind={} source={}",
+                    parent.fqName(),
+                    parent.kind(),
+                    parent.source());
+            return this;
+        }
         children.computeIfAbsent(parent, k -> new LinkedHashSet<>()).add(child);
         childToParent.put(child, parent);
         addLookupKey(child.fqName(), child);
@@ -214,6 +226,10 @@ public class FileAnalysisAccumulator {
         return hasBody.getOrDefault(cu, defaultValue);
     }
 
+    public boolean getIsTypeAlias(CodeUnit cu, boolean defaultValue) {
+        return isTypeAlias.getOrDefault(cu, defaultValue);
+    }
+
     /**
      * Returns a view of the children for the given CodeUnit.
      */
@@ -257,6 +273,34 @@ public class FileAnalysisAccumulator {
                 }
             }
         }
+    }
+
+    public FileAnalysisAccumulator moveTopLevelToChild(CodeUnit child, CodeUnit parent) {
+        if (parent.equals(child)) {
+            log.warn(
+                    "Ignoring self-parent move for {} kind={} source={}",
+                    parent.fqName(),
+                    parent.kind(),
+                    parent.source());
+            return this;
+        }
+
+        topLevelCUs.remove(child);
+
+        CodeUnit existingParent = childToParent.get(child);
+        if (existingParent != null && !existingParent.equals(parent)) {
+            Set<CodeUnit> siblings = children.get(existingParent);
+            if (siblings != null) {
+                siblings.remove(child);
+            }
+        }
+
+        // Intentionally append moved children after any children already attached to the parent.
+        // Go post-processing uses this to standardize receiver-method ordering instead of reconstructing
+        // mixed before/after-type source order.
+        children.computeIfAbsent(parent, k -> new LinkedHashSet<>()).add(child);
+        childToParent.put(child, parent);
+        return this;
     }
 
     public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {

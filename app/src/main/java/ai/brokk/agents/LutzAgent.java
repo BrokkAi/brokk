@@ -17,7 +17,7 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.executor.agents.CustomAgentTools;
+import ai.brokk.executor.agents.ParallelCustomAgent;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcpclient.McpUtils;
@@ -29,9 +29,11 @@ import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
+import ai.brokk.tools.Destructive;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.SearchTools;
+import ai.brokk.tools.ToolExecutionHelper;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -270,8 +272,8 @@ public class LutzAgent {
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
 
-        // Shell command execution
-        tools.add("runShellCommand");
+        // Shell agent for command execution
+        tools.add("callShellAgent");
 
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");
@@ -517,14 +519,18 @@ public class LutzAgent {
         return new SetupContextResult(preparedContext, referencedFragments);
     }
 
-    private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider, ParallelSearch parallelSearch) {
+    private ToolRegistry createToolRegistry(
+            WorkspaceTools wst,
+            Object toolProvider,
+            ParallelSearch parallelSearch,
+            ParallelCustomAgent parallelCustomAgent) {
         var builder = cm.getToolRegistry()
                 .builder()
                 .register(searchTools)
                 .register(wst)
                 .register(toolProvider)
                 .register(parallelSearch)
-                .register(new CustomAgentTools(cm, model));
+                .register(parallelCustomAgent);
         if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(new DependencyTools(cm));
         }
@@ -638,6 +644,7 @@ public class LutzAgent {
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimFiles" -> 40;
 
+            case "callShellAgent" -> 98;
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;
             case "answer", "askForClarification", "workspaceComplete" -> 101;
@@ -774,6 +781,7 @@ public class LutzAgent {
         private final List<ChatMessage> sessionMessages;
 
         private final ParallelSearch parallelSearch;
+        private final ParallelCustomAgent parallelCustomAgent;
         private final ToolRegistry tr;
 
         private SingleTurnAgent(
@@ -792,7 +800,8 @@ public class LutzAgent {
 
             this.parallelSearch =
                     new ParallelSearch(context.forSearchAgent(), agent.goal, agent.delegatedSearchModel());
-            this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch);
+            this.parallelCustomAgent = new ParallelCustomAgent(agent.cm, agent.model);
+            this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch, parallelCustomAgent);
         }
 
         private TurnOutcome executeTurn() throws InterruptedException {
@@ -942,9 +951,7 @@ public class LutzAgent {
                         continue;
                     }
 
-                    agent.io.beforeToolCall(req);
                     ToolExecutionResult toolResult = executeTool(req);
-                    agent.io.afterToolOutput(toolResult);
 
                     if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                         var details =
@@ -955,9 +962,7 @@ public class LutzAgent {
                     sessionMessages.add(toolResult.toMessage());
                 }
 
-                agent.io.beforeToolCall(terminalRequest);
                 var termExec = executeTool(terminalRequest);
-                agent.io.afterToolOutput(termExec);
 
                 sessionMessages.add(termExec.toMessage());
 
@@ -1004,12 +1009,26 @@ public class LutzAgent {
 
             var searchPartition = ToolRegistry.partitionByNames(primaryCalls, Set.of("callSearchAgent"));
             var searchAgentReqs = searchPartition.matchingRequests();
-            var otherPrimaryCalls = searchPartition.otherRequests();
+            var customAgentPartition =
+                    ToolRegistry.partitionByNames(searchPartition.otherRequests(), Set.of("callCustomAgent"));
+
+            // Split custom agent requests into read-only (parallel-eligible) and mutating (sequential)
+            var readOnlyCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
+            var otherPrimaryCalls = new ArrayList<>(customAgentPartition.otherRequests());
+            for (var req : customAgentPartition.matchingRequests()) {
+                var agentName = ParallelCustomAgent.extractAgentName(req, tr);
+                var agentDef = agentName != null
+                        ? agent.cm.getAgentStore().get(agentName).orElse(null)
+                        : null;
+                if (agentDef != null && agentDef.isReadOnly(agent.cm.getProject())) {
+                    readOnlyCustomAgentReqs.add(req);
+                } else {
+                    otherPrimaryCalls.add(req);
+                }
+            }
 
             for (var req : otherPrimaryCalls) {
-                agent.io.beforeToolCall(req);
                 ToolExecutionResult toolResult = executeTool(req);
-                agent.io.afterToolOutput(toolResult);
 
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                     var details = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
@@ -1051,11 +1070,25 @@ public class LutzAgent {
                 nonHygieneToolCalls.add("callSearchAgent");
             }
 
+            // Handle read-only custom agent requests in parallel
+            if (!readOnlyCustomAgentReqs.isEmpty()) {
+                var customResult = parallelCustomAgent.execute(readOnlyCustomAgentReqs, tr);
+                if (customResult.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
+                    return new TurnOutcome.Final(agent.errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.LLM_ERROR,
+                                    customResult.stopDetails().explanation()),
+                            context));
+                }
+                sessionMessages.addAll(customResult.toolExecutionMessages());
+
+                executedNonHygiene = true;
+                nonHygieneToolCalls.add("callCustomAgent");
+            }
+
             boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
             if (terminalRequest != null && contextSafeForTerminal) {
-                agent.io.beforeToolCall(terminalRequest);
                 var termExec = executeTool(terminalRequest);
-                agent.io.afterToolOutput(termExec);
 
                 sessionMessages.add(termExec.toMessage());
 
@@ -1079,7 +1112,7 @@ public class LutzAgent {
                 String ignoredMessage = "Terminal call '%s' ignored because tool calls %s changed the Workspace."
                         .formatted(terminalRequest.name(), changedTools);
                 var ignored = ToolExecutionResult.requestError(terminalRequest, ignoredMessage);
-                agent.io.beforeToolCall(terminalRequest);
+                agent.io.beforeToolCall(terminalRequest, false);
                 agent.io.afterToolOutput(ignored);
                 sessionMessages.add(ignored.toMessage());
             }
@@ -1191,7 +1224,7 @@ public class LutzAgent {
             var executionRegistry = ToolRegistry.fromBase(tr)
                     .register(new WorkspaceTools(context))
                     .build();
-            var result = executionRegistry.executeTool(req);
+            var result = ToolExecutionHelper.executeWithApproval(agent.io, executionRegistry, req);
             agent.llm.recordToolExecution(result);
 
             if (agent.isWorkspaceTool(req, executionRegistry)
@@ -1290,7 +1323,24 @@ public class LutzAgent {
         }
 
         @Tool(
+                "Delegate a shell command task to the Shell Agent. Use this when the user needs to run commands like package installation, environment setup, build tools, or any CLI operation. The Shell Agent has full shell access and the user will approve each command interactively. Provide a clear description of what needs to be done.")
+        @Destructive
+        @SuppressWarnings("UnusedMethod")
+        public String callShellAgent(
+                @P(
+                                "Description of the shell task to accomplish, e.g. 'Install golangci-lint using the system package manager'")
+                        String task)
+                throws InterruptedException {
+            logger.debug("callShellAgent invoked with task: {}", task);
+            agent.io.llmOutput("**Shell Agent** engaged:\n" + task, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
+
+            var shellAgent = new ShellAgent(agent.cm, agent.model, task);
+            return shellAgent.execute();
+        }
+
+        @Tool(
                 "Invoke the Code Agent to implement the current goal in a single shot using your provided instructions. Provide complete, self-contained instructions; only the Workspace and your instructions are visible to the Code Agent.")
+        @Destructive
         @SuppressWarnings("UnusedMethod")
         public String callCodeAgent(
                 @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")

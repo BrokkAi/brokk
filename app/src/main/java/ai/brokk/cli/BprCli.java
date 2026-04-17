@@ -31,6 +31,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -570,6 +571,7 @@ public final class BprCli implements Callable<Integer> {
             }
         }
 
+        context = normalizeTaskContext(context);
         var finalContextForPush = context;
         cm.pushContext(ctx -> finalContextForPush);
         context = cm.liveContext();
@@ -610,7 +612,7 @@ public final class BprCli implements Callable<Integer> {
                                 + recommendations.fragments().stream()
                                         .map(ContextFragment::shortDescription)
                                         .toList());
-                cm.pushContext(ctx -> ctx.addAsSummaries(recommendations.fragments()));
+                cm.pushContext(ctx -> addSummariesToTaskContext(ctx, recommendations.fragments()));
             } else {
                 io.toolError("Deep Scan did not complete successfully");
             }
@@ -730,10 +732,10 @@ public final class BprCli implements Callable<Integer> {
 
                         var baseContext = cachedContextRec
                                 .map(recommendationResult ->
-                                        explicitContext.addAsSummaries(recommendationResult.fragments()))
+                                        addSummariesToTaskContext(explicitContext, recommendationResult.fragments()))
                                 .orElse(explicitContext);
                         var recDelta = ContextDelta.between(
-                                        baseContext, explicitContext.addAsSummaries(finalRec.fragments()))
+                                        baseContext, addSummariesToTaskContext(explicitContext, finalRec.fragments()))
                                 .join();
                         var jsonMap = new LinkedHashMap<String, Object>();
                         jsonMap.put("addedFragments", recDelta.addedFragments().size());
@@ -873,11 +875,27 @@ public final class BprCli implements Callable<Integer> {
             io.toolError(
                     result.stopDetails().explanation(),
                     result.stopDetails().reason().toString());
-            // exit code is 0 since we ran the task as requested; we print out the metrics from Code Agent to let
-            // harness see how we did
+            return finalExitCode(
+                    codePrompt != null,
+                    isSingleTurnCodeAgentEnabled(),
+                    result.stopDetails().reason());
         }
 
         return 0;
+    }
+
+    static int finalExitCode(boolean codePromptRequested, boolean singleTurnMode, TaskResult.StopReason reason) {
+        if (reason == TaskResult.StopReason.SUCCESS) {
+            return 0;
+        }
+        if (codePromptRequested && singleTurnMode) {
+            return 2;
+        }
+        return 0;
+    }
+
+    private static boolean isSingleTurnCodeAgentEnabled() {
+        return Environment.isBooleanFlagEnabled(System.getenv("BRK_CODEAGENT_SINGLE_TURN"));
     }
 
     private List<String> resolveFiles(List<String> inputs, String entityType) {
@@ -1057,13 +1075,24 @@ public final class BprCli implements Callable<Integer> {
     private record CacheApplication(
             Context context, Optional<ContextAgent.RecommendationResult> cachedRecommendation) {}
 
+    @Blocking
+    static Context normalizeTaskContext(Context context) {
+        return context.removeSupersededSummaries();
+    }
+
+    @Blocking
+    static Context addSummariesToTaskContext(Context context, Collection<? extends ContextFragment> fragments) {
+        return normalizeTaskContext(context.addAsSummaries(List.copyOf(fragments)));
+    }
+
     private static CacheApplication applyContextCacheIfEnabled(
             @Nullable Path taskFile, ContextManager cm, AbstractProject project) {
         var cached = readRecommendationFromCache(taskFile, cm, project);
         if (cached.isEmpty()) {
             return new CacheApplication(cm.liveContext(), Optional.empty());
         }
-        var updated = cm.pushContext(ctx -> ctx.addAsSummaries(cached.get().fragments()));
+        var updated = cm.pushContext(
+                ctx -> addSummariesToTaskContext(ctx, cached.get().fragments()));
         return new CacheApplication(updated, cached);
     }
 

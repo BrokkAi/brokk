@@ -65,6 +65,10 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
   <img src="docs/media/screenshot-bpr-meter.png" alt="In-app BPR meter above the Instructions panel" width="800">
 </p>
 
+## Claude Code Plugin
+
+Brokk is available as a [Claude Code plugin](claude-plugin/README.md) that adds semantic code intelligence -- symbol navigation, cross-reference analysis, and structural code understanding. See the [plugin README](claude-plugin/README.md) for installation instructions.
+
 ## Terminal UI (Python Client)
 
 The `brokk-code/` directory contains the **Python (Textual) terminal UI client**. This is an interactive TUI that launches and manages a **local Java executor** subprocess.
@@ -209,4 +213,4 @@ For building from source, JVM heap tuning, headless executor CLI usage, contribu
 
 ## License
 
-Brokk is open source under the terms of the [LICENSE](LICENSE.txt) file in this repository.
+Brokk is licensed under the [GNU General Public License v3.0](LICENSE.txt).

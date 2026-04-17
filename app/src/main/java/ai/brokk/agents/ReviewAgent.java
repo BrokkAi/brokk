@@ -766,6 +766,14 @@ public class ReviewAgent {
 
                                         try {
                                             Llm.StreamingResult result = correctionLlm.sendRequest(messages);
+                                            if (result.error() != null) {
+                                                logger.warn(
+                                                        "Correction attempt {} for '{}' failed with LLM error: {}",
+                                                        attempt,
+                                                        title,
+                                                        result.error().getMessage());
+                                                continue;
+                                            }
                                             String correctionText = result.text();
 
                                             if (correctionText.strip().equals("BRK_SKIP_NOTE")) {

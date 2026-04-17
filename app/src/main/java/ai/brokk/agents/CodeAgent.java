@@ -23,10 +23,11 @@ import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
+import ai.brokk.tools.SearchReplaceBlockFormatter;
+import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.difflib.DiffUtils;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.AiMessage;
@@ -41,7 +42,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -53,7 +53,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.SequencedSet;
 import java.util.Set;
-import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
@@ -361,6 +360,7 @@ public class CodeAgent {
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         TaskResult.StopDetails stopDetails;
+        boolean loggedSingleTurnDryRun = false;
 
         var parser = EditBlockParser.instance;
         // We'll collect the conversation as ChatMessages to store in context history.
@@ -401,7 +401,7 @@ public class CodeAgent {
         }
 
         logger.debug("Starting task: {} with options {}", userInput, options);
-        TaskResult.TaskMeta meta;
+        @Nullable TaskResult.TaskMeta meta = null;
         while (true) {
             if (Thread.interrupted()) {
                 logger.debug("CodeAgent interrupted");
@@ -436,6 +436,12 @@ public class CodeAgent {
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         suppressed,
                         userInput.trim());
+                if (shouldUseSingleTurnDryRun(isSingleTurnDryRunEnabled(), cs)) {
+                    coder.logRequestOnly(allMessagesForLlm);
+                    loggedSingleTurnDryRun = true;
+                    stopDetails = singleTurnDryRunStopDetails(cs);
+                    break;
+                }
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
@@ -553,7 +559,7 @@ public class CodeAgent {
                             "LLM indicated response was partial after %d clean blocks; asking to continue"
                                     .formatted(blocksToApply.size());
                 }
-                cs = cs.withNextRequest(messageForContinue);
+                cs = cs.withRetryRequest(messageForContinue, TaskResult.StopReason.PARSE_ERROR);
                 report(consoleLogForContinue);
                 continue;
             }
@@ -599,7 +605,7 @@ public class CodeAgent {
                     UserMessage nextRequestForLintFailure =
                             new UserMessage("The following Java syntax issues were detected. Please fix them:\n\n"
                                     + diagnosticMessages);
-                    cs = cs.withNextRequest(nextRequestForLintFailure);
+                    cs = cs.withRetryRequest(nextRequestForLintFailure, TaskResult.StopReason.BUILD_ERROR);
                     es = es.afterBuildFailure(diagnosticMessages.toString());
                     continue;
                 }
@@ -627,6 +633,28 @@ public class CodeAgent {
             throw new IllegalStateException("verifyPhase returned unexpected Step type " + verifyOutcome);
         }
 
+        if (meta != null
+                && shouldLogSingleTurnFailureFollowup(
+                        isSingleTurnDryRunEnabled(), loggedSingleTurnDryRun, cs, stopDetails)) {
+            var followupRequest = buildSingleTurnFollowupRequest(cs, es, stopDetails);
+            if (followupRequest != null) {
+                var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
+                if (!es.showBuildError()) {
+                    suppressed.add(SpecialTextType.BUILD_RESULTS);
+                }
+                var followupMessages = CodePrompts.instance.collectCodeMessages(
+                        model,
+                        meta,
+                        context,
+                        prologue,
+                        cs.taskMessages(),
+                        followupRequest,
+                        suppressed,
+                        userInput.trim());
+                coder.logRequestOnly(followupMessages);
+            }
+        }
+
         // everyone reports their own reasons for stopping, except for interruptions
         if (stopDetails.reason() == TaskResult.StopReason.INTERRUPTED) {
             reportComplete(TaskResult.StopReason.INTERRUPTED, "Cancelled by user.");
@@ -642,6 +670,75 @@ public class CodeAgent {
         var tr = new TaskResult(context, stopDetails);
         logger.debug("Task result: {}", tr);
         return tr;
+    }
+
+    static boolean shouldUseSingleTurnDryRun(boolean singleTurnEnabled, ConversationState cs) {
+        return singleTurnEnabled && !cs.rawMessages().isEmpty();
+    }
+
+    static TaskResult.StopDetails singleTurnDryRunStopDetails(ConversationState cs) {
+        var stopReason = requireNonNull(cs.nextStopReason(), "Dry-run retry should preserve its stop reason");
+        return new TaskResult.StopDetails(stopReason, "Single-turn dry run logged the next request.");
+    }
+
+    static boolean shouldLogSingleTurnFailureFollowup(
+            boolean singleTurnEnabled,
+            boolean loggedSingleTurnDryRun,
+            ConversationState cs,
+            TaskResult.StopDetails stopDetails) {
+        return singleTurnEnabled
+                && !loggedSingleTurnDryRun
+                && !cs.rawMessages().isEmpty()
+                && stopDetails.reason() != TaskResult.StopReason.SUCCESS
+                && stopDetails.reason() != TaskResult.StopReason.INTERRUPTED;
+    }
+
+    static @Nullable UserMessage buildSingleTurnFollowupRequest(
+            ConversationState cs, EditState es, TaskResult.StopDetails stopDetails) {
+        if (cs.nextRequest() != null) {
+            return cs.nextRequest();
+        }
+        if (stopDetails.reason() == TaskResult.StopReason.BUILD_ERROR
+                && !es.lastBuildError().isBlank()) {
+            var buildPrompt =
+                    """
+                    The build failed.
+                    Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
+                    You should use the conversation history to understand your earlier thinking; since your changes
+                    have been incorporated into the Workspace, look at the current state of those files before
+                    generate SEARCH/REPLACE blocks. You have already made changes, but you made mistakes;
+                    that is why the build is failing!
+
+                    IMPORTANT: If solving the build or failure requires editing files or using APIs you do not have
+                    in your Workspace, do your best to explain the problem but DO NOT provide any edits.
+                    Otherwise, provide the edits as usual.
+
+                    <build_output>
+                    %s
+                    </build_output>
+                    """
+                            .formatted(es.lastBuildError());
+            return new UserMessage(buildPrompt.trim());
+        }
+
+        var explanation = stopDetails.explanation().trim();
+        var followupPrompt =
+                """
+                Your previous attempt ended unsuccessfully with stop reason %s.
+
+                Explanation:
+                %s
+
+                Continue working toward the original goal using the current workspace state.
+                If you can fix the problem with edits in the current workspace, provide SEARCH/REPLACE blocks.
+                Otherwise, explain why no safe edits are possible and do not provide edits.
+                """
+                        .formatted(stopDetails.reason(), explanation.isEmpty() ? "(none provided)" : explanation);
+        return new UserMessage(followupPrompt.trim());
+    }
+
+    private static boolean isSingleTurnDryRunEnabled() {
+        return Environment.isBooleanFlagEnabled(System.getenv("BRK_CODEAGENT_SINGLE_TURN"));
     }
 
     void report(String message) {
@@ -704,7 +801,7 @@ public class CodeAgent {
                         TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
             }
 
-            var nextCs = cs.withNextRequest(messageForRetry);
+            var nextCs = cs.withRetryRequest(messageForRetry, TaskResult.StopReason.PARSE_ERROR);
             // In the case of a parse error, we still want to update totalBlocksParsed with what we found
             var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
             report(consoleLogForRetry);
@@ -870,7 +967,7 @@ public class CodeAgent {
         cs.appendMessage(streamingResultFromLlm.aiMessage());
 
         // Null out nextRequest after use (Task 3)
-        var nextCs = cs.withNextRequest(null);
+        var nextCs = cs.clearNextRequest();
         return new Step.Continue(nextCs, es);
     }
 
@@ -1150,7 +1247,7 @@ public class CodeAgent {
                         retryRequest = new UserMessage(Messages.getText(retryRequest) + "\n\n" + harnessNote);
                     }
 
-                    csForStep = cs.withNextRequest(retryRequest);
+                    csForStep = cs.withRetryRequest(retryRequest, TaskResult.StopReason.APPLY_ERROR);
                     esForStep = es.afterApply(
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
@@ -1563,6 +1660,7 @@ public class CodeAgent {
             List<ChatMessage> rawMessages,
             List<ChatMessage> taskMessages,
             @Nullable UserMessage nextRequest,
+            @Nullable TaskResult.StopReason nextStopReason,
             int turnStartIndex,
             String originalGoal) {
 
@@ -1571,11 +1669,24 @@ public class CodeAgent {
                 @Nullable UserMessage nextRequest,
                 int turnStartIndex,
                 String originalGoal) {
-            this(new ArrayList<>(taskMessages), taskMessages, nextRequest, turnStartIndex, originalGoal);
+            this(new ArrayList<>(taskMessages), taskMessages, nextRequest, null, turnStartIndex, originalGoal);
         }
 
-        ConversationState withNextRequest(@Nullable UserMessage request) {
-            return new ConversationState(rawMessages, taskMessages, request, turnStartIndex, originalGoal);
+        ConversationState(
+                List<ChatMessage> rawMessages,
+                List<ChatMessage> taskMessages,
+                @Nullable UserMessage nextRequest,
+                int turnStartIndex,
+                String originalGoal) {
+            this(rawMessages, taskMessages, nextRequest, null, turnStartIndex, originalGoal);
+        }
+
+        ConversationState withRetryRequest(UserMessage request, TaskResult.StopReason stopReason) {
+            return new ConversationState(rawMessages, taskMessages, request, stopReason, turnStartIndex, originalGoal);
+        }
+
+        ConversationState clearNextRequest() {
+            return new ConversationState(rawMessages, taskMessages, null, null, turnStartIndex, originalGoal);
         }
 
         /**
@@ -1612,7 +1723,12 @@ public class CodeAgent {
             compactedMessages.add(new UserMessage(originalGoal));
             compactedMessages.add(new AiMessage(summaryText));
             return new ConversationState(
-                    rawMessages, compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
+                    rawMessages,
+                    compactedMessages,
+                    retryRequest,
+                    TaskResult.StopReason.BUILD_ERROR,
+                    compactedMessages.size(),
+                    originalGoal);
         }
 
         static String extractReasoning(List<ChatMessage> messages) {
@@ -1638,7 +1754,7 @@ public class CodeAgent {
                 logger.warn("Invalid turnStartIndex {}; cannot replace current turn messages safely.", turnStartIndex);
                 // Fall back: just append a synthetic message (should never happen in practice)
                 msgs.add(new AiMessage(summaryText));
-                return new ConversationState(rawMessages, msgs, nextRequest, msgs.size(), originalGoal);
+                return new ConversationState(rawMessages, msgs, nextRequest, nextStopReason, msgs.size(), originalGoal);
             }
 
             var startMsg = msgs.get(turnStartIndex);
@@ -1666,7 +1782,7 @@ public class CodeAgent {
             logger.debug("Replaced current turn messages (from index {}) with synthetic summary.", turnStartIndex);
 
             // After replacement, the next turn should start at the end of the current msgs
-            return new ConversationState(rawMessages, msgs, nextRequest, msgs.size(), originalGoal);
+            return new ConversationState(rawMessages, msgs, nextRequest, nextStopReason, msgs.size(), originalGoal);
         }
     }
 
@@ -1849,180 +1965,8 @@ public class CodeAgent {
          */
         @VisibleForTesting
         SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
-            var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
-            var originals = originalFileContents();
-
-            // Sort for determinism
-            var sorted = originals.keySet().stream()
-                    .sorted(Comparator.comparing(ProjectFile::toString))
-                    .toList();
-
-            for (var file : sorted) {
-                String original = originals.getOrDefault(file, "");
-                String revised = file.read().orElse("");
-                if (Objects.equals(original, revised)) {
-                    continue; // No effective change
-                }
-
-                // New file created this turn
-                if (original.isBlank()) {
-                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "BRK_ENTIRE_FILE", revised));
-                    continue;
-                }
-
-                var originalLines = Arrays.asList(original.split("\n", -1));
-                var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
-
-                try {
-                    var patch = DiffUtils.diff(originalLines, revisedLines);
-
-                    // 1) Build minimal windows per delta in original line space
-                    record Window(int start, int end) {
-                        Window expandLeft() {
-                            return new Window(Math.max(0, start - 1), end);
-                        }
-
-                        Window expandRight(int max) {
-                            return new Window(start, Math.min(max, end + 1));
-                        }
-                    }
-                    var windows = new ArrayList<Window>();
-                    for (var delta : patch.getDeltas()) {
-                        var src = delta.getSource();
-                        int sPos = src.getPosition();
-                        int sSize = src.size();
-
-                        int wStart, wEnd;
-                        if (sSize > 0) {
-                            wStart = sPos;
-                            wEnd = sPos + sSize - 1;
-                        } else {
-                            // Pure insertion: anchor on previous line when possible, else next
-                            wStart = (sPos == 0) ? 0 : sPos - 1;
-                            wEnd = wStart;
-                        }
-                        if (!originalLines.isEmpty()) {
-                            wStart = Math.max(0, Math.min(wStart, originalLines.size() - 1));
-                            wEnd = Math.max(0, Math.min(wEnd, originalLines.size() - 1));
-                        }
-                        windows.add(new Window(wStart, wEnd));
-                    }
-
-                    // 2) Expand each window until its before-text is unique in the original
-                    int lastIdx = Math.max(0, originalLines.size() - 1);
-                    windows = windows.stream()
-                            .map(w -> {
-                                Window cur = w;
-                                String before = joinLines(originalLines, cur.start, cur.end);
-                                while (!before.isEmpty()
-                                        && countOccurrences(original, before) > 1
-                                        && (cur.start > 0 || cur.end < lastIdx)) {
-                                    if (cur.start > 0) cur = cur.expandLeft();
-                                    if (cur.end < lastIdx) cur = cur.expandRight(lastIdx);
-                                    before = joinLines(originalLines, cur.start, cur.end);
-                                }
-                                return cur;
-                            })
-                            .collect(Collectors.toCollection(ArrayList::new));
-
-                    // 3) Merge overlapping/adjacent windows after expansion
-                    windows.sort(Comparator.comparingInt(w -> w.start));
-                    var merged = new ArrayList<Window>();
-                    for (var w : windows) {
-                        if (merged.isEmpty()) {
-                            merged.add(w);
-                        } else {
-                            var last = merged.getLast();
-                            if (w.start <= last.end + 1) { // overlap or adjacent
-                                merged.set(merged.size() - 1, new Window(last.start, Math.max(last.end, w.end)));
-                            } else {
-                                merged.add(w);
-                            }
-                        }
-                    }
-
-                    // Precompute net line deltas for mapping original -> revised
-                    record DeltaShape(int pos, int size, int net) {}
-                    var shapes = patch.getDeltas().stream()
-                            .map(d -> new DeltaShape(
-                                    d.getSource().getPosition(),
-                                    d.getSource().size(),
-                                    d.getTarget().size() - d.getSource().size()))
-                            .sorted(Comparator.comparingInt(DeltaShape::pos))
-                            .toList();
-
-                    for (var w : merged) {
-                        // Map original start to revised start
-                        int netBeforeStart = shapes.stream()
-                                .filter(s -> s.pos + s.size <= w.start) // ends before start
-                                .mapToInt(s -> s.net)
-                                .sum();
-                        int revisedStart = w.start + netBeforeStart;
-
-                        int windowLen = w.end - w.start + 1;
-                        // Net deltas that intersect the window
-                        int netInWindow = 0;
-                        for (var d : patch.getDeltas()) {
-                            int p = d.getSource().getPosition();
-                            int sz = d.getSource().size();
-                            int net = d.getTarget().size() - sz;
-                            boolean overlaps;
-                            if (sz > 0) {
-                                overlaps = p < (w.end + 1) && (p + sz) > w.start;
-                            } else {
-                                overlaps = p >= w.start && p <= (w.end + 1);
-                            }
-                            if (overlaps) {
-                                netInWindow += net;
-                            }
-                        }
-                        int revisedEnd = revisedStart + windowLen + netInWindow - 1;
-
-                        String before = joinLines(originalLines, w.start, w.end);
-                        String after = joinLines(
-                                revisedLines,
-                                clamp(revisedStart, 0, Math.max(0, revisedLines.size() - 1)),
-                                clamp(revisedEnd, 0, Math.max(0, revisedLines.size() - 1)));
-
-                        // If uniqueness still fails (pathological), fall back to whole-file
-                        if (!before.isEmpty() && countOccurrences(original, before) > 1) {
-                            results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
-                            continue;
-                        }
-
-                        results.add(new EditBlock.SearchReplaceBlock(file.toString(), before, after));
-                    }
-                } catch (Exception e) {
-                    // If diffing fails for any reason, fall back to a conservative whole-file replacement
-                    logger.warn("Diff generation failed for {}; falling back to whole-file SRB", file, e);
-                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
-                }
-            }
-            return results;
-        }
-
-        private static String joinLines(List<String> lines, int start, int end) {
-            if (lines.isEmpty() || start > end) return "";
-            var sj = new StringJoiner("\n");
-            for (int i = start; i <= end; i++) {
-                sj.add(lines.get(i));
-            }
-            return sj.toString();
-        }
-
-        private static int countOccurrences(String text, String sub) {
-            if (sub.isEmpty()) return 0;
-            int count = 0;
-            int idx = 0;
-            while ((idx = text.indexOf(sub, idx)) != -1) {
-                count++;
-                idx += sub.length();
-            }
-            return count;
-        }
-
-        private static int clamp(int val, int min, int max) {
-            return Math.max(min, Math.min(max, val));
+            return SearchReplaceBlockFormatter.fromChangedFiles(
+                    originalFileContents(), file -> file.read().orElse(""));
         }
     }
 

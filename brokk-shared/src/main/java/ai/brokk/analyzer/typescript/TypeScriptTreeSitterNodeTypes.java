@@ -24,6 +24,23 @@ public final class TypeScriptTreeSitterNodeTypes {
 
     // Statements
     public static final String EXPORT_STATEMENT = CommonTreeSitterNodeTypes.EXPORT_STATEMENT;
+    public static final String IF_STATEMENT = "if_statement";
+    public static final String FOR_STATEMENT = "for_statement";
+    public static final String FOR_IN_STATEMENT = "for_in_statement";
+    public static final String WHILE_STATEMENT = "while_statement";
+    public static final String DO_STATEMENT = "do_statement";
+    public static final String CATCH_CLAUSE = "catch_clause";
+    public static final String SWITCH_CASE = "switch_case";
+
+    // Expressions
+    public static final String TERNARY_EXPRESSION = "ternary_expression";
+    public static final String BINARY_EXPRESSION = "binary_expression";
+    public static final String IDENTIFIER = "identifier";
+    public static final String STRING = "string";
+    public static final String TEMPLATE_STRING = "template_string";
+    public static final String NUMBER = "number";
+    public static final String TRUE = "true";
+    public static final String FALSE = "false";
 
     // Decorators
     public static final String DECORATOR = CommonTreeSitterNodeTypes.DECORATOR;
@@ -57,6 +74,8 @@ public final class TypeScriptTreeSitterNodeTypes {
 
     // Modifier types
     public static final String ACCESSIBILITY_MODIFIER = "accessibility_modifier";
+    public static final String MODIFIERS = "modifiers";
+    public static final String TYPE_PARAMETERS = "type_parameters";
 
     // Other types
     public static final String INTERFACE = "interface";
