@@ -8,9 +8,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -759,7 +759,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             }
             int base = isCatchUnwind ? weights.genericThrowableWeight() : weights.genericExceptionWeight();
             String baseReason = isCatchUnwind ? "generic-catch:catch_unwind" : "generic-catch:Err";
-            analyzeRustHandlerBody(file, body, sourceContent, weights, base, baseReason).ifPresent(out::add);
+            analyzeRustHandlerBody(file, body, sourceContent, weights, base, baseReason)
+                    .ifPresent(out::add);
         }
     }
 
@@ -788,12 +789,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             return Optional.empty();
         }
         return analyzeRustHandlerBody(
-                file,
-                consequence,
-                sourceContent,
-                weights,
-                weights.genericExceptionWeight(),
-                "generic-catch:Err");
+                file, consequence, sourceContent, weights, weights.genericExceptionWeight(), "generic-catch:Err");
     }
 
     private Optional<SmellCandidate> analyzeRustHandlerBody(

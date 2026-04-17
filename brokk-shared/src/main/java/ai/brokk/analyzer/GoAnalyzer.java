@@ -10,8 +10,8 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1567,28 +1567,22 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
 
         return analyzeHandlerBody(
-                file,
-                consequence,
-                sourceContent,
-                weights,
-                weights.genericExceptionWeight(),
-                "generic-catch:error");
+                file, consequence, sourceContent, weights, weights.genericExceptionWeight(), "generic-catch:error");
     }
 
-    private static boolean conditionLooksLikeErrNotNil(
-            TSNode ifNode, TSNode consequence, SourceContent sourceContent) {
-            // Keep this AST-guided: look for a binary expression "err != nil" that appears before the consequence block.
-            var binaries = new ArrayList<TSNode>();
-            collectNodesByType(ifNode, Set.of(BINARY_EXPRESSION), binaries);
-            for (TSNode binary : binaries) {
-                if (binary.getStartByte() >= consequence.getStartByte()) {
-                    continue;
-                }
+    private static boolean conditionLooksLikeErrNotNil(TSNode ifNode, TSNode consequence, SourceContent sourceContent) {
+        // Keep this AST-guided: look for a binary expression "err != nil" that appears before the consequence block.
+        var binaries = new ArrayList<TSNode>();
+        collectNodesByType(ifNode, Set.of(BINARY_EXPRESSION), binaries);
+        for (TSNode binary : binaries) {
+            if (binary.getStartByte() >= consequence.getStartByte()) {
+                continue;
+            }
             TSNode left = binary.getChildByFieldName("left");
             TSNode right = binary.getChildByFieldName("right");
-                if (left == null || right == null) {
-                    continue;
-                }
+            if (left == null || right == null) {
+                continue;
+            }
             if (!IDENTIFIER.equals(left.getType()) || !NIL.equals(right.getType())) {
                 continue;
             }
@@ -1655,9 +1649,16 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                         bodyNode.getEndPoint().getRow())
                 .map(CodeUnit::fqName)
                 .orElse(file.toString());
-        String excerpt = compactExcerpt(sourceContent.substringFrom(bodyNode.getParent() != null ? bodyNode.getParent() : bodyNode));
+        String excerpt = compactExcerpt(
+                sourceContent.substringFrom(bodyNode.getParent() != null ? bodyNode.getParent() : bodyNode));
         var smell = new ExceptionHandlingSmell(
-                file, enclosing, baseReason.replace("generic-catch:", ""), score, bodyStatements, List.copyOf(reasons), excerpt);
+                file,
+                enclosing,
+                baseReason.replace("generic-catch:", ""),
+                score,
+                bodyStatements,
+                List.copyOf(reasons),
+                excerpt);
         return Optional.of(new SmellCandidate(smell, bodyNode.getStartByte()));
     }
 

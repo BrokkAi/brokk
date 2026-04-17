@@ -86,11 +86,11 @@ public class RustExceptionHandlingSmellTest {
     }
 
     private List<IAnalyzer.ExceptionHandlingSmell> analyze(String source) {
-        try (var testProject = InlineTestProjectCreator.code(source, "src/lib.rs").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(source, "src/lib.rs").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             ProjectFile file = new ProjectFile(testProject.getRoot(), "src/lib.rs");
             return analyzer.findExceptionHandlingSmells(file, IAnalyzer.ExceptionSmellWeights.defaults());
         }
     }
 }
-
