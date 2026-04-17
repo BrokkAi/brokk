@@ -266,7 +266,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 .orElse(file.toString());
         int assertionCount = assertions.size();
         if (assertionCount == 0) {
-            addTestSmell(
+            addTestSmellCandidate(
                     file,
                     enclosing,
                     TEST_ASSERTION_KIND_NO_ASSERTIONS,
@@ -280,7 +280,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         }
         assertions.stream()
                 .filter(signal -> signal.baseScore() > 0)
-                .forEach(signal -> addTestSmell(
+                .forEach(signal -> addTestSmellCandidate(
                         file,
                         enclosing,
                         signal.kind(),
@@ -293,9 +293,9 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         boolean allShallow = assertions.stream().allMatch(AssertionSignal::shallow);
         if (allShallow) {
             int score = weights.shallowAssertionOnlyWeight()
-                    - meaningfulAssertionCredit(assertions, weights, AssertionSignal::meaningful);
+                    - testMeaningfulAssertionCredit(assertions, weights, AssertionSignal::meaningful);
             if (score > 0) {
-                addTestSmell(
+                addTestSmellCandidate(
                         file,
                         enclosing,
                         TEST_ASSERTION_KIND_SHALLOW_ONLY,
@@ -499,15 +499,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                         && sourceContent.substringFrom(arg).length() >= weights.largeLiteralLengthThreshold());
     }
 
-    private static int meaningfulAssertionCredit(
-            List<AssertionSignal> assertions,
-            TestAssertionWeights weights,
-            java.util.function.Predicate<AssertionSignal> predicate) {
-        long count = assertions.stream().filter(predicate).count();
-        int creditable = Math.min((int) count, Math.max(0, weights.meaningfulAssertionCreditCap()));
-        return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
-    }
-
     private static @Nullable TSNode firstNamedChildOfType(TSNode node, String type) {
         for (int i = 0; i < node.getNamedChildCount(); i++) {
             TSNode child = node.getNamedChild(i);
@@ -516,30 +507,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             }
         }
         return null;
-    }
-
-    private static void addTestSmell(
-            ProjectFile file,
-            String enclosing,
-            String assertionKind,
-            int score,
-            int assertionCount,
-            List<String> reasons,
-            String excerptSource,
-            int startByte,
-            List<TestSmellCandidate> out) {
-        if (score <= 0 || reasons.isEmpty()) {
-            return;
-        }
-        var smell = new TestAssertionSmell(
-                file,
-                enclosing,
-                assertionKind,
-                score,
-                assertionCount,
-                List.copyOf(reasons),
-                compactCatchExcerpt(excerptSource));
-        out.add(new TestSmellCandidate(smell, startByte));
     }
 
     private record AssertionSignal(

@@ -70,6 +70,12 @@ public final class PhpTreeSitterNodeTypes {
     public static final String NAME = "name";
     public static final String COMMENT = "comment";
 
+    // Expressions
+    public static final String CALL_EXPRESSION = "call_expression";
+    public static final String ARGUMENTS = "arguments";
+    public static final String ARGUMENT = "argument";
+    public static final String BINARY_EXPRESSION = "binary_expression";
+
     // Test markers
     public static final String TEST_MARKER = "test_marker";
     public static final String TEST_TAG_AT_TEST = "@test";

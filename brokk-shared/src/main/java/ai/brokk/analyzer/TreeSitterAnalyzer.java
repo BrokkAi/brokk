@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -73,6 +74,45 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         int score() {
             return smell.score();
         }
+    }
+
+    protected static String compactExcerptForTable(String text) {
+        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        if (compact.length() <= 180) {
+            return compact;
+        }
+        return compact.substring(0, 180) + "...";
+    }
+
+    protected static <T> int testMeaningfulAssertionCredit(
+            List<T> assertions, TestAssertionWeights weights, Predicate<T> predicate) {
+        long count = assertions.stream().filter(predicate).count();
+        int creditable = Math.min((int) count, Math.max(0, weights.meaningfulAssertionCreditCap()));
+        return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
+    }
+
+    protected static void addTestSmellCandidate(
+            ProjectFile file,
+            String enclosing,
+            String assertionKind,
+            int score,
+            int assertionCount,
+            List<String> reasons,
+            String excerptSource,
+            int startByte,
+            List<TestSmellCandidate> out) {
+        if (score <= 0 || reasons.isEmpty()) {
+            return;
+        }
+        var smell = new TestAssertionSmell(
+                file,
+                enclosing,
+                assertionKind,
+                score,
+                assertionCount,
+                List.copyOf(reasons),
+                compactExcerptForTable(excerptSource));
+        out.add(new TestSmellCandidate(smell, startByte));
     }
 
     protected record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
