@@ -934,7 +934,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         List<TSNode> args = callArgumentNodes(call);
 
         if (PHPUNIT_ASSERT_TRUE_FALSE.contains(terminalLower) && !args.isEmpty()) {
-            TSNode arg = args.getLast();
+            TSNode arg = args.getFirst();
             String argText = sourceContent.substringFrom(arg).strip().toLowerCase(Locale.ROOT);
             boolean constantTruth = terminalLower.equals("asserttrue") && "true".equals(argText);
             boolean constantFalse = terminalLower.equals("assertfalse") && "false".equals(argText);
