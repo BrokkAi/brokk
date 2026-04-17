@@ -776,6 +776,17 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
             return Optional.of(sourceContent.substringFrom(functionNode).strip());
         }
 
+        if (functionNode != null && FIELD_EXPRESSION.equals(functionNode.getType())) {
+            TSNode field = functionNode.getChildByFieldName("field");
+            if (field != null && IDENTIFIER.equals(field.getType())) {
+                return Optional.of(sourceContent.substringFrom(field).strip());
+            }
+            TSNode descendant = findFirstNamedDescendant(functionNode, IDENTIFIER);
+            if (descendant != null) {
+                return Optional.of(sourceContent.substringFrom(descendant).strip());
+            }
+        }
+
         TSNode first = callExpression.getNamedChildCount() > 0 ? callExpression.getNamedChild(0) : null;
         if (first != null && IDENTIFIER.equals(first.getType())) {
             return Optional.of(sourceContent.substringFrom(first).strip());
@@ -816,7 +827,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
     private boolean hasJUnitTestAnnotation(TSNode functionDefinition, SourceContent sourceContent) {
         var annotations = new ArrayList<TSNode>();
-        collectNodesByType(functionDefinition, Set.of(ANNOTATION), annotations);
+        collectNodesByType(functionDefinition, Set.of(ANNOTATION, MARKER_ANNOTATION), annotations);
         for (TSNode annotation : annotations) {
             TSNode nameNode = annotation.getChildByFieldName("name");
             if (nameNode == null || !TYPE_IDENTIFIER.equals(nameNode.getType())) {
@@ -1319,7 +1330,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                     }
 
                     var annotations = new ArrayList<TSNode>();
-                    collectNodesByType(rootNode, Set.of(ANNOTATION), annotations);
+                    collectNodesByType(rootNode, Set.of(ANNOTATION, MARKER_ANNOTATION), annotations);
                     return annotations.stream().anyMatch(annotation -> {
                         TSNode nameNode = annotation.getChildByFieldName("name");
                         return nameNode != null
