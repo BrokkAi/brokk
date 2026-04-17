@@ -255,11 +255,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         var findings = new ArrayList<SmellCandidate>();
         collectCatchSmells(file, root, sourceContent, weights, findings);
         return findings.stream()
-                .sorted(Comparator.comparingInt(SmellCandidate::score)
-                        .reversed()
-                        .thenComparing(c -> c.smell().file().toString())
-                        .thenComparing(c -> c.smell().enclosingFqName())
-                        .thenComparingInt(SmellCandidate::startByte))
+                .sorted(EXCEPTION_SMELL_CANDIDATE_COMPARATOR)
                 .map(SmellCandidate::smell)
                 .toList();
     }
@@ -281,12 +277,6 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             if (child != null) {
                 collectCatchSmells(file, child, sourceContent, weights, out);
             }
-        }
-    }
-
-    private record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
-        int score() {
-            return smell.score();
         }
     }
 

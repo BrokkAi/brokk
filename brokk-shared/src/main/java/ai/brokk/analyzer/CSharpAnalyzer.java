@@ -293,11 +293,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             analyzeCatchClause(file, catchNode, sourceContent, weights).ifPresent(findings::add);
         }
         return findings.stream()
-                .sorted(java.util.Comparator.comparingInt(SmellCandidate::score)
-                        .reversed()
-                        .thenComparing(c -> c.smell().file().toString())
-                        .thenComparing(c -> c.smell().enclosingFqName())
-                        .thenComparingInt(SmellCandidate::startByte))
+                .sorted(EXCEPTION_SMELL_CANDIDATE_COMPARATOR)
                 .map(SmellCandidate::smell)
                 .toList();
     }
@@ -507,12 +503,6 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             return compact;
         }
         return compact.substring(0, 180) + "...";
-    }
-
-    private record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
-        int score() {
-            return smell.score();
-        }
     }
 
     @Override
