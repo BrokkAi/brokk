@@ -44,25 +44,32 @@ public final class RustTreeSitterNodeTypes {
 
     public static final String IMPORT_DECLARATION = "use_declaration";
 
+    // ===== STATEMENTS / EXPRESSIONS (for code quality traversal) =====
+    public static final String CALL_EXPRESSION = "call_expression";
+    public static final String MATCH_EXPRESSION = "match_expression";
+    public static final String MATCH_ARM = "match_arm";
+    public static final String IF_EXPRESSION = "if_expression";
+    public static final String LET_CONDITION = "let_condition";
+    public static final String BLOCK = "block";
+    public static final String EXPRESSION_STATEMENT = "expression_statement";
+    public static final String MACRO_INVOCATION = "macro_invocation";
+    public static final String PATH = "path";
+    public static final String SCOPED_IDENTIFIER = "scoped_identifier";
+    public static final String IDENTIFIER = "identifier";
+    public static final String LINE_COMMENT = "line_comment";
+    public static final String BLOCK_COMMENT = "block_comment";
+
     // ===== QUERY CAPTURE NAMES =====
     public static final String TEST_MARKER = "test_marker";
 
-    // ===== Test attribute marker strings (best-effort) =====
-    // Used when filtering attribute_item text for `#[test]` and `#[cfg(test)]`.
-    public static final String TEST_ATTRIBUTE_MARKER = "#[test]";
-    public static final String CFG_TEST_ATTRIBUTE_MARKER = "#[cfg(test)]";
-
     // ===== Assertion / Macro CST nodes (best-effort node type names) =====
     // Rust macros like assert_eq!, assert!, assert_matches!
-    public static final String MACRO_INVOCATION = "macro_invocation";
     public static final String TOKEN_TREE = "token_tree";
 
     // Common expression nodes (used for argument inspection)
     public static final String EXPRESSION = "expression";
-    public static final String CALL_EXPRESSION = "call_expression";
     public static final String BINARY_EXPRESSION = "binary_expression";
     public static final String FIELD_EXPRESSION = "field_expression";
-    public static final String IDENTIFIER = "identifier";
 
     // Literal nodes (used for constant/overspecified-literal detection)
     public static final String STRING_LITERAL = "string_literal";

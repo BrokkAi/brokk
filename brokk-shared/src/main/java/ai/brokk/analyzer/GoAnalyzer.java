@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -43,6 +44,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     // Pattern to strip Go comments (line comments // and block comments /* */)
     private static final Pattern GO_COMMENT_PATTERN = Pattern.compile("//[^\r\n]*|/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/");
+
+    private static final Set<String> COMMENT_NODE_TYPES = Set.of(COMMENT);
+    private static final Set<String> GO_LOG_RECEIVER_NAMES = Set.of("log", "logger", "zap", "slog", "fmt");
+    private static final Set<String> GO_LOG_METHOD_NAMES =
+            Set.of("print", "printf", "println", "debug", "info", "warn", "warning", "error", "fatal", "panic");
 
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(TYPE_SPEC, TYPE_ALIAS), // classLikeNodeTypes
@@ -1980,5 +1986,322 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     return false;
                 },
                 false);
+    }
+
+    @Override
+    public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        checkStale("findExceptionHandlingSmells");
+        ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file,
+                            source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights),
+                            List.of());
+                },
+                List.of());
+    }
+
+    private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        var findings = new ArrayList<SmellCandidate>();
+
+        var defers = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(DEFER_STATEMENT), defers);
+        for (TSNode defer : defers) {
+            analyzeDeferRecoverHandler(file, defer, sourceContent, weights).ifPresent(findings::add);
+        }
+
+        var ifs = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(IF_STATEMENT), ifs);
+        for (TSNode ifNode : ifs) {
+            analyzeErrNotNilHandler(file, ifNode, sourceContent, weights).ifPresent(findings::add);
+        }
+
+        return findings.stream()
+                .sorted(Comparator.comparingInt(SmellCandidate::score)
+                        .reversed()
+                        .thenComparing(c -> c.smell().file().toString())
+                        .thenComparing(c -> c.smell().enclosingFqName())
+                        .thenComparingInt(SmellCandidate::startByte))
+                .map(SmellCandidate::smell)
+                .toList();
+    }
+
+    private Optional<SmellCandidate> analyzeDeferRecoverHandler(
+            ProjectFile file, TSNode deferNode, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        TSNode functionLiteral = findFirstNamedDescendant(deferNode, FUNCTION_LITERAL);
+        if (functionLiteral == null) {
+            return Optional.empty();
+        }
+        TSNode body = functionLiteral.getChildByFieldName("body");
+        if (body == null) {
+            body = findFirstNamedDescendant(functionLiteral, BLOCK);
+        }
+        if (body == null) {
+            return Optional.empty();
+        }
+
+        // Find `if ... recover() ... { handler }` patterns inside the deferred function.
+        var ifs = new ArrayList<TSNode>();
+        collectNodesByType(body, Set.of(IF_STATEMENT), ifs);
+        for (TSNode ifNode : ifs) {
+            TSNode consequence = ifNode.getChildByFieldName("consequence");
+            if (consequence == null) {
+                consequence = findFirstNamedDescendant(ifNode, BLOCK);
+            }
+            if (consequence == null) {
+                continue;
+            }
+            if (!ifConditionContainsRecoverCall(ifNode, consequence, sourceContent)) {
+                continue;
+            }
+            return analyzeHandlerBody(
+                    file,
+                    consequence,
+                    sourceContent,
+                    weights,
+                    weights.genericThrowableWeight(),
+                    "generic-catch:recover()");
+        }
+        return Optional.empty();
+    }
+
+    private static boolean ifConditionContainsRecoverCall(
+            TSNode ifNode, TSNode consequence, SourceContent sourceContent) {
+        var calls = new ArrayList<TSNode>();
+        collectNodesByType(ifNode, Set.of(CALL_EXPRESSION), calls);
+        for (TSNode call : calls) {
+            if (call.getStartByte() >= consequence.getStartByte()) {
+                continue;
+            }
+            String callee = callExpressionCalleeName(call, sourceContent);
+            if ("recover".equals(callee)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Optional<SmellCandidate> analyzeErrNotNilHandler(
+            ProjectFile file, TSNode ifNode, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        TSNode consequence = ifNode.getChildByFieldName("consequence");
+        if (consequence == null) {
+            consequence = findFirstNamedDescendant(ifNode, BLOCK);
+        }
+        if (consequence == null) {
+            return Optional.empty();
+        }
+        if (!conditionLooksLikeErrNotNil(ifNode, consequence, sourceContent)) {
+            return Optional.empty();
+        }
+
+        return analyzeHandlerBody(
+                file, consequence, sourceContent, weights, weights.genericExceptionWeight(), "generic-catch:error");
+    }
+
+    private static boolean conditionLooksLikeErrNotNil(TSNode ifNode, TSNode consequence, SourceContent sourceContent) {
+        // Keep this AST-guided: look for a binary expression "err != nil" that appears before the consequence block.
+        var binaries = new ArrayList<TSNode>();
+        collectNodesByType(ifNode, Set.of(BINARY_EXPRESSION), binaries);
+        for (TSNode binary : binaries) {
+            if (binary.getStartByte() >= consequence.getStartByte()) {
+                continue;
+            }
+            TSNode left = binary.getChildByFieldName("left");
+            TSNode right = binary.getChildByFieldName("right");
+            if (left == null || right == null) {
+                continue;
+            }
+            if (!IDENTIFIER.equals(left.getType()) || !NIL.equals(right.getType())) {
+                continue;
+            }
+            if (!"err".equals(sourceContent.substringFrom(left).strip())) {
+                continue;
+            }
+            // Tree-sitter-go doesn't expose operator as a named node; validate via the binary expression text.
+            if (sourceContent.substringFrom(binary).contains("!=")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Optional<SmellCandidate> analyzeHandlerBody(
+            ProjectFile file,
+            TSNode bodyNode,
+            SourceContent sourceContent,
+            ExceptionSmellWeights weights,
+            int baseScore,
+            String baseReason) {
+        int bodyStatements = countHandlerStatements(bodyNode);
+        String bodyText = sourceContent.substringFrom(bodyNode);
+        boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
+        boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
+        boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
+        boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
+        boolean rethrowPresent = hasCallToIdent(bodyNode, "panic", sourceContent);
+        boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !rethrowPresent;
+
+        int score = baseScore;
+        var reasons = new ArrayList<String>();
+        reasons.add(baseReason);
+        if (emptyBody) {
+            score += weights.emptyBodyWeight();
+            reasons.add("empty-body");
+        }
+        if (commentOnlyBody) {
+            score += weights.commentOnlyBodyWeight();
+            reasons.add("comment-only-body");
+        }
+        if (smallBody) {
+            score += weights.smallBodyWeight();
+            reasons.add("small-body:" + bodyStatements);
+        }
+        if (logOnly) {
+            score += weights.logOnlyWeight();
+            reasons.add("log-only-body");
+        }
+
+        int creditStatements = Math.min(bodyStatements, Math.max(0, weights.meaningfulBodyStatementThreshold()));
+        int bodyCredit = Math.max(0, weights.meaningfulBodyCreditPerStatement()) * creditStatements;
+        if (bodyCredit > 0) {
+            score -= bodyCredit;
+            reasons.add("meaningful-body-credit:" + bodyCredit);
+        }
+        if (score <= 0) {
+            return Optional.empty();
+        }
+
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        bodyNode.getStartPoint().getRow(),
+                        bodyNode.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        String excerpt = compactExcerpt(
+                sourceContent.substringFrom(bodyNode.getParent() != null ? bodyNode.getParent() : bodyNode));
+        var smell = new ExceptionHandlingSmell(
+                file,
+                enclosing,
+                baseReason.replace("generic-catch:", ""),
+                score,
+                bodyStatements,
+                List.copyOf(reasons),
+                excerpt);
+        return Optional.of(new SmellCandidate(smell, bodyNode.getStartByte()));
+    }
+
+    private static int countHandlerStatements(TSNode bodyNode) {
+        TSNode list = firstNamedChildOfType(bodyNode, STATEMENT_LIST);
+        TSNode container = list != null ? list : bodyNode;
+        int expressions = 0;
+        for (int i = 0; i < container.getNamedChildCount(); i++) {
+            TSNode child = container.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (COMMENT.equals(child.getType())) {
+                continue;
+            }
+            expressions++;
+        }
+        return expressions;
+    }
+
+    private static boolean hasCallToIdent(TSNode root, String targetName, SourceContent sourceContent) {
+        var calls = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(CALL_EXPRESSION), calls);
+        return calls.stream().anyMatch(call -> targetName.equals(callExpressionCalleeName(call, sourceContent)));
+    }
+
+    private static String callExpressionCalleeName(TSNode call, SourceContent sourceContent) {
+        TSNode fn = call.getChildByFieldName("function");
+        if (fn == null && call.getNamedChildCount() > 0) {
+            fn = call.getNamedChild(0);
+        }
+        if (fn == null) {
+            return "";
+        }
+        if (IDENTIFIER.equals(fn.getType())) {
+            return sourceContent.substringFrom(fn).strip();
+        }
+        if (!SELECTOR_EXPRESSION.equals(fn.getType())) {
+            return "";
+        }
+        TSNode field = fn.getChildByFieldName("field");
+        if (field != null) {
+            return sourceContent.substringFrom(field).strip();
+        }
+        // Fallback: last identifier within selector expression
+        TSNode ident = findFirstNamedDescendant(fn, IDENTIFIER);
+        return ident == null ? "" : sourceContent.substringFrom(ident).strip();
+    }
+
+    private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
+        TSNode list = firstNamedChildOfType(bodyNode, STATEMENT_LIST);
+        TSNode container = list != null ? list : bodyNode;
+        TSNode statement = firstNonCommentNamedChild(container, COMMENT_NODE_TYPES);
+        if (statement == null || !EXPRESSION_STATEMENT.equals(statement.getType())) {
+            return false;
+        }
+        TSNode call = findFirstNamedDescendant(statement, CALL_EXPRESSION);
+        if (call == null) {
+            return false;
+        }
+        TSNode fn = call.getChildByFieldName("function");
+        if (fn == null) {
+            fn = call.getNamedChildCount() > 0 ? call.getNamedChild(0) : null;
+        }
+        if (fn == null) {
+            return false;
+        }
+        if (IDENTIFIER.equals(fn.getType())) {
+            String bare = sourceContent.substringFrom(fn).strip().toLowerCase(Locale.ROOT);
+            return GO_LOG_METHOD_NAMES.contains(bare);
+        }
+        if (!SELECTOR_EXPRESSION.equals(fn.getType())) {
+            return false;
+        }
+        TSNode receiver = fn.getChildByFieldName("operand");
+        TSNode method = fn.getChildByFieldName("field");
+        if (receiver == null || method == null) {
+            return false;
+        }
+        String receiverText = sourceContent.substringFrom(receiver).strip().toLowerCase(Locale.ROOT);
+        String methodText = sourceContent.substringFrom(method).strip().toLowerCase(Locale.ROOT);
+        boolean receiverLike = GO_LOG_RECEIVER_NAMES.contains(receiverText)
+                || GO_LOG_RECEIVER_NAMES.stream().anyMatch(name -> receiverText.endsWith("." + name));
+        boolean methodLike = GO_LOG_METHOD_NAMES.contains(methodText);
+        return receiverLike && methodLike;
+    }
+
+    private static @Nullable TSNode firstNamedChildOfType(TSNode node, String type) {
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child != null && type.equals(child.getType())) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private static String compactExcerpt(String text) {
+        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        if (compact.length() <= 180) {
+            return compact;
+        }
+        return compact.substring(0, 180) + "...";
+    }
+
+    private record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
     }
 }

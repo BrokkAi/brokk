@@ -4,7 +4,6 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -12,7 +11,6 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SequencedSet;
@@ -872,27 +870,5 @@ public interface IAnalyzer {
         return files.stream()
                 .flatMap(file -> findStructuralCloneSmells(file, weights).stream())
                 .toList();
-    }
-
-    /**
-     * Analyzes comments in the specified content to distinguish between 'How' (redundant) vs 'Why' (semantic) comments.
-     */
-    default List<String> findPotentialHowComments(String content) {
-        List<String> findings = new ArrayList<>();
-        // Match single line comments
-        Pattern commentPattern = Pattern.compile("//\\s*(.*)");
-        Matcher matcher = commentPattern.matcher(content);
-
-        while (matcher.find()) {
-            String commentText = matcher.group(1).toLowerCase(Locale.ROOT);
-            // Heuristic: comments describing increment, assignment, or simple returns
-            if (commentText.contains("increment")
-                    || commentText.contains("set ")
-                    || commentText.contains("assign")
-                    || commentText.contains("return ")) {
-                findings.add(matcher.group(0));
-            }
-        }
-        return findings;
     }
 }

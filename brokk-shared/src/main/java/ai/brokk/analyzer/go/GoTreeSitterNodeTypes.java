@@ -78,6 +78,20 @@ public final class GoTreeSitterNodeTypes {
     public static final String TESTING_T = "testing.T";
     public static final String POINTER_TESTING_T = "*testing.T";
 
+    // ===== STATEMENTS / EXPRESSIONS (for code quality traversal) =====
+    public static final String DEFER_STATEMENT = "defer_statement";
+    public static final String BLOCK = "block";
+    public static final String STATEMENT_LIST = "statement_list";
+    public static final String RETURN_STATEMENT = "return_statement";
+
+    // tree-sitter-go uses "func_literal" for anonymous functions.
+    public static final String FUNCTION_LITERAL = "func_literal";
+    public static final String EXPRESSION_STATEMENT = "expression_statement";
+    public static final String NIL = "nil";
+
+    // Tree-sitter-go uses a single "comment" node type for both line and block comments.
+    public static final String COMMENT = "comment";
+
     private GoTreeSitterNodeTypes() {
         // Utility class - no instantiation
     }

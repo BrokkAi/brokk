@@ -6,9 +6,11 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -23,6 +25,10 @@ import org.treesitter.*;
 
 public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
+
+    private static final Set<String> COMMENT_NODE_TYPES = Set.of(LINE_COMMENT, BLOCK_COMMENT);
+    private static final Set<String> RUST_LOG_MACRO_NAMES = Set.of("trace", "debug", "info", "warn", "error");
+    private static final Set<String> RUST_PRINT_MACRO_NAMES = Set.of("println", "eprintln");
 
     private record AssertionSignal(
             String kind,
@@ -699,6 +705,320 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             // The rawSnippet in ImportInfo should be a clean standalone "use ...;" statement for the specific leaf.
             String standaloneSnippet = "use " + resolvedPath + (alias != null ? " as " + alias : "") + ";";
             localImportInfos.add(new ImportInfo(standaloneSnippet, isWildcard, identifier, alias));
+        }
+    }
+
+    @Override
+    public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        checkStale("findExceptionHandlingSmells");
+        ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file,
+                            source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights),
+                            List.of());
+                },
+                List.of());
+    }
+
+    private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        var findings = new ArrayList<SmellCandidate>();
+
+        var matches = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(MATCH_EXPRESSION), matches);
+        for (TSNode matchExpr : matches) {
+            analyzeMatchHandlers(file, matchExpr, sourceContent, weights, findings);
+        }
+
+        var ifs = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(IF_EXPRESSION), ifs);
+        for (TSNode ifExpr : ifs) {
+            analyzeIfLetErrHandler(file, ifExpr, sourceContent, weights).ifPresent(findings::add);
+        }
+
+        return findings.stream()
+                .sorted(Comparator.comparingInt(SmellCandidate::score)
+                        .reversed()
+                        .thenComparing(c -> c.smell().file().toString())
+                        .thenComparing(c -> c.smell().enclosingFqName())
+                        .thenComparingInt(SmellCandidate::startByte))
+                .map(SmellCandidate::smell)
+                .toList();
+    }
+
+    private void analyzeMatchHandlers(
+            ProjectFile file,
+            TSNode matchExpr,
+            SourceContent sourceContent,
+            ExceptionSmellWeights weights,
+            List<SmellCandidate> out) {
+        boolean isCatchUnwind = matchContainsCatchUnwindCall(matchExpr, sourceContent);
+
+        var arms = new ArrayList<TSNode>();
+        collectNodesByType(matchExpr, Set.of(MATCH_ARM), arms);
+        for (TSNode arm : arms) {
+            if (!belongsToMatchExpression(arm, matchExpr)) {
+                continue;
+            }
+            TSNode pattern = arm.getChildByFieldName("pattern");
+            if (pattern == null && arm.getNamedChildCount() > 0) {
+                pattern = arm.getNamedChild(0);
+            }
+            if (pattern == null || !patternContainsErr(pattern, sourceContent)) {
+                continue;
+            }
+            TSNode body = arm.getChildByFieldName("value");
+            if (body == null && arm.getNamedChildCount() > 0) {
+                body = arm.getNamedChild(arm.getNamedChildCount() - 1);
+            }
+            if (body == null) {
+                continue;
+            }
+            int base = isCatchUnwind ? weights.genericThrowableWeight() : weights.genericExceptionWeight();
+            String baseReason = isCatchUnwind ? "generic-catch:catch_unwind" : "generic-catch:Err";
+            analyzeRustHandlerBody(file, body, sourceContent, weights, base, baseReason)
+                    .ifPresent(out::add);
+        }
+    }
+
+    private static boolean belongsToMatchExpression(TSNode arm, TSNode matchExpr) {
+        TSNode parent = arm.getParent();
+        while (parent != null && !MATCH_EXPRESSION.equals(parent.getType())) {
+            parent = parent.getParent();
+        }
+        if (parent == null) {
+            return false;
+        }
+        return parent.getStartByte() == matchExpr.getStartByte() && parent.getEndByte() == matchExpr.getEndByte();
+    }
+
+    private static boolean matchContainsCatchUnwindCall(TSNode matchExpr, SourceContent sourceContent) {
+        var calls = new ArrayList<TSNode>();
+        collectNodesByType(matchExpr, Set.of(CALL_EXPRESSION), calls);
+        for (TSNode call : calls) {
+            if ("catch_unwind".equals(rustCallCalleeLastIdent(call, sourceContent))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Optional<SmellCandidate> analyzeIfLetErrHandler(
+            ProjectFile file, TSNode ifExpr, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        // Only inspect this `if`'s condition; do not search the whole subtree (which would
+        // incorrectly attribute nested `if let Err(...)` conditions to an outer `if`).
+        TSNode condition = ifExpr.getChildByFieldName("condition");
+        if (condition == null || !patternContainsErr(condition, sourceContent)) {
+            return Optional.empty();
+        }
+        TSNode consequence = ifExpr.getChildByFieldName("consequence");
+        if (consequence == null) {
+            consequence = findFirstNamedDescendant(ifExpr, BLOCK);
+        }
+        if (consequence == null) {
+            return Optional.empty();
+        }
+        return analyzeRustHandlerBody(
+                file, consequence, sourceContent, weights, weights.genericExceptionWeight(), "generic-catch:Err");
+    }
+
+    private Optional<SmellCandidate> analyzeRustHandlerBody(
+            ProjectFile file,
+            TSNode handlerNode,
+            SourceContent sourceContent,
+            ExceptionSmellWeights weights,
+            int baseScore,
+            String baseReason) {
+        TSNode block = BLOCK.equals(handlerNode.getType()) ? handlerNode : null;
+        int bodyStatements = block != null ? countHandlerStatements(block) : 1;
+        String bodyText = sourceContent.substringFrom(handlerNode);
+        boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
+        boolean emptyBody = block != null && bodyStatements == 0 && !hasAnyComment;
+        boolean commentOnlyBody = block != null && bodyStatements == 0 && hasAnyComment;
+        boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
+        boolean rethrowPresent = hasPanicLike(handlerNode, sourceContent);
+        boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyRust(handlerNode, sourceContent) && !rethrowPresent;
+
+        int score = baseScore;
+        var reasons = new ArrayList<String>();
+        reasons.add(baseReason);
+        if (emptyBody) {
+            score += weights.emptyBodyWeight();
+            reasons.add("empty-body");
+        }
+        if (commentOnlyBody) {
+            score += weights.commentOnlyBodyWeight();
+            reasons.add("comment-only-body");
+        }
+        if (smallBody) {
+            score += weights.smallBodyWeight();
+            reasons.add("small-body:" + bodyStatements);
+        }
+        if (logOnly) {
+            score += weights.logOnlyWeight();
+            reasons.add("log-only-body");
+        }
+
+        int creditStatements = Math.min(bodyStatements, Math.max(0, weights.meaningfulBodyStatementThreshold()));
+        int bodyCredit = Math.max(0, weights.meaningfulBodyCreditPerStatement()) * creditStatements;
+        if (bodyCredit > 0) {
+            score -= bodyCredit;
+            reasons.add("meaningful-body-credit:" + bodyCredit);
+        }
+        if (score <= 0) {
+            return Optional.empty();
+        }
+
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        handlerNode.getStartPoint().getRow(),
+                        handlerNode.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        var smell = new ExceptionHandlingSmell(
+                file,
+                enclosing,
+                baseReason.replace("generic-catch:", ""),
+                score,
+                bodyStatements,
+                List.copyOf(reasons),
+                compactExcerpt(sourceContent.substringFrom(handlerNode)));
+        return Optional.of(new SmellCandidate(smell, handlerNode.getStartByte()));
+    }
+
+    private static boolean patternContainsErr(TSNode patternNode, SourceContent sourceContent) {
+        Deque<TSNode> stack = new ArrayDeque<>();
+        stack.push(patternNode);
+        while (!stack.isEmpty()) {
+            TSNode node = stack.pop();
+            if (node == null) {
+                continue;
+            }
+            if (IDENTIFIER.equals(node.getType())
+                    && "Err".equals(sourceContent.substringFrom(node).strip())) {
+                return true;
+            }
+            for (int i = 0; i < node.getNamedChildCount(); i++) {
+                TSNode child = node.getNamedChild(i);
+                if (child != null) {
+                    stack.push(child);
+                }
+            }
+        }
+        return false;
+    }
+
+    private static int countHandlerStatements(TSNode block) {
+        int expressions = 0;
+        for (int i = 0; i < block.getNamedChildCount(); i++) {
+            TSNode child = block.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (COMMENT_NODE_TYPES.contains(child.getType())) {
+                continue;
+            }
+            expressions++;
+        }
+        return expressions;
+    }
+
+    private static boolean hasPanicLike(TSNode root, SourceContent sourceContent) {
+        var macros = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(MACRO_INVOCATION), macros);
+        for (TSNode macro : macros) {
+            if ("panic".equals(rustMacroLastIdent(macro, sourceContent))) {
+                return true;
+            }
+        }
+        var calls = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(CALL_EXPRESSION), calls);
+        for (TSNode call : calls) {
+            if ("resume_unwind".equals(rustCallCalleeLastIdent(call, sourceContent))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isLikelyLogOnlyRust(TSNode handlerNode, SourceContent sourceContent) {
+        TSNode node = handlerNode;
+        if (BLOCK.equals(handlerNode.getType())) {
+            node = firstNonCommentNamedChild(handlerNode, COMMENT_NODE_TYPES);
+            if (node == null) {
+                return false;
+            }
+        }
+        TSNode macro = findFirstNamedDescendant(node, MACRO_INVOCATION);
+        if (macro == null) {
+            return false;
+        }
+        String lastIdent = rustMacroLastIdent(macro, sourceContent).toLowerCase(Locale.ROOT);
+        return RUST_LOG_MACRO_NAMES.contains(lastIdent) || RUST_PRINT_MACRO_NAMES.contains(lastIdent);
+    }
+
+    private static String rustMacroLastIdent(TSNode macroInvocation, SourceContent sourceContent) {
+        TSNode path = macroInvocation.getNamedChildCount() > 0 ? macroInvocation.getNamedChild(0) : null;
+        if (path == null) {
+            path = findFirstNamedDescendant(macroInvocation, PATH);
+        }
+        if (path == null) {
+            path = findFirstNamedDescendant(macroInvocation, SCOPED_IDENTIFIER);
+        }
+        if (path == null) {
+            path = findFirstNamedDescendant(macroInvocation, IDENTIFIER);
+        }
+        return path == null ? "" : lastIdentifierIn(path, sourceContent);
+    }
+
+    private static String rustCallCalleeLastIdent(TSNode call, SourceContent sourceContent) {
+        TSNode function = call.getChildByFieldName("function");
+        if (function == null && call.getNamedChildCount() > 0) {
+            function = call.getNamedChild(0);
+        }
+        return function == null ? "" : lastIdentifierIn(function, sourceContent);
+    }
+
+    private static String lastIdentifierIn(TSNode node, SourceContent sourceContent) {
+        String last = "";
+        try (var cursor = new TSTreeCursor(node)) {
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    break;
+                }
+                if (IDENTIFIER.equals(current.getType())) {
+                    String text = sourceContent.substringFrom(current).strip();
+                    if (!text.isEmpty()) {
+                        last = text;
+                    }
+                }
+                if (!gotoNextDepthFirst(cursor, current.isNamed())) {
+                    break;
+                }
+            }
+        }
+        return last;
+    }
+
+    private static String compactExcerpt(String text) {
+        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        if (compact.length() <= 180) {
+            return compact;
+        }
+        return compact.substring(0, 180) + "...";
+    }
+
+    private record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
+        int score() {
+            return smell.score();
         }
     }
 
