@@ -817,16 +817,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         int shallowAssertionCount = 0;
         int meaningfulAssertionCount = 0;
         for (TSNode macro : macros) {
-            String macroText = sourceContent.substringFrom(macro).stripLeading();
-            if (!(macroText.contains("assert!")
-                    || macroText.contains("assert_eq!")
-                    || macroText.contains("assert_ne!")
-                    || macroText.contains("assert_matches!"))) {
+            String macroName = rustMacroName(macro, sourceContent);
+            if (!(ASSERT_MACRO_NAME.equals(macroName)
+                    || ASSERT_EQ_MACRO_NAME.equals(macroName)
+                    || ASSERT_NE_MACRO_NAME.equals(macroName)
+                    || ASSERT_MATCHES_MACRO_NAME.equals(macroName))) {
                 continue;
             }
             assertionCount++;
 
-            if (macroText.contains("assert_eq!") || macroText.contains("assert_ne!")) {
+            if (ASSERT_EQ_MACRO_NAME.equals(macroName) || ASSERT_NE_MACRO_NAME.equals(macroName)) {
                 var signal = classifyRustEqLikeMacro(macro, sourceContent, weights);
                 if (signal != null) {
                     if (signal.shallow()) {
@@ -844,7 +844,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 continue;
             }
 
-            if (macroText.contains("assert_matches!")) {
+            if (ASSERT_MATCHES_MACRO_NAME.equals(macroName)) {
                 var signal = classifyRustMatchesMacro(macro, sourceContent, weights);
                 if (signal != null) {
                     if (signal.shallow()) {
@@ -862,7 +862,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 continue;
             }
 
-            if (macroText.contains("assert!")) {
+            if (ASSERT_MACRO_NAME.equals(macroName)) {
                 var signal = classifyRustAssertMacro(macro, sourceContent, weights);
                 if (signal != null) {
                     if (signal.shallow()) {
@@ -883,6 +883,37 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         signals.sort(Comparator.comparingInt(AssertionSignal::startByte));
         return new RustAssertionAnalysis(
                 assertionCount, shallowAssertionCount, meaningfulAssertionCount, List.copyOf(signals));
+    }
+
+    private static final String ASSERT_MACRO_NAME = "assert";
+    private static final String ASSERT_EQ_MACRO_NAME = "assert_eq";
+    private static final String ASSERT_NE_MACRO_NAME = "assert_ne";
+    private static final String ASSERT_MATCHES_MACRO_NAME = "assert_matches";
+
+    private static String rustMacroName(TSNode macro, SourceContent sourceContent) {
+        int tokenTreeStart = Integer.MAX_VALUE;
+        var tokenTrees = new ArrayList<TSNode>();
+        collectNodesByType(macro, Set.of(TOKEN_TREE), tokenTrees);
+        if (!tokenTrees.isEmpty()) {
+            tokenTreeStart = tokenTrees.getFirst().getStartByte();
+        }
+
+        var ids = new ArrayList<TSNode>();
+        collectNodesByType(macro, Set.of(IDENTIFIER), ids);
+
+        TSNode best = null;
+        for (TSNode id : ids) {
+            if (id.getStartByte() >= tokenTreeStart) {
+                continue;
+            }
+            if (best == null || id.getStartByte() > best.getStartByte()) {
+                best = id;
+            }
+        }
+        if (best == null) {
+            return "";
+        }
+        return sourceContent.substringFrom(best).trim();
     }
 
     private @Nullable AssertionSignal classifyRustEqLikeMacro(
