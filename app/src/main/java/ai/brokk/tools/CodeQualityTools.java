@@ -204,7 +204,7 @@ public class CodeQualityTools {
 
     @Tool(
             """
-            Detects suspicious Java catch blocks using weighted heuristics designed for high-recall triage.
+            Detects suspicious exception handlers using weighted heuristics designed for high-recall triage.
             Scores generic catches and tiny/empty handlers, then subtracts credit for richer handling bodies.
             Use minScore, maxFindings, and weight parameters to tune precision/recall.""")
     public String reportExceptionHandlingSmells(
