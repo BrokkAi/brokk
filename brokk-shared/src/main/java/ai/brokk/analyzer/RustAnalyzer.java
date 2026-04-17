@@ -798,8 +798,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     private Optional<SmellCandidate> analyzeIfLetErrHandler(
             ProjectFile file, TSNode ifExpr, SourceContent sourceContent, ExceptionSmellWeights weights) {
-        TSNode letCond = findFirstNamedDescendant(ifExpr, LET_CONDITION);
-        if (letCond == null || !patternContainsErr(letCond, sourceContent)) {
+        // Only inspect this `if`'s condition; do not search the whole subtree (which would
+        // incorrectly attribute nested `if let Err(...)` conditions to an outer `if`).
+        TSNode condition = ifExpr.getChildByFieldName("condition");
+        if (condition == null || !patternContainsErr(condition, sourceContent)) {
             return Optional.empty();
         }
         TSNode consequence = ifExpr.getChildByFieldName("consequence");

@@ -85,6 +85,29 @@ public class RustExceptionHandlingSmellTest {
         assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("empty-body")));
     }
 
+    @Test
+    void doesNotMisattributeNestedIfLetErrToOuterIf() {
+        String code =
+                """
+                pub fn run() {
+                    let res: Result<(), ()> = Err(());
+                    if true {
+                        let x = 1;
+                        if let Err(_) = res {
+                        }
+                        let y = x + 1;
+                        let _ = y;
+                    }
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("empty-body")));
+        assertTrue(findings.size() == 1, "Expected only the nested if-let to be flagged");
+        assertTrue(
+                findings.getFirst().bodyStatementCount() == 0,
+                "Expected the flagged handler to be the empty nested if-let body, not the outer if body");
+    }
+
     private List<IAnalyzer.ExceptionHandlingSmell> analyze(String source) {
         try (var testProject =
                 InlineTestProjectCreator.code(source, "src/lib.rs").build()) {
