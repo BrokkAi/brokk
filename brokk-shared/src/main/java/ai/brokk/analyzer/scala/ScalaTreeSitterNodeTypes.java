@@ -57,6 +57,24 @@ public class ScalaTreeSitterNodeTypes {
     public static final String LINE_COMMENT = "line_comment";
     public static final String SPAN = "span";
     public static final String FIELD_EXPRESSION = "field_expression";
+    public static final String BLOCK_EXPRESSION = "block_expression";
+    public static final String IDENTIFIER = "identifier";
+    public static final String ANNOTATION = "annotation";
+    public static final String MARKER_ANNOTATION = "marker_annotation";
+    public static final String ARGUMENTS = "arguments";
+    public static final String ARGUMENT = "argument";
+    public static final String ARGUMENT_LIST = "argument_list";
+    public static final String ARGUMENTS_LIST = "arguments_list";
+
+    // ===== Test assertion smell labels (shared string values) =====
+    // These are semantic labels used in IAnalyzer.TestAssertionSmell.
+    public static final String TEST_ASSERTION_KIND_NO_ASSERTIONS = "no-assertions";
+    public static final String TEST_ASSERTION_KIND_CONSTANT_TRUTH = "constant-truth";
+    public static final String TEST_ASSERTION_KIND_CONSTANT_EQUALITY = "constant-equality";
+    public static final String TEST_ASSERTION_KIND_SELF_COMPARISON = "self-comparison";
+    public static final String TEST_ASSERTION_KIND_NULLNESS_ONLY = "nullness-only";
+    public static final String TEST_ASSERTION_KIND_SHALLOW_ONLY = "shallow-assertions-only";
+    public static final String TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL = "overspecified-literal";
 
     private ScalaTreeSitterNodeTypes() {}
 }

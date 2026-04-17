@@ -6,6 +6,7 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -513,7 +514,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
             Set.of(CLASS_DEFINITION, OBJECT_DEFINITION, INTERFACE_DEFINITION, ENUM_DEFINITION),
             Set.of(FUNCTION_DEFINITION),
             Set.of(VAL_DEFINITION, VAR_DEFINITION, SIMPLE_ENUM_CASE),
-            Set.of("annotation", "marker_annotation"),
+            Set.of(ANNOTATION, MARKER_ANNOTATION),
             Set.of(),
             IMPORT_DECLARATION,
             "name", // identifier field name
@@ -564,7 +565,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
         // Single-name fast path: preserve the raw slice (modifiers, annotations) but truncate non-literals.
         TSNode patternNode = fieldNode.getChildByFieldName("pattern");
-        if (patternNode != null && "identifier".equals(patternNode.getType())) {
+        if (patternNode != null && IDENTIFIER.equals(patternNode.getType())) {
             String patternText = sourceContent.substringFrom(patternNode).strip();
             if (patternText.equals(simpleName)) {
                 TSNode valueNode = fieldNode.getChildByFieldName("value");
@@ -601,6 +602,646 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         }
 
         return sb.toString();
+    }
+
+    @Override
+    public List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
+        checkStale("findTestAssertionSmells");
+        if (!containsTests(file)) {
+            return List.of();
+        }
+
+        TestAssertionWeights resolvedWeights = weights != null ? weights : TestAssertionWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file, source -> detectTestAssertionSmells(file, root, source, resolvedWeights), List.of());
+                },
+                List.of());
+    }
+
+    private record ScalaTestBody(TSNode anchor, TSNode body) {}
+
+    private record AssertionSignal(
+            boolean shallow,
+            boolean meaningful,
+            boolean nullnessOnly,
+            String kind,
+            int score,
+            List<String> reasons,
+            String excerptSource,
+            int startByte) {}
+
+    private List<TestAssertionSmell> detectTestAssertionSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
+        List<ScalaTestBody> testBodies = testBodiesOf(root, sourceContent);
+        if (testBodies.isEmpty()) {
+            // If we have positive test detection but cannot isolate individual test bodies, fall back to
+            // analyzing the full file to avoid silent "unsupported" behavior.
+            testBodies = List.of(new ScalaTestBody(root, root));
+        }
+
+        var candidates = new ArrayList<TestSmellCandidate>();
+        for (ScalaTestBody testBody : testBodies) {
+            String enclosing = enclosingCodeUnit(
+                            file,
+                            testBody.anchor().getStartPoint().getRow(),
+                            testBody.anchor().getEndPoint().getRow())
+                    .map(CodeUnit::fqName)
+                    .orElse(file.toString());
+
+            List<AssertionSignal> signals = assertionSignalsOf(testBody.body(), sourceContent, weights);
+            int assertionCount = signals.size();
+
+            if (assertionCount == 0) {
+                addTestSmellCandidate(
+                        file,
+                        enclosing,
+                        TEST_ASSERTION_KIND_NO_ASSERTIONS,
+                        weights.noAssertionWeight(),
+                        0,
+                        List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
+                        sourceContent.substringFrom(testBody.anchor()),
+                        testBody.anchor().getStartByte(),
+                        candidates);
+                continue;
+            }
+
+            int shallowCount = 0;
+            int nullnessCount = 0;
+
+            for (AssertionSignal signal : signals) {
+                if (signal.shallow()) {
+                    shallowCount++;
+                }
+                if (signal.nullnessOnly()) {
+                    nullnessCount++;
+                }
+
+                addTestSmellCandidate(
+                        file,
+                        enclosing,
+                        signal.kind(),
+                        signal.score(),
+                        assertionCount,
+                        signal.reasons(),
+                        signal.excerptSource(),
+                        signal.startByte(),
+                        candidates);
+            }
+
+            if (nullnessCount == assertionCount) {
+                addTestSmellCandidate(
+                        file,
+                        enclosing,
+                        TEST_ASSERTION_KIND_NULLNESS_ONLY,
+                        weights.nullnessOnlyWeight(),
+                        assertionCount,
+                        List.of(TEST_ASSERTION_KIND_NULLNESS_ONLY),
+                        sourceContent.substringFrom(testBody.body()),
+                        testBody.body().getStartByte(),
+                        candidates);
+            }
+
+            if (shallowCount == assertionCount) {
+                int score = weights.shallowAssertionOnlyWeight()
+                        - testMeaningfulAssertionCredit(signals, weights, AssertionSignal::meaningful);
+                addTestSmellCandidate(
+                        file,
+                        enclosing,
+                        TEST_ASSERTION_KIND_SHALLOW_ONLY,
+                        score,
+                        assertionCount,
+                        List.of(TEST_ASSERTION_KIND_SHALLOW_ONLY),
+                        sourceContent.substringFrom(testBody.body()),
+                        testBody.body().getStartByte(),
+                        candidates);
+            }
+        }
+
+        return candidates.stream()
+                .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
+                .map(TestSmellCandidate::smell)
+                .toList();
+    }
+
+    private List<ScalaTestBody> testBodiesOf(TSNode root, SourceContent sourceContent) {
+        var out = new ArrayList<ScalaTestBody>();
+        var seenBodies = new HashSet<Integer>();
+
+        var callExpressions = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(CALL_EXPRESSION), callExpressions);
+        for (TSNode call : callExpressions) {
+            if (!callNameOf(call, sourceContent).filter("test"::equals).isPresent()) {
+                continue;
+            }
+            TSNode body = firstBlockLikeDescendant(call);
+            if (body != null && seenBodies.add(body.getStartByte())) {
+                out.add(new ScalaTestBody(call, body));
+            }
+        }
+
+        var infixExpressions = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(INFIX_EXPRESSION), infixExpressions);
+        for (TSNode infix : infixExpressions) {
+            TSNode body = flatSpecBodyFromInfix(infix, sourceContent);
+            if (body != null && seenBodies.add(body.getStartByte())) {
+                out.add(new ScalaTestBody(infix, body));
+            }
+        }
+
+        var functions = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(FUNCTION_DEFINITION), functions);
+        for (TSNode fn : functions) {
+            if (!hasJUnitTestAnnotation(fn, sourceContent)) {
+                continue;
+            }
+            TSNode body = firstBlockLikeChild(fn);
+            if (body != null && seenBodies.add(body.getStartByte())) {
+                out.add(new ScalaTestBody(fn, body));
+            }
+        }
+
+        return out;
+    }
+
+    private static Optional<String> callNameOf(TSNode callExpression, SourceContent sourceContent) {
+        TSNode functionNode = callExpression.getChildByFieldName("function");
+        if (functionNode != null && IDENTIFIER.equals(functionNode.getType())) {
+            return Optional.of(sourceContent.substringFrom(functionNode).strip());
+        }
+
+        TSNode first = callExpression.getNamedChildCount() > 0 ? callExpression.getNamedChild(0) : null;
+        if (first != null && IDENTIFIER.equals(first.getType())) {
+            return Optional.of(sourceContent.substringFrom(first).strip());
+        }
+
+        TSNode descendant = findFirstNamedDescendant(callExpression, IDENTIFIER);
+        if (descendant == null) {
+            return Optional.empty();
+        }
+        return Optional.of(sourceContent.substringFrom(descendant).strip());
+    }
+
+    private static @Nullable TSNode flatSpecBodyFromInfix(TSNode infixExpression, SourceContent sourceContent) {
+        TSNode operator = operatorNodeOfInfix(infixExpression);
+        if (operator == null) {
+            return null;
+        }
+        String operatorText = sourceContent.substringFrom(operator).strip();
+        if (!"in".equals(operatorText)) {
+            return null;
+        }
+        return firstBlockLikeChild(infixExpression);
+    }
+
+    private static @Nullable TSNode operatorNodeOfInfix(TSNode infixExpression) {
+        for (int i = 0; i < infixExpression.getNamedChildCount(); i++) {
+            TSNode child = infixExpression.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            String type = child.getType();
+            if (OPERATOR_IDENTIFIER.equals(type) || IDENTIFIER.equals(type)) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private boolean hasJUnitTestAnnotation(TSNode functionDefinition, SourceContent sourceContent) {
+        var annotations = new ArrayList<TSNode>();
+        collectNodesByType(functionDefinition, Set.of(ANNOTATION), annotations);
+        for (TSNode annotation : annotations) {
+            TSNode nameNode = annotation.getChildByFieldName("name");
+            if (nameNode == null || !TYPE_IDENTIFIER.equals(nameNode.getType())) {
+                continue;
+            }
+            String name = sourceContent.substringFrom(nameNode).strip();
+            if (TEST_ANNOTATIONS.contains(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<AssertionSignal> assertionSignalsOf(
+            TSNode bodyNode, SourceContent sourceContent, TestAssertionWeights w) {
+        var signals = new ArrayList<AssertionSignal>();
+
+        var callExpressions = new ArrayList<TSNode>();
+        collectNodesByType(bodyNode, Set.of(CALL_EXPRESSION), callExpressions);
+        for (TSNode call : callExpressions) {
+            extractAssertionSignalFromCall(call, sourceContent, w).ifPresent(signals::add);
+        }
+
+        var infixExpressions = new ArrayList<TSNode>();
+        collectNodesByType(bodyNode, Set.of(INFIX_EXPRESSION), infixExpressions);
+        for (TSNode infix : infixExpressions) {
+            extractAssertionSignalFromScalatestInfix(infix, sourceContent, w).ifPresent(signals::add);
+        }
+
+        return signals;
+    }
+
+    private Optional<AssertionSignal> extractAssertionSignalFromCall(
+            TSNode callExpression, SourceContent sourceContent, TestAssertionWeights w) {
+        Optional<String> nameOpt = callNameOf(callExpression, sourceContent);
+        if (nameOpt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        String name = nameOpt.get();
+        return switch (name) {
+            case "assert" -> Optional.of(signalFromScalaAssert(callExpression, sourceContent, w));
+            case "assertTrue" ->
+                Optional.of(signalFromUnaryBooleanCall(callExpression, sourceContent, true, w.constantTruthWeight()));
+            case "assertFalse" ->
+                Optional.of(signalFromUnaryBooleanCall(callExpression, sourceContent, false, w.constantTruthWeight()));
+            case "assertEquals" -> Optional.of(signalFromBinaryEqualityCall(callExpression, sourceContent, w));
+            case "assertNull", "assertNotNull" ->
+                Optional.of(new AssertionSignal(
+                        true,
+                        false,
+                        true,
+                        "",
+                        0,
+                        List.of(),
+                        sourceContent.substringFrom(callExpression),
+                        callExpression.getStartByte()));
+            default -> Optional.empty();
+        };
+    }
+
+    private AssertionSignal signalFromUnaryBooleanCall(
+            TSNode callExpression, SourceContent sourceContent, boolean expected, int constantTruthScore) {
+        TSNode arg = nthNamedArgument(callExpression, 0);
+        if (arg != null) {
+            String text = sourceContent.substringFrom(arg).strip();
+            if (String.valueOf(expected).equals(text)) {
+                return new AssertionSignal(
+                        true,
+                        false,
+                        false,
+                        TEST_ASSERTION_KIND_CONSTANT_TRUTH,
+                        constantTruthScore,
+                        List.of(TEST_ASSERTION_KIND_CONSTANT_TRUTH),
+                        sourceContent.substringFrom(callExpression),
+                        callExpression.getStartByte());
+            }
+        }
+        return new AssertionSignal(
+                true,
+                false,
+                false,
+                "",
+                0,
+                List.of(),
+                sourceContent.substringFrom(callExpression),
+                callExpression.getStartByte());
+    }
+
+    private AssertionSignal signalFromBinaryEqualityCall(
+            TSNode callExpression, SourceContent sourceContent, TestAssertionWeights w) {
+        TSNode left = nthNamedArgument(callExpression, 0);
+        TSNode right = nthNamedArgument(callExpression, 1);
+        if (left == null || right == null) {
+            return new AssertionSignal(
+                    true,
+                    false,
+                    false,
+                    "",
+                    0,
+                    List.of(),
+                    sourceContent.substringFrom(callExpression),
+                    callExpression.getStartByte());
+        }
+
+        String leftText = sourceContent.substringFrom(left).strip();
+        String rightText = sourceContent.substringFrom(right).strip();
+
+        if (leftText.equals(rightText)) {
+            return new AssertionSignal(
+                    true,
+                    false,
+                    false,
+                    TEST_ASSERTION_KIND_SELF_COMPARISON,
+                    w.tautologicalAssertionWeight(),
+                    List.of(TEST_ASSERTION_KIND_SELF_COMPARISON),
+                    sourceContent.substringFrom(callExpression),
+                    callExpression.getStartByte());
+        }
+        if (isLiteral(left) && isLiteral(right)) {
+            return new AssertionSignal(
+                    true,
+                    false,
+                    false,
+                    TEST_ASSERTION_KIND_CONSTANT_EQUALITY,
+                    w.constantEqualityWeight(),
+                    List.of(TEST_ASSERTION_KIND_CONSTANT_EQUALITY),
+                    sourceContent.substringFrom(callExpression),
+                    callExpression.getStartByte());
+        }
+        if (NULL.equals(left.getType()) || NULL.equals(right.getType())) {
+            return new AssertionSignal(
+                    true,
+                    false,
+                    true,
+                    "",
+                    0,
+                    List.of(),
+                    sourceContent.substringFrom(callExpression),
+                    callExpression.getStartByte());
+        }
+
+        AssertionSignal overspecified = overspecifiedLiteralSignal(callExpression, sourceContent, w);
+        if (overspecified != null) {
+            return overspecified;
+        }
+
+        return new AssertionSignal(
+                false,
+                true,
+                false,
+                "",
+                0,
+                List.of(),
+                sourceContent.substringFrom(callExpression),
+                callExpression.getStartByte());
+    }
+
+    private AssertionSignal signalFromScalaAssert(
+            TSNode callExpression, SourceContent sourceContent, TestAssertionWeights w) {
+        TSNode condition = nthNamedArgument(callExpression, 0);
+        if (condition == null) {
+            return new AssertionSignal(
+                    true,
+                    false,
+                    false,
+                    "",
+                    0,
+                    List.of(),
+                    sourceContent.substringFrom(callExpression),
+                    callExpression.getStartByte());
+        }
+
+        String conditionText = sourceContent.substringFrom(condition).strip();
+        if ("true".equals(conditionText) || "false".equals(conditionText)) {
+            return new AssertionSignal(
+                    true,
+                    false,
+                    false,
+                    TEST_ASSERTION_KIND_CONSTANT_TRUTH,
+                    w.constantTruthWeight(),
+                    List.of(TEST_ASSERTION_KIND_CONSTANT_TRUTH),
+                    sourceContent.substringFrom(callExpression),
+                    callExpression.getStartByte());
+        }
+
+        if (INFIX_EXPRESSION.equals(condition.getType())) {
+            return signalFromEqualityExpression(condition, sourceContent, w, callExpression.getStartByte());
+        }
+
+        TSNode descendantInfix = findFirstNamedDescendant(condition, INFIX_EXPRESSION);
+        if (descendantInfix != null) {
+            return signalFromEqualityExpression(descendantInfix, sourceContent, w, callExpression.getStartByte());
+        }
+
+        AssertionSignal overspecified = overspecifiedLiteralSignal(condition, sourceContent, w);
+        if (overspecified != null) {
+            return overspecified;
+        }
+
+        return new AssertionSignal(
+                false,
+                true,
+                false,
+                "",
+                0,
+                List.of(),
+                sourceContent.substringFrom(callExpression),
+                callExpression.getStartByte());
+    }
+
+    private AssertionSignal signalFromEqualityExpression(
+            TSNode infixExpression, SourceContent sourceContent, TestAssertionWeights w, int startByte) {
+        TSNode operatorNode = operatorNodeOfInfix(infixExpression);
+        if (operatorNode == null) {
+            return new AssertionSignal(
+                    false, true, false, "", 0, List.of(), sourceContent.substringFrom(infixExpression), startByte);
+        }
+        String operator = sourceContent.substringFrom(operatorNode).strip();
+        if (!"==".equals(operator) && !"!=".equals(operator)) {
+            AssertionSignal overspecified = overspecifiedLiteralSignal(infixExpression, sourceContent, w);
+            if (overspecified != null) {
+                return overspecified;
+            }
+            return new AssertionSignal(
+                    false, true, false, "", 0, List.of(), sourceContent.substringFrom(infixExpression), startByte);
+        }
+
+        TSNode left = infixExpression.getNamedChild(0);
+        TSNode right = infixExpression.getNamedChild(infixExpression.getNamedChildCount() - 1);
+        if (left == null || right == null) {
+            return new AssertionSignal(
+                    false, true, false, "", 0, List.of(), sourceContent.substringFrom(infixExpression), startByte);
+        }
+
+        String leftText = sourceContent.substringFrom(left).strip();
+        String rightText = sourceContent.substringFrom(right).strip();
+        if (isLiteral(left) && isLiteral(right)) {
+            return new AssertionSignal(
+                    true,
+                    false,
+                    false,
+                    TEST_ASSERTION_KIND_CONSTANT_EQUALITY,
+                    w.constantEqualityWeight(),
+                    List.of(TEST_ASSERTION_KIND_CONSTANT_EQUALITY),
+                    sourceContent.substringFrom(infixExpression),
+                    startByte);
+        }
+        if (leftText.equals(rightText)) {
+            return new AssertionSignal(
+                    true,
+                    false,
+                    false,
+                    TEST_ASSERTION_KIND_SELF_COMPARISON,
+                    w.tautologicalAssertionWeight(),
+                    List.of(TEST_ASSERTION_KIND_SELF_COMPARISON),
+                    sourceContent.substringFrom(infixExpression),
+                    startByte);
+        }
+        if (NULL.equals(left.getType()) || NULL.equals(right.getType())) {
+            return new AssertionSignal(
+                    true, false, true, "", 0, List.of(), sourceContent.substringFrom(infixExpression), startByte);
+        }
+
+        AssertionSignal overspecified = overspecifiedLiteralSignal(infixExpression, sourceContent, w);
+        if (overspecified != null) {
+            return overspecified;
+        }
+
+        return new AssertionSignal(
+                false, true, false, "", 0, List.of(), sourceContent.substringFrom(infixExpression), startByte);
+    }
+
+    private Optional<AssertionSignal> extractAssertionSignalFromScalatestInfix(
+            TSNode infixExpression, SourceContent sourceContent, TestAssertionWeights w) {
+        TSNode operatorNode = operatorNodeOfInfix(infixExpression);
+        if (operatorNode == null) {
+            return Optional.empty();
+        }
+        String operator = sourceContent.substringFrom(operatorNode).strip();
+        if (!"shouldBe".equals(operator) && !"mustBe".equals(operator)) {
+            return Optional.empty();
+        }
+
+        TSNode left = infixExpression.getNamedChild(0);
+        TSNode right = infixExpression.getNamedChild(infixExpression.getNamedChildCount() - 1);
+        if (left == null || right == null) {
+            return Optional.empty();
+        }
+
+        String leftText = sourceContent.substringFrom(left).strip();
+        String rightText = sourceContent.substringFrom(right).strip();
+        if (leftText.equals(rightText)) {
+            return Optional.of(new AssertionSignal(
+                    true,
+                    false,
+                    false,
+                    TEST_ASSERTION_KIND_SELF_COMPARISON,
+                    w.tautologicalAssertionWeight(),
+                    List.of(TEST_ASSERTION_KIND_SELF_COMPARISON),
+                    sourceContent.substringFrom(infixExpression),
+                    infixExpression.getStartByte()));
+        }
+        if (isLiteral(left) && isLiteral(right)) {
+            return Optional.of(new AssertionSignal(
+                    true,
+                    false,
+                    false,
+                    TEST_ASSERTION_KIND_CONSTANT_EQUALITY,
+                    w.constantEqualityWeight(),
+                    List.of(TEST_ASSERTION_KIND_CONSTANT_EQUALITY),
+                    sourceContent.substringFrom(infixExpression),
+                    infixExpression.getStartByte()));
+        }
+        if (NULL.equals(left.getType()) || NULL.equals(right.getType())) {
+            return Optional.of(new AssertionSignal(
+                    true,
+                    false,
+                    true,
+                    "",
+                    0,
+                    List.of(),
+                    sourceContent.substringFrom(infixExpression),
+                    infixExpression.getStartByte()));
+        }
+
+        AssertionSignal overspecified = overspecifiedLiteralSignal(infixExpression, sourceContent, w);
+        if (overspecified != null) {
+            return Optional.of(overspecified);
+        }
+
+        return Optional.of(new AssertionSignal(
+                false,
+                true,
+                false,
+                "",
+                0,
+                List.of(),
+                sourceContent.substringFrom(infixExpression),
+                infixExpression.getStartByte()));
+    }
+
+    private @Nullable AssertionSignal overspecifiedLiteralSignal(
+            TSNode node, SourceContent sourceContent, TestAssertionWeights w) {
+        var strings = new ArrayList<TSNode>();
+        collectNodesByType(node, Set.of(STRING, INTERPOLATED_STRING, INTERPOLATED_VERBATIM_STRING), strings);
+        for (TSNode stringNode : strings) {
+            if (sourceContent.substringFrom(stringNode).length() > w.largeLiteralLengthThreshold()) {
+                return new AssertionSignal(
+                        true,
+                        false,
+                        false,
+                        TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL,
+                        w.overspecifiedLiteralWeight(),
+                        List.of(TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL),
+                        sourceContent.substringFrom(node),
+                        node.getStartByte());
+            }
+        }
+        return null;
+    }
+
+    private static @Nullable TSNode nthNamedArgument(TSNode callExpression, int idx) {
+        TSNode args = callExpression.getChildByFieldName(ARGUMENTS);
+        if (args == null) {
+            args = callExpression.getChildByFieldName(ARGUMENT);
+        }
+        if (args == null) {
+            for (int i = 0; i < callExpression.getNamedChildCount(); i++) {
+                TSNode child = callExpression.getNamedChild(i);
+                if (child == null) {
+                    continue;
+                }
+                String type = child.getType();
+                if (ARGUMENTS.equals(type)
+                        || ARGUMENT.equals(type)
+                        || ARGUMENT_LIST.equals(type)
+                        || ARGUMENTS_LIST.equals(type)) {
+                    args = child;
+                    break;
+                }
+            }
+        }
+        if (args == null) {
+            int argIndex = 1 + idx;
+            if (callExpression.getNamedChildCount() <= argIndex) {
+                return null;
+            }
+            TSNode child = callExpression.getNamedChild(argIndex);
+            if (child == null) {
+                return null;
+            }
+            String type = child.getType();
+            if (ARGUMENTS.equals(type) || ARGUMENT_LIST.equals(type) || ARGUMENTS_LIST.equals(type)) {
+                return child.getNamedChildCount() > idx ? child.getNamedChild(idx) : null;
+            }
+            return child;
+        }
+        return args.getNamedChildCount() > idx ? args.getNamedChild(idx) : null;
+    }
+
+    private static @Nullable TSNode firstBlockLikeChild(TSNode node) {
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            String type = child.getType();
+            if (BLOCK.equals(type) || INDENTED_BLOCK.equals(type) || BLOCK_EXPRESSION.equals(type)) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private static @Nullable TSNode firstBlockLikeDescendant(TSNode node) {
+        TSNode block = findFirstNamedDescendant(node, BLOCK);
+        if (block != null) {
+            return block;
+        }
+        TSNode indented = findFirstNamedDescendant(node, INDENTED_BLOCK);
+        if (indented != null) {
+            return indented;
+        }
+        return findFirstNamedDescendant(node, BLOCK_EXPRESSION);
     }
 
     private boolean isLiteral(TSNode node) {
@@ -656,7 +1297,36 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                             }
                         }
                     }
-                    return false;
+
+                    // Fallback via direct syntax traversal (no string parsing).
+                    var callExpressions = new ArrayList<TSNode>();
+                    collectNodesByType(rootNode, Set.of(CALL_EXPRESSION), callExpressions);
+                    if (callExpressions.stream().anyMatch(call -> callNameOf(call, sourceContent)
+                            .filter("test"::equals)
+                            .isPresent())) {
+                        return true;
+                    }
+
+                    var infixExpressions = new ArrayList<TSNode>();
+                    collectNodesByType(rootNode, Set.of(INFIX_EXPRESSION), infixExpressions);
+                    if (infixExpressions.stream().anyMatch(infix -> {
+                        TSNode op = operatorNodeOfInfix(infix);
+                        return op != null
+                                && TEST_INFIX_KEYWORDS.contains(
+                                        sourceContent.substringFrom(op).strip());
+                    })) {
+                        return true;
+                    }
+
+                    var annotations = new ArrayList<TSNode>();
+                    collectNodesByType(rootNode, Set.of(ANNOTATION), annotations);
+                    return annotations.stream().anyMatch(annotation -> {
+                        TSNode nameNode = annotation.getChildByFieldName("name");
+                        return nameNode != null
+                                && TYPE_IDENTIFIER.equals(nameNode.getType())
+                                && TEST_ANNOTATIONS.contains(
+                                        sourceContent.substringFrom(nameNode).strip());
+                    });
                 },
                 false);
     }
