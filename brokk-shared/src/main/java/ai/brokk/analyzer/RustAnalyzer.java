@@ -764,6 +764,9 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         var arms = new ArrayList<TSNode>();
         collectNodesByType(matchExpr, Set.of(MATCH_ARM), arms);
         for (TSNode arm : arms) {
+            if (!belongsToMatchExpression(arm, matchExpr)) {
+                continue;
+            }
             TSNode pattern = arm.getChildByFieldName("pattern");
             if (pattern == null && arm.getNamedChildCount() > 0) {
                 pattern = arm.getNamedChild(0);
@@ -783,6 +786,17 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             analyzeRustHandlerBody(file, body, sourceContent, weights, base, baseReason)
                     .ifPresent(out::add);
         }
+    }
+
+    private static boolean belongsToMatchExpression(TSNode arm, TSNode matchExpr) {
+        TSNode parent = arm.getParent();
+        while (parent != null && !MATCH_EXPRESSION.equals(parent.getType())) {
+            parent = parent.getParent();
+        }
+        if (parent == null) {
+            return false;
+        }
+        return parent.getStartByte() == matchExpr.getStartByte() && parent.getEndByte() == matchExpr.getEndByte();
     }
 
     private static boolean matchContainsCatchUnwindCall(TSNode matchExpr, SourceContent sourceContent) {

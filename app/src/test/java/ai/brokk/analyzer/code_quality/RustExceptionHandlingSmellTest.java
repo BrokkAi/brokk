@@ -108,6 +108,37 @@ public class RustExceptionHandlingSmellTest {
                 "Expected the flagged handler to be the empty nested if-let body, not the outer if body");
     }
 
+    @Test
+    void doesNotAnalyzeNestedMatchArmsUnderOuterMatchContext() {
+        String code =
+                """
+                pub fn run() {
+                    let outer: Result<(), ()> = Ok(());
+                    let inner: Result<(), ()> = Err(());
+                    match outer {
+                        Ok(_) => {
+                            match inner {
+                                Ok(_) => (),
+                                Err(_) => {
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            let a = 1;
+                            let b = 2;
+                            let c = a + b;
+                            let d = c + 1;
+                            let e = d + 1;
+                            let _ = e;
+                        }
+                    }
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(findings.size() == 1, "Expected only the inner match Err arm to be flagged");
+        assertTrue(findings.getFirst().reasons().contains("empty-body"));
+    }
+
     private List<IAnalyzer.ExceptionHandlingSmell> analyze(String source) {
         try (var testProject =
                 InlineTestProjectCreator.code(source, "src/lib.rs").build()) {
