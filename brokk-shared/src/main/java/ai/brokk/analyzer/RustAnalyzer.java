@@ -728,12 +728,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         var functions = new ArrayList<TSNode>();
         collectNodesByType(root, Set.of(FUNCTION_ITEM), functions);
         var testFunctions = rustFunctionsWithDirectTestAttribute(root, sourceContent);
-        boolean fallbackAllFunctionsAsTests =
-                testFunctions.isEmpty() && sourceContent.text().contains(TEST_ATTRIBUTE_MARKER);
 
         var candidates = new ArrayList<TestSmellCandidate>();
         for (TSNode function : functions) {
-            if (!fallbackAllFunctionsAsTests && !testFunctions.contains(function)) {
+            if (!testFunctions.contains(function)) {
                 continue;
             }
 
