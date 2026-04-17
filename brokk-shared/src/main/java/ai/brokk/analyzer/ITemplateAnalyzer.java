@@ -1,0 +1,118 @@
+package ai.brokk.analyzer;
+
+import ai.brokk.project.ICoreProject;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Focuses on DSLs (Domain Specific Languages) that exist in the context of a Host language.
+ * Designed to be triggered by a Host IAnalyzer through the MultiAnalyzer.
+ */
+public interface ITemplateAnalyzer {
+
+    /**
+     * Returns true if this template analyzer should be active for the given project.
+     * This typically checks for framework-specific markers, dependencies, or configuration files.
+     */
+    boolean isApplicable(ICoreProject projectRoot);
+
+    /**
+     * @return The human-readable name of the analyzer (e.g., "Angular").
+     */
+    String name();
+
+    /**
+     * @return The unique internal name of the analyzer (e.g., "ANGULAR").
+     */
+    String internalName();
+
+    /**
+     * @return A list of file extensions this analyzer handles (e.g., ".html", ".template").
+     */
+    List<String> getSupportedExtensions();
+
+    /**
+     * Responds to signals emitted by a host analyzer.
+     *
+     * @param signal The event type (e.g., "COMPONENT_FOUND")
+     * @param payload Includes context-specific data like the host CodeUnit and template ProjectFile
+     * @param globalState The full AnalyzerState snapshot for cross-referencing
+     */
+    void onHostSignal(String signal, Map<String, Object> payload, TreeSitterAnalyzer.AnalyzerState globalState);
+
+    /**
+     * Performs analysis on a template file associated with a specific host class.
+     *
+     * @param hostAnalyzer The IAnalyzer that provides context for the host language (e.g., TypeScriptAnalyzer)
+     * @param templateFile The template file to analyze
+     * @param hostClass    The CodeUnit of the component/class in the host language
+     * @return Results to be merged into the final project report
+     */
+    TemplateAnalysisResult analyzeTemplate(IAnalyzer hostAnalyzer, ProjectFile templateFile, CodeUnit hostClass);
+
+    /**
+     * Returns the current analysis state for persistence.
+     */
+    List<TemplateAnalysisResult> snapshotState();
+
+    /**
+     * Restores the analyzer state from a previously persisted snapshot.
+     */
+    void restoreState(List<TemplateAnalysisResult> state);
+
+    /**
+     * Returns the template sources associated with the given host class.
+     *
+     * @param hostClass The CodeUnit of the component/class in the host language.
+     * @return A set of template source strings.
+     */
+    default Set<String> getTemplateSources(CodeUnit hostClass) {
+        return Set.of();
+    }
+
+    /**
+     * Returns the template files associated with the given host class.
+     *
+     * @param hostClass      The CodeUnit of the component/class in the host language.
+     * @param project The core project used to resolve relative paths to ProjectFiles.
+     * @return A set of template ProjectFiles.
+     */
+    default Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, ICoreProject project) {
+        return Set.of();
+    }
+
+    /**
+     * Returns host language class(es) that own the given external template file, if known.
+     *
+     * <p>This is the inverse of {@link #getTemplateFiles(CodeUnit, ICoreProject)} for templates backed by a file (e.g.
+     * Angular {@code templateUrl}). Inline-only templates typically have no file and yield an empty set.
+     *
+     * @param templateFile a template file on disk (same project root as {@code project})
+     * @param project the core project
+     * @return host component/class code units associated with that template file
+     */
+    default Set<CodeUnit> getHostClassesForTemplate(ProjectFile templateFile, ICoreProject project) {
+        return Set.of();
+    }
+
+    /**
+     * Top-level declarations for a template file when the host language delegate does not handle this extension (e.g.
+     * Angular HTML alongside a TypeScript-only delegate map).
+     */
+    default List<CodeUnit> getTopLevelDeclarations(ProjectFile file, ICoreProject project) {
+        return List.of();
+    }
+
+    /**
+     * Provides a summary (skeletons/definitions) of the template file itself.
+     *
+     * @param templateFile   The template file to summarize.
+     * @param project The project.
+     * @return An Optional containing the template summary text, if available.
+     */
+    default Optional<String> summarizeTemplate(ProjectFile templateFile, ICoreProject project) {
+        return Optional.empty();
+    }
+}

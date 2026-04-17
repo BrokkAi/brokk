@@ -28,6 +28,7 @@ public class FileAnalysisAccumulator {
     private final Map<CodeUnit, Set<Range>> sourceRanges = new LinkedHashMap<>();
     private final Map<CodeUnit, Boolean> hasBody = new HashMap<>();
     private final Map<CodeUnit, Boolean> isTypeAlias = new HashMap<>();
+    private final Map<CodeUnit, Map<String, Object>> attributes = new HashMap<>();
     private final Map<String, Set<CodeUnit>> codeUnitsBySymbol = new HashMap<>();
     private final Map<String, CodeUnit> cuByFqName = new HashMap<>();
     private final Map<CodeUnit, Set<String>> lookupKeys = new HashMap<>();
@@ -101,6 +102,15 @@ public class FileAnalysisAccumulator {
     }
 
     /**
+     * Sets a custom attribute for a CodeUnit.
+     * @return this accumulator for chaining.
+     */
+    public FileAnalysisAccumulator setAttribute(CodeUnit cu, String key, Object value) {
+        attributes.computeIfAbsent(cu, k -> new HashMap<>()).put(key, value);
+        return this;
+    }
+
+    /**
      * Indexes a CodeUnit by a symbol. Mutations should only be performed via these APIs.
      * @return this accumulator for chaining.
      */
@@ -134,6 +144,7 @@ public class FileAnalysisAccumulator {
         sourceRanges.remove(cu);
         hasBody.remove(cu);
         isTypeAlias.remove(cu);
+        attributes.remove(cu);
         removeFromSymbolIndex(cu);
 
         Set<String> keys = lookupKeys.remove(cu);
@@ -243,6 +254,10 @@ public class FileAnalysisAccumulator {
         return ranges == null ? List.of() : List.copyOf(ranges);
     }
 
+    public Map<String, Object> getAttributes(CodeUnit cu) {
+        return attributes.getOrDefault(cu, Collections.emptyMap());
+    }
+
     public List<String> getLookupKeys(CodeUnit cu) {
         Set<String> keys = lookupKeys.get(cu);
         return keys == null ? List.of() : List.copyOf(keys);
@@ -296,10 +311,12 @@ public class FileAnalysisAccumulator {
         unionKeys.addAll(signatures.keySet());
         unionKeys.addAll(sourceRanges.keySet());
         unionKeys.addAll(isTypeAlias.keySet());
+        unionKeys.addAll(attributes.keySet());
         for (var cu : unionKeys) {
             var kids = children.getOrDefault(cu, Collections.emptySet());
             var sigs = signatures.getOrDefault(cu, Collections.emptySet());
             var rngs = sourceRanges.getOrDefault(cu, Collections.emptySet());
+            var attrs = attributes.getOrDefault(cu, Collections.emptyMap());
             localStates.put(
                     cu,
                     new CodeUnitProperties(
@@ -307,7 +324,8 @@ public class FileAnalysisAccumulator {
                             Collections.unmodifiableSequencedSet(new LinkedHashSet<>(sigs)),
                             Collections.unmodifiableSequencedSet(new LinkedHashSet<>(rngs)),
                             hasBody.getOrDefault(cu, false),
-                            isTypeAlias.getOrDefault(cu, false)));
+                            isTypeAlias.getOrDefault(cu, false),
+                            Map.copyOf(attrs)));
         }
         return localStates;
     }

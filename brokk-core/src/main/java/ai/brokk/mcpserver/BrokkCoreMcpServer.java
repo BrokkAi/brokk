@@ -272,8 +272,11 @@ public class BrokkCoreMcpServer {
 
         specs.add(tool(
                 "getFileSummaries",
-                "Returns class skeletons (fields + method signatures, no bodies) for all classes in the "
-                        + "specified files. Supports glob patterns: '*' matches one directory, '**' matches recursively.",
+                "Returns per-file summaries for the specified paths. For ordinary source files: class skeletons "
+                        + "(fields + method signatures, no bodies). For supported framework template DSLs "
+                        + "(e.g. Angular .component.html): structured template summaries listing components, bindings, "
+                        + "pipes, events, control flow, directives, and related symbols. "
+                        + "Supports glob patterns: '*' matches one directory, '**' matches recursively.",
                 schema(
                         Map.of("filePaths", arrayProp("File paths relative to project root. Supports glob patterns.")),
                         List.of("filePaths")),

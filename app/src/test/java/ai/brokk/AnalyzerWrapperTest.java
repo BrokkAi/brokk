@@ -4,9 +4,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.frameworks.AngularTemplateAnalyzer;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestAnalyzerWrapper;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.FileUtil;
@@ -239,8 +242,43 @@ class AnalyzerWrapperTest {
     }
 
     /**
-     * Test isPaused() method returns correct state.
+     * Test that AnalyzerWrapper correctly discovers and sets up template DSLs (like Angular).
      */
+    @Test
+    void testTemplateAnalyzerDiscovery() throws Exception {
+        String packageJson =
+                """
+                {
+                  "dependencies": {
+                    "@angular/core": "^17.0.0"
+                  }
+                }
+                """;
+
+        // 1. Create a project that triggers AngularTemplateAnalyzer
+        try (var testProject = InlineTestProjectCreator.empty()
+                .addFileContents(packageJson, "package.json")
+                .addFileContents("export class AppComponent {}", "app.component.ts")
+                .addFileContents("<div></div>", "app.component.html")
+                .build()) {
+
+            // 2. Instantiate AnalyzerWrapper
+            analyzerWrapper = new AnalyzerWrapper(testProject, new NullAnalyzerListener(), new NoopWatchService());
+
+            // 3. Assert it returns a MultiAnalyzer containing AngularTemplateAnalyzer
+            IAnalyzer analyzer = analyzerWrapper.get();
+
+            assertTrue(
+                    analyzer instanceof MultiAnalyzer, "Analyzer should be a MultiAnalyzer when templates are present");
+            MultiAnalyzer multi = (MultiAnalyzer) analyzer;
+
+            boolean hasAngular =
+                    multi.getTemplateAnalyzers().stream().anyMatch(ta -> ta instanceof AngularTemplateAnalyzer);
+
+            assertTrue(hasAngular, "MultiAnalyzer should contain AngularTemplateAnalyzer");
+        }
+    }
+
     @Test
     void testIsPausedReturnsCorrectState() throws Exception {
         var projectRoot = tempDir.resolve("project");
@@ -643,6 +681,91 @@ class AnalyzerWrapperTest {
         // Even if persistAnalyzerState runs shortly after, the file we wrote was "dummy content"
         // and we are checking for deletion immediately following the update logic.
         assertFalse(Files.exists(storagePath), "Dummy storage file should have been deleted by explicit rebuild");
+    }
+
+    @Test
+    void testAngularTemplateCacheRestoration() throws Exception {
+        String packageJson =
+                """
+                {
+                  "dependencies": {
+                    "@angular/core": "^17.0.0"
+                  }
+                }
+                """;
+
+        String componentTs =
+                """
+                import { Component } from '@angular/core';
+                @Component({
+                  selector: 'app-root',
+                  templateUrl: './app.component.html'
+                })
+                export class AppComponent {}
+                """;
+
+        String templateHtml = "<div>Hello World</div>";
+
+        try (var testProject = InlineTestProjectCreator.empty()
+                .addFileContents(packageJson, "package.json")
+                .addFileContents(componentTs, "app.component.ts")
+                .addFileContents(templateHtml, "app.component.html")
+                .build()) {
+
+            ProjectFile htmlFile =
+                    testProject.getFileByRelPath(Path.of("app.component.html")).orElseThrow();
+
+            // 1. Initial analysis to populate caches
+            analyzerWrapper = new AnalyzerWrapper(testProject, new NullAnalyzerListener(), new NoopWatchService());
+            IAnalyzer firstAnalyzer = analyzerWrapper.get();
+
+            // Verify Angular analyzer is active and has results
+            assertTrue(firstAnalyzer instanceof MultiAnalyzer);
+            MultiAnalyzer multi = (MultiAnalyzer) firstAnalyzer;
+
+            Path tsCache = Languages.TYPESCRIPT.getStoragePath(testProject);
+            Path angularCache = new AngularTemplateAnalyzer().getStoragePath(testProject.getRoot());
+            // Background refresh persists TS + framework templates on the analyzer executor; do not call
+            // multi.snapshotState() here (would race concurrent persist and the same MultiAnalyzer).
+            long deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(15);
+            while (System.currentTimeMillis() < deadline && (!Files.exists(tsCache) || !Files.exists(angularCache))) {
+                Thread.sleep(50);
+            }
+            assertTrue(Files.exists(tsCache), "TS cache should exist after background persist");
+            assertTrue(Files.exists(angularCache), "Angular cache should exist after background persist");
+
+            AngularTemplateAnalyzer angular = multi.getTemplateAnalyzers().stream()
+                    .filter(ta -> ta instanceof AngularTemplateAnalyzer)
+                    .map(ta -> (AngularTemplateAnalyzer) ta)
+                    .findFirst()
+                    .orElseThrow();
+
+            assertFalse(angular.snapshotState().isEmpty(), "Should have template results after first analysis");
+
+            // 2. Shut down and manipulate caches
+            analyzerWrapper.close();
+
+            // Delete TS cache but KEEP Angular cache
+            Files.delete(tsCache);
+
+            // 3. Restart and verify restoration
+            analyzerWrapper = new AnalyzerWrapper(testProject, new NullAnalyzerListener(), new NoopWatchService());
+            IAnalyzer secondAnalyzer = analyzerWrapper.get();
+
+            MultiAnalyzer secondMulti = (MultiAnalyzer) secondAnalyzer;
+            AngularTemplateAnalyzer secondAngular = secondMulti.getTemplateAnalyzers().stream()
+                    .filter(ta -> ta instanceof AngularTemplateAnalyzer)
+                    .map(ta -> (AngularTemplateAnalyzer) ta)
+                    .findFirst()
+                    .orElseThrow();
+
+            // Verify that the template results were restored even if TS started from scratch
+            var state = secondAngular.snapshotState();
+            boolean hasTemplateResult =
+                    state.stream().anyMatch(r -> r.templateFile().equals(htmlFile));
+
+            assertTrue(hasTemplateResult, "AngularTemplateAnalyzer should have restored results from its own cache");
+        }
     }
 
     @Test

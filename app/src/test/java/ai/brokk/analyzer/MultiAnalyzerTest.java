@@ -2,10 +2,14 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.testutil.FailingTemplateAnalyzer;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestTemplateAnalyzer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -172,6 +176,31 @@ public class MultiAnalyzerTest {
         assertDoesNotThrow(() -> multiAnalyzer.getDirectChildren(unknownClass));
         assertDoesNotThrow(() -> multiAnalyzer.getDeclarations(unknownFile));
         assertDoesNotThrow(() -> multiAnalyzer.getSkeletons(unknownFile));
+    }
+
+    @Test
+    public void testGetSources_AggregatesHostAndTemplateEvenIfOneFails() {
+        // GIVEN: A CodeUnit in a TypeScript file
+        var tsFile = new ProjectFile(tempDir, "app.component.ts");
+        var hostClass = CodeUnit.cls(tsFile, "app", "AppComponent");
+
+        // A host analyzer (not used by MultiAnalyzer.getSources for templates, but required for construction)
+        IAnalyzer hostAnalyzer = new TestAnalyzer();
+
+        ITemplateAnalyzer failingTemplate = new FailingTemplateAnalyzer("Failing", "Template analysis failed");
+
+        ITemplateAnalyzer validTemplate =
+                new TestTemplateAnalyzer("Valid", Map.of(hostClass, Set.of("<div>Template Content</div>")));
+
+        MultiAnalyzer ma =
+                new MultiAnalyzer(Map.of(Languages.TYPESCRIPT, hostAnalyzer), List.of(failingTemplate, validTemplate));
+
+        // WHEN: Requesting sources for the host class
+        Set<String> result = ma.getSources(hostClass, true);
+
+        // THEN: We should get the valid template source, despite the failure in between
+        assertEquals(1, result.size(), "Should aggregate available sources");
+        assertTrue(result.contains("<div>Template Content</div>"));
     }
 
     @Test

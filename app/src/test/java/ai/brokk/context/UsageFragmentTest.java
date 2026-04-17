@@ -44,6 +44,12 @@ public class UsageFragmentTest {
 
             var frozen =
                     """
+                    # Usages of p1.A.m1
+
+                    Call sites (2):
+                    - `p1.A.m1` (src/main/java/p1/A.java:1)
+                    - `p2.B.m2` (src/main/java/p2/B.java:1)
+
                     <methods class="p1.A" file="src/main/java/p1/A.java">
                     public void m1() {}
                     </methods>
@@ -97,12 +103,13 @@ public class UsageFragmentTest {
 
             String frozen =
                     """
-                    <methods class=\"p1.A\" file=\"src/main/java/p1/A.java\">
+                    # Usages of p1.A.m1
+
+                    Call sites (2):
+                    - `p1.A.m1` (src/main/java/p1/A.java:1)
+                    - `p3.C.m3` (unknown)
+
                     public void m1() {}
-                    </methods>
-                    <methods class=\"p3.C\">
-                    // unresolved
-                    </methods>
                     """;
 
             var frag = new ContextFragments.UsageFragment("100", cm, "p1.A.m1", true, frozen);
@@ -350,9 +357,6 @@ public class UsageFragmentTest {
             assertTrue(text.contains("short2"), "should include ExternalShort2.short2 source");
             assertTrue(text.contains("short3"), "should include ExternalShort3.short3 source");
             assertTrue(text.contains("veryLongCallSiteExample"), "should include ExternalLong.veryLongCallSiteExample");
-
-            int methodsBlocks = text.split("<methods", -1).length - 1;
-            assertTrue(methodsBlocks >= 4, "expected at least one <methods> block per external call site");
         }
     }
 
@@ -424,9 +428,6 @@ public class UsageFragmentTest {
             assertTrue(text.contains("p.ExternalShort2.short2"), "should list ExternalShort2.short2 call site");
             assertTrue(text.contains("p.ExternalShort3.short3"), "should list ExternalShort3.short3 call site");
             assertTrue(text.contains("p.ExternalLong.veryLongCallSiteExample"), "should list long call site");
-
-            int methodsBlocks = text.split("<methods", -1).length - 1;
-            assertEquals(3, methodsBlocks, "SAMPLE mode should include source for only the 3 shortest call sites");
 
             int idx = text.indexOf("Examples:");
             assertTrue(idx >= 0, "should include Examples section");

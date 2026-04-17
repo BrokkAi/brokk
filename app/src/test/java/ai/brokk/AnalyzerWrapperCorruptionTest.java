@@ -53,6 +53,11 @@ class AnalyzerWrapperCorruptionTest {
             }
 
             @Override
+            public IAnalyzer update() {
+                return this;
+            }
+
+            @Override
             public String toString() {
                 return "RebuiltAnalyzer";
             }
@@ -79,6 +84,11 @@ class AnalyzerWrapperCorruptionTest {
             public IAnalyzer update(Set<ProjectFile> changedFiles) {
                 updateCalled.set(true);
                 // Return ourselves, still corrupt (missing fileA)
+                return this;
+            }
+
+            @Override
+            public IAnalyzer update() {
                 return this;
             }
         };

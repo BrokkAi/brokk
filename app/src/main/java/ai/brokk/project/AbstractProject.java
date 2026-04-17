@@ -46,9 +46,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public static final ObjectMapper objectMapper = new ObjectMapper();
 
     // Brokk directory structure constants
-    public static final String BROKK_DIR = ".brokk";
     public static final String SESSIONS_DIR = "sessions";
-    public static final String CODE_INTELLIGENCE_DIR = "code_intelligence";
     public static final String DEPENDENCIES_DIR = "dependencies";
     public static final String CACHE_DIR = "cache";
     public static final String PROJECT_PROPERTIES_FILE = "project.properties";

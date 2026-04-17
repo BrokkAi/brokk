@@ -4,11 +4,15 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.DisabledAnalyzer;
+import ai.brokk.analyzer.FrameworkTemplate;
+import ai.brokk.analyzer.FrameworkTemplates;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TemplateAnalysisResult;
+import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.project.AbstractProject;
@@ -27,12 +31,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import javax.swing.*;
+import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -306,12 +312,22 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 }
             }
 
+            var templates = FrameworkTemplates.discoverTemplateAnalyzers(project, projectLangs);
+            if (!templates.isEmpty()) {
+                logger.info(
+                        "Discovered {} template analyzers: {}",
+                        templates.size(),
+                        templates.stream().map(it -> it.name()).collect(Collectors.joining(", ")));
+            } else {
+                logger.debug("No template analyzers discovered for this project.");
+            }
+
             if (nextDelegates.isEmpty()) {
                 return new DisabledAnalyzer(project);
-            } else if (nextDelegates.size() == 1) {
+            } else if (nextDelegates.size() == 1 && templates.isEmpty()) {
                 return nextDelegates.values().iterator().next();
             } else {
-                return new MultiAnalyzer(nextDelegates);
+                return new MultiAnalyzer(nextDelegates, templates);
             }
         });
     }
@@ -335,6 +351,16 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
         Set<Language> projectLangsSet = project.getAnalyzerLanguages();
         Language langHandle = Languages.aggregate(projectLangsSet);
+
+        var templates = FrameworkTemplates.discoverTemplateAnalyzers(project, projectLangsSet);
+        if (!templates.isEmpty()) {
+            logger.info(
+                    "Discovered {} template analyzers: {}",
+                    templates.size(),
+                    templates.stream().map(it -> it.name()).collect(Collectors.joining(", ")));
+        } else {
+            logger.debug("No template analyzers discovered for this project.");
+        }
 
         if (langHandle == Languages.NONE) {
             logger.info("No languages configured, using disabled analyzer for: {}", project.getRoot());
@@ -370,85 +396,106 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             if (isStale(lang, storagePath, tracked)) needsRebuild = true; // cache older than sources
         }
 
-        /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
+        /* ── 3.  Load or build the analyzer delegates ───────────────────────────────── */
         // Create progress listener to pass through construction
         IAnalyzer.ProgressListener progressListener = listener::onProgress;
 
-        IAnalyzer analyzer;
-        try {
-            logger.debug("Attempting to load existing analyzer");
-            analyzer = langHandle.loadAnalyzer(project, progressListener);
-            logger.info(
-                    "Loaded existing analyzer: {} for directory: {}",
-                    analyzer.getClass().getSimpleName(),
-                    project.getRoot());
+        Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .collect(Collectors.toSet());
 
-            // Validate the loaded analyzer's state against project files
-            Optional<StateMismatch> mismatch = stateMismatch(analyzer);
-            if (mismatch.isPresent()) {
-                StateMismatch delta = mismatch.get();
-
-                // If languages are missing from the loaded analyzer, we must instantiate them
-                // so that the subsequent update() call can process the missing files.
-                Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
-                        .filter(l -> l != Languages.NONE)
-                        .collect(Collectors.toSet());
-                Set<Language> analyzerLangs = analyzer.languages();
-
-                if (!analyzerLangs.containsAll(projectLangs)) {
-                    Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
-                    for (Language lang : analyzerLangs) {
-                        analyzer.subAnalyzer(lang).ifPresent(sub -> nextDelegates.put(lang, sub));
+        Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
+        for (Language lang : projectLangs) {
+            try {
+                IAnalyzer delegate;
+                try {
+                    logger.debug("Attempting to load existing analyzer for {}", lang.name());
+                    delegate = lang.loadAnalyzer(project, progressListener);
+                } catch (Throwable th) {
+                    logger.warn("Failed to load cached analyzer for {}, creating fresh", lang.name(), th);
+                    try {
+                        delegate = lang.createAnalyzer(project, progressListener);
+                    } catch (Throwable t2) {
+                        logger.error(
+                                "Critical failure creating analyzer for language {}: {}",
+                                lang.name(),
+                                t2.toString(),
+                                t2);
+                        continue;
                     }
-                    for (Language lang : projectLangs) {
-                        if (!nextDelegates.containsKey(lang)) {
-                            logger.info("Instantiating missing analyzer delegate for {} during recovery", lang.name());
-                            nextDelegates.put(lang, lang.createAnalyzer(project, progressListener));
-                        }
-                    }
-                    analyzer = nextDelegates.size() == 1
-                            ? nextDelegates.values().iterator().next()
-                            : new MultiAnalyzer(nextDelegates);
+                    needsRebuild = true;
                 }
+                nextDelegates.put(lang, delegate);
 
-                logger.warn(
-                        "Loaded analyzer state appears corrupt (file mismatch). Attempting targeted repair of {} files.",
-                        delta.missing().size() + delta.unexpected().size());
-
-                analyzer = analyzer.update(delta.all());
-
-                // Prune any delegates for languages no longer in the project after the repair is complete
-                if (!analyzer.languages().equals(projectLangs)) {
-                    Map<Language, IAnalyzer> finalDelegates = new HashMap<>();
-                    for (Language lang : projectLangs) {
-                        analyzer.subAnalyzer(lang).ifPresent(sub -> finalDelegates.put(lang, sub));
+                // Restore template analyzer state
+                for (var ta : templates) {
+                    List<TemplateAnalysisResult> restored = List.of();
+                    // 1. Try to restore from host's TreeSitter state if available
+                    if (delegate instanceof TreeSitterAnalyzer ts) {
+                        restored = ts.snapshotState().templateResults().values().stream()
+                                .flatMap(List::stream)
+                                .filter(r -> r.analyzerName().equals(ta.internalName()))
+                                .toList();
                     }
-                    if (finalDelegates.isEmpty()) {
-                        analyzer = new DisabledAnalyzer(project);
-                    } else if (finalDelegates.size() == 1) {
-                        analyzer = finalDelegates.values().iterator().next();
-                    } else {
-                        analyzer = new MultiAnalyzer(finalDelegates);
+                    // 2. If host had no state for this template, try loading from its own dedicated cache
+                    if (restored.isEmpty() && ta instanceof FrameworkTemplate ft) {
+                        restored = FrameworkTemplates.loadTemplateAnalyzerState(ft, project);
+                    }
+                    if (!restored.isEmpty()) {
+                        ta.restoreState(restored);
                     }
                 }
-
-                if (stateMismatch(analyzer).isPresent()) {
-                    throw new IllegalStateException("Analyzer state remains corrupt after targeted repair attempt.");
-                }
-                // Persist the repaired state so we don't have to repair it again on next load
-                persistAnalyzerState(analyzer);
+            } catch (Throwable th) {
+                logger.error(
+                        "Unexpected failure during analyzer setup for language {}: {}", lang.name(), th.toString(), th);
             }
-        } catch (Throwable th) {
-            // cache missing or corrupt, rebuild
-            logger.warn("Failed to load or validate cached analyzer", th);
-            analyzer = langHandle.createAnalyzer(project, progressListener);
-            logger.info(
-                    "Created new analyzer: {} for directory: {}",
-                    analyzer.getClass().getSimpleName(),
-                    project.getRoot());
-            // Persist analyzer snapshots by language (best-effort)
+        }
+
+        IAnalyzer analyzer = nextDelegates.isEmpty()
+                ? new DisabledAnalyzer(project)
+                : (nextDelegates.size() == 1 && templates.isEmpty())
+                        ? nextDelegates.values().iterator().next()
+                        : new MultiAnalyzer(nextDelegates, templates);
+
+        // Validate the loaded analyzer's state against project files
+        Optional<StateMismatch> mismatch = stateMismatch(analyzer);
+        if (mismatch.isPresent()) {
+            StateMismatch delta = mismatch.get();
+            logger.warn(
+                    "Loaded analyzer state appears corrupt (file mismatch). Attempting targeted repair of {} files.",
+                    delta.all().size());
+
+            analyzer = analyzer.update(delta.all());
+
+            // Check if we need to prune or add delegates after update
+            Set<Language> analyzerLangs = analyzer.languages();
+            if (!analyzerLangs.equals(projectLangs)) {
+                Map<Language, IAnalyzer> finalDelegates = new HashMap<>();
+                for (Language lang : projectLangs) {
+                    analyzer.subAnalyzer(lang).ifPresent(sub -> finalDelegates.put(lang, sub));
+                }
+
+                analyzer = finalDelegates.isEmpty()
+                        ? new DisabledAnalyzer(project)
+                        : (finalDelegates.size() == 1 && templates.isEmpty())
+                                ? finalDelegates.values().iterator().next()
+                                : new MultiAnalyzer(finalDelegates, templates);
+            }
+
+            if (stateMismatch(analyzer).isPresent()) {
+                logger.error("Analyzer state remains corrupt after targeted repair attempt. Triggering full rebuild.");
+                Map<Language, IAnalyzer> finalDelegates = new HashMap<>();
+                for (Language lang : projectLangs) {
+                    finalDelegates.put(lang, lang.createAnalyzer(project, progressListener));
+                }
+                analyzer = finalDelegates.isEmpty()
+                        ? new DisabledAnalyzer(project)
+                        : (finalDelegates.size() == 1 && templates.isEmpty())
+                                ? finalDelegates.values().iterator().next()
+                                : new MultiAnalyzer(finalDelegates, templates);
+            }
+            // Persist the repaired state
             persistAnalyzerState(analyzer);
-            needsRebuild = false;
         }
 
         logger.debug("Analyzer became ready, notifying listeners");
@@ -481,7 +528,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     }
 
     /**
-     * Checks if the analyzer's tracked file set and languages match the project's configuration.
+     * Checks if the analyzer's tracked file set, languages, and template analyzers match the project's configuration.
      * Returns an Optional containing the mismatch details if corruption is detected.
      */
     private Optional<StateMismatch> stateMismatch(IAnalyzer analyzer) {
@@ -495,13 +542,32 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             logger.info("Analyzer language mismatch detected. Project: {}, Analyzer: {}", projectLangs, analyzerLangs);
         }
 
+        // Check for template analyzer mismatch
+        boolean templateMismatch = false;
+        var expectedTemplates = FrameworkTemplates.discoverTemplateAnalyzers(project, projectLangs).stream()
+                .map(it -> it.internalName())
+                .collect(Collectors.toSet());
+        var actualTemplates = (analyzer instanceof MultiAnalyzer ma)
+                ? ma.getTemplateAnalyzers().stream()
+                        .map(it -> it.internalName())
+                        .collect(Collectors.toSet())
+                : Set.of();
+
+        if (!expectedTemplates.equals(actualTemplates)) {
+            templateMismatch = true;
+            logger.info(
+                    "Template analyzer mismatch detected. Expected: {}, Actual: {}",
+                    expectedTemplates,
+                    actualTemplates);
+        }
+
         Set<ProjectFile> expectedFiles = projectLangs.stream()
                 .flatMap(l -> project.getAnalyzableFiles(l).stream())
                 .collect(Collectors.toSet());
 
         Set<ProjectFile> actualFiles = analyzer.getAnalyzedFiles();
 
-        if (langMismatch || !actualFiles.equals(expectedFiles)) {
+        if (langMismatch || templateMismatch || !actualFiles.equals(expectedFiles)) {
             Set<ProjectFile> missing = new HashSet<>(expectedFiles);
             missing.removeAll(actualFiles);
             Set<ProjectFile> unexpected = new HashSet<>(actualFiles);
@@ -725,6 +791,21 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             for (var lang : languages) {
                 deleteStateForLanguage(lang);
             }
+
+            // Delete persisted framework template analyzer state (per framework, by internal name)
+            var langs = project.getAnalyzerLanguages().stream()
+                    .filter(l -> l != Languages.NONE)
+                    .collect(Collectors.toSet());
+            for (var template : FrameworkTemplates.discoverTemplates(project, langs)) {
+                try {
+                    Files.deleteIfExists(template.getStoragePath(project.getRoot()));
+                } catch (IOException e) {
+                    logger.debug(
+                            "Failed to delete framework template state file {}: {}",
+                            template.getStoragePath(project.getRoot()),
+                            e.getMessage());
+                }
+            }
         } catch (Throwable t) {
             logger.debug("Unexpected error in deletePersistedAnalyzerStateFiles(): {}", t.toString());
         }
@@ -818,5 +899,20 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 .toArray(CompletableFuture[]::new);
 
         LoggingFuture.allOf(futures).join();
+
+        if (analyzer instanceof MultiAnalyzer multi) {
+            // Materialize template analysis (Angular, etc.) into template analyzers before persisting;
+            // host-only TreeSitter saves do not populate FrameworkTemplate snapshot maps.
+            multi.snapshotState();
+            for (var ta : multi.getTemplateAnalyzers()) {
+                if (ta instanceof FrameworkTemplate ft) {
+                    try {
+                        FrameworkTemplates.saveTemplateAnalyzerState(ft, project, ta.snapshotState());
+                    } catch (Throwable t) {
+                        logger.debug("Failed persisting template analyzer state for {}: {}", ft.name(), t.toString());
+                    }
+                }
+            }
+        }
     }
 }

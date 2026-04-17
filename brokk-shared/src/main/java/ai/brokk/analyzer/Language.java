@@ -221,7 +221,11 @@ public interface Language {
                 var analyzer = lang.createAnalyzer(project, listener);
                 if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
-            return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
+            var templates = FrameworkTemplates.discoverTemplateAnalyzers(project, languages);
+            if (delegates.size() == 1 && templates.isEmpty()) {
+                return delegates.values().iterator().next();
+            }
+            return new MultiAnalyzer(delegates, templates);
         }
 
         @Override
@@ -231,7 +235,11 @@ public interface Language {
                 var analyzer = lang.loadAnalyzer(project, listener);
                 if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
-            return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
+            var templates = FrameworkTemplates.discoverTemplateAnalyzers(project, languages);
+            if (delegates.size() == 1 && templates.isEmpty()) {
+                return delegates.values().iterator().next();
+            }
+            return new MultiAnalyzer(delegates, templates);
         }
 
         @Override

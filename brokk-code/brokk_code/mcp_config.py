@@ -33,12 +33,16 @@ _BROKK_CODEX_PLUGIN_DISPLAY_NAME = "Brokk"
 _BROKK_INSTRUCTIONS_BODY_CLAUDE = f"""{_BROKK_MARKER}
 - Use callSearchAgent to explore the codebase when you don't know where relevant code lives.
 - Use callCodeAgent (not Edit/Write) for all code changes.
-- Use getFileSummaries to understand the API surface (skeletons) of packages or directories."""
+- Use getFileSummaries to understand the API surface of packages or directories: class skeletons for
+  ordinary source files, and for supported framework DSLs (starting with Angular .component.html)
+  structured template summaries (components, bindings, pipes, events, control flow, etc.)."""
 
 _BROKK_INSTRUCTIONS_BODY_CODEX = f"""{_BROKK_MARKER}
 - Use callSearchAgent to explore the codebase when you don't know where relevant code lives.
 - Use callCodeAgent (not Edit/Write) for all code changes.
-- Use getFileSummaries to understand the API surface (skeletons) of packages or directories.
+- Use getFileSummaries to understand the API surface of packages or directories: class skeletons for
+  ordinary source files, and for supported framework DSLs (starting with Angular .component.html)
+  structured template summaries (components, bindings, pipes, events, control flow, etc.).
 - At the start of each Codex session, activate Brokk MCP for the current workspace by
   calling activateWorkspace."""
 
@@ -1191,19 +1195,23 @@ def install_codex_mcp_workspace_skill(*, skills_path: Path | None = None) -> Pat
 def _build_codex_summaries_skill_markdown() -> str:
     return f"""---
 name: {_BROKK_CODEX_SUMMARIES_SKILL_NAME}
-description: Use getFileSummaries to see class skeletons for packages or directories.
+description: Use getFileSummaries for class skeletons and framework DSL summaries (e.g. Angular
+             templates).
 ---
 
 # Brokk File Summaries
 
 Use this skill to understand the API surface of a package or directory
-without reading full source code.
+without reading full source code. Summaries are not only class skeletons:
+for supported framework template DSLs (starting with Angular `.component.html` files),
+`getFileSummaries` returns structured template-oriented output (components used, bindings,
+pipes, events, control flow, directives, and related symbols) instead of a class API sketch.
 
 ## Guidance
 
 1. Use `getFileSummaries` with glob patterns to get class skeletons
-   (fields and method signatures, no bodies) for files in a package
-   or directory.
+   (fields and method signatures, no bodies) for ordinary source files in a package
+   or directory, or DSL-oriented summaries for supported template files as above.
 2. Only escalate to heavier read tools (`getClassSources`,
    `getMethodSources`) once you have identified the specific classes
    or methods you need.
@@ -1254,19 +1262,23 @@ def install_claude_mcp_workspace_skill(*, skills_path: Path | None = None) -> Pa
 def _build_claude_summaries_skill_markdown() -> str:
     return f"""---
 name: {_BROKK_CLAUDE_SUMMARIES_SKILL_NAME}
-description: Use getFileSummaries to see class skeletons for packages or directories.
+description: Use getFileSummaries for class skeletons and framework DSL summaries (e.g. Angular
+             templates).
 ---
 
 # Brokk File Summaries
 
 Use this skill to understand the API surface of a package or directory
-without reading full source code.
+without reading full source code. Summaries are not only class skeletons:
+for supported framework template DSLs (starting with Angular `.component.html` files),
+`getFileSummaries` returns structured template-oriented output (components used, bindings,
+pipes, events, control flow, directives, and related symbols) instead of a class API sketch.
 
 ## Guidance
 
 1. Use `getFileSummaries` with glob patterns to get class skeletons
-   (fields and method signatures, no bodies) for files in a package
-   or directory.
+   (fields and method signatures, no bodies) for ordinary source files in a package
+   or directory, or DSL-oriented summaries for supported template files as above.
 2. Only escalate to heavier read tools (`getClassSources`,
    `getMethodSources`) once you have identified the specific classes
    or methods you need.

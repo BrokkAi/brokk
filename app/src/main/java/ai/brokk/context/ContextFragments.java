@@ -13,6 +13,7 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
@@ -43,7 +44,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -79,14 +79,32 @@ public class ContextFragments {
     public static final LoggingExecutorService FRAGMENT_EXECUTOR = createFragmentExecutor();
 
     /**
-     * Resolves supporting summary fragments for the direct ancestors of the given code units.
-     * Filters out anonymous units.
+     * Resolves supporting fragments for the given code units, including direct ancestors
+     * and template files/sources for component-like units.
+     *
+     * @param asSummary if true, template files are added as {@link SummaryFragment}s;
+     *                  if false, they are added as {@link ProjectPathFragment}s (full code).
      */
     @Blocking
-    public static Set<ContextFragment> resolveAncestorFragments(
-            Collection<CodeUnit> units, IContextManager contextManager) {
+    public static Set<ContextFragment> resolveRelatedFragments(
+            Collection<CodeUnit> units, IContextManager contextManager, boolean asSummary) {
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-        return units.stream()
+        Set<ContextFragment> supporting = new LinkedHashSet<>();
+
+        Collection<CodeUnit> unitsToResolve = units;
+        if (analyzer instanceof MultiAnalyzer multi) {
+            LinkedHashSet<CodeUnit> expanded = new LinkedHashSet<>(units);
+            var project = contextManager.getProject();
+            for (CodeUnit unit : units) {
+                for (var templateAnalyzer : multi.getTemplateAnalyzers()) {
+                    expanded.addAll(templateAnalyzer.getHostClassesForTemplate(unit.source(), project));
+                }
+            }
+            unitsToResolve = expanded;
+        }
+
+        // 1. Resolve Ancestors
+        unitsToResolve.stream()
                 .filter(CodeUnit::isClass)
                 .flatMap(cu ->
                         analyzer
@@ -98,7 +116,76 @@ public class ContextFragments {
                 .distinct()
                 .map(anc -> new SummaryFragment(
                         contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
-                .collect(Collectors.toSet());
+                .forEach(supporting::add);
+
+        // 2. Host files for external templates (inverse of getTemplateFiles: e.g. .html -> component .ts)
+        if (analyzer instanceof MultiAnalyzer multi) {
+            var project = contextManager.getProject();
+            for (CodeUnit unit : units) {
+                for (var templateAnalyzer : multi.getTemplateAnalyzers()) {
+                    for (CodeUnit host : templateAnalyzer.getHostClassesForTemplate(unit.source(), project)) {
+                        if (asSummary) {
+                            supporting.add(new SummaryFragment(
+                                    contextManager, host.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON));
+                        } else {
+                            supporting.add(new ProjectPathFragment(host.source(), contextManager));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Resolve Templates (Angular/Guest DSLs)
+        if (analyzer instanceof MultiAnalyzer multi) {
+            var templateAnalyzers = multi.getTemplateAnalyzers();
+            logger.debug(
+                    "Resolving templates using MultiAnalyzer with {} template analyzers", templateAnalyzers.size());
+            for (var unit : unitsToResolve) {
+                boolean foundAny = false;
+                for (var templateAnalyzer : templateAnalyzers) {
+                    var files = templateAnalyzer.getTemplateFiles(unit, contextManager.getProject());
+                    if (!files.isEmpty()) {
+                        logger.debug(
+                                "Found {} template files for {} via {}",
+                                files.size(),
+                                unit.shortName(),
+                                templateAnalyzer.name());
+                        files.stream()
+                                .map(f -> asSummary
+                                        ? new SummaryFragment(
+                                                contextManager,
+                                                f.getRelPath().toString(),
+                                                ContextFragment.SummaryType.FILE_SKELETONS)
+                                        : new ProjectPathFragment(f, contextManager))
+                                .forEach(supporting::add);
+                        foundAny = true;
+                    } else if (!asSummary) {
+                        var sources = templateAnalyzer.getTemplateSources(unit);
+                        if (!sources.isEmpty()) {
+                            logger.debug(
+                                    "Found {} template sources for {} via {}",
+                                    sources.size(),
+                                    unit.shortName(),
+                                    templateAnalyzer.name());
+                            String combinedSource = String.join("\n\n", sources);
+                            supporting.add(new StringFragment(
+                                    contextManager,
+                                    combinedSource,
+                                    "Inline template for " + unit.shortName(),
+                                    "text/html"));
+                            foundAny = true;
+                        }
+                    }
+                }
+                if (!foundAny) {
+                    logger.debug("No template files or sources found for CodeUnit: {}", unit.shortName());
+                }
+            }
+        } else {
+            logger.debug("Analyzer is not a MultiAnalyzer; skipping template resolution.");
+        }
+
+        return supporting;
     }
 
     public static byte @Nullable [] convertToByteArray(@Nullable List<Byte> imageBytes) {
@@ -507,7 +594,7 @@ public class ContextFragments {
         @Blocking
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-            return resolveAncestorFragments(analyzer.getTopLevelDeclarations(file), contextManager);
+            return resolveRelatedFragments(analyzer.getTopLevelDeclarations(file), contextManager, false);
         }
     }
 
@@ -1258,7 +1345,7 @@ public class ContextFragments {
         }
 
         private static UsageMode inferUsageModeFromFrozenText(String snapshotText) {
-            return snapshotText.contains("Call sites (") ? UsageMode.SAMPLE : UsageMode.FULL;
+            return snapshotText.contains("\nExamples:\n") ? UsageMode.SAMPLE : UsageMode.FULL;
         }
 
         private static ContentSnapshot decodeFrozen(IContextManager contextManager, byte[] bytes) {
@@ -1267,68 +1354,6 @@ public class ContextFragments {
 
             Set<ProjectFile> files = new LinkedHashSet<>();
             Set<CodeUnit> units = new LinkedHashSet<>();
-
-            // Match each <methods ...>...</methods> block
-            var blockMatcher =
-                    Pattern.compile("(?is)<methods\\s+([^>]*)>(.*?)</methods>").matcher(text);
-
-            // Support attributes with:
-            // - standard quotes: key="value"
-            // - single quotes: key='value'
-            // - backslash-escaped quotes: key=\"value\"
-            var attrPattern = Pattern.compile(
-                    "(\\w+)\\s*=\\s*(?:\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"|'([^'\\\\]*(?:\\\\.[^'\\\\]*)*)'|([^\\s>]+))");
-
-            while (blockMatcher.find()) {
-                String attrs = blockMatcher.group(1);
-
-                Map<String, String> attrMap = new HashMap<>();
-                var attrMatcher = attrPattern.matcher(attrs);
-                while (attrMatcher.find()) {
-                    String key = attrMatcher.group(1);
-                    String value = Stream.of(attrMatcher.group(2), attrMatcher.group(3), attrMatcher.group(4))
-                            .filter(Objects::nonNull)
-                            .findFirst()
-                            .orElse(null);
-                    if (value != null) {
-                        value = value.replace("\\\"", "\"").replace("\\'", "'");
-                        if ((value.startsWith("\"") && value.endsWith("\""))
-                                || (value.startsWith("'") && value.endsWith("'"))) {
-                            value = value.substring(1, value.length() - 1);
-                        }
-                        attrMap.put(key, value);
-                    }
-                }
-
-                String classFqn = Optional.ofNullable(attrMap.get("class"))
-                        .map(String::trim)
-                        .filter(s -> !s.isBlank())
-                        .orElse(null);
-                String fileRelPathRaw = Optional.ofNullable(attrMap.get("file"))
-                        .map(String::trim)
-                        .filter(s -> !s.isBlank())
-                        .orElse(null);
-
-                // Resolve file attribute if present, normalizing separators for cross-OS compatibility
-                if (fileRelPathRaw != null) {
-                    String fileRelPath = fileRelPathRaw.replace('\\', '/');
-                    try {
-                        ProjectFile pf = contextManager.toFile(fileRelPath);
-                        files.add(pf);
-                    } catch (Exception t) {
-                        logger.warn("Unable to resolve ProjectFile for '{}'", fileRelPathRaw, t);
-                    }
-                }
-
-                // Resolve class unit(s)
-                if (classFqn != null) {
-                    try {
-                        units.addAll(analyzer.getDefinitions(classFqn));
-                    } catch (Exception e) {
-                        logger.warn("Unable to resolve class CodeUnit for '{}'", classFqn, e);
-                    }
-                }
-            }
 
             // SAMPLE-mode frozen text also contains a call-site list. Rebuild sources/files from that list as well.
             var callSiteMatcher = Pattern.compile("(?m)^-\\s*`([^`]+)`(?:\\s*\\(([^)]*)\\))?\\s*$")
@@ -1478,9 +1503,20 @@ public class ContextFragments {
                     .flatMap(Optional::stream)
                     .toList();
 
-            String header = "# Usages of " + targetIdentifier + "\n\nFound " + externalHits.size() + " call sites.\n\n";
+            StringBuilder sb =
+                    new StringBuilder("# Usages of ").append(targetIdentifier).append("\n\n");
+            sb.append("Call sites (").append(externalHits.size()).append("):\n");
+            externalHits.forEach(hit -> sb.append("- `")
+                    .append(hit.enclosing().fqName())
+                    .append("` (")
+                    .append(hit.file().getFileName())
+                    .append(":")
+                    .append(hit.line())
+                    .append(")\n"));
+            sb.append("\n");
+
             String body = AnalyzerUtil.CodeWithSource.text(analyzer, parts);
-            String text = (header + body).trim();
+            String text = (sb + body).trim();
 
             Set<CodeUnit> sources = new LinkedHashSet<>(enclosingMethods);
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
@@ -1661,25 +1697,32 @@ public class ContextFragments {
             }
 
             Set<String> allImports = new LinkedHashSet<>();
-            List<String> textBlocks = new ArrayList<>();
+            List<AnalyzerUtil.CodeWithSource> parts = new ArrayList<>();
             boolean hasAnySourceCode = false;
 
             for (CodeUnit unit : units) {
-                var codeOpt = analyzer.getSource(unit, true);
-                if (codeOpt.isPresent()) {
-                    textBlocks.add(new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text(analyzer));
+                Set<String> sources = analyzer.getSources(unit, true);
+                if (!sources.isEmpty()) {
+                    String relPath = unit.source().getRelPath().toString();
+                    String tag = unit.isClass()
+                            ? "<class file=\"%s\">".formatted(relPath)
+                            : "<methods class=\"%s\" file=\"%s\">".formatted(unit.fqName(), relPath);
+                    String closingTag = unit.isClass() ? "</class>" : "</methods>";
+
+                    String combinedSource = String.join("\n\n", sources);
+                    String wrapped = tag + "\n" + combinedSource + "\n" + closingTag;
+                    parts.add(new AnalyzerUtil.CodeWithSource(wrapped, unit));
+
                     hasAnySourceCode = true;
 
                     analyzer.as(ImportAnalysisProvider.class)
                             .map(p -> (Collection<String>) p.relevantImportsFor(unit))
                             .orElseGet(() -> analyzer.importStatementsOf(unit.source()))
                             .forEach(allImports::add);
-                } else {
-                    textBlocks.add("No source found for %s: %s".formatted(unit.kind(), unit.fqName()));
                 }
             }
 
-            String body = String.join("\n\n", textBlocks);
+            String body = AnalyzerUtil.CodeWithSource.text(analyzer, parts);
             String text;
             if (!allImports.isEmpty()) {
                 List<String> orderedImports = new ArrayList<>(allImports);
@@ -1702,7 +1745,8 @@ public class ContextFragments {
         @Blocking
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-            return resolveAncestorFragments(List.copyOf(analyzer.getDefinitions(fullyQualifiedName)), contextManager);
+            return resolveRelatedFragments(
+                    List.copyOf(analyzer.getDefinitions(fullyQualifiedName)), contextManager, false);
         }
     }
 
@@ -1999,12 +2043,26 @@ public class ContextFragments {
                             yield analyzer.getTopLevelDeclarations(file);
                         }
                     };
-            return resolveAncestorFragments(codeUnits, contextManager);
+            return resolveRelatedFragments(codeUnits, contextManager, true);
         }
 
         private static ContentSnapshot computeSnapshotFor(
                 String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
+
+            // 1. Check for Template Summaries (e.g. .html via MultiAnalyzer)
+            if (summaryType == SummaryType.FILE_SKELETONS && analyzer instanceof MultiAnalyzer multi) {
+                ProjectFile file = contextManager.toFile(targetIdentifier);
+                var templateSummary = multi.summarizeTemplate(file, contextManager.getProject());
+                if (templateSummary.isPresent()) {
+                    String text = templateSummary.get();
+                    // For template summaries we don't have a stable way to extract CodeUnits without
+                    // re-parsing, so we return a text-only snapshot mapped to the file.
+                    return new ContentSnapshot(text, Set.of(), Set.of(file), (List<Byte>) null, true);
+                }
+            }
+
+            // 2. Standard Skeleton Summary
             Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
             Set<CodeUnit> primaryTargets =
                     resolvePrimaryTargets(targetIdentifier, summaryType, analyzer, contextManager);
@@ -2086,27 +2144,38 @@ public class ContextFragments {
                 }
             }
 
+            Map<CodeUnitKey, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
+            List<String> rawTextBlocks = new ArrayList<>();
+
+            for (SummaryFragment fragment : liveFragments) {
+                var skeletons = fragment.skeletonsByCodeUnit();
+                if (skeletons.isEmpty()) {
+                    String raw = fragment.text().join();
+                    if (raw != null && !raw.isBlank()) {
+                        rawTextBlocks.add(raw);
+                    }
+                } else {
+                    skeletons.forEach((cu, skeleton) -> deduped.putIfAbsent(CodeUnitKey.of(cu), skeleton));
+                }
+            }
+
             var rendered = precomputedByTarget.values().stream()
                     .filter(text -> !text.isBlank())
                     .collect(Collectors.toCollection(ArrayList::new));
-
-            Map<CodeUnitKey, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
-            for (SummaryFragment fragment : liveFragments) {
-                fragment.skeletonsByCodeUnit()
-                        .forEach((cu, skeleton) -> deduped.putIfAbsent(CodeUnitKey.of(cu), skeleton));
-            }
 
             if (!deduped.isEmpty()) {
                 Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
                 deduped.values().forEach(cus -> skeletonsMap.put(cus.codeUnit(), cus.skeleton()));
 
-                var liveSummary = new SkeletonFragmentFormatter()
+                String formatted = new SkeletonFragmentFormatter()
                         .format(new SkeletonFragmentFormatter.Request(
                                 null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
-                if (!liveSummary.isBlank()) {
-                    rendered.add(liveSummary);
+                if (!formatted.isBlank()) {
+                    rendered.add(formatted);
                 }
             }
+
+            rawTextBlocks.stream().filter(text -> !text.isBlank()).forEach(rendered::add);
 
             return String.join("\n\n", rendered);
         }

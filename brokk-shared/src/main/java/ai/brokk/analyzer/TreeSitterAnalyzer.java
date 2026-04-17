@@ -261,6 +261,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SequencedSet<Range> ranges,
             boolean hasBody,
             boolean isTypeAlias,
+            Map<String, Object> attributes,
             List<CodeUnit> childrenList,
             List<String> signaturesList,
             List<Range> rangesList) {
@@ -271,12 +272,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 SequencedSet<Range> ranges,
                 boolean hasBody,
                 boolean isTypeAlias) {
+            this(children, signatures, ranges, hasBody, isTypeAlias, Map.of());
+        }
+
+        public CodeUnitProperties(
+                SequencedSet<CodeUnit> children,
+                SequencedSet<String> signatures,
+                SequencedSet<Range> ranges,
+                boolean hasBody,
+                boolean isTypeAlias,
+                Map<String, Object> attributes) {
             this(
                     children,
                     signatures,
                     ranges,
                     hasBody,
                     isTypeAlias,
+                    attributes,
                     List.copyOf(children),
                     List.copyOf(signatures),
                     List.copyOf(ranges));
@@ -288,7 +300,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
                     false,
-                    false);
+                    false,
+                    Map.of());
         }
     }
 
@@ -315,7 +328,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
             SymbolKeyIndex symbolKeyIndex,
-            long snapshotEpochNanos) {}
+            PMap<ProjectFile, List<TemplateAnalysisResult>> templateResults,
+            long snapshotEpochNanos) {
+
+        public AnalyzerState(
+                PMap<String, Set<CodeUnit>> symbolIndex,
+                PMap<CodeUnit, CodeUnitProperties> codeUnitState,
+                PMap<ProjectFile, FileProperties> fileState,
+                SymbolKeyIndex symbolKeyIndex,
+                long snapshotEpochNanos) {
+            this(symbolIndex, codeUnitState, fileState, symbolKeyIndex, HashTreePMap.empty(), snapshotEpochNanos);
+        }
+    }
 
     // Timestamp of the last successful full-project update (epoch nanos)
     private final AtomicLong lastUpdateEpochNanos = new AtomicLong(0L);
@@ -337,7 +361,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             List<TSNode> decoratorNodes,
             TSNode cachedParent) {}
 
-    protected record LanguageSyntaxProfile(
+    public record LanguageSyntaxProfile(
             Set<String> classLikeNodeTypes,
             Set<String> functionLikeNodeTypes,
             Set<String> fieldLikeNodeTypes,
@@ -644,6 +668,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
                 symbolKeyIndex,
+                HashTreePMap.empty(),
                 snapshotNanos);
 
         log.debug(
@@ -2040,6 +2065,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             acc.setHasBody(target, true);
         }
 
+        // Transfer attributes
+        Map<String, Object> sourceAttrs = acc.getAttributes(source);
+        if (!sourceAttrs.isEmpty()) {
+            for (var entry : sourceAttrs.entrySet()) {
+                acc.setAttribute(target, entry.getKey(), entry.getValue());
+            }
+        }
+
         List<String> sourceLookupKeys = acc.getLookupKeys(source);
         for (String lookupKey : sourceLookupKeys) {
             acc.addLookupKey(lookupKey, target);
@@ -2310,6 +2343,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     scopeChain,
                                     node,
                                     skeletonType);
+
                             if (cu == null) {
                                 log.trace(
                                         "createCodeUnit returned null for node {} ({}) in file {}",
@@ -2345,6 +2379,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
                             }
 
+                            // Use the already-resolved content node (from signature building) for hasBody computation
+                            SkeletonType refined =
+                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+                            ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
+
+                            List<TSNode> currentDecoratorNodes = defInfo.decoratorNodes();
+                            if (currentDecoratorNodes.isEmpty() && !hasWrappingDecoratorNode()) {
+                                currentDecoratorNodes = getPrecedingDecorators(resolved.contentNode());
+                                if (currentDecoratorNodes.isEmpty() && !node.equals(resolved.contentNode())) {
+                                    currentDecoratorNodes = getPrecedingDecorators(node);
+                                }
+                            }
+                            if (!currentDecoratorNodes.isEmpty()) {
+                                handleDecorators(cu, node, currentDecoratorNodes, sourceContent, acc);
+                            }
+
                             String signature = buildSignatureString(
                                     node,
                                     simpleName,
@@ -2352,11 +2402,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     primaryCaptureName,
                                     defInfo.modifierKeywords(),
                                     file);
-
-                            // Use the already-resolved content node (from signature building) for hasBody computation
-                            SkeletonType refined =
-                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
-                            ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
                             acc.setHasBody(
                                     cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
                             if (CaptureNames.TYPEALIAS_DEFINITION.equals(primaryCaptureName)) {
@@ -2935,7 +2980,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             nodeForContent = extractContentFromDecoratedNode(definitionNode, signatureLines, sourceContent, profile);
         } else {
             for (TSNode decoratorNode : getPrecedingDecorators(nodeForContent)) {
-                signatureLines.add(sourceContent.substringFrom(decoratorNode).stripLeading());
+                // Only add the decorator manually if it's NOT already part of the node being sliced for signature.
+                // If it is inside nodeForSignature, slicing nodeForSignature will already include it.
+                if (decoratorNode.getStartByte() < nodeForSignature.getStartByte()
+                        || decoratorNode.getEndByte() > nodeForSignature.getEndByte()) {
+                    signatureLines.add(
+                            sourceContent.substringFrom(decoratorNode).stripLeading());
+                }
             }
         }
 
@@ -3323,6 +3374,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             String indent);
 
     /**
+     * Hook for subclasses to process decorators associated with a CodeUnit.
+     */
+    protected void handleDecorators(
+            CodeUnit cu,
+            TSNode definitionNode,
+            List<TSNode> decoratorNodes,
+            SourceContent sourceContent,
+            FileAnalysisAccumulator acc) {
+        // Default: no-op
+    }
+
+    /**
      * Finds decorator nodes immediately preceding a given node.
      */
     private List<TSNode> getPrecedingDecorators(TSNode decoratedNode) {
@@ -3331,10 +3394,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (decoratorNodeTypes.isEmpty()) {
             return decorators;
         }
-        TSNode current = decoratedNode.getPrevSibling();
+
+        // In some languages (like TypeScript), decorators are children of the declaration node.
+        for (int i = 0; i < decoratedNode.getChildCount(); i++) {
+            TSNode child = decoratedNode.getChild(i);
+            if (child != null && decoratorNodeTypes.contains(child.getType())) {
+                decorators.add(child);
+            }
+        }
+        if (!decorators.isEmpty()) {
+            return decorators;
+        }
+
+        TSNode current = decoratedNode.getPrevNamedSibling();
         while (current != null && decoratorNodeTypes.contains(current.getType())) {
             decorators.add(current);
-            current = current.getPrevSibling();
+            current = current.getPrevNamedSibling();
         }
         Collections.reverse(decorators); // Decorators should be in source order
         return decorators;
@@ -3642,7 +3717,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             newState.signatures(),
                             newState.ranges(),
                             newState.hasBody(),
-                            newState.isTypeAlias());
+                            newState.isTypeAlias(),
+                            newState.attributes());
                 }
                 SequencedSet<CodeUnit> mergedKids = new LinkedHashSet<>(existing.children());
                 mergedKids.addAll(newState.children());
@@ -3656,12 +3732,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 // Merge semantics: flags are combined using logical OR.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
                 boolean mergedIsTypeAlias = existing.isTypeAlias() || newState.isTypeAlias();
+
+                Map<String, Object> mergedAttributes = new HashMap<>(existing.attributes());
+                mergedAttributes.putAll(newState.attributes());
+
                 return new CodeUnitProperties(
                         Collections.unmodifiableSequencedSet(mergedKids),
                         Collections.unmodifiableSequencedSet(mergedSigs),
                         Collections.unmodifiableSequencedSet(mergedRanges),
                         mergedHasBody,
-                        mergedIsTypeAlias);
+                        mergedIsTypeAlias,
+                        Collections.unmodifiableMap(mergedAttributes));
             });
 
             if (cu.isModule()) {
@@ -3751,7 +3832,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             props.signatures(),
                             props.ranges(),
                             props.hasBody(),
-                            props.isTypeAlias());
+                            props.isTypeAlias(),
+                            props.attributes());
         });
 
         // Filter symbol index
@@ -3843,6 +3925,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 HashTreePMap.from(newCodeUnitState),
                 HashTreePMap.from(newFileState),
                 nextSymbolKeyIndex,
+                HashTreePMap.empty(),
                 snapshotNanos);
 
         var filteredCache = createFilteredCache(this.cache, changedFiles);
