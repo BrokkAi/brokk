@@ -313,13 +313,13 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
         int score = 0;
         var reasons = new ArrayList<String>();
-        if (normalizedTypes.contains("Throwable")) {
+        if (normalizedTypes.contains("throwable")) {
             score += weights.genericThrowableWeight();
             reasons.add("generic-catch:Throwable");
-        } else if (normalizedTypes.contains("Exception")) {
+        } else if (normalizedTypes.contains("exception")) {
             score += weights.genericExceptionWeight();
             reasons.add("generic-catch:Exception");
-        } else if (normalizedTypes.contains("RuntimeException")) {
+        } else if (normalizedTypes.contains("runtimeexception")) {
             score += weights.genericRuntimeExceptionWeight();
             reasons.add("generic-catch:RuntimeException");
         }
@@ -433,6 +433,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     int lastSep = s.lastIndexOf('\\');
                     return lastSep >= 0 ? s.substring(lastSep + 1) : s;
                 })
+                .map(s -> s.toLowerCase(Locale.ROOT))
                 .toList();
     }
 

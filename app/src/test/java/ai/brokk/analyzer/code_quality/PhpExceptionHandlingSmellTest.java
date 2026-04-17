@@ -20,7 +20,7 @@ public class PhpExceptionHandlingSmellTest {
                 function run(): void {
                     try {
                         work();
-                    } catch (\\Exception $e) {
+                    } catch (\\exception $e) {
                     }
                 }
 
@@ -29,6 +29,7 @@ public class PhpExceptionHandlingSmellTest {
         var findings = analyze(code);
         assertFalse(findings.isEmpty());
         assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("empty-body")));
+        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("generic-catch:Exception")));
     }
 
     @Test
