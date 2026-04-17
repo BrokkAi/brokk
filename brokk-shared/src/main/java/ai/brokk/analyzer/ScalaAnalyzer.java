@@ -92,7 +92,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
         var findings = new ArrayList<ExceptionHandlingSmell>();
         for (TSNode tryNode : tryNodes) {
-            TSNode catchClause = findFirstNamedDescendant(tryNode, CATCH_CLAUSE);
+            TSNode catchClause = immediateCatchClause(tryNode);
             if (catchClause == null) {
                 continue;
             }
@@ -107,6 +107,22 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                         .thenComparing(f -> f.file().toString())
                         .thenComparing(ExceptionHandlingSmell::enclosingFqName))
                 .toList();
+    }
+
+    private static @Nullable TSNode immediateCatchClause(TSNode tryExpression) {
+        // Avoid descendant search: nested try/catch inside the try-body should not be attributed to this
+        // try_expression.
+        TSNode byField = tryExpression.getChildByFieldName("catch");
+        if (byField != null && CATCH_CLAUSE.equals(byField.getType())) {
+            return byField;
+        }
+        for (int i = 0; i < tryExpression.getNamedChildCount(); i++) {
+            TSNode child = tryExpression.getNamedChild(i);
+            if (child != null && CATCH_CLAUSE.equals(child.getType())) {
+                return child;
+            }
+        }
+        return null;
     }
 
     private Optional<ExceptionHandlingSmell> analyzeCaseClause(
