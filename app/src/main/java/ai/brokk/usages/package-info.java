@@ -1,4 +1,4 @@
 @NullMarked
-package ai.brokk.analyzer.usages;
+package ai.brokk.usages;
 
 import org.jspecify.annotations.NullMarked;

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.FrameworkTemplates;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ITemplateAnalyzer;
 import ai.brokk.analyzer.Languages;
@@ -36,10 +37,10 @@ class AngularTemplateAnalyzerTest {
             assertTrue(analyzer.isApplicable(project), "Should be applicable when angular.json is present");
 
             List<ITemplateAnalyzer> discovered =
-                    Languages.discoverTemplateAnalyzers(project, Set.of(Languages.TYPESCRIPT));
+                    FrameworkTemplates.discoverTemplateAnalyzers(project, Set.of(Languages.TYPESCRIPT));
             assertTrue(
                     discovered.stream().anyMatch(a -> a instanceof AngularTemplateAnalyzer),
-                    "Should be discovered via Languages.discoverTemplateAnalyzers");
+                    "Should be discovered via FrameworkTemplates.discoverTemplateAnalyzers");
         }
     }
 
@@ -114,7 +115,7 @@ class AngularTemplateAnalyzerTest {
             assertFalse(analyzer.isApplicable(project), "Should NOT be applicable to a plain Java/TS project");
 
             List<ITemplateAnalyzer> discovered =
-                    Languages.discoverTemplateAnalyzers(project, Set.of(Languages.JAVA, Languages.TYPESCRIPT));
+                    FrameworkTemplates.discoverTemplateAnalyzers(project, Set.of(Languages.JAVA, Languages.TYPESCRIPT));
             assertTrue(
                     discovered.stream().noneMatch(a -> a instanceof AngularTemplateAnalyzer),
                     "Should NOT be discovered in a plain project");

@@ -7,6 +7,7 @@ import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.UsageFinderTestUtil;
+import ai.brokk.usages.UsageFinder;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 

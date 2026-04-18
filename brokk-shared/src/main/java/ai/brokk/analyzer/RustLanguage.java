@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import org.jetbrains.annotations.Nullable;
 
 public class RustLanguage implements Language {
@@ -83,18 +84,13 @@ public class RustLanguage implements Language {
 
     @Override
     public List<Path> getDependencyCandidates(ICoreProject project) {
-        // Use cargo metadata to detect any packages; return non-empty when Cargo workspace is present.
-        try {
-            var meta = runCargoMetadata(project.getRoot());
-            // Any discovered package manifests are candidates; this drives whether a tab is shown.
-            return meta.packages.stream()
-                    .map(p -> p.manifest_path == null ? null : Path.of(p.manifest_path))
-                    .filter(Objects::nonNull)
-                    .toList();
-        } catch (Exception e) {
-            logger.debug("cargo metadata failed for candidates: {}", e.toString());
-            return List.of();
-        }
+        var meta = getMergedMetadata(project);
+        return meta.packages.stream()
+                .map(p -> p.manifest_path == null ? null : Path.of(p.manifest_path))
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     @Override
@@ -104,70 +100,69 @@ public class RustLanguage implements Language {
 
     @Override
     public List<DependencyCandidate> listDependencyPackages(ICoreProject project) {
-        try {
-            var meta = runCargoMetadata(project.getRoot());
-            var idToPkg = new LinkedHashMap<String, CargoPackage>();
-            var nameToPkgs = new LinkedHashMap<String, List<CargoPackage>>();
-            for (var p : meta.packages) {
-                idToPkg.put(p.id, p);
-                nameToPkgs.computeIfAbsent(p.name, k -> new ArrayList<>()).add(p);
-            }
-            var workspaceIds = new LinkedHashSet<>(meta.workspace_members);
-
-            // direct deps kinds (normal/build/dev/test) by name
-            var directKinds = new LinkedHashMap<String, Set<String>>();
-            for (var wsId : workspaceIds) {
-                var ws = idToPkg.get(wsId);
-                if (ws == null) continue;
-                for (var dep : ws.dependencies) {
-                    var kind = dep.kind == null ? "normal" : dep.kind;
-                    directKinds
-                            .computeIfAbsent(dep.name, k -> new LinkedHashSet<>())
-                            .add(kind);
-                }
-            }
-
-            var chosenDirect = new LinkedHashMap<String, DependencyCandidate>();
-            for (var e : directKinds.entrySet()) {
-                var name = e.getKey();
-                var kinds = e.getValue();
-                var pkgs = nameToPkgs.getOrDefault(name, List.of()).stream()
-                        .filter(p -> !workspaceIds.contains(p.id))
-                        .toList();
-                if (pkgs.isEmpty()) continue;
-
-                var selected =
-                        pkgs.stream().max(Comparator.comparing(p -> p.version)).orElse(pkgs.getFirst());
-
-                if (selected.manifest_path == null) {
-                    continue;
-                }
-                var manifest = Path.of(selected.manifest_path);
-                long files = countRustFiles(manifest);
-                var display = selected.name + " " + selected.version;
-                var kind = pickRustKind(kinds);
-                chosenDirect.put(name, new DependencyCandidate(display, manifest, kind, files));
-            }
-
-            var directNames = new LinkedHashSet<>(chosenDirect.keySet());
-            var all = new ArrayList<DependencyCandidate>(chosenDirect.values());
-
-            for (var p : meta.packages) {
-                if (workspaceIds.contains(p.id)) continue;
-                if (directNames.contains(p.name)) continue;
-                if (p.manifest_path == null) continue;
-                var manifest = Path.of(p.manifest_path);
-                long files = countRustFiles(manifest);
-                var display = p.name + " " + p.version;
-                all.add(new DependencyCandidate(display, manifest, DependencyKind.TRANSITIVE, files));
-            }
-
-            all.sort(Comparator.comparing(DependencyCandidate::displayName));
-            return all;
-        } catch (Exception e) {
-            logger.warn("Failed to list Rust dependencies via cargo metadata", e);
+        var meta = getMergedMetadata(project);
+        if (meta.packages.isEmpty()) {
             return List.of();
         }
+
+        var idToPkg = new LinkedHashMap<String, CargoPackage>();
+        var nameToPkgs = new LinkedHashMap<String, List<CargoPackage>>();
+        for (var p : meta.packages) {
+            idToPkg.put(p.id, p);
+            nameToPkgs.computeIfAbsent(p.name, k -> new ArrayList<>()).add(p);
+        }
+        var workspaceIds = new LinkedHashSet<>(meta.workspace_members);
+
+        // direct deps kinds (normal/build/dev/test) by name
+        var directKinds = new LinkedHashMap<String, Set<String>>();
+        for (var wsId : workspaceIds) {
+            var ws = idToPkg.get(wsId);
+            if (ws == null) continue;
+            for (var dep : ws.dependencies) {
+                var kind = dep.kind == null ? "normal" : dep.kind;
+                directKinds
+                        .computeIfAbsent(dep.name, k -> new LinkedHashSet<>())
+                        .add(kind);
+            }
+        }
+
+        var chosenDirect = new LinkedHashMap<String, DependencyCandidate>();
+        for (var e : directKinds.entrySet()) {
+            var name = e.getKey();
+            var kinds = e.getValue();
+            var pkgs = nameToPkgs.getOrDefault(name, List.of()).stream()
+                    .filter(p -> !workspaceIds.contains(p.id))
+                    .toList();
+            if (pkgs.isEmpty()) continue;
+
+            var selected =
+                    pkgs.stream().max(Comparator.comparing(p -> p.version)).orElse(pkgs.getFirst());
+
+            if (selected.manifest_path == null) {
+                continue;
+            }
+            var manifest = Path.of(selected.manifest_path);
+            long files = countRustFiles(manifest);
+            var display = selected.name + " " + selected.version;
+            var kind = pickRustKind(kinds);
+            chosenDirect.put(name, new DependencyCandidate(display, manifest, kind, files));
+        }
+
+        var directNames = new LinkedHashSet<>(chosenDirect.keySet());
+        var all = new ArrayList<DependencyCandidate>(chosenDirect.values());
+
+        for (var p : meta.packages) {
+            if (workspaceIds.contains(p.id)) continue;
+            if (directNames.contains(p.name)) continue;
+            if (p.manifest_path == null) continue;
+            var manifest = Path.of(p.manifest_path);
+            long files = countRustFiles(manifest);
+            var display = p.name + " " + p.version;
+            all.add(new DependencyCandidate(display, manifest, DependencyKind.TRANSITIVE, files));
+        }
+
+        all.sort(Comparator.comparing(DependencyCandidate::displayName));
+        return all;
     }
 
     private DependencyKind pickRustKind(Set<String> kinds) {
@@ -181,22 +176,117 @@ public class RustLanguage implements Language {
 
     // ---- helpers (moved/adapted from ImportRustPanel) ----
 
-    private CargoMetadata runCargoMetadata(Path projectRoot) throws IOException, InterruptedException {
-        var pb = new ProcessBuilder("cargo", "metadata", "--format-version", "1");
-        pb.directory(projectRoot.toFile());
-        pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+    private CargoMetadata getMergedMetadata(ICoreProject project) {
+        List<Path> manifests = findCargoManifests(project);
+        if (manifests.isEmpty()) {
+            return new CargoMetadata();
+        }
+
+        List<CompletableFuture<CargoMetadata>> futures = manifests.stream()
+                .map(manifest -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return runCargoMetadata(manifest);
+                    } catch (Exception e) {
+                        logger.warn("Failed to run cargo metadata for " + manifest, e);
+                        return null;
+                    }
+                }))
+                .toList();
+
+        CargoMetadata merged = new CargoMetadata();
+        merged.packages = new ArrayList<>();
+        merged.workspace_members = new ArrayList<>();
+
+        Set<String> packageIdentities = new LinkedHashSet<>();
+        Set<String> memberIds = new LinkedHashSet<>();
+
+        for (var future : futures) {
+            CargoMetadata meta = future.join();
+            if (meta == null) continue;
+
+            for (var pkg : meta.packages) {
+                String identity = pkg.id;
+                if (identity.isEmpty()) {
+                    identity = String.format("%s:%s:%s:%s", pkg.name, pkg.version, pkg.manifest_path, pkg.source);
+                }
+                if (packageIdentities.add(identity)) {
+                    merged.packages.add(pkg);
+                }
+            }
+            memberIds.addAll(meta.workspace_members);
+        }
+
+        merged.workspace_members.addAll(memberIds);
+        merged.packages.sort(Comparator.comparing(p -> p.id.isEmpty() ? p.name + p.version : p.id));
+        merged.workspace_members.sort(Comparator.naturalOrder());
+
+        return merged;
+    }
+
+    private List<Path> findCargoManifests(ICoreProject project) {
+        var repo = project.getRepo();
+        Set<ProjectFile> files = project.hasGit() ? repo.getTrackedFiles() : project.getAllFiles();
+        return files.stream()
+                .filter(pf -> pf.getFileName().equalsIgnoreCase("Cargo.toml"))
+                .map(ProjectFile::absPath)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    private CargoMetadata runCargoMetadata(Path manifestPath) throws IOException, InterruptedException {
+        Path workingDir = manifestPath.getParent();
+        if (workingDir == null) workingDir = manifestPath;
+
+        var pb = new ProcessBuilder(
+                "cargo", "metadata", "--format-version", "1", "--manifest-path", manifestPath.toString());
+        pb.directory(workingDir.toFile());
         var process = pb.start();
 
-        var stdout = new StringBuilder();
-        try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) stdout.append(line).append('\n');
-        }
+        CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(() -> {
+            try (var reader =
+                    new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                var sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+                return sb.toString();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(() -> {
+            try (var reader =
+                    new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                var sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+                return sb.toString();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
         int exit = process.waitFor();
-        if (exit != 0) throw new IOException("cargo metadata failed with exit code " + exit);
+        String stdout = stdoutFuture.join();
+        String stderr = stderrFuture.join();
+
+        if (exit != 0) {
+            throw new IOException(String.format(
+                    "cargo metadata failed for %s with exit code %d.\nSTDOUT:\n%s\nSTDERR:\n%s",
+                    manifestPath, exit, stdout, stderr));
+        }
 
         var mapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        return mapper.readValue(stdout.toString(), CargoMetadata.class);
+        try {
+            return mapper.readValue(stdout, CargoMetadata.class);
+        } catch (Exception e) {
+            throw new IOException(
+                    String.format(
+                            "Failed to parse cargo metadata JSON for %s.\nSTDOUT:\n%s\nSTDERR:\n%s",
+                            manifestPath, stdout, stderr),
+                    e);
+        }
     }
 
     private static long countRustFiles(@Nullable Path manifestPath) {

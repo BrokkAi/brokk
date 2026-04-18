@@ -1,10 +1,11 @@
-package ai.brokk.analyzer.usages;
+package ai.brokk.usages;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.CandidateFileProvider;
 import ai.brokk.tools.SearchTools;
 import java.util.List;
 import java.util.Set;
