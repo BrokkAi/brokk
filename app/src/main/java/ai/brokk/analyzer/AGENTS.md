@@ -38,19 +38,41 @@
    - `IDENTIFIERS`: Specific query for capturing type identifiers and references. This is **optional**; used for advanced symbol resolution.
 1. **Resource Loading**: The `TreeSitterAnalyzer` base class handles the discovery and loading of these queries based on the language name and `QueryType`. Analyzers should transition away from the single `getQueryResource()` string toward this structured multi-query approach.
 
-### Node-type Constants
+### Tree-sitter Generated Constants (Preferred)
 
-1. **Use NodeTypes constants**: When checking TSNode.getType() or comparing node types, prefer using constants defined in NodeTypes-style classes (for example, `ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes`, `ai.brokk.analyzer.java.JavaTreeSitterNodeTypes`, `ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes`, or `ai.brokk.analyzer.CommonTreeSitterNodeTypes`) instead of hard-coded string literals like `"field_declaration"`. This improves consistency, avoids typos, and centralizes node-type names.
+The `tree-sitter-ng` Java bindings now generate strongly-typed per-language constants for:
+- node types: `org.treesitter.<Language>NodeType` (e.g., `JavaNodeType`)
+- field names: `org.treesitter.<Language>NodeField` (e.g., `JavaNodeField`)
+- schema helpers: `org.treesitter.<Language>NodeSchema` (e.g., `JavaNodeSchema`)
 
-2. **Importing constants**: It's acceptable to use static imports for readability (e.g., `import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.FIELD_DECLARATION;`) but avoid ambiguous static imports across files. If there's a risk of name collision or confusion, prefer referencing the constant via its class (e.g., `CSharpTreeSitterNodeTypes.FIELD_DECLARATION`).
+Prefer these generated constants over hard-coded strings and over our hand-maintained `*TreeSitterNodeTypes` files when they exist for the language you are working on.
 
-3. **Example**:
+1. **Node type comparisons**: Use `nodeType(<Language>NodeType.X)` (or `X.getType()` directly) instead of string literals like `"method_declaration"`.
+2. **Field name access**: Use `nodeField(<Language>NodeField.X)` (or `X.getName()` directly) instead of string literals like `"name"`, `"body"`, etc.
+3. **Schema helpers**: Use `<Language>NodeSchema` when you need to reason about which fields/children exist on which node types, or to avoid "stringly-typed" field navigation. Prefer it over ad-hoc assumptions.
+
+**Static import guidance**
+- It is OK to `import static org.treesitter.<Language>NodeType.*;` to avoid `NodeType.X` noise.
+- Avoid static-importing BOTH `NodeType.*` and `NodeField.*` in the same file because many names collide (`TYPE`, `MODIFIERS`, `TYPE_PARAMETERS`, `PATTERN`, etc.). Prefer:
+  - static import `NodeType.*`, and
+  - refer to fields as `JavaNodeField.NAME` (or `nodeField(JavaNodeField.NAME)`), or keep fields qualified.
+
+**Example (Java)**
 ```java
-import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.FIELD_DECLARATION;
+import static ai.brokk.analyzer.java.Constants.nodeField;
+import static ai.brokk.analyzer.java.Constants.nodeType;
+import static org.treesitter.JavaNodeType.*;
 
-if (FIELD_DECLARATION.equals(node.getType())) {
+import org.treesitter.JavaNodeField;
+
+if (nodeType(METHOD_DECLARATION).equals(node.getType())) {
     // handle field declaration
 }
+
+TSNode nameNode = methodNode.getChildByFieldName(nodeField(JavaNodeField.NAME));
 ```
 
-4. **Migration guidance**: When editing code that currently uses string literals for node types, replace them with the corresponding constant where possible. If a node type is missing from the appropriate NodeTypes class, add the constant there (or to `CommonTreeSitterNodeTypes` if it is language-agnostic) so other code can reuse it.
+**Migration guidance**
+1. When editing analyzers, replace string node type checks (`"foo_bar".equals(node.getType())`) with the generated `*NodeType` / `*NodeField` constants where available.
+2. If the language does not have generated schema/constants yet, use the existing `*TreeSitterNodeTypes` / `CommonTreeSitterNodeTypes` constants as a fallback (still avoid raw strings).
+3. Query capture names (the names in `.scm` files like `import.declaration` or `test_marker`) are not node types. Keep those as explicit string constants (e.g., `IMPORT_DECLARATION_CAPTURE`), do not try to model them as `NodeType`s.
