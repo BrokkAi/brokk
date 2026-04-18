@@ -6,7 +6,11 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -21,6 +25,25 @@ import org.treesitter.*;
 
 public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
+
+    private static final Set<String> COMMENT_NODE_TYPES = Set.of(LINE_COMMENT, BLOCK_COMMENT);
+    private static final Set<String> RUST_LOG_MACRO_NAMES = Set.of("trace", "debug", "info", "warn", "error");
+    private static final Set<String> RUST_PRINT_MACRO_NAMES = Set.of("println", "eprintln");
+
+    private record AssertionSignal(
+            String kind,
+            int score,
+            boolean shallow,
+            boolean meaningful,
+            int startByte,
+            List<String> reasons,
+            String excerpt) {}
+
+    private record RustAssertionAnalysis(
+            int assertionCount,
+            int shallowAssertionCount,
+            int meaningfulAssertionCount,
+            List<AssertionSignal> smells) {}
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -680,35 +703,943 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     @Override
-    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        TSNode root = tree.getRootNode();
-        if (root == null) return false;
+    public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        checkStale("findExceptionHandlingSmells");
+        ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file,
+                            source -> detectExceptionHandlingSmells(file, root, source, resolvedWeights),
+                            List.of());
+                },
+                List.of());
+    }
+
+    private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        var findings = new ArrayList<SmellCandidate>();
+
+        var matches = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(MATCH_EXPRESSION), matches);
+        for (TSNode matchExpr : matches) {
+            analyzeMatchHandlers(file, matchExpr, sourceContent, weights, findings);
+        }
+
+        var ifs = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(IF_EXPRESSION), ifs);
+        for (TSNode ifExpr : ifs) {
+            analyzeIfLetErrHandler(file, ifExpr, sourceContent, weights).ifPresent(findings::add);
+        }
+
+        return findings.stream()
+                .sorted(EXCEPTION_SMELL_CANDIDATE_COMPARATOR)
+                .map(SmellCandidate::smell)
+                .toList();
+    }
+
+    private void analyzeMatchHandlers(
+            ProjectFile file,
+            TSNode matchExpr,
+            SourceContent sourceContent,
+            ExceptionSmellWeights weights,
+            List<SmellCandidate> out) {
+        boolean isCatchUnwind = matchContainsCatchUnwindCall(matchExpr, sourceContent);
+
+        var arms = new ArrayList<TSNode>();
+        collectNodesByType(matchExpr, Set.of(MATCH_ARM), arms);
+        for (TSNode arm : arms) {
+            if (!belongsToMatchExpression(arm, matchExpr)) {
+                continue;
+            }
+            TSNode pattern = arm.getChildByFieldName("pattern");
+            if (pattern == null && arm.getNamedChildCount() > 0) {
+                pattern = arm.getNamedChild(0);
+            }
+            if (pattern == null || !patternContainsErr(pattern, sourceContent)) {
+                continue;
+            }
+            TSNode body = arm.getChildByFieldName("value");
+            if (body == null && arm.getNamedChildCount() > 0) {
+                body = arm.getNamedChild(arm.getNamedChildCount() - 1);
+            }
+            if (body == null) {
+                continue;
+            }
+            int base = isCatchUnwind ? weights.genericThrowableWeight() : weights.genericExceptionWeight();
+            String baseReason = isCatchUnwind ? "generic-catch:catch_unwind" : "generic-catch:Err";
+            analyzeRustHandlerBody(file, body, sourceContent, weights, base, baseReason)
+                    .ifPresent(out::add);
+        }
+    }
+
+    private static boolean belongsToMatchExpression(TSNode arm, TSNode matchExpr) {
+        TSNode parent = arm.getParent();
+        while (parent != null && !MATCH_EXPRESSION.equals(parent.getType())) {
+            parent = parent.getParent();
+        }
+        if (parent == null) {
+            return false;
+        }
+        return parent.getStartByte() == matchExpr.getStartByte() && parent.getEndByte() == matchExpr.getEndByte();
+    }
+
+    private static boolean matchContainsCatchUnwindCall(TSNode matchExpr, SourceContent sourceContent) {
+        var calls = new ArrayList<TSNode>();
+        collectNodesByType(matchExpr, Set.of(CALL_EXPRESSION), calls);
+        for (TSNode call : calls) {
+            if ("catch_unwind".equals(rustCallCalleeLastIdent(call, sourceContent))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Optional<SmellCandidate> analyzeIfLetErrHandler(
+            ProjectFile file, TSNode ifExpr, SourceContent sourceContent, ExceptionSmellWeights weights) {
+        // Only inspect this `if`'s condition; do not search the whole subtree (which would
+        // incorrectly attribute nested `if let Err(...)` conditions to an outer `if`).
+        TSNode condition = ifExpr.getChildByFieldName("condition");
+        if (condition == null || !patternContainsErr(condition, sourceContent)) {
+            return Optional.empty();
+        }
+        TSNode consequence = ifExpr.getChildByFieldName("consequence");
+        if (consequence == null) {
+            consequence = findFirstNamedDescendant(ifExpr, BLOCK);
+        }
+        if (consequence == null) {
+            return Optional.empty();
+        }
+        return analyzeRustHandlerBody(
+                file, consequence, sourceContent, weights, weights.genericExceptionWeight(), "generic-catch:Err");
+    }
+
+    private Optional<SmellCandidate> analyzeRustHandlerBody(
+            ProjectFile file,
+            TSNode handlerNode,
+            SourceContent sourceContent,
+            ExceptionSmellWeights weights,
+            int baseScore,
+            String baseReason) {
+        TSNode block = BLOCK.equals(handlerNode.getType()) ? handlerNode : null;
+        int bodyStatements = block != null ? countHandlerStatements(block) : 1;
+        String bodyText = sourceContent.substringFrom(handlerNode);
+        boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
+        boolean emptyBody = block != null && bodyStatements == 0 && !hasAnyComment;
+        boolean commentOnlyBody = block != null && bodyStatements == 0 && hasAnyComment;
+        boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
+        boolean rethrowPresent = hasPanicLike(handlerNode, sourceContent);
+        boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyRust(handlerNode, sourceContent) && !rethrowPresent;
+
+        int score = baseScore;
+        var reasons = new ArrayList<String>();
+        reasons.add(baseReason);
+        if (emptyBody) {
+            score += weights.emptyBodyWeight();
+            reasons.add("empty-body");
+        }
+        if (commentOnlyBody) {
+            score += weights.commentOnlyBodyWeight();
+            reasons.add("comment-only-body");
+        }
+        if (smallBody) {
+            score += weights.smallBodyWeight();
+            reasons.add("small-body:" + bodyStatements);
+        }
+        if (logOnly) {
+            score += weights.logOnlyWeight();
+            reasons.add("log-only-body");
+        }
+
+        int creditStatements = Math.min(bodyStatements, Math.max(0, weights.meaningfulBodyStatementThreshold()));
+        int bodyCredit = Math.max(0, weights.meaningfulBodyCreditPerStatement()) * creditStatements;
+        if (bodyCredit > 0) {
+            score -= bodyCredit;
+            reasons.add("meaningful-body-credit:" + bodyCredit);
+        }
+        if (score <= 0) {
+            return Optional.empty();
+        }
+
+        String enclosing = enclosingCodeUnit(
+                        file,
+                        handlerNode.getStartPoint().getRow(),
+                        handlerNode.getEndPoint().getRow())
+                .map(CodeUnit::fqName)
+                .orElse(file.toString());
+        var smell = new ExceptionHandlingSmell(
+                file,
+                enclosing,
+                baseReason.replace("generic-catch:", ""),
+                score,
+                bodyStatements,
+                List.copyOf(reasons),
+                compactExcerpt(sourceContent.substringFrom(handlerNode)));
+        return Optional.of(new SmellCandidate(smell, handlerNode.getStartByte()));
+    }
+
+    private static boolean patternContainsErr(TSNode patternNode, SourceContent sourceContent) {
+        Deque<TSNode> stack = new ArrayDeque<>();
+        stack.push(patternNode);
+        while (!stack.isEmpty()) {
+            TSNode node = stack.pop();
+            if (node == null) {
+                continue;
+            }
+            if (IDENTIFIER.equals(node.getType())
+                    && "Err".equals(sourceContent.substringFrom(node).strip())) {
+                return true;
+            }
+            for (int i = 0; i < node.getNamedChildCount(); i++) {
+                TSNode child = node.getNamedChild(i);
+                if (child != null) {
+                    stack.push(child);
+                }
+            }
+        }
+        return false;
+    }
+
+    private static int countHandlerStatements(TSNode block) {
+        int expressions = 0;
+        for (int i = 0; i < block.getNamedChildCount(); i++) {
+            TSNode child = block.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (COMMENT_NODE_TYPES.contains(child.getType())) {
+                continue;
+            }
+            expressions++;
+        }
+        return expressions;
+    }
+
+    private static boolean hasPanicLike(TSNode root, SourceContent sourceContent) {
+        var macros = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(MACRO_INVOCATION), macros);
+        for (TSNode macro : macros) {
+            if ("panic".equals(rustMacroLastIdent(macro, sourceContent))) {
+                return true;
+            }
+        }
+        var calls = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(CALL_EXPRESSION), calls);
+        for (TSNode call : calls) {
+            if ("resume_unwind".equals(rustCallCalleeLastIdent(call, sourceContent))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isLikelyLogOnlyRust(TSNode handlerNode, SourceContent sourceContent) {
+        TSNode node = handlerNode;
+        if (BLOCK.equals(handlerNode.getType())) {
+            node = firstNonCommentNamedChild(handlerNode, COMMENT_NODE_TYPES);
+            if (node == null) {
+                return false;
+            }
+        }
+        TSNode macro = findFirstNamedDescendant(node, MACRO_INVOCATION);
+        if (macro == null) {
+            return false;
+        }
+        String lastIdent = rustMacroLastIdent(macro, sourceContent).toLowerCase(Locale.ROOT);
+        return RUST_LOG_MACRO_NAMES.contains(lastIdent) || RUST_PRINT_MACRO_NAMES.contains(lastIdent);
+    }
+
+    private static String rustMacroLastIdent(TSNode macroInvocation, SourceContent sourceContent) {
+        TSNode path = macroInvocation.getNamedChildCount() > 0 ? macroInvocation.getNamedChild(0) : null;
+        if (path == null) {
+            path = findFirstNamedDescendant(macroInvocation, PATH);
+        }
+        if (path == null) {
+            path = findFirstNamedDescendant(macroInvocation, SCOPED_IDENTIFIER);
+        }
+        if (path == null) {
+            path = findFirstNamedDescendant(macroInvocation, IDENTIFIER);
+        }
+        return path == null ? "" : lastIdentifierIn(path, sourceContent);
+    }
+
+    private static String rustCallCalleeLastIdent(TSNode call, SourceContent sourceContent) {
+        TSNode function = call.getChildByFieldName("function");
+        if (function == null && call.getNamedChildCount() > 0) {
+            function = call.getNamedChild(0);
+        }
+        return function == null ? "" : lastIdentifierIn(function, sourceContent);
+    }
+
+    private static String lastIdentifierIn(TSNode node, SourceContent sourceContent) {
+        String last = "";
+        try (var cursor = new TSTreeCursor(node)) {
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    break;
+                }
+                if (IDENTIFIER.equals(current.getType())) {
+                    String text = sourceContent.substringFrom(current).strip();
+                    if (!text.isEmpty()) {
+                        last = text;
+                    }
+                }
+                if (!gotoNextDepthFirst(cursor, current.isNamed())) {
+                    break;
+                }
+            }
+        }
+        return last;
+    }
+
+    private static String compactExcerpt(String text) {
+        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        if (compact.length() <= 180) {
+            return compact;
+        }
+        return compact.substring(0, 180) + "...";
+    }
+
+    @Override
+    public List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
+        checkStale("findTestAssertionSmells");
+        if (!containsTests(file)) {
+            return List.of();
+        }
+
+        TestAssertionWeights resolvedWeights = weights != null ? weights : TestAssertionWeights.defaults();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file, source -> detectTestAssertionSmells(file, root, source, resolvedWeights), List.of());
+                },
+                List.of());
+    }
+
+    private List<TestAssertionSmell> detectTestAssertionSmells(
+            ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
+        var functions = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(FUNCTION_ITEM), functions);
+        var testFunctions = rustFunctionsWithDirectTestAttribute(root, sourceContent);
+
+        var candidates = new ArrayList<TestSmellCandidate>();
+        for (TSNode function : functions) {
+            if (!testFunctions.contains(function)) {
+                continue;
+            }
+
+            var analysis = analyzeRustAssertions(function, sourceContent, weights);
+            var signals = analysis.smells();
+            int assertionCount = analysis.assertionCount();
+
+            String enclosing = enclosingCodeUnit(
+                            file,
+                            function.getStartPoint().getRow(),
+                            function.getEndPoint().getRow())
+                    .map(CodeUnit::fqName)
+                    .orElse(file.toString());
+
+            if (assertionCount == 0) {
+                var smell = new TestAssertionSmell(
+                        file,
+                        enclosing,
+                        TEST_ASSERTION_KIND_NO_ASSERTIONS,
+                        weights.noAssertionWeight(),
+                        0,
+                        List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
+                        sourceContent.substringFrom(function));
+                candidates.add(new TestSmellCandidate(smell, function.getStartByte()));
+                continue;
+            }
+
+            for (AssertionSignal signal : signals) {
+                if (signal.score() <= 0) continue;
+                candidates.add(new TestSmellCandidate(
+                        new TestAssertionSmell(
+                                file,
+                                enclosing,
+                                signal.kind(),
+                                signal.score(),
+                                assertionCount,
+                                List.copyOf(signal.reasons()),
+                                signal.excerpt()),
+                        signal.startByte()));
+            }
+
+            boolean allShallow = analysis.shallowAssertionCount() == assertionCount;
+            if (allShallow) {
+                int score = weights.shallowAssertionOnlyWeight()
+                        - meaningfulAssertionCredit(analysis.meaningfulAssertionCount(), weights);
+                if (score > 0) {
+                    var smell = new TestAssertionSmell(
+                            file,
+                            enclosing,
+                            TEST_ASSERTION_KIND_SHALLOW_ONLY,
+                            score,
+                            assertionCount,
+                            List.of(TEST_ASSERTION_KIND_SHALLOW_ONLY),
+                            sourceContent.substringFrom(function));
+                    candidates.add(new TestSmellCandidate(smell, function.getStartByte()));
+                }
+            }
+        }
+
+        return candidates.stream()
+                .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
+                .map(TestSmellCandidate::smell)
+                .toList();
+    }
+
+    private static int meaningfulAssertionCredit(int meaningfulAssertionCount, TestAssertionWeights weights) {
+        int creditable = Math.min(meaningfulAssertionCount, Math.max(0, weights.meaningfulAssertionCreditCap()));
+        return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
+    }
+
+    private RustAssertionAnalysis analyzeRustAssertions(
+            TSNode testFn, SourceContent sourceContent, TestAssertionWeights weights) {
+        var macros = new ArrayList<TSNode>();
+        collectNodesByType(testFn, Set.of(MACRO_INVOCATION), macros);
+        if (macros.isEmpty()) return new RustAssertionAnalysis(0, 0, 0, List.of());
+
+        var signals = new ArrayList<AssertionSignal>();
+        int assertionCount = 0;
+        int shallowAssertionCount = 0;
+        int meaningfulAssertionCount = 0;
+        for (TSNode macro : macros) {
+            String macroName = rustMacroName(macro, sourceContent);
+            if (!(ASSERT_MACRO_NAME.equals(macroName)
+                    || ASSERT_EQ_MACRO_NAME.equals(macroName)
+                    || ASSERT_NE_MACRO_NAME.equals(macroName)
+                    || ASSERT_MATCHES_MACRO_NAME.equals(macroName))) {
+                continue;
+            }
+            assertionCount++;
+
+            if (ASSERT_EQ_MACRO_NAME.equals(macroName) || ASSERT_NE_MACRO_NAME.equals(macroName)) {
+                var signal = classifyRustEqLikeMacro(macro, sourceContent, weights);
+                if (signal != null) {
+                    if (signal.shallow()) {
+                        shallowAssertionCount++;
+                    }
+                    if (signal.meaningful()) {
+                        meaningfulAssertionCount++;
+                    }
+                } else {
+                    meaningfulAssertionCount++;
+                }
+                if (signal != null && signal.score() > 0) {
+                    signals.add(signal);
+                }
+                continue;
+            }
+
+            if (ASSERT_MATCHES_MACRO_NAME.equals(macroName)) {
+                var signal = classifyRustMatchesMacro(macro, sourceContent, weights);
+                if (signal != null) {
+                    if (signal.shallow()) {
+                        shallowAssertionCount++;
+                    }
+                    if (signal.meaningful()) {
+                        meaningfulAssertionCount++;
+                    }
+                } else {
+                    meaningfulAssertionCount++;
+                }
+                if (signal != null && signal.score() > 0) {
+                    signals.add(signal);
+                }
+                continue;
+            }
+
+            if (ASSERT_MACRO_NAME.equals(macroName)) {
+                var signal = classifyRustAssertMacro(macro, sourceContent, weights);
+                if (signal != null) {
+                    if (signal.shallow()) {
+                        shallowAssertionCount++;
+                    }
+                    if (signal.meaningful()) {
+                        meaningfulAssertionCount++;
+                    }
+                } else {
+                    meaningfulAssertionCount++;
+                }
+                if (signal != null && signal.score() > 0) {
+                    signals.add(signal);
+                }
+            }
+        }
+
+        signals.sort(Comparator.comparingInt(AssertionSignal::startByte));
+        return new RustAssertionAnalysis(
+                assertionCount, shallowAssertionCount, meaningfulAssertionCount, List.copyOf(signals));
+    }
+
+    private static final String ASSERT_MACRO_NAME = "assert";
+    private static final String ASSERT_EQ_MACRO_NAME = "assert_eq";
+    private static final String ASSERT_NE_MACRO_NAME = "assert_ne";
+    private static final String ASSERT_MATCHES_MACRO_NAME = "assert_matches";
+
+    private static String rustMacroName(TSNode macro, SourceContent sourceContent) {
+        int tokenTreeStart = Integer.MAX_VALUE;
+        var tokenTrees = new ArrayList<TSNode>();
+        collectNodesByType(macro, Set.of(TOKEN_TREE), tokenTrees);
+        if (!tokenTrees.isEmpty()) {
+            tokenTreeStart = tokenTrees.getFirst().getStartByte();
+        }
+
+        var ids = new ArrayList<TSNode>();
+        collectNodesByType(macro, Set.of(IDENTIFIER), ids);
+
+        TSNode best = null;
+        for (TSNode id : ids) {
+            if (id.getStartByte() >= tokenTreeStart) {
+                continue;
+            }
+            if (best == null || id.getStartByte() > best.getStartByte()) {
+                best = id;
+            }
+        }
+        if (best == null) {
+            return "";
+        }
+        return sourceContent.substringFrom(best).trim();
+    }
+
+    private @Nullable AssertionSignal classifyRustEqLikeMacro(
+            TSNode macro, SourceContent sourceContent, TestAssertionWeights weights) {
+        List<TSNode> exprs = new ArrayList<>();
+        collectNodesByType(macro, Set.of(EXPRESSION), exprs);
+        if (exprs.size() < 2) {
+            exprs = rustMacroArgumentNodes(macro);
+        }
+        if (exprs.size() < 2) {
+            return null;
+        }
+        TSNode left = exprs.getFirst();
+        TSNode right = exprs.get(1);
+
+        int score = 0;
+        boolean shallow = false;
+        boolean meaningful = true;
+        String kind = "";
+        var reasons = new ArrayList<String>();
+
+        boolean leftIsNone = isRustNoneExpr(left, sourceContent);
+        boolean rightIsNone = isRustNoneExpr(right, sourceContent);
+        boolean leftConst = isRustConstantExpr(left, sourceContent);
+        boolean rightConst = isRustConstantExpr(right, sourceContent);
+
+        if (leftConst && rightConst) {
+            score += weights.constantEqualityWeight();
+            reasons.add(TEST_ASSERTION_KIND_CONSTANT_EQUALITY);
+            kind = TEST_ASSERTION_KIND_CONSTANT_EQUALITY;
+            meaningful = false;
+        } else if (sameRustExpr(left, right, sourceContent)) {
+            score += weights.tautologicalAssertionWeight();
+            reasons.add(TEST_ASSERTION_KIND_SELF_COMPARISON);
+            kind = TEST_ASSERTION_KIND_SELF_COMPARISON;
+            meaningful = false;
+        } else if (leftIsNone || rightIsNone) {
+            score += weights.nullnessOnlyWeight();
+            reasons.add(TEST_ASSERTION_KIND_NULLNESS_ONLY);
+            kind = TEST_ASSERTION_KIND_NULLNESS_ONLY;
+            shallow = true;
+            meaningful = false;
+        }
+
+        boolean overspecified =
+                containsLargeRustStringLiteral(macro, sourceContent, weights.largeLiteralLengthThreshold());
+        if (overspecified) {
+            score += weights.overspecifiedLiteralWeight();
+            reasons.add(TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL);
+            kind = TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL;
+            meaningful = false;
+        }
+
+        if (score <= 0) {
+            return null;
+        }
+
+        return new AssertionSignal(
+                kind,
+                score,
+                shallow,
+                meaningful,
+                macro.getStartByte(),
+                List.copyOf(reasons),
+                sourceContent.substringFrom(macro));
+    }
+
+    private @Nullable AssertionSignal classifyRustAssertMacro(
+            TSNode macro, SourceContent sourceContent, TestAssertionWeights weights) {
+        List<TSNode> exprs = new ArrayList<>();
+        collectNodesByType(macro, Set.of(EXPRESSION), exprs);
+        if (exprs.isEmpty()) {
+            exprs = rustMacroArgumentNodes(macro);
+        }
+        if (exprs.isEmpty()) return null;
+        TSNode condition = exprs.getFirst();
+
+        int score = 0;
+        boolean shallow = false;
+        boolean meaningful = true;
+        String kind = "";
+        var reasons = new ArrayList<String>();
+
+        String condText = sourceContent.substringFrom(condition).strip();
+        if ("true".equals(condText) || "false".equals(condText)) {
+            score += weights.constantTruthWeight();
+            reasons.add(TEST_ASSERTION_KIND_CONSTANT_TRUTH);
+            kind = TEST_ASSERTION_KIND_CONSTANT_TRUTH;
+            meaningful = false;
+        } else if (isRustNoneExpr(condition, sourceContent)
+                || isRustIsNoneMethodCall(condition, sourceContent)
+                || isRustNoneEqualityOrInequality(condition, sourceContent)) {
+            score += weights.nullnessOnlyWeight();
+            reasons.add(TEST_ASSERTION_KIND_NULLNESS_ONLY);
+            kind = TEST_ASSERTION_KIND_NULLNESS_ONLY;
+            shallow = true;
+            meaningful = false;
+        }
+
+        boolean overspecified =
+                containsLargeRustStringLiteral(macro, sourceContent, weights.largeLiteralLengthThreshold());
+        if (overspecified) {
+            score += weights.overspecifiedLiteralWeight();
+            reasons.add(TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL);
+            kind = TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL;
+            meaningful = false;
+        }
+
+        if (score <= 0) {
+            return null;
+        }
+
+        return new AssertionSignal(
+                kind,
+                score,
+                shallow,
+                meaningful,
+                macro.getStartByte(),
+                List.copyOf(reasons),
+                sourceContent.substringFrom(macro));
+    }
+
+    private @Nullable AssertionSignal classifyRustMatchesMacro(
+            TSNode macro, SourceContent sourceContent, TestAssertionWeights weights) {
+        boolean overspecified =
+                containsLargeRustStringLiteral(macro, sourceContent, weights.largeLiteralLengthThreshold());
+        if (!overspecified) return null;
+
+        return new AssertionSignal(
+                TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL,
+                weights.overspecifiedLiteralWeight(),
+                false,
+                false,
+                macro.getStartByte(),
+                List.of(TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL),
+                sourceContent.substringFrom(macro));
+    }
+
+    private static List<TSNode> rustMacroArgumentNodes(TSNode macro) {
+        var args = new ArrayList<TSNode>();
+        TSNode tokenTree = null;
+
+        int childCount = macro.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = macro.getChild(i);
+            if (child != null && TOKEN_TREE.equals(child.getType())) {
+                tokenTree = child;
+                break;
+            }
+        }
+        if (tokenTree == null) {
+            var tokenTrees = new ArrayList<TSNode>();
+            collectNodesByType(macro, Set.of(TOKEN_TREE), tokenTrees);
+            if (!tokenTrees.isEmpty()) {
+                tokenTree = tokenTrees.getFirst();
+            }
+        }
+        if (tokenTree == null) {
+            return args;
+        }
+
+        int namedCount = tokenTree.getNamedChildCount();
+        for (int i = 0; i < namedCount; i++) {
+            TSNode child = tokenTree.getNamedChild(i);
+            if (child == null) continue;
+            String type = child.getType();
+            if (type == null) continue;
+            // Keep argument-like nodes; ignore punctuation-like wrappers if present.
+            if (ATTRIBUTE_ITEM.equals(type)) continue;
+            args.add(child);
+        }
+        return args;
+    }
+
+    private static boolean containsLargeRustStringLiteral(TSNode root, SourceContent sourceContent, int threshold) {
+        var stringLits = new ArrayList<TSNode>();
+        collectNodesByType(root, Set.of(STRING_LITERAL), stringLits);
+        if (stringLits.isEmpty()) return false;
+        for (TSNode lit : stringLits) {
+            if (sourceContent.substringFrom(lit).length() >= threshold) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<TSNode> rustFunctionsWithDirectTestAttribute(TSNode root, SourceContent sourceContent) {
+        var testFunctions = new HashSet<TSNode>();
+        for (TSNode attrItem : testAttributeItems(root, sourceContent)) {
+            if (!isRustTestAttributeItem(attrItem, sourceContent)) {
+                continue;
+            }
+
+            // Shape 1: attribute_item is nested under the function_item.
+            TSNode parent = attrItem.getParent();
+            if (parent != null && FUNCTION_ITEM.equals(parent.getType())) {
+                testFunctions.add(parent);
+                continue;
+            }
+
+            // Shape 2: attribute_item is a sibling immediately preceding the function_item.
+            TSNode next = attrItem.getNextSibling();
+            while (next != null) {
+                String nextType = next.getType();
+                if (ATTRIBUTE_ITEM.equals(nextType)) {
+                    next = next.getNextSibling();
+                    continue;
+                }
+                if (FUNCTION_ITEM.equals(nextType)) {
+                    testFunctions.add(next);
+                }
+                break;
+            }
+        }
+        return testFunctions;
+    }
+
+    private static boolean isRustNoneExpr(TSNode expr, SourceContent sourceContent) {
+        return "None".equals(sourceContent.substringFrom(expr).strip());
+    }
+
+    private static boolean isRustIsNoneMethodCall(TSNode expr, SourceContent sourceContent) {
+        var calls = new ArrayList<TSNode>();
+        collectNodesByType(expr, Set.of(CALL_EXPRESSION), calls);
+        if (calls.isEmpty()) return false;
+
+        for (TSNode call : calls) {
+            var fieldExprs = new ArrayList<TSNode>();
+            collectNodesByType(call, Set.of(FIELD_EXPRESSION), fieldExprs);
+            if (fieldExprs.isEmpty()) continue;
+
+            for (TSNode fieldExpr : fieldExprs) {
+                var idNodes = new ArrayList<TSNode>();
+                collectNodesByType(fieldExpr, Set.of(IDENTIFIER), idNodes);
+                for (TSNode id : idNodes) {
+                    if ("is_none".equals(sourceContent.substringFrom(id).strip())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isRustNoneEqualityOrInequality(TSNode expr, SourceContent sourceContent) {
+        var bins = new ArrayList<TSNode>();
+        collectNodesByType(expr, Set.of(BINARY_EXPRESSION), bins);
+        if (bins.isEmpty()) return false;
+
+        for (TSNode bin : bins) {
+            TSNode left = bin.getChildByFieldName("left");
+            TSNode right = bin.getChildByFieldName("right");
+            if (left == null || right == null) continue;
+
+            String op = firstUnnamedChildType(bin);
+            boolean leftIsNone = isRustNoneExpr(left, sourceContent);
+            boolean rightIsNone = isRustNoneExpr(right, sourceContent);
+            if (("==".equals(op) && (leftIsNone || rightIsNone)) || ("!=".equals(op) && (leftIsNone || rightIsNone))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isRustConstantExpr(TSNode expr, SourceContent sourceContent) {
+        // `true`/`false` are represented by the named `boolean_literal` node in the Rust grammar.
+        // `None` is an identifier (so we still need text-based matching).
+        if (hasDescendantOfType(expr, BOOLEAN_LITERAL)) {
+            return true;
+        }
+        if (isRustNoneExpr(expr, sourceContent)) {
+            return true;
+        }
+        return hasDescendantOfType(expr, STRING_LITERAL)
+                || hasDescendantOfType(expr, CHAR_LITERAL)
+                || hasDescendantOfType(expr, INTEGER_LITERAL)
+                || hasDescendantOfType(expr, FLOAT_LITERAL)
+                || hasDescendantOfType(expr, BOOLEAN_LITERAL);
+    }
+
+    private List<TSNode> testAttributeItems(TSNode root, SourceContent sourceContent) {
+        if (root == null) return List.of();
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
+                    var attrs = new ArrayList<TSNode>();
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
                         cursor.exec(query, root, sourceContent.text());
-
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
                             for (TSQueryCapture capture : match.getCaptures()) {
                                 String captureName = query.getCaptureNameForId(capture.getIndex());
-                                if (TEST_MARKER.equals(captureName)) {
-                                    // The capture is now directly on the attribute_item node
-                                    TSNode attrItemNode = capture.getNode();
-                                    if (attrItemNode != null) {
-                                        String content = sourceContent.substringFrom(attrItemNode);
-                                        // Rust attributes look like #[test] or #[cfg(test)]
-                                        if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {
-                                            return true;
-                                        }
-                                    }
+                                if (!TEST_MARKER.equals(captureName)) continue;
+
+                                TSNode attrItemNode = capture.getNode();
+                                if (attrItemNode == null) continue;
+                                if (isRustTestContextAttributeItem(attrItemNode, sourceContent)) {
+                                    attrs.add(attrItemNode);
                                 }
                             }
                         }
                     }
-                    return false;
+                    return attrs;
                 },
-                false);
+                List.of());
+    }
+
+    private static boolean isRustTestAttributeItem(TSNode attrItemNode, SourceContent sourceContent) {
+        var ids = rustAttributeIdentifiers(attrItemNode, sourceContent);
+        // `#[test]` parses to identifier list containing `test` (typically as the first identifier).
+        return !ids.isEmpty() && "test".equals(ids.getFirst());
+    }
+
+    private static boolean isRustTestContextAttributeItem(TSNode attrItemNode, SourceContent sourceContent) {
+        var ids = rustAttributeIdentifiers(attrItemNode, sourceContent);
+        if (ids.isEmpty()) {
+            return false;
+        }
+        // test context is either:
+        //  - `#[test]` (first identifier is test), or
+        //  - `#[cfg(test)]` (first identifier cfg and one nested identifier test).
+        if ("test".equals(ids.getFirst())) {
+            return true;
+        }
+        return "cfg".equals(ids.getFirst()) && ids.stream().anyMatch("test"::equals);
+    }
+
+    private static List<String> rustAttributeIdentifiers(TSNode attrItemNode, SourceContent sourceContent) {
+        var idNodes = new ArrayList<TSNode>();
+        collectNodesByType(attrItemNode, Set.of(IDENTIFIER), idNodes);
+        if (idNodes.isEmpty()) {
+            return List.of();
+        }
+        var ids = new ArrayList<String>(idNodes.size());
+        for (TSNode idNode : idNodes) {
+            ids.add(sourceContent.substringFrom(idNode).strip());
+        }
+        return ids;
+    }
+
+    private static boolean sameRustExpr(TSNode left, TSNode right, SourceContent sourceContent) {
+        TSNode l = unwrapRustParenthesized(left);
+        TSNode r = unwrapRustParenthesized(right);
+
+        if (l == null || r == null) return false;
+        String lType = l.getType();
+        String rType = r.getType();
+        if (lType == null || rType == null || !lType.equals(rType)) return false;
+
+        String type = lType;
+        // For the most common leaf nodes, compare the exact CST text (trimmed), not whitespace-normalized strings.
+        if (type.equals("identifier") || type.equals("scoped_identifier")) {
+            return sourceContent
+                    .substringFrom(l)
+                    .strip()
+                    .equals(sourceContent.substringFrom(r).strip());
+        }
+        if (type.equals(BOOLEAN_LITERAL)
+                || type.equals(CHAR_LITERAL)
+                || type.equals(STRING_LITERAL)
+                || type.equals(INTEGER_LITERAL)
+                || type.equals(FLOAT_LITERAL)) {
+            return sourceContent
+                    .substringFrom(l)
+                    .strip()
+                    .equals(sourceContent.substringFrom(r).strip());
+        }
+
+        if (type.equals("binary_expression")) {
+            return sameRustBinaryExpr(l, r, sourceContent);
+        }
+
+        // Conservative fallback: compare CST text for the whole expression.
+        return sourceContent
+                .substringFrom(l)
+                .strip()
+                .equals(sourceContent.substringFrom(r).strip());
+    }
+
+    private static TSNode unwrapRustParenthesized(TSNode n) {
+        TSNode current = n;
+        // Be defensive: unwrap up to 2 layers of `parenthesized_expression`.
+        for (int i = 0; i < 2; i++) {
+            if (current == null) return n;
+            if (!"parenthesized_expression".equals(current.getType())) break;
+            if (current.getNamedChildCount() == 0) break;
+            TSNode child = current.getNamedChild(0);
+            if (child == null) break;
+            current = child;
+        }
+        return current;
+    }
+
+    private static boolean sameRustBinaryExpr(TSNode left, TSNode right, SourceContent sourceContent) {
+        TSNode lLeft = left.getChildByFieldName("left");
+        TSNode lRight = left.getChildByFieldName("right");
+        TSNode rLeft = right.getChildByFieldName("left");
+        TSNode rRight = right.getChildByFieldName("right");
+        if (lLeft == null || lRight == null || rLeft == null || rRight == null) {
+            return false;
+        }
+
+        if (!sameRustExpr(lLeft, rLeft, sourceContent)) return false;
+        if (!sameRustExpr(lRight, rRight, sourceContent)) return false;
+
+        // `operator` is typically an unnamed child token (e.g. "==" or "!=").
+        return firstUnnamedChildType(left).equals(firstUnnamedChildType(right));
+    }
+
+    private static String firstUnnamedChildType(TSNode node) {
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (child == null) continue;
+            if (!child.isNamed()) {
+                String t = child.getType();
+                return t == null ? "" : t;
+            }
+        }
+        return "";
+    }
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        TSNode root = tree.getRootNode();
+        if (root == null) return false;
+        return !testAttributeItems(root, sourceContent).isEmpty();
     }
 }

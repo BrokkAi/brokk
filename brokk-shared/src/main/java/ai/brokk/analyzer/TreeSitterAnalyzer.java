@@ -63,6 +63,38 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
+    /**
+     * Common candidate wrapper used by multiple language analyzers for stable sorting of smells.
+     *
+     * <p>Several analyzers historically carried their own private copy of these small record helpers.
+     * Centralizing them here keeps behavior consistent and avoids drift.
+     */
+    protected record TestSmellCandidate(TestAssertionSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
+    }
+
+    protected record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
+        int score() {
+            return smell.score();
+        }
+    }
+
+    protected static final Comparator<TestSmellCandidate> TEST_SMELL_CANDIDATE_COMPARATOR = Comparator.comparingInt(
+                    TestSmellCandidate::score)
+            .reversed()
+            .thenComparing(c -> c.smell().file().toString())
+            .thenComparing(c -> c.smell().enclosingFqName())
+            .thenComparingInt(TestSmellCandidate::startByte);
+
+    protected static final Comparator<SmellCandidate> EXCEPTION_SMELL_CANDIDATE_COMPARATOR = Comparator.comparingInt(
+                    SmellCandidate::score)
+            .reversed()
+            .thenComparing(c -> c.smell().file().toString())
+            .thenComparing(c -> c.smell().enclosingFqName())
+            .thenComparingInt(SmellCandidate::startByte);
+
     private volatile boolean isStale = false;
     private final AtomicBoolean staleWarningLogged = new AtomicBoolean(false);
 
@@ -261,6 +293,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SequencedSet<Range> ranges,
             boolean hasBody,
             boolean isTypeAlias,
+            Map<String, Object> attributes,
             List<CodeUnit> childrenList,
             List<String> signaturesList,
             List<Range> rangesList) {
@@ -271,12 +304,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 SequencedSet<Range> ranges,
                 boolean hasBody,
                 boolean isTypeAlias) {
+            this(children, signatures, ranges, hasBody, isTypeAlias, Map.of());
+        }
+
+        public CodeUnitProperties(
+                SequencedSet<CodeUnit> children,
+                SequencedSet<String> signatures,
+                SequencedSet<Range> ranges,
+                boolean hasBody,
+                boolean isTypeAlias,
+                Map<String, Object> attributes) {
             this(
                     children,
                     signatures,
                     ranges,
                     hasBody,
                     isTypeAlias,
+                    attributes,
                     List.copyOf(children),
                     List.copyOf(signatures),
                     List.copyOf(ranges));
@@ -288,7 +332,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
                     false,
-                    false);
+                    false,
+                    Map.of());
         }
     }
 
@@ -315,7 +360,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
             SymbolKeyIndex symbolKeyIndex,
-            long snapshotEpochNanos) {}
+            PMap<ProjectFile, List<TemplateAnalysisResult>> templateResults,
+            long snapshotEpochNanos) {
+
+        public AnalyzerState(
+                PMap<String, Set<CodeUnit>> symbolIndex,
+                PMap<CodeUnit, CodeUnitProperties> codeUnitState,
+                PMap<ProjectFile, FileProperties> fileState,
+                SymbolKeyIndex symbolKeyIndex,
+                long snapshotEpochNanos) {
+            this(symbolIndex, codeUnitState, fileState, symbolKeyIndex, HashTreePMap.empty(), snapshotEpochNanos);
+        }
+    }
 
     // Timestamp of the last successful full-project update (epoch nanos)
     private final AtomicLong lastUpdateEpochNanos = new AtomicLong(0L);
@@ -337,7 +393,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             List<TSNode> decoratorNodes,
             TSNode cachedParent) {}
 
-    protected record LanguageSyntaxProfile(
+    public record LanguageSyntaxProfile(
             Set<String> classLikeNodeTypes,
             Set<String> functionLikeNodeTypes,
             Set<String> fieldLikeNodeTypes,
@@ -644,6 +700,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
                 symbolKeyIndex,
+                HashTreePMap.empty(),
                 snapshotNanos);
 
         log.debug(
@@ -741,6 +798,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected List<CodeUnit> childrenOf(CodeUnit codeUnit) {
         return codeUnitProperties(codeUnit).childrenList();
+    }
+
+    protected List<CodeUnit> orderChildrenForSkeleton(CodeUnit parent, List<CodeUnit> children) {
+        return children;
     }
 
     protected List<String> signaturesOf(CodeUnit codeUnit) {
@@ -1365,7 +1426,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
-        final List<CodeUnit> allChildren = childrenOf(cu);
+        final List<CodeUnit> allChildren = orderChildrenForSkeleton(cu, childrenOf(cu));
 
         final var kids = allChildren.stream()
                 .filter(child -> !headerOnly || child.isField())
@@ -2060,6 +2121,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             acc.setHasBody(target, true);
         }
 
+        // Transfer attributes
+        Map<String, Object> sourceAttrs = acc.getAttributes(source);
+        if (!sourceAttrs.isEmpty()) {
+            for (var entry : sourceAttrs.entrySet()) {
+                acc.setAttribute(target, entry.getKey(), entry.getValue());
+            }
+        }
+
         List<String> sourceLookupKeys = acc.getLookupKeys(source);
         for (String lookupKey : sourceLookupKeys) {
             acc.addLookupKey(lookupKey, target);
@@ -2330,6 +2399,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     scopeChain,
                                     node,
                                     skeletonType);
+
                             if (cu == null) {
                                 log.trace(
                                         "createCodeUnit returned null for node {} ({}) in file {}",
@@ -2365,6 +2435,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
                             }
 
+                            // Use the already-resolved content node (from signature building) for hasBody computation
+                            SkeletonType refined =
+                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+                            ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
+
+                            List<TSNode> currentDecoratorNodes = defInfo.decoratorNodes();
+                            if (currentDecoratorNodes.isEmpty() && !hasWrappingDecoratorNode()) {
+                                currentDecoratorNodes = getPrecedingDecorators(resolved.contentNode());
+                                if (currentDecoratorNodes.isEmpty() && !node.equals(resolved.contentNode())) {
+                                    currentDecoratorNodes = getPrecedingDecorators(node);
+                                }
+                            }
+                            if (!currentDecoratorNodes.isEmpty()) {
+                                handleDecorators(cu, node, currentDecoratorNodes, sourceContent, acc);
+                            }
+
                             String signature = buildSignatureString(
                                     node,
                                     simpleName,
@@ -2372,11 +2458,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     primaryCaptureName,
                                     defInfo.modifierKeywords(),
                                     file);
-
-                            // Use the already-resolved content node (from signature building) for hasBody computation
-                            SkeletonType refined =
-                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
-                            ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
                             acc.setHasBody(
                                     cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
                             if (CaptureNames.TYPEALIAS_DEFINITION.equals(primaryCaptureName)) {
@@ -2436,6 +2517,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
                         // Register modules from imports
                         wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
+
+                        postProcessFileAnalysis(file, acc, rootNode, sourceContent, cuToCaptureName);
 
                         // Synthesize implicit constructors
                         for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
@@ -2679,6 +2762,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         String parentFqName = buildParentFqName(cu, classChain, scopeChain);
         return acc.getByFqName(parentFqName);
     }
+
+    protected void postProcessFileAnalysis(
+            ProjectFile file,
+            FileAnalysisAccumulator acc,
+            TSNode rootNode,
+            SourceContent sourceContent,
+            Map<CodeUnit, String> cuToCaptureName) {}
 
     private void wrapModulesFromImports(
             ProjectFile file,
@@ -2946,7 +3036,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             nodeForContent = extractContentFromDecoratedNode(definitionNode, signatureLines, sourceContent, profile);
         } else {
             for (TSNode decoratorNode : getPrecedingDecorators(nodeForContent)) {
-                signatureLines.add(sourceContent.substringFrom(decoratorNode).stripLeading());
+                // Only add the decorator manually if it's NOT already part of the node being sliced for signature.
+                // If it is inside nodeForSignature, slicing nodeForSignature will already include it.
+                if (decoratorNode.getStartByte() < nodeForSignature.getStartByte()
+                        || decoratorNode.getEndByte() > nodeForSignature.getEndByte()) {
+                    signatureLines.add(
+                            sourceContent.substringFrom(decoratorNode).stripLeading());
+                }
             }
         }
 
@@ -3334,6 +3430,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             String indent);
 
     /**
+     * Hook for subclasses to process decorators associated with a CodeUnit.
+     */
+    protected void handleDecorators(
+            CodeUnit cu,
+            TSNode definitionNode,
+            List<TSNode> decoratorNodes,
+            SourceContent sourceContent,
+            FileAnalysisAccumulator acc) {
+        // Default: no-op
+    }
+
+    /**
      * Finds decorator nodes immediately preceding a given node.
      */
     private List<TSNode> getPrecedingDecorators(TSNode decoratedNode) {
@@ -3342,10 +3450,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (decoratorNodeTypes.isEmpty()) {
             return decorators;
         }
-        TSNode current = decoratedNode.getPrevSibling();
+
+        // In some languages (like TypeScript), decorators are children of the declaration node.
+        for (int i = 0; i < decoratedNode.getChildCount(); i++) {
+            TSNode child = decoratedNode.getChild(i);
+            if (child != null && decoratorNodeTypes.contains(child.getType())) {
+                decorators.add(child);
+            }
+        }
+        if (!decorators.isEmpty()) {
+            return decorators;
+        }
+
+        TSNode current = decoratedNode.getPrevNamedSibling();
         while (current != null && decoratorNodeTypes.contains(current.getType())) {
             decorators.add(current);
-            current = current.getPrevSibling();
+            current = current.getPrevNamedSibling();
         }
         Collections.reverse(decorators); // Decorators should be in source order
         return decorators;
@@ -3653,7 +3773,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             newState.signatures(),
                             newState.ranges(),
                             newState.hasBody(),
-                            newState.isTypeAlias());
+                            newState.isTypeAlias(),
+                            newState.attributes());
                 }
                 SequencedSet<CodeUnit> mergedKids = new LinkedHashSet<>(existing.children());
                 mergedKids.addAll(newState.children());
@@ -3667,12 +3788,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 // Merge semantics: flags are combined using logical OR.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
                 boolean mergedIsTypeAlias = existing.isTypeAlias() || newState.isTypeAlias();
+
+                Map<String, Object> mergedAttributes = new HashMap<>(existing.attributes());
+                mergedAttributes.putAll(newState.attributes());
+
                 return new CodeUnitProperties(
                         Collections.unmodifiableSequencedSet(mergedKids),
                         Collections.unmodifiableSequencedSet(mergedSigs),
                         Collections.unmodifiableSequencedSet(mergedRanges),
                         mergedHasBody,
-                        mergedIsTypeAlias);
+                        mergedIsTypeAlias,
+                        Collections.unmodifiableMap(mergedAttributes));
             });
 
             if (cu.isModule()) {
@@ -3762,7 +3888,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             props.signatures(),
                             props.ranges(),
                             props.hasBody(),
-                            props.isTypeAlias());
+                            props.isTypeAlias(),
+                            props.attributes());
         });
 
         // Filter symbol index
@@ -3854,6 +3981,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 HashTreePMap.from(newCodeUnitState),
                 HashTreePMap.from(newFileState),
                 nextSymbolKeyIndex,
+                HashTreePMap.empty(),
                 snapshotNanos);
 
         var filteredCache = createFilteredCache(this.cache, changedFiles);
@@ -4316,18 +4444,97 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 Map.of());
     }
 
-    private static void collectNodesByType(TSNode node, Set<String> nodeTypes, List<TSNode> out) {
-        String type = node.getType();
-        if (type != null && nodeTypes.contains(type)) {
-            out.add(node);
-            return;
-        }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (child != null) {
-                collectNodesByType(child, nodeTypes, out);
+    protected static void collectNodesByType(TSNode node, Set<String> nodeTypes, List<TSNode> out) {
+        try (var cursor = new TSTreeCursor(node)) {
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return;
+                }
+                String type = current.getType();
+                if (type != null && nodeTypes.contains(type)) {
+                    out.add(current);
+                }
+                if (!gotoNextDepthFirst(cursor, true)) {
+                    return;
+                }
             }
         }
+    }
+
+    protected static @Nullable TSNode firstNonCommentNamedChild(TSNode node, Set<String> commentNodeTypes) {
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (commentNodeTypes.contains(child.getType())) {
+                continue;
+            }
+            return child;
+        }
+        return null;
+    }
+
+    protected static boolean hasDescendantOfType(TSNode root, String targetType) {
+        if (targetType.equals(root.getType())) {
+            return true;
+        }
+        try (var cursor = new TSTreeCursor(root)) {
+            if (!gotoNextDepthFirst(cursor, true)) {
+                return false;
+            }
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return false;
+                }
+                if (current.isNamed() && targetType.equals(current.getType())) {
+                    return true;
+                }
+                if (!gotoNextDepthFirst(cursor, current.isNamed())) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    protected static @Nullable TSNode findFirstNamedDescendant(TSNode root, String targetType) {
+        if (targetType.equals(root.getType())) {
+            return root;
+        }
+        try (var cursor = new TSTreeCursor(root)) {
+            if (!gotoNextDepthFirst(cursor, true)) {
+                return null;
+            }
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return null;
+                }
+                if (current.isNamed() && targetType.equals(current.getType())) {
+                    return current;
+                }
+                if (!gotoNextDepthFirst(cursor, current.isNamed())) {
+                    return null;
+                }
+            }
+        }
+    }
+
+    /**
+     * Advances the cursor depth-first. When {@code descendIntoCurrent} is false, traversal skips the current subtree.
+     */
+    protected static boolean gotoNextDepthFirst(TSTreeCursor cursor, boolean descendIntoCurrent) {
+        if (descendIntoCurrent && cursor.gotoFirstChild()) {
+            return true;
+        }
+        while (!cursor.gotoNextSibling()) {
+            if (!cursor.gotoParent()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private @Nullable CUWithDepth findDeepestEnclosingByCommentBytes(
@@ -4454,6 +4661,297 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
         return null;
     }
+
+    @Override
+    public List<CloneSmell> findStructuralCloneSmells(ProjectFile file, CloneSmellWeights weights) {
+        return findStructuralCloneSmells(List.of(file), weights);
+    }
+
+    @Override
+    public List<CloneSmell> findStructuralCloneSmells(List<ProjectFile> files, CloneSmellWeights weights) {
+        checkStale("findStructuralCloneSmells");
+        CloneSmellWeights resolved = weights != null ? weights : CloneSmellWeights.defaults();
+        Set<ProjectFile> requestedFiles =
+                files.stream().filter(this::isRelevantFile).collect(Collectors.toSet());
+        if (requestedFiles.isEmpty()) {
+            return List.of();
+        }
+        List<CloneCandidateData> allCandidates = getAllDeclarations().stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> isRelevantFile(cu.source()))
+                .map(cu -> buildCloneCandidateData(cu, resolved))
+                .flatMap(Optional::stream)
+                .toList();
+        if (allCandidates.isEmpty()) {
+            return List.of();
+        }
+        List<CloneCandidateData> requestedCandidates = allCandidates.stream()
+                .filter(c -> requestedFiles.contains(c.unit().source()))
+                .toList();
+        if (requestedCandidates.isEmpty()) {
+            return List.of();
+        }
+
+        var findings = new ArrayList<CloneSmell>();
+        for (CloneCandidateData left : requestedCandidates) {
+            for (CloneCandidateData right : allCandidates) {
+                if (left.unit().equals(right.unit())) {
+                    continue;
+                }
+                int tokenSimilarity =
+                        computeCloneTokenSimilarity(left.normalizedTokens(), right.normalizedTokens(), resolved);
+                if (tokenSimilarity < resolved.minSimilarityPercent()) {
+                    continue;
+                }
+                int refinedSimilarity = refineCloneSimilarityPercent(left, right, tokenSimilarity, resolved);
+                if (refinedSimilarity < resolved.minSimilarityPercent()) {
+                    continue;
+                }
+                findings.add(new CloneSmell(
+                        left.unit().source(),
+                        left.unit().fqName(),
+                        right.unit().source(),
+                        right.unit().fqName(),
+                        refinedSimilarity,
+                        Math.min(
+                                left.normalizedTokens().size(),
+                                right.normalizedTokens().size()),
+                        List.of(buildReason(tokenSimilarity, refinedSimilarity)),
+                        left.excerpt(),
+                        right.excerpt()));
+            }
+        }
+        return findings.stream()
+                .sorted(Comparator.comparingInt(CloneSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(CloneSmell::enclosingFqName)
+                        .thenComparing(f -> f.peerFile().toString())
+                        .thenComparing(CloneSmell::peerEnclosingFqName))
+                .toList();
+    }
+
+    protected int refineCloneSimilarityPercent(
+            CloneCandidateData left, CloneCandidateData right, int tokenSimilarity, CloneSmellWeights weights) {
+        return tokenSimilarity;
+    }
+
+    protected Optional<CloneCandidateData> buildCloneCandidateData(CodeUnit cu, CloneSmellWeights weights) {
+        return getSource(cu, false)
+                .map(String::strip)
+                .filter(source -> !source.isBlank())
+                .flatMap(source -> {
+                    List<String> normalized = normalizedCloneTokens(source);
+                    if (normalized.size() < weights.minNormalizedTokens()) {
+                        return Optional.empty();
+                    }
+                    return Optional.of(new CloneCandidateData(
+                            cu, normalized, buildCloneAstSignature(source), compactCloneExcerpt(source)));
+                });
+    }
+
+    protected String buildCloneAstSignature(String source) {
+        return "";
+    }
+
+    protected List<String> normalizedCloneTokens(String source) {
+        return withFreshTree(source, List.of(), tree -> {
+            TSNode root = tree.getRootNode();
+            if (root == null) {
+                return List.of();
+            }
+            var tokens = new ArrayList<String>();
+            collectNormalizedLeafTokens(root, SourceContent.of(source), tokens);
+            return List.copyOf(tokens);
+        });
+    }
+
+    protected int computeCloneTokenSimilarity(
+            List<String> leftTokens, List<String> rightTokens, CloneSmellWeights weights) {
+        Set<String> leftShingles = shingles(leftTokens, weights.shingleSize());
+        Set<String> rightShingles = shingles(rightTokens, weights.shingleSize());
+        if (leftShingles.size() < weights.minSharedShingles() || rightShingles.size() < weights.minSharedShingles()) {
+            return 0;
+        }
+        Set<String> intersection = new HashSet<>(leftShingles);
+        intersection.retainAll(rightShingles);
+        if (intersection.size() < weights.minSharedShingles()) {
+            return 0;
+        }
+        Set<String> union = new HashSet<>(leftShingles);
+        union.addAll(rightShingles);
+        if (union.isEmpty()) {
+            return 0;
+        }
+        return (int) Math.round((intersection.size() * 100.0) / union.size());
+    }
+
+    protected int computeAstLabelMultisetSimilarityPercent(String leftAstSignature, String rightAstSignature) {
+        if (leftAstSignature.isBlank() || rightAstSignature.isBlank()) {
+            return 0;
+        }
+        Map<String, Integer> leftCounts = astLabelCounts(leftAstSignature);
+        Map<String, Integer> rightCounts = astLabelCounts(rightAstSignature);
+        if (leftCounts.isEmpty() || rightCounts.isEmpty()) {
+            return 0;
+        }
+        var allLabels = new HashSet<String>();
+        allLabels.addAll(leftCounts.keySet());
+        allLabels.addAll(rightCounts.keySet());
+        int intersection = 0;
+        int union = 0;
+        for (String label : allLabels) {
+            int left = leftCounts.getOrDefault(label, 0);
+            int right = rightCounts.getOrDefault(label, 0);
+            intersection += Math.min(left, right);
+            union += Math.max(left, right);
+        }
+        if (union == 0) {
+            return 0;
+        }
+        return (int) Math.round((intersection * 100.0) / union);
+    }
+
+    protected int computeAstRefinementSimilarityPercent(String leftAstSignature, String rightAstSignature) {
+        int broadSimilarity = computeAstLabelMultisetSimilarityPercent(leftAstSignature, rightAstSignature);
+        if (broadSimilarity == 0) {
+            return 0;
+        }
+        int controlSimilarity = computeAstControlFlowSimilarityPercent(leftAstSignature, rightAstSignature);
+        if (controlSimilarity < 0) {
+            return broadSimilarity;
+        }
+        return (int) Math.round(((broadSimilarity * 2.0) + controlSimilarity) / 3.0);
+    }
+
+    private static Map<String, Integer> astLabelCounts(String astSignature) {
+        Map<String, Integer> counts = new HashMap<>();
+        for (String label : Splitter.on('|').split(astSignature)) {
+            if (label.isBlank()) {
+                continue;
+            }
+            counts.merge(label, 1, Integer::sum);
+        }
+        return counts;
+    }
+
+    private int computeAstControlFlowSimilarityPercent(String leftAstSignature, String rightAstSignature) {
+        String leftControl = extractControlFlowSignature(leftAstSignature);
+        String rightControl = extractControlFlowSignature(rightAstSignature);
+        if (leftControl.isBlank() || rightControl.isBlank()) {
+            return -1;
+        }
+        return computeAstLabelMultisetSimilarityPercent(leftControl, rightControl);
+    }
+
+    private static String extractControlFlowSignature(String astSignature) {
+        return Splitter.on('|')
+                .splitToStream(astSignature)
+                .map(String::strip)
+                .filter(label -> label.startsWith("N:"))
+                .filter(TreeSitterAnalyzer::isControlFlowLabel)
+                .collect(Collectors.joining("|"));
+    }
+
+    private static boolean isControlFlowLabel(String label) {
+        return label.contains("if")
+                || label.contains("else")
+                || label.contains("while")
+                || label.contains("for")
+                || label.contains("switch")
+                || label.contains("case")
+                || label.contains("try")
+                || label.contains("catch")
+                || label.contains("finally")
+                || label.contains("return")
+                || label.contains("throw")
+                || label.contains("break")
+                || label.contains("continue");
+    }
+
+    protected static Set<String> shingles(List<String> tokens, int shingleSize) {
+        int k = Math.max(1, shingleSize);
+        if (tokens.size() < k) {
+            return Set.of();
+        }
+        var shingles = new LinkedHashSet<String>();
+        for (int i = 0; i <= tokens.size() - k; i++) {
+            shingles.add(String.join("|", tokens.subList(i, i + k)));
+        }
+        return shingles;
+    }
+
+    protected String normalizeCloneLeafToken(TSNode node, SourceContent sourceContent) {
+        String type = Objects.toString(node.getType(), "");
+        String token = sourceContent.substringFrom(node).strip();
+        if (token.isEmpty()) {
+            return "";
+        }
+        if (type.contains("identifier") || "name".equals(type) || "property_identifier".equals(type)) {
+            return "ID";
+        }
+        if (type.contains("string")) {
+            return "STR";
+        }
+        if (type.contains("number") || type.contains("integer") || type.contains("float") || type.contains("decimal")) {
+            return "NUM";
+        }
+        if ("true".equals(token) || "false".equals(token)) {
+            return "BOOL";
+        }
+        if (token.length() == 1 && !Character.isLetterOrDigit(token.charAt(0))) {
+            return "OP:" + token;
+        }
+        return "T:" + type;
+    }
+
+    protected <R> R withFreshTree(String source, R defaultValue, Function<TSTree, R> fn) {
+        try (TSTree tree = getTSParser().parseString(null, source)) {
+            if (tree == null) {
+                return defaultValue;
+            }
+            return fn.apply(tree);
+        }
+    }
+
+    private void collectNormalizedLeafTokens(TSNode root, SourceContent sourceContent, List<String> out) {
+        try (var cursor = new TSTreeCursor(root)) {
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return;
+                }
+                if (current.getNamedChildCount() == 0) {
+                    String token = normalizeCloneLeafToken(current, sourceContent);
+                    if (!token.isBlank()) {
+                        out.add(token);
+                    }
+                }
+                if (!gotoNextDepthFirst(cursor, true)) {
+                    return;
+                }
+            }
+        }
+    }
+
+    private static String compactCloneExcerpt(String raw) {
+        return raw.lines()
+                .map(String::strip)
+                .filter(line -> !line.isEmpty())
+                .limit(6)
+                .collect(Collectors.joining(" "))
+                .replace("|", "\\|");
+    }
+
+    private static String buildReason(int tokenSimilarity, int refinedSimilarity) {
+        if (refinedSimilarity == tokenSimilarity) {
+            return "token-similarity:" + tokenSimilarity;
+        }
+        return "token-similarity:" + tokenSimilarity + ", refined-similarity:" + refinedSimilarity;
+    }
+
+    protected record CloneCandidateData(
+            CodeUnit unit, List<String> normalizedTokens, String astSignature, String excerpt) {}
 
     /**
      * Extracts potential type identifiers from source code.

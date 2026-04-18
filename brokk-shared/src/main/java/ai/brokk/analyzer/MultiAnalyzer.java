@@ -2,9 +2,11 @@ package ai.brokk.analyzer;
 
 import ai.brokk.project.ICoreProject;
 import java.util.*;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.pcollections.HashTreePMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,9 +21,15 @@ public class MultiAnalyzer
             TestDetectionProvider.class);
 
     private final Map<Language, IAnalyzer> delegates;
+    private final Collection<ITemplateAnalyzer> templateAnalyzers;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
+        this(delegates, List.of());
+    }
+
+    public MultiAnalyzer(Map<Language, IAnalyzer> delegates, Collection<ITemplateAnalyzer> templateAnalyzers) {
         this.delegates = delegates; // Store the live map directly
+        this.templateAnalyzers = List.copyOf(templateAnalyzers);
     }
 
     private <R> Optional<R> findFirst(Function<IAnalyzer, Optional<R>> extractor) {
@@ -176,7 +184,17 @@ public class MultiAnalyzer
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
         return delegateFor(file)
                 .map(delegate -> delegate.getTopLevelDeclarations(file))
-                .orElse(List.of());
+                .orElseGet(() -> templateTopLevelDeclarations(file));
+    }
+
+    private List<CodeUnit> templateTopLevelDeclarations(ProjectFile file) {
+        for (var ta : templateAnalyzers) {
+            List<CodeUnit> tlds = ta.getTopLevelDeclarations(file, getProject());
+            if (!tlds.isEmpty()) {
+                return tlds;
+            }
+        }
+        return List.of();
     }
 
     @Override
@@ -224,9 +242,31 @@ public class MultiAnalyzer
 
     @Override
     public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
-        return delegateFor(codeUnit)
-                .map(analyzer -> analyzer.getSources(codeUnit, includeComments))
-                .orElse(Set.of());
+        Set<String> allSources = new LinkedHashSet<>();
+
+        // 1. Get sources from the primary language delegate
+        delegateFor(codeUnit).ifPresent(delegate -> {
+            try {
+                allSources.addAll(delegate.getSources(codeUnit, includeComments));
+            } catch (Exception e) {
+                log.error("Error getting sources from delegate for {}: {}", codeUnit, e.getMessage());
+            }
+        });
+
+        // 2. Get sources from applicable template analyzers
+        for (var ta : templateAnalyzers) {
+            try {
+                allSources.addAll(ta.getTemplateSources(codeUnit));
+            } catch (Exception e) {
+                log.error(
+                        "Error getting template sources from {} for {}: {}",
+                        ta.internalName(),
+                        codeUnit,
+                        e.getMessage());
+            }
+        }
+
+        return allSources;
     }
 
     @Override
@@ -306,7 +346,7 @@ public class MultiAnalyzer
             var analyzer = entry.getValue();
             newDelegates.put(delegateKey, analyzer.update());
         }
-        return new MultiAnalyzer(newDelegates);
+        return new MultiAnalyzer(newDelegates, templateAnalyzers);
     }
 
     @Override
@@ -329,7 +369,131 @@ public class MultiAnalyzer
             }
         }
 
-        return new MultiAnalyzer(newDelegates);
+        return new MultiAnalyzer(newDelegates, templateAnalyzers);
+    }
+
+    @SuppressWarnings("unchecked")
+    public TreeSitterAnalyzer.AnalyzerState snapshotState() {
+        Map<String, Set<CodeUnit>> mergedSymbolIndex = new HashMap<>();
+        Map<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> mergedCodeUnitState = new HashMap<>();
+        Map<ProjectFile, TreeSitterAnalyzer.FileProperties> mergedFileState = new HashMap<>();
+        NavigableSet<String> mergedSymbolKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        long maxEpochNanos = 0;
+
+        if (delegates.isEmpty()) {
+            return new TreeSitterAnalyzer.AnalyzerState(
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty(),
+                    new TreeSitterAnalyzer.SymbolKeyIndex(
+                            Collections.unmodifiableNavigableSet(new TreeSet<>(String.CASE_INSENSITIVE_ORDER))),
+                    HashTreePMap.empty(),
+                    System.nanoTime());
+        }
+
+        for (var delegate : delegates.values()) {
+            if (delegate instanceof TreeSitterAnalyzer ts) {
+                var state = ts.snapshotState();
+                maxEpochNanos = Math.max(maxEpochNanos, state.snapshotEpochNanos());
+
+                // Merge indices
+                state.symbolIndex().forEach((symbol, units) -> {
+                    mergedSymbolIndex
+                            .computeIfAbsent(symbol, k -> new HashSet<>())
+                            .addAll(units);
+                    mergedSymbolKeys.add(symbol);
+                });
+                mergedCodeUnitState.putAll(state.codeUnitState());
+                mergedFileState.putAll(state.fileState());
+
+                // Process Angular component signals from metadata
+                state.codeUnitState().forEach((cu, props) -> {
+                    Object attr = props.attributes().get("angular.component");
+                    if (attr instanceof Map<?, ?> angularInfo) {
+                        Map<String, Object> payload = new HashMap<>((Map<String, Object>) angularInfo);
+                        payload.put("hostClass", cu);
+                        emitHostSignal("COMPONENT_FOUND", payload, state);
+                    }
+                });
+            }
+        }
+
+        // Trigger analysis for all discovered templates
+        for (var templateAnalyzer : templateAnalyzers) {
+            // Use the symbol index to find host classes that might have templates
+            for (var hostClass : mergedCodeUnitState.keySet()) {
+                Set<ProjectFile> templateFiles = templateAnalyzer.getTemplateFiles(hostClass, getProject());
+                for (var templateFile : templateFiles) {
+                    analyzeTemplates(templateFile, hostClass);
+                }
+            }
+        }
+
+        // Aggregate results from template analyzers
+        Map<ProjectFile, List<TemplateAnalysisResult>> aggregatedTemplateResults = new HashMap<>();
+        for (var templateAnalyzer : templateAnalyzers) {
+            var snapshot = templateAnalyzer.snapshotState();
+            for (var result : snapshot) {
+                aggregatedTemplateResults
+                        .computeIfAbsent(result.templateFile(), k -> new ArrayList<>())
+                        .add(result);
+            }
+        }
+
+        if (maxEpochNanos == 0) {
+            maxEpochNanos = System.nanoTime();
+        }
+
+        return new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.from(mergedSymbolIndex),
+                HashTreePMap.from(mergedCodeUnitState),
+                HashTreePMap.from(mergedFileState),
+                new TreeSitterAnalyzer.SymbolKeyIndex(Collections.unmodifiableNavigableSet(mergedSymbolKeys)),
+                HashTreePMap.from(aggregatedTemplateResults),
+                maxEpochNanos);
+    }
+
+    /**
+     * Emits a signal to all registered template analyzers.
+     * Host analyzers should call this when they encounter structural patterns (like @Component)
+     * that require template-side analysis.
+     */
+    public void emitHostSignal(String signal, Map<String, Object> payload, TreeSitterAnalyzer.AnalyzerState state) {
+        for (var templateAnalyzer : templateAnalyzers) {
+            try {
+                templateAnalyzer.onHostSignal(signal, payload, state);
+            } catch (Exception e) {
+                log.error(
+                        "Error routing signal {} to template analyzer {}", signal, templateAnalyzer.internalName(), e);
+            }
+        }
+    }
+
+    /**
+     * Provides a summary of a template file using applicable template analyzers.
+     */
+    public Optional<String> summarizeTemplate(ProjectFile templateFile, ICoreProject projectRoot) {
+        var extension = templateFile.extension();
+        return templateAnalyzers.stream()
+                .filter(ta -> ta.getSupportedExtensions().contains(extension))
+                .map(ta -> ta.summarizeTemplate(templateFile, projectRoot))
+                .flatMap(Optional::stream)
+                .findFirst();
+    }
+
+    /**
+     * Orchestrates the analysis of a template file using the appropriate guest analyzer.
+     */
+    public List<TemplateAnalysisResult> analyzeTemplates(ProjectFile templateFile, CodeUnit hostClass) {
+        var extension = templateFile.extension();
+        return templateAnalyzers.stream()
+                .filter(ta -> ta.getSupportedExtensions().contains(extension))
+                .flatMap(ta -> {
+                    var hostAnalyzer = delegateFor(hostClass);
+                    return hostAnalyzer.stream()
+                            .map(iAnalyzer -> ta.analyzeTemplate(iAnalyzer, templateFile, hostClass));
+                })
+                .toList();
     }
 
     @Override
@@ -357,6 +521,10 @@ public class MultiAnalyzer
      */
     public Map<Language, IAnalyzer> getDelegates() {
         return Collections.unmodifiableMap(delegates);
+    }
+
+    public Collection<ITemplateAnalyzer> getTemplateAnalyzers() {
+        return templateAnalyzers;
     }
 
     @Override

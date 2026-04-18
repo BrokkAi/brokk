@@ -11,6 +11,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
 import ai.brokk.tools.SearchTools;
+import ai.brokk.tools.ToolExecutionHelper;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.BuildToolConventions;
@@ -141,9 +142,7 @@ public class BuildAgent {
                 .arguments("{\"directoryPath\": \".\"}") // Request root dir
                 .build();
 
-        io.beforeToolCall(initialRequest);
-        ToolExecutionResult initialResult = tr.executeTool(initialRequest);
-        io.afterToolOutput(initialResult);
+        ToolExecutionResult initialResult = ToolExecutionHelper.executeWithApproval(io, tr, initialRequest);
 
         chatHistory.add(new UserMessage(
                 """
@@ -325,9 +324,7 @@ public class BuildAgent {
 
             // 6. Execute Terminal Actions via local ToolRegistry (if any)
             if (reportRequest != null) {
-                io.beforeToolCall(reportRequest);
-                ToolExecutionResult termResult = tr.executeTool(reportRequest);
-                io.afterToolOutput(termResult);
+                ToolExecutionHelper.executeWithApproval(io, tr, reportRequest);
 
                 var details = requireNonNull(
                         reportedDetails,
@@ -358,9 +355,7 @@ public class BuildAgent {
                 }
                 return details;
             } else if (abortRequest != null) {
-                io.beforeToolCall(abortRequest);
-                ToolExecutionResult termResult = tr.executeTool(abortRequest);
-                io.afterToolOutput(termResult);
+                ToolExecutionHelper.executeWithApproval(io, tr, abortRequest);
 
                 assert abortReason != null;
                 return BuildDetails.EMPTY;
@@ -372,9 +367,7 @@ public class BuildAgent {
                 String toolName = request.name();
                 logger.trace("Agent action: {} ({})", toolName, request.arguments());
 
-                io.beforeToolCall(request);
-                ToolExecutionResult execResult = tr.executeTool(request);
-                io.afterToolOutput(execResult);
+                ToolExecutionResult execResult = ToolExecutionHelper.executeWithApproval(io, tr, request);
 
                 ToolExecutionResultMessage resultMessage = execResult.toMessage();
 

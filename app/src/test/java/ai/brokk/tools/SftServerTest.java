@@ -136,12 +136,14 @@ class SftServerTest {
 
             assertEquals(1, formatted.size());
             assertNotNull(filePatch);
+            assertTrue(filePatch.contains("src/main/java/example/Foo.java"));
             assertTrue(filePatch.contains("<<<<<<< SEARCH"));
             assertTrue(filePatch.contains("alpha()"));
             assertTrue(filePatch.contains("alphaUpdated()"));
             assertTrue(filePatch.contains("omega()"));
             assertTrue(filePatch.contains("omegaUpdated()"));
             assertFalse(filePatch.contains("BRK_ENTIRE_FILE"));
+            assertFalse(filePatch.contains("src\\main\\java\\example\\Foo.java"));
         }
     }
 
@@ -315,6 +317,9 @@ class SftServerTest {
 
     private static String commitAll(Path root, String message) throws Exception {
         try (var git = Git.open(root.toFile())) {
+            // JGit will sign commits when `commit.gpgsign` is true (from global/user config).
+            // These tests don't provide a GPG key, so disable signing for the temporary repo.
+            git.getRepository().getConfig().setBoolean("commit", null, "gpgsign", false);
             git.add().addFilepattern(".").call();
             return git.commit()
                     .setMessage(message)

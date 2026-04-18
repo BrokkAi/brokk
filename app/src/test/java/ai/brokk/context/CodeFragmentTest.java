@@ -199,7 +199,7 @@ public class CodeFragmentTest {
                 import java.util.List;
                 </imports>
 
-                <methods class="com.example.Example" file="Example.java">
+                <methods class="com.example.Example.run" file="Example.java">
                 void run(List list) {}
                 </methods>
                 """,
@@ -249,7 +249,7 @@ public class CodeFragmentTest {
                 import java.util.List;
                 </imports>
 
-                <methods class="com.example.Example" file="Example.java">
+                <methods class="com.example.Example.run" file="Example.java">
                 void run() {}
                 </methods>
                 """,
@@ -280,19 +280,18 @@ public class CodeFragmentTest {
         assertCodeEquals(
                 """
                 <imports>
-import ai.brokk.project.IProject;
-import java.util.Map;
-</imports>
+                import ai.brokk.project.IProject;
+                import java.util.Map;
+                </imports>
 
-<methods class="com.example.Overloads.verify" file="Overloads.java">
-public static void verify(IProject p, String s) {}
-</methods>
+                <methods class="com.example.Overloads.verify" file="Overloads.java">
+                public static void verify(IProject p, String s) {}
+                </methods>
 
-
-<methods class="com.example.Overloads.verify" file="Overloads.java">
-public static void verify(IProject p, String s, Map m) {}
-</methods>
-""",
+                <methods class="com.example.Overloads.verify" file="Overloads.java">
+                public static void verify(IProject p, String s, Map m) {}
+                </methods>
+                """,
                 text);
     }
 

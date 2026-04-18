@@ -375,6 +375,13 @@ subprojects {
     apply(plugin = "com.autonomousapps.dependency-analysis")
     apply(plugin = "com.diffplug.spotless")
 
+    // Palantir Java Format (used by Spotless) depends on Guava classes removed in Guava 32
+    // (e.g. com.google.common.base.Throwables). Force a compatible Guava version only for
+    // Spotless' formatter configurations, so the main project can still use Guava 32.
+    configurations.matching { it.name.contains("spotless") }.configureEach {
+        resolutionStrategy.force("com.google.guava:guava:31.1-jre")
+    }
+
     // Spotless formatting rules
     spotless {
         java {

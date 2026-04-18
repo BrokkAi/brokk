@@ -4,7 +4,6 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -12,7 +11,6 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SequencedSet;
@@ -298,6 +296,113 @@ public interface IAnalyzer {
     }
 
     record DeclarationInfo(DeclarationKind kind, String name, @Nullable CodeUnit enclosingUnit) {}
+
+    record ExceptionSmellWeights(
+            int genericThrowableWeight,
+            int genericExceptionWeight,
+            int genericRuntimeExceptionWeight,
+            int emptyBodyWeight,
+            int commentOnlyBodyWeight,
+            int smallBodyWeight,
+            int logOnlyWeight,
+            int meaningfulBodyCreditPerStatement,
+            int meaningfulBodyStatementThreshold,
+            int smallBodyMaxStatements) {
+
+        public static ExceptionSmellWeights defaults() {
+            return new ExceptionSmellWeights(
+                    5, // Throwable is usually over-broad
+                    3, // Exception is broad and often swallows domain signals
+                    2, // RuntimeException is still broad, but less severe than Exception
+                    5, // Empty handler is the strongest smell
+                    4, // Comment-only body still swallows
+                    2, // Tiny bodies merit review
+                    2, // Log-only can still be swallow-y
+                    1, // Richer body reduces suspicion
+                    6, // Credit plateaus after a moderate amount of handling
+                    2 // 0-2 statements is considered a small body
+                    );
+        }
+    }
+
+    record ExceptionHandlingSmell(
+            ProjectFile file,
+            String enclosingFqName,
+            String catchType,
+            int score,
+            int bodyStatementCount,
+            List<String> reasons,
+            String excerpt) {}
+
+    record CloneSmellWeights(
+            int minNormalizedTokens,
+            int minSimilarityPercent,
+            int shingleSize,
+            int minSharedShingles,
+            int astSimilarityPercent) {
+
+        public static CloneSmellWeights defaults() {
+            return new CloneSmellWeights(
+                    12, // Keep small-but-real helper clones in scope.
+                    60, // More tolerant to logging/guard/ceremony noise.
+                    2, // Bigrams better tolerate scattered fluff statements.
+                    3, // Allow meaningful overlap without requiring near identity.
+                    70 // Structural refinement remains strong but less brittle.
+                    );
+        }
+    }
+
+    record CloneSmell(
+            ProjectFile file,
+            String enclosingFqName,
+            ProjectFile peerFile,
+            String peerEnclosingFqName,
+            int score,
+            int normalizedTokenCount,
+            List<String> reasons,
+            String excerpt,
+            String peerExcerpt) {}
+
+    record TestAssertionWeights(
+            int noAssertionWeight,
+            int tautologicalAssertionWeight,
+            int constantTruthWeight,
+            int constantEqualityWeight,
+            int nullnessOnlyWeight,
+            int shallowAssertionOnlyWeight,
+            int overspecifiedLiteralWeight,
+            int anonymousTestDoubleWeight,
+            int repeatedAnonymousTestDoubleWeight,
+            int meaningfulAssertionCredit,
+            int meaningfulAssertionCreditCap,
+            int largeLiteralLengthThreshold) {
+
+        public static TestAssertionWeights defaults() {
+            return new TestAssertionWeights(
+                    5, // Test marker with no assertion-equivalent signal
+                    6, // Self-comparison or otherwise tautological assertion
+                    4, // assertTrue(true), assertFalse(false), etc.
+                    4, // assertEquals(1, 1), assertSame(null, null), etc.
+                    2, // assertNotNull/assertNull as the only assertion signal
+                    2, // Only shallow assertion kinds such as nullness/type checks
+                    2, // Large exact literals are often brittle review candidates
+                    3, // Inline anonymous test double
+                    5, // Repeated anonymous test double shape in the same file
+                    1, // Stronger semantic assertions reduce suspicion
+                    4, // Credit cap for meaningful assertions in one test
+                    120 // Literal length considered large enough to review
+                    );
+        }
+    }
+
+    record TestAssertionSmell(
+            ProjectFile file,
+            String enclosingFqName,
+            String assertionKind,
+            int score,
+            int assertionCount,
+            List<String> reasons,
+            String excerpt) {}
 
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
@@ -755,24 +860,34 @@ public interface IAnalyzer {
     }
 
     /**
-     * Analyzes comments in the specified content to distinguish between 'How' (redundant) vs 'Why' (semantic) comments.
+     * Returns suspicious exception handling sites for quality triage. The default implementation is unsupported.
      */
-    default List<String> findPotentialHowComments(String content) {
-        List<String> findings = new ArrayList<>();
-        // Match single line comments
-        Pattern commentPattern = Pattern.compile("//\\s*(.*)");
-        Matcher matcher = commentPattern.matcher(content);
+    default List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        return List.of();
+    }
 
-        while (matcher.find()) {
-            String commentText = matcher.group(1).toLowerCase(Locale.ROOT);
-            // Heuristic: comments describing increment, assignment, or simple returns
-            if (commentText.contains("increment")
-                    || commentText.contains("set ")
-                    || commentText.contains("assign")
-                    || commentText.contains("return ")) {
-                findings.add(matcher.group(0));
-            }
-        }
-        return findings;
+    /**
+     * Returns suspicious low-value or brittle test assertion sites for quality triage.
+     * The default implementation is unsupported.
+     */
+    default List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
+        return List.of();
+    }
+
+    /**
+     * Returns suspicious structural clones for quality triage. The default implementation is unsupported.
+     */
+    default List<CloneSmell> findStructuralCloneSmells(ProjectFile file, CloneSmellWeights weights) {
+        return List.of();
+    }
+
+    /**
+     * Returns suspicious structural clones for multiple files in one pass. Default implementation delegates to the
+     * single-file API for compatibility.
+     */
+    default List<CloneSmell> findStructuralCloneSmells(List<ProjectFile> files, CloneSmellWeights weights) {
+        return files.stream()
+                .flatMap(file -> findStructuralCloneSmells(file, weights).stream())
+                .toList();
     }
 }

@@ -8,12 +8,16 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitHotspotAnalyzer;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitSecretScanner;
+import ai.brokk.git.IGitRepo;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -25,11 +29,13 @@ import org.jetbrains.annotations.Blocking;
  * Intended for {@link ai.brokk.executor.agents.CustomAgentExecutor custom agents} and similar tool loops.
  */
 public class CodeQualityTools {
-
     private static final String FINDING_PREFIX = "[CODE_QUALITY]";
 
     private static final String COMMENT_DENSITY_JAVA_ONLY =
             "Comment density is only available for Java symbols in this analyzer snapshot.";
+
+    private static final int DEFAULT_SECRET_MAX_FINDINGS = 100;
+    private static final int DEFAULT_SECRET_MAX_COMMITS = 2000;
 
     private final IContextManager contextManager;
 
@@ -172,7 +178,7 @@ public class CodeQualityTools {
                 }
                 lines.add("| `%s` | %d | %d | %d | %d | %d | %d |"
                         .formatted(
-                                s.fqName(),
+                                sanitizeTableCell(s.fqName()),
                                 s.headerCommentLines(),
                                 s.inlineCommentLines(),
                                 s.spanLines(),
@@ -196,6 +202,304 @@ public class CodeQualityTools {
         return String.join("\n", lines);
     }
 
+    @Tool(
+            """
+            Detects suspicious exception handlers using weighted heuristics designed for high-recall triage.
+            Scores generic catches and tiny/empty handlers, then subtracts credit for richer handling bodies.
+            Use minScore, maxFindings, and weight parameters to tune precision/recall.""")
+    public String reportExceptionHandlingSmells(
+            @P("File paths relative to the project root.") List<String> filePaths,
+            @P("Minimum score to include a finding; values <= 0 default to 4.") int minScore,
+            @P("Maximum findings to emit; values <= 0 default to 80.") int maxFindings,
+            @P("Weight for catching Throwable; values < 0 use default.") int genericThrowableWeight,
+            @P("Weight for catching Exception; values < 0 use default.") int genericExceptionWeight,
+            @P("Weight for catching RuntimeException; values < 0 use default.") int genericRuntimeExceptionWeight,
+            @P("Weight for empty catch bodies; values < 0 use default.") int emptyBodyWeight,
+            @P("Weight for comment-only catch bodies; values < 0 use default.") int commentOnlyBodyWeight,
+            @P("Weight for small catch bodies; values < 0 use default.") int smallBodyWeight,
+            @P("Weight for log-only catch bodies; values < 0 use default.") int logOnlyBodyWeight,
+            @P("Score credit subtracted per catch statement in the body; values < 0 use default.")
+                    int meaningfulBodyCreditPerStatement,
+            @P("Maximum statements that earn meaningful-body credit; values < 0 use default.")
+                    int meaningfulBodyStatementThreshold,
+            @P("Maximum statement count considered a small body; values < 0 use default.") int smallBodyMaxStatements) {
+
+        int threshold = minScore > 0 ? minScore : 4;
+        int findingsCap = maxFindings > 0 ? maxFindings : 80;
+        var defaults = IAnalyzer.ExceptionSmellWeights.defaults();
+        var weights = new IAnalyzer.ExceptionSmellWeights(
+                pickWeight(genericThrowableWeight, defaults.genericThrowableWeight()),
+                pickWeight(genericExceptionWeight, defaults.genericExceptionWeight()),
+                pickWeight(genericRuntimeExceptionWeight, defaults.genericRuntimeExceptionWeight()),
+                pickWeight(emptyBodyWeight, defaults.emptyBodyWeight()),
+                pickWeight(commentOnlyBodyWeight, defaults.commentOnlyBodyWeight()),
+                pickWeight(smallBodyWeight, defaults.smallBodyWeight()),
+                pickWeight(logOnlyBodyWeight, defaults.logOnlyWeight()),
+                pickWeight(meaningfulBodyCreditPerStatement, defaults.meaningfulBodyCreditPerStatement()),
+                pickWeight(meaningfulBodyStatementThreshold, defaults.meaningfulBodyStatementThreshold()),
+                pickWeight(smallBodyMaxStatements, defaults.smallBodyMaxStatements()));
+
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        var findings = new ArrayList<IAnalyzer.ExceptionHandlingSmell>();
+        for (String path : filePaths) {
+            ProjectFile file = contextManager.toFile(path);
+            if (!file.exists()) {
+                continue;
+            }
+            findings.addAll(analyzer.findExceptionHandlingSmells(file, weights));
+        }
+
+        var filtered = findings.stream()
+                .filter(f -> f.score() >= threshold)
+                .sorted(Comparator.comparingInt(IAnalyzer.ExceptionHandlingSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(IAnalyzer.ExceptionHandlingSmell::enclosingFqName))
+                .toList();
+
+        if (filtered.isEmpty()) {
+            return "No exception-handling smells met minScore " + threshold + ".";
+        }
+        int shown = Math.min(findingsCap, filtered.size());
+        var lines = new ArrayList<String>();
+        lines.add("## Exception handling smells");
+        lines.add("");
+        lines.add("- Min score: %d".formatted(threshold));
+        lines.add("- Findings shown: %d of %d".formatted(shown, filtered.size()));
+        lines.add("- Weights: %s".formatted(formatWeights(weights)));
+        lines.add("");
+        lines.add("| Score | Catch Type | Statements | Symbol | File | Reasons | Excerpt |");
+        lines.add("|------:|------------|-----------:|--------|------|---------|---------|");
+        for (IAnalyzer.ExceptionHandlingSmell finding : filtered.subList(0, shown)) {
+            String reasons = sanitizeTableCell(String.join(", ", finding.reasons()));
+            String catchType = sanitizeTableCell(finding.catchType());
+            String symbol = sanitizeTableCell(finding.enclosingFqName());
+            String file = sanitizeTableCell(finding.file().toString());
+            lines.add("| %d | `%s` | %d | `%s` | `%s` | %s | `%s` |"
+                    .formatted(
+                            finding.score(),
+                            catchType,
+                            finding.bodyStatementCount(),
+                            symbol,
+                            file,
+                            "`" + reasons + "`",
+                            sanitizeTableCell(finding.excerpt())));
+        }
+        if (filtered.size() > shown) {
+            lines.add("");
+            lines.add("- Note: output truncated; increase maxFindings to see more.");
+        }
+        return String.join("\n", lines);
+    }
+
+    @Tool(
+            """
+            Detects duplicated implementation patterns across functions using normalized token similarity.
+            Uses analyzer-provided structural clone smells (with AST refinement) for high-recall triage.
+            Tune similarity and size thresholds to reduce noise.""")
+    public String reportStructuralCloneSmells(
+            @P("File paths relative to the project root.") List<String> filePaths,
+            @P("Minimum similarity score (0-100) to include; values <= 0 default to 60.") int minScore,
+            @P("Minimum normalized token count; values <= 0 default to 12.") int minNormalizedTokens,
+            @P("Shingle size used for token overlap; values <= 0 default to 2.") int shingleSize,
+            @P("Minimum shared shingles before scoring; values <= 0 default to 3.") int minSharedShingles,
+            @P("AST refinement threshold (0-100); values <= 0 default to 70.") int astSimilarityPercent,
+            @P("Maximum findings to emit; values <= 0 default to 80.") int maxFindings) {
+
+        var defaults = IAnalyzer.CloneSmellWeights.defaults();
+        int threshold = minScore > 0 ? minScore : defaults.minSimilarityPercent();
+        int findingsCap = maxFindings > 0 ? maxFindings : 80;
+        var weights = new IAnalyzer.CloneSmellWeights(
+                minNormalizedTokens > 0 ? minNormalizedTokens : defaults.minNormalizedTokens(),
+                threshold,
+                shingleSize > 0 ? shingleSize : defaults.shingleSize(),
+                minSharedShingles > 0 ? minSharedShingles : defaults.minSharedShingles(),
+                astSimilarityPercent > 0 ? astSimilarityPercent : defaults.astSimilarityPercent());
+
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        List<ProjectFile> files = filePaths.stream()
+                .map(contextManager::toFile)
+                .filter(ProjectFile::exists)
+                .toList();
+        var findings = new ArrayList<>(analyzer.findStructuralCloneSmells(files, weights));
+        var deduped = new LinkedHashMap<String, IAnalyzer.CloneSmell>();
+        for (IAnalyzer.CloneSmell finding : findings) {
+            String left = finding.file() + "#" + finding.enclosingFqName();
+            String right = finding.peerFile() + "#" + finding.peerEnclosingFqName();
+            String key = left.compareTo(right) <= 0 ? left + "||" + right : right + "||" + left;
+            deduped.putIfAbsent(key, finding);
+        }
+        var filtered = deduped.values().stream()
+                .filter(f -> f.score() >= threshold)
+                .sorted(Comparator.comparingInt(IAnalyzer.CloneSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(IAnalyzer.CloneSmell::enclosingFqName)
+                        .thenComparing(f -> f.peerFile().toString())
+                        .thenComparing(IAnalyzer.CloneSmell::peerEnclosingFqName))
+                .toList();
+        if (filtered.isEmpty()) {
+            return "No structural clone smells met minScore " + threshold + ".";
+        }
+
+        int shown = Math.min(findingsCap, filtered.size());
+        var lines = new ArrayList<String>();
+        lines.add("## Structural clone smells");
+        lines.add("");
+        lines.add("- Min score: %d".formatted(threshold));
+        lines.add("- Findings shown: %d of %d".formatted(shown, filtered.size()));
+        lines.add("- Weights: minTokens=%d, shingleSize=%d, minShared=%d, astThreshold=%d"
+                .formatted(
+                        weights.minNormalizedTokens(),
+                        weights.shingleSize(),
+                        weights.minSharedShingles(),
+                        weights.astSimilarityPercent()));
+        lines.add("");
+        lines.add("| Score | Tokens | Symbol | Peer Symbol | Reasons | Excerpt |");
+        lines.add("|------:|-------:|--------|-------------|---------|---------|");
+        for (IAnalyzer.CloneSmell finding : filtered.subList(0, shown)) {
+            lines.add("| %d | %d | `%s` (%s) | `%s` (%s) | `%s` | `%s` |"
+                    .formatted(
+                            finding.score(),
+                            finding.normalizedTokenCount(),
+                            sanitizeTableCell(finding.enclosingFqName()),
+                            sanitizeTableCell(finding.file().toString()),
+                            sanitizeTableCell(finding.peerEnclosingFqName()),
+                            sanitizeTableCell(finding.peerFile().toString()),
+                            sanitizeTableCell(String.join(", ", finding.reasons())),
+                            sanitizeTableCell(finding.excerpt())));
+        }
+        if (filtered.size() > shown) {
+            lines.add("");
+            lines.add("- Note: output truncated; increase maxFindings to see more.");
+        }
+        return String.join("\n", lines);
+    }
+
+    @Blocking
+    @Tool(
+            """
+            Scans non-test text files for secret-looking strings, including current/default-branch files and git history.
+            Findings are heuristic and redacted for LLM triage. Use maxFindings/maxCommits to bound output and work.""")
+    public String reportSecretLikeCode(
+            @P("Maximum findings to emit; values <= 0 default to 100.") int maxFindings,
+            @P("Maximum commits to walk from HEAD; values <= 0 default to 2000.") int maxCommits,
+            @P("Include findings that only appear in history and are not present in the current/default branch.")
+                    boolean includeHistoryOnly,
+            @P("Include lower-confidence short credential-like assignments.") boolean includeLowConfidence)
+            throws GitAPIException, IOException {
+
+        int findingsCap = maxFindings > 0 ? maxFindings : DEFAULT_SECRET_MAX_FINDINGS;
+        int commitCap = maxCommits > 0 ? maxCommits : DEFAULT_SECRET_MAX_COMMITS;
+        IGitRepo projectRepo = contextManager.getProject().getRepo();
+
+        if (!(projectRepo instanceof GitRepo gitRepo)) {
+            return "Secret-like code scan requires a JGit-backed repository.";
+        }
+
+        var report = new GitSecretScanner(gitRepo).scan(commitCap, includeHistoryOnly, includeLowConfidence);
+        return formatSecretScanReport(report, findingsCap);
+    }
+
+    @Tool(
+            """
+            Detects low-value or brittle test assertion smells using language-aware weighted heuristics.
+            Uses analyzer test-marker detection as a fast filter, then scores tautological assertions,
+            shallow assertion-only tests, oversized exact literals, snapshots, and Java anonymous test doubles.""")
+    public String reportTestAssertionSmells(
+            @P("File paths relative to the project root.") List<String> filePaths,
+            @P("Minimum score to include a finding; values <= 0 default to 4.") int minScore,
+            @P("Maximum findings to emit; values <= 0 default to 80.") int maxFindings,
+            @P("Weight for tests with no assertion-equivalent calls; values < 0 use default.") int noAssertionWeight,
+            @P("Weight for self-comparison or tautological assertions; values < 0 use default.")
+                    int tautologicalAssertionWeight,
+            @P("Weight for assertTrue(true), assertFalse(false), and similar constants; values < 0 use default.")
+                    int constantTruthWeight,
+            @P("Weight for comparing two constant expressions; values < 0 use default.") int constantEqualityWeight,
+            @P("Weight for nullness-only assertions; values < 0 use default.") int nullnessOnlyWeight,
+            @P("Weight for tests whose assertions are all shallow; values < 0 use default.")
+                    int shallowAssertionOnlyWeight,
+            @P("Weight for oversized exact string literals; values < 0 use default.") int overspecifiedLiteralWeight,
+            @P("Weight for inline anonymous test doubles; values < 0 use default.") int anonymousTestDoubleWeight,
+            @P("Weight for repeated anonymous test double shapes; values < 0 use default.")
+                    int repeatedAnonymousTestDoubleWeight,
+            @P("Score credit subtracted per meaningful assertion; values < 0 use default.")
+                    int meaningfulAssertionCredit,
+            @P("Maximum meaningful assertions that earn credit; values < 0 use default.")
+                    int meaningfulAssertionCreditCap,
+            @P("String literal length considered oversized; values < 0 use default.") int largeLiteralLengthThreshold) {
+
+        int threshold = minScore > 0 ? minScore : 4;
+        int findingsCap = maxFindings > 0 ? maxFindings : 80;
+        var defaults = IAnalyzer.TestAssertionWeights.defaults();
+        var weights = new IAnalyzer.TestAssertionWeights(
+                pickWeight(noAssertionWeight, defaults.noAssertionWeight()),
+                pickWeight(tautologicalAssertionWeight, defaults.tautologicalAssertionWeight()),
+                pickWeight(constantTruthWeight, defaults.constantTruthWeight()),
+                pickWeight(constantEqualityWeight, defaults.constantEqualityWeight()),
+                pickWeight(nullnessOnlyWeight, defaults.nullnessOnlyWeight()),
+                pickWeight(shallowAssertionOnlyWeight, defaults.shallowAssertionOnlyWeight()),
+                pickWeight(overspecifiedLiteralWeight, defaults.overspecifiedLiteralWeight()),
+                pickWeight(anonymousTestDoubleWeight, defaults.anonymousTestDoubleWeight()),
+                pickWeight(repeatedAnonymousTestDoubleWeight, defaults.repeatedAnonymousTestDoubleWeight()),
+                pickWeight(meaningfulAssertionCredit, defaults.meaningfulAssertionCredit()),
+                pickWeight(meaningfulAssertionCreditCap, defaults.meaningfulAssertionCreditCap()),
+                pickWeight(largeLiteralLengthThreshold, defaults.largeLiteralLengthThreshold()));
+
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        var findings = new ArrayList<IAnalyzer.TestAssertionSmell>();
+        for (String path : filePaths) {
+            ProjectFile file = contextManager.toFile(path);
+            if (!file.exists() || !analyzer.containsTests(file)) {
+                continue;
+            }
+            findings.addAll(analyzer.findTestAssertionSmells(file, weights));
+        }
+
+        var filtered = findings.stream()
+                .filter(f -> f.score() >= threshold)
+                .sorted(Comparator.comparingInt(IAnalyzer.TestAssertionSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(IAnalyzer.TestAssertionSmell::enclosingFqName)
+                        .thenComparing(IAnalyzer.TestAssertionSmell::assertionKind))
+                .toList();
+
+        if (filtered.isEmpty()) {
+            return "No test assertion smells met minScore " + threshold + ".";
+        }
+        int shown = Math.min(findingsCap, filtered.size());
+        var lines = new ArrayList<String>();
+        lines.add("## Test assertion smells");
+        lines.add("");
+        lines.add("- Min score: %d".formatted(threshold));
+        lines.add("- Findings shown: %d of %d".formatted(shown, filtered.size()));
+        lines.add("- Weights: %s".formatted(formatWeights(weights)));
+        lines.add("");
+        lines.add("| Score | Kind | Assertions | Symbol | File | Reasons | Excerpt |");
+        lines.add("|------:|------|-----------:|--------|------|---------|---------|");
+        for (IAnalyzer.TestAssertionSmell finding : filtered.subList(0, shown)) {
+            String reasons = sanitizeTableCell(String.join(", ", finding.reasons()));
+            String kind = sanitizeTableCell(finding.assertionKind());
+            String symbol = sanitizeTableCell(finding.enclosingFqName());
+            String file = sanitizeTableCell(finding.file().toString());
+            lines.add("| %d | `%s` | %d | `%s` | `%s` | %s | `%s` |"
+                    .formatted(
+                            finding.score(),
+                            kind,
+                            finding.assertionCount(),
+                            symbol,
+                            file,
+                            "`" + reasons + "`",
+                            sanitizeTableCell(finding.excerpt())));
+        }
+        if (filtered.size() > shown) {
+            lines.add("");
+            lines.add("- Note: output truncated; increase maxFindings to see more.");
+        }
+        return String.join("\n", lines);
+    }
+
     private static String formatCommentDensityForUnit(CommentDensityStats s) {
         var lines = new ArrayList<String>();
         lines.add("## Comment density");
@@ -209,6 +513,49 @@ public class CodeQualityTools {
         return String.join("\n", lines);
     }
 
+    private static String formatSecretScanReport(GitSecretScanner.SecretScanReport report, int maxFindings) {
+        var shown = report.findings()
+                .subList(0, Math.min(maxFindings, report.findings().size()));
+        boolean truncated = report.findings().size() > shown.size();
+        var lines = new ArrayList<String>();
+        lines.add("## brokk-secret-scan");
+        lines.add("");
+        lines.add("- Repository: `%s`".formatted(report.repository()));
+        lines.add("- Current/default ref scanned: `%s`".formatted(report.defaultRefDisplayName()));
+        if (report.defaultRefFallback()) {
+            lines.add("- Note: default branch could not be determined; fell back to `HEAD`.");
+        }
+        lines.add("- History commits scanned: %d (cap %d)".formatted(report.commitsScanned(), report.maxCommits()));
+        lines.add("- Missing git entries skipped: %d".formatted(report.missingEntriesSkipped()));
+        lines.add("- Non-text or oversized blobs skipped: %d".formatted(report.nonTextEntriesSkipped()));
+        lines.add("- Findings shown: %d of %d%s"
+                .formatted(shown.size(), report.findings().size(), truncated ? " (truncated)" : ""));
+        lines.add("");
+
+        if (shown.isEmpty()) {
+            lines.add("No secret-like code found.");
+            return String.join("\n", lines);
+        }
+
+        lines.add("| Location | Confidence | Rule | File:Line | First Seen | Last Seen | Redacted Excerpt |");
+        lines.add("|----------|------------|------|-----------|------------|-----------|------------------|");
+        for (GitSecretScanner.SecretFinding finding : shown) {
+            String firstSeen = finding.firstSeenCommit().isBlank() ? "-" : finding.firstSeenCommit();
+            String lastSeen = finding.lastSeenCommit().isBlank() ? "-" : finding.lastSeenCommit();
+            lines.add("| %s | %s | `%s` | `%s:%d` | `%s` | `%s` | `%s` |"
+                    .formatted(
+                            finding.location(),
+                            finding.confidence(),
+                            sanitizeTableCell(finding.rule()),
+                            sanitizeTableCell(finding.path()),
+                            finding.line(),
+                            firstSeen,
+                            lastSeen,
+                            sanitizeTableCell(finding.sample())));
+        }
+        return String.join("\n", lines);
+    }
+
     private static String truncateToLineCap(String text, int maxLines) {
         List<String> lines = text.lines().toList();
         if (lines.size() <= maxLines) {
@@ -216,6 +563,52 @@ public class CodeQualityTools {
         }
         return String.join("\n", lines.subList(0, maxLines)) + "\n\n... (" + (lines.size() - maxLines)
                 + " more lines omitted)";
+    }
+
+    private static int pickWeight(int candidate, int fallback) {
+        return candidate >= 0 ? candidate : fallback;
+    }
+
+    private static String sanitizeTableCell(String value) {
+        return value.replace("|", "\\|");
+    }
+
+    private static String formatWeights(IAnalyzer.ExceptionSmellWeights w) {
+        return "Throwable=%d, Exception=%d, RuntimeException=%d, empty=%d, commentOnly=%d, small=%d, logOnly=%d,"
+                        .formatted(
+                                w.genericThrowableWeight(),
+                                w.genericExceptionWeight(),
+                                w.genericRuntimeExceptionWeight(),
+                                w.emptyBodyWeight(),
+                                w.commentOnlyBodyWeight(),
+                                w.smallBodyWeight(),
+                                w.logOnlyWeight())
+                + " creditPerStmt=%d, creditCap=%d, smallBodyMax=%d"
+                        .formatted(
+                                w.meaningfulBodyCreditPerStatement(),
+                                w.meaningfulBodyStatementThreshold(),
+                                w.smallBodyMaxStatements());
+    }
+
+    private static String formatWeights(IAnalyzer.TestAssertionWeights w) {
+        return "noAssertion=%d, tautological=%d, constantTruth=%d, constantEquality=%d, nullnessOnly=%d,"
+                        .formatted(
+                                w.noAssertionWeight(),
+                                w.tautologicalAssertionWeight(),
+                                w.constantTruthWeight(),
+                                w.constantEqualityWeight(),
+                                w.nullnessOnlyWeight())
+                + " shallowOnly=%d, overspecifiedLiteral=%d, anonymousTestDouble=%d, repeatedAnonymousTestDouble=%d,"
+                        .formatted(
+                                w.shallowAssertionOnlyWeight(),
+                                w.overspecifiedLiteralWeight(),
+                                w.anonymousTestDoubleWeight(),
+                                w.repeatedAnonymousTestDoubleWeight())
+                + " meaningfulCredit=%d, meaningfulCreditCap=%d, largeLiteralLength=%d"
+                        .formatted(
+                                w.meaningfulAssertionCredit(),
+                                w.meaningfulAssertionCreditCap(),
+                                w.largeLiteralLengthThreshold());
     }
 
     @Blocking
@@ -283,7 +676,12 @@ public class CodeQualityTools {
                     .map(a -> a.name() + "(" + a.commits() + ")")
                     .collect(Collectors.joining(", "));
             lines.add("| `%s` | %d | %d | %s | %s |"
-                    .formatted(f.path(), f.churn(), f.complexity(), f.category(), authors));
+                    .formatted(
+                            sanitizeTableCell(f.path()),
+                            f.churn(),
+                            f.complexity(),
+                            sanitizeTableCell(f.category().toString()),
+                            sanitizeTableCell(authors)));
         }
         return String.join("\n", lines);
     }

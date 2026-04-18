@@ -143,6 +143,80 @@ class CodeAgentTest {
         return createConversationState(List.of(), new UserMessage("test request"));
     }
 
+    @Test
+    void shouldUseSingleTurnDryRun_onlyAfterFirstTurn() {
+        var firstTurn = createBasicConversationState();
+        var secondTurn = createConversationState(List.of(new UserMessage("old request")), new UserMessage("next"));
+
+        assertFalse(CodeAgent.shouldUseSingleTurnDryRun(true, firstTurn));
+        assertTrue(CodeAgent.shouldUseSingleTurnDryRun(true, secondTurn));
+        assertFalse(CodeAgent.shouldUseSingleTurnDryRun(false, secondTurn));
+    }
+
+    @Test
+    void shouldLogSingleTurnFailureFollowup_onlyForFirstTurnNonSuccessWithoutExistingDryRun() {
+        var taskMessages = List.<ChatMessage>of(new UserMessage("old request"), new AiMessage("old response"));
+        var cs = new CodeAgent.ConversationState(
+                new ArrayList<>(taskMessages), new ArrayList<>(taskMessages), null, taskMessages.size(), "goal");
+
+        assertTrue(CodeAgent.shouldLogSingleTurnFailureFollowup(
+                true, false, cs, new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "boom")));
+        assertFalse(CodeAgent.shouldLogSingleTurnFailureFollowup(
+                true, true, cs, new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "boom")));
+        assertFalse(CodeAgent.shouldLogSingleTurnFailureFollowup(
+                false, false, cs, new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "boom")));
+        assertFalse(CodeAgent.shouldLogSingleTurnFailureFollowup(
+                true, false, cs, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "ok")));
+    }
+
+    @Test
+    void singleTurnDryRunStopDetails_preservesRetryReason() {
+        var taskMessages = List.<ChatMessage>of(new UserMessage("old request"), new AiMessage("old response"));
+        var cs = new CodeAgent.ConversationState(
+                new ArrayList<>(taskMessages),
+                new ArrayList<>(taskMessages),
+                new UserMessage("retry request"),
+                TaskResult.StopReason.APPLY_ERROR,
+                taskMessages.size(),
+                "goal");
+
+        var stopDetails = CodeAgent.singleTurnDryRunStopDetails(cs);
+
+        assertEquals(TaskResult.StopReason.APPLY_ERROR, stopDetails.reason());
+        assertEquals("Single-turn dry run logged the next request.", stopDetails.explanation());
+    }
+
+    @Test
+    void buildSingleTurnFollowupRequest_usesBuildOutputWhenAvailable() {
+        var taskMessages = List.<ChatMessage>of(new UserMessage("old request"), new AiMessage("old response"));
+        var cs = new CodeAgent.ConversationState(
+                new ArrayList<>(taskMessages), new ArrayList<>(taskMessages), null, taskMessages.size(), "goal");
+        var es = new CodeAgent.EditState(
+                0, 0, 1, 0, "compile failed on line 7", new HashSet<>(), new HashMap<>(), Collections.emptyMap(), true);
+
+        var request = requireNonNull(CodeAgent.buildSingleTurnFollowupRequest(
+                cs, es, new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "build failed")));
+
+        var text = Messages.getText(request);
+        assertTrue(text.contains("The build failed."));
+        assertTrue(text.contains("compile failed on line 7"));
+    }
+
+    @Test
+    void buildSingleTurnFollowupRequest_fallsBackToGenericFailurePrompt() {
+        var taskMessages = List.<ChatMessage>of(new UserMessage("old request"), new AiMessage("old response"));
+        var cs = new CodeAgent.ConversationState(
+                new ArrayList<>(taskMessages), new ArrayList<>(taskMessages), null, taskMessages.size(), "goal");
+        var es = createEditState(0);
+
+        var request = requireNonNull(CodeAgent.buildSingleTurnFollowupRequest(
+                cs, es, new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, "attempted readonly edit")));
+
+        var text = Messages.getText(request);
+        assertTrue(text.contains("READ_ONLY_EDIT"));
+        assertTrue(text.contains("attempted readonly edit"));
+    }
+
     // P-1: parsePhase – prose-only response (not an error)
     @Test
     void testParsePhase_proseOnlyResponseIsNotError() {

@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.analyzer.frameworks.AngularTemplateAnalyzer;
 import ai.brokk.analyzer.scala.ScalaLanguage;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
@@ -574,5 +575,26 @@ public class Languages {
             }
         }
         throw new IllegalArgumentException("No language constant " + Language.class.getCanonicalName() + "." + name);
+    }
+
+    /**
+     * Discovers and returns template analyzers appropriate for the given project and active languages.
+     *
+     * @param project   The project context.
+     * @param languages The set of active host languages.
+     * @return A list of discovered template analyzers.
+     */
+    public static List<ITemplateAnalyzer> discoverTemplateAnalyzers(ICoreProject project, Set<Language> languages) {
+        List<ITemplateAnalyzer> analyzers = new ArrayList<>();
+
+        // Angular template analysis is relevant if TypeScript is active
+        if (languages.contains(Languages.TYPESCRIPT)) {
+            AngularTemplateAnalyzer angular = new AngularTemplateAnalyzer();
+            if (angular.isApplicable(project)) {
+                analyzers.add(angular);
+            }
+        }
+
+        return analyzers;
     }
 }

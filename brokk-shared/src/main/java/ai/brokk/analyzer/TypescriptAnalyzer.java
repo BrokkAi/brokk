@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.TreeSitterAnalyzer.AnalyzerState;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
@@ -11,6 +12,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -1076,6 +1078,101 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         // Delegate to JsTsAnalyzer for ES6 and CommonJS require extraction
         super.extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+    }
+
+    @Override
+    protected void handleDecorators(
+            CodeUnit cu,
+            TSNode definitionNode,
+            List<TSNode> decoratorNodes,
+            SourceContent sourceContent,
+            FileAnalysisAccumulator acc) {
+        if (!cu.isClass()) return;
+
+        for (TSNode decorator : decoratorNodes) {
+            // Decorator structure in TS: (decorator (call_expression (identifier) @name (arguments (object ...))))
+            // Or (decorator "@" (call_expression ...)) depending on grammar version/ASX.
+            TSNode callExpr = null;
+            if ("call_expression".equals(decorator.getType())) {
+                callExpr = decorator;
+            } else {
+                for (int i = 0; i < decorator.getChildCount(); i++) {
+                    TSNode child = decorator.getChild(i);
+                    if (child != null && "call_expression".equals(child.getType())) {
+                        callExpr = child;
+                        break;
+                    }
+                }
+            }
+
+            if (callExpr == null) continue;
+
+            TSNode decoratorNameNode = callExpr.getChildByFieldName("function");
+            if (decoratorNameNode == null) {
+                // Fallback: use first child of call_expression if "function" field is missing
+                decoratorNameNode = callExpr.getChild(0);
+            }
+            if (decoratorNameNode == null) continue;
+
+            String decoratorName =
+                    sourceContent.substringFrom(decoratorNameNode).strip();
+            // Handle both @Component and @angular.Component, stripping any '@' if present
+            String cleanName = decoratorName.startsWith("@") ? decoratorName.substring(1) : decoratorName;
+
+            if (cleanName.equals("Component") || cleanName.endsWith(".Component")) {
+                TSNode arguments = callExpr.getChildByFieldName("arguments");
+                if (arguments != null) {
+                    // TS grammar: arguments is often (arguments "(" (object ...) ")")
+                    for (int i = 0; i < arguments.getChildCount(); i++) {
+                        TSNode arg = arguments.getChild(i);
+                        if (arg != null && "object".equals(arg.getType())) {
+                            processComponentDecorator(cu, arg, sourceContent, acc);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void processComponentDecorator(
+            CodeUnit hostClass, TSNode objectNode, SourceContent sourceContent, FileAnalysisAccumulator acc) {
+        Map<String, Object> componentInfo = new HashMap<>();
+
+        for (int i = 0; i < objectNode.getChildCount(); i++) {
+            TSNode pair = Objects.requireNonNull(objectNode.getChild(i));
+            if (!"pair".equals(pair.getType())) continue;
+
+            TSNode keyNode = pair.getChildByFieldName("key");
+            TSNode valueNode = pair.getChildByFieldName("value");
+            if (keyNode == null) {
+                // Fallback for key: use first child of pair
+                keyNode = pair.getChild(0);
+            }
+            if (valueNode == null && pair.getChildCount() >= 2) {
+                // Fallback for value: use last child of pair
+                valueNode = pair.getChild(pair.getChildCount() - 1);
+            }
+
+            if (keyNode == null || valueNode == null) continue;
+
+            String key = sourceContent.substringFrom(keyNode).strip();
+            if ("templateUrl".equals(key) || "template".equals(key)) {
+                String value = sourceContent.substringFrom(valueNode).strip();
+                // Strip quotes from string literals
+                if ((value.startsWith("'") && value.endsWith("'"))
+                        || (value.startsWith("\"") && value.endsWith("\""))
+                        || (value.startsWith("`") && value.endsWith("`"))) {
+                    value = value.substring(1, value.length() - 1);
+                }
+                componentInfo.put(key, value);
+            }
+        }
+
+        if (componentInfo.containsKey("templateUrl") || componentInfo.containsKey("template")) {
+            log.debug("Found Angular component metadata for {}: {}", hostClass.fqName(), componentInfo);
+            // Attributes are stored in CodeUnitProperties via the accumulator in analyzeFileContent
+            acc.setAttribute(hostClass, "angular.component", Map.copyOf(componentInfo));
+        }
     }
 
     @Override

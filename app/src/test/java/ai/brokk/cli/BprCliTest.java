@@ -3,6 +3,7 @@ package ai.brokk.cli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.Languages;
@@ -25,6 +26,14 @@ class BprCliTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void finalExitCode_uses_nonzero_code_for_single_turn_codeagent_failures() {
+        assertEquals(0, BprCli.finalExitCode(true, true, TaskResult.StopReason.SUCCESS));
+        assertEquals(2, BprCli.finalExitCode(true, true, TaskResult.StopReason.BUILD_ERROR));
+        assertEquals(0, BprCli.finalExitCode(true, false, TaskResult.StopReason.BUILD_ERROR));
+        assertEquals(0, BprCli.finalExitCode(false, true, TaskResult.StopReason.BUILD_ERROR));
+    }
 
     @Test
     void addSummariesToTaskContextDropsFileAndClassSummariesCoveredByFullFile() throws Exception {

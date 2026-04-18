@@ -30,10 +30,11 @@ from brokk_code.mcp_config import (
     configure_codex_mcp_settings,
     install_claude_mcp_summaries_skill,
     install_claude_mcp_workspace_skill,
+    install_codex_local_plugin,
     install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
-from brokk_code.mcp_launcher import run_mcp_server
+from brokk_code.mcp_launcher import run_mcp_core_server, run_mcp_server
 from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
 from brokk_code.nvim_init_patch import wire_nvim_plugin_setup
 from brokk_code.settings import (
@@ -693,6 +694,12 @@ def _print_install_prefetch_commands(commands: list[tuple[str, list[str]]]) -> N
 
 def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        "--worktree",
+        action="store_true",
+        default=False,
+        help="Create an isolated git worktree for this session and clean up on exit if no changes",
+    )
+    parser.add_argument(
         "--workspace",
         type=str,
         default=".",
@@ -897,10 +904,15 @@ def _build_parser() -> argparse.ArgumentParser:
     mcp_parser = subparsers.add_parser("mcp", help="Run in MCP server mode", add_help=False)
     _add_common_runtime_args(mcp_parser)
 
+    mcp_core_parser = subparsers.add_parser(
+        "mcp-core", help="Run in MCP core (read-only) server mode", add_help=False
+    )
+    _add_common_runtime_args(mcp_core_parser)
+
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
-        choices=["zed", "intellij", "nvim", "neovim", "mcp"],
+        choices=["zed", "intellij", "nvim", "neovim", "mcp", "codex-plugin"],
         help="Install target for integration settings",
     )
     install_parser.add_argument(
@@ -1866,17 +1878,58 @@ async def run_headless_job(
         await manager.stop()
 
 
+# Commands that don't operate on a workspace and should skip worktree creation
+_NON_WORKSPACE_COMMANDS = {"install", "provider", "version", "logout", "login"}
+
+
+def _resolve_worktree_workspace_path(
+    workspace_path: Path, repo_root: Path, worktree_path: Path
+) -> Path:
+    """Map the selected workspace into the corresponding location inside a worktree."""
+    try:
+        relative_workspace = workspace_path.relative_to(repo_root)
+    except ValueError:
+        return worktree_path
+    return worktree_path / relative_workspace
+
+
 def main():
     parser = _build_parser()
     args, unknown = parser.parse_known_args()
 
-    if unknown and args.command != "mcp":
+    if unknown and args.command not in ("mcp", "mcp-core"):
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     # Resolve paths early so they are available to all commands
     workspace_path = Path(args.workspace).resolve()
     jar_path = Path(args.jar).resolve() if args.jar else None
 
+    if jar_path is not None and args.command == "mcp-core" and "brokk-core" not in jar_path.name:
+        print(
+            "Warning: The specified jar doesn't appear to be a brokk-core jar."
+            " Expected a jar containing 'brokk-core' in the filename.",
+            file=sys.stderr,
+        )
+
+    use_worktree = getattr(args, "worktree", False) and args.command not in _NON_WORKSPACE_COMMANDS
+    if use_worktree:
+        from brokk_code.git_utils import worktree_context
+
+        repo_root = resolve_workspace_dir(workspace_path)
+        with worktree_context(repo_root) as wt_path:
+            wt_workspace = _resolve_worktree_workspace_path(workspace_path, repo_root, wt_path)
+            _main_dispatch(args, wt_workspace, jar_path, unknown)
+    else:
+        _main_dispatch(args, workspace_path, jar_path, unknown)
+
+
+def _main_dispatch(
+    args: argparse.Namespace,
+    workspace_path: Path,
+    jar_path: Path | None,
+    unknown: list[str],
+) -> None:
+    """Core command dispatch, extracted to support optional worktree wrapping."""
     if args.command == "install":
         # Fast-fail validation before prompting for API keys
         if args.plugin and args.target not in {"nvim", "neovim"}:
@@ -1907,10 +1960,14 @@ def main():
         prefetch_commands: list[tuple[str, list[str]]] = []
         try:
             uv_binary = ensure_uv_ready()
-            uvx_command = str(Path(uv_binary).parent / "uvx")
-            jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
-            if args.verbose and not jbang_binary:
-                jbang_binary = "jbang"
+            # Path/str conversions on Windows produce backslashes, but these values
+            # are written into JSON configs where we want stable POSIX-style paths.
+            uvx_command = str(Path(uv_binary).parent / "uvx").replace("\\", "/")
+            jbang_binary: str | None = None
+            if args.target != "codex-plugin":
+                jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
+                if args.verbose and not jbang_binary:
+                    jbang_binary = "jbang"
             if args.target == "zed":
                 _ensure_install_api_key()
                 _ensure_install_github_token(
@@ -2099,6 +2156,19 @@ def main():
                     f"Installed Claude MCP workspace skill in {claude_ws_skill}",
                     f"Installed Claude MCP summaries skill in {claude_sum_skill}",
                 ]
+            elif args.target == "codex-plugin":
+                install_result = install_codex_local_plugin(
+                    force=args.force,
+                    uvx_command=uvx_command,
+                )
+                messages = [
+                    f"Installed Codex plugin files in {install_result.plugin_path}",
+                    f"Updated Codex marketplace in {install_result.marketplace_path}",
+                    (
+                        "Restart Codex, open the plugin directory, choose the local "
+                        "marketplace, and install Brokk."
+                    ),
+                ]
             else:
                 # Should not happen due to argparse choices
                 raise ValueError(f"Unknown target: {args.target}")
@@ -2248,6 +2318,15 @@ def main():
 
     if args.command == "mcp":
         run_mcp_server(
+            workspace_dir=workspace_path,
+            jar_path=jar_path,
+            executor_version=args.executor_version,
+            passthrough_args=unknown,
+        )
+        return
+
+    if args.command == "mcp-core":
+        run_mcp_core_server(
             workspace_dir=workspace_path,
             jar_path=jar_path,
             executor_version=args.executor_version,

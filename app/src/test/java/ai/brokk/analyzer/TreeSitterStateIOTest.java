@@ -42,7 +42,14 @@ public class TreeSitterStateIOTest {
     private static void writeDtoWithSchemaVersion(
             Path out, String schemaVersion, long snapshotEpochNanos, String languageInternalName) throws Exception {
         AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), snapshotEpochNanos, schemaVersion, languageInternalName);
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                null,
+                snapshotEpochNanos,
+                schemaVersion,
+                languageInternalName);
 
         var mapper = new ObjectMapper(new SmileFactory());
         try (var os = Files.newOutputStream(out);
@@ -162,7 +169,7 @@ public class TreeSitterStateIOTest {
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
         AnalyzerStateDto emptyDto =
-                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, CURRENT_SCHEMA_STR, "JAVA");
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 1L, CURRENT_SCHEMA_STR, "JAVA");
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
         // Use a recognized language filename to allow successful load inference
@@ -229,7 +236,7 @@ public class TreeSitterStateIOTest {
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
         // Create a DTO with the current schema version
         AnalyzerStateDto dto =
-                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 99L, CURRENT_SCHEMA_STR, "JAVA");
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 99L, CURRENT_SCHEMA_STR, "JAVA");
         var original = TreeSitterStateIO.fromDto(dto);
 
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
@@ -258,7 +265,8 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt file");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "2.0.0", "JAVA");
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 1L, "2.0.0", "JAVA");
         var state = TreeSitterStateIO.fromDto(dto);
         TreeSitterStateIO.save(state, out, Languages.JAVA);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
@@ -281,7 +289,8 @@ public class TreeSitterStateIOTest {
 
         Files.writeString(out, "this is corrupt content");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 42L, "2.0.0", "JAVA");
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 42L, "2.0.0", "JAVA");
         var original = TreeSitterStateIO.fromDto(dto);
 
         TreeSitterStateIO.save(original, out, Languages.JAVA);
@@ -380,7 +389,7 @@ public class TreeSitterStateIOTest {
 
         // Expect CURRENT_SCHEMA version after round-trip
         var originalDto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(entryDto), List.of(), 555L, CURRENT_SCHEMA_STR, "JAVA");
+                Map.of(), List.of(), List.of(entryDto), List.of(), null, 555L, CURRENT_SCHEMA_STR, "JAVA");
         var state = TreeSitterStateIO.fromDto(originalDto);
 
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
@@ -612,6 +621,7 @@ public class TreeSitterStateIOTest {
                     dto.codeUnitState(),
                     dto.fileState(),
                     dto.symbolKeys(),
+                    null,
                     dto.snapshotEpochNanos(),
                     null,
                     null);
@@ -671,7 +681,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("subtypes", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 12345L);
-        stateDtoMap.put("schemaVersion", "2.1.0");
+        stateDtoMap.put("schemaVersion", "3.0.0");
 
         // Serialize to file using Smile + LZ4
         ObjectMapper mapper = new ObjectMapper(new SmileFactory());
@@ -719,7 +729,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
-        stateDtoMap.put("schemaVersion", "2.1.0");
+        stateDtoMap.put("schemaVersion", "3.0.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -755,7 +765,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
-        stateDtoMap.put("schemaVersion", "2.1.0");
+        stateDtoMap.put("schemaVersion", "3.0.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -794,7 +804,7 @@ public class TreeSitterStateIOTest {
         // Failing test scenario: generic filename but DTO specifies JAVA.
         Path out = tempDir.resolve("analyzer-state" + Language.ANALYZER_STATE_SUFFIX);
         AnalyzerStateDto dto =
-                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 123L, CURRENT_SCHEMA_STR, "JAVA");
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 123L, CURRENT_SCHEMA_STR, "JAVA");
 
         var mapper = new ObjectMapper(new SmileFactory());
         try (var os = Files.newOutputStream(out);
@@ -810,7 +820,8 @@ public class TreeSitterStateIOTest {
     @Test
     void schemaMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
         // Manually serialize a DTO with a different major version (1.0.0 vs current 2.x.x)
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.0.0", "JAVA");
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 1L, "1.0.0", "JAVA");
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         var mapper = new ObjectMapper(new SmileFactory());
@@ -825,15 +836,13 @@ public class TreeSitterStateIOTest {
 
     @Test
     void nonStrictLanguageAcceptsMinorVersionMismatch(@TempDir Path tempDir) throws Exception {
-        // Use a version with same major but different minor (2.1.0) to test forward compatibility.
-        // We use a filename that maps to a non-strict language (PYTHON) to verify generic acceptance.
+        // Non-strict languages do not use per-language rebuild thresholds; a 3.0.0 snapshot should load
+        // when current schema is 3.0.0.
         Path out = tempDir.resolve("python" + Language.ANALYZER_STATE_SUFFIX);
-        writeDtoWithSchemaVersion(out, "2.1.0", 1L);
+        writeDtoWithSchemaVersion(out, "3.0.0", 1L);
 
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(
-                loaded.isPresent(),
-                "Expected minor version mismatch (2.1.0) to be accepted for non-strict loads within same major");
+        assertTrue(loaded.isPresent(), "Expected Python to accept schema 3.0.0 snapshot");
         assertEquals(1L, loaded.get().snapshotEpochNanos());
     }
 
@@ -849,10 +858,15 @@ public class TreeSitterStateIOTest {
         writeDtoWithSchemaVersion(javaFile, "2.0.0", 200L, "JAVA");
         assertTrue(
                 TreeSitterStateIO.load(javaFile).isEmpty(),
-                "Java should REJECT schemaVersion 2.0.0 as it is below JAVA_REBUILD_THRESHOLD (2.1.0)");
+                "Java should REJECT schemaVersion 2.0.0 (major mismatch with current 3.x)");
 
-        writeDtoWithSchemaVersion(javaFile, "2.1.0", 210L, "JAVA");
-        assertTrue(TreeSitterStateIO.load(javaFile).isPresent(), "Java should accept current schemaVersion 2.1.0");
+        writeDtoWithSchemaVersion(javaFile, "2.1.0", 215L, "JAVA");
+        assertTrue(
+                TreeSitterStateIO.load(javaFile).isEmpty(),
+                "Java should REJECT schemaVersion 2.1.0 (major mismatch with current 3.x)");
+
+        writeDtoWithSchemaVersion(javaFile, "3.0.0", 230L, "JAVA");
+        assertTrue(TreeSitterStateIO.load(javaFile).isPresent(), "Java should accept schemaVersion 3.0.0");
     }
 
     @Test
@@ -867,7 +881,13 @@ public class TreeSitterStateIOTest {
 
         Path v220 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v220, "2.2.0", 220L, "TYPESCRIPT");
-        assertTrue(TreeSitterStateIO.load(v220).isPresent(), "TypeScript should accept current schemaVersion 2.2.0");
+        assertTrue(
+                TreeSitterStateIO.load(v220).isEmpty(),
+                "TypeScript should REJECT schemaVersion 2.2.0 (major mismatch with current 3.x)");
+
+        Path v300 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(v300, "3.0.0", 230L, "TYPESCRIPT");
+        assertTrue(TreeSitterStateIO.load(v300).isPresent(), "TypeScript should accept schemaVersion 3.0.0");
     }
 
     @Test
@@ -877,39 +897,48 @@ public class TreeSitterStateIOTest {
 
         var loaded = TreeSitterStateIO.load(rust210);
         assertTrue(
-                loaded.isEmpty(), "Rust should REJECT schema 2.1.0 because it is below RUST_REBUILD_THRESHOLD (2.2.0)");
+                loaded.isEmpty(), "Rust should REJECT schema 2.1.0 because it is below RUST_REBUILD_THRESHOLD (3.0.0)");
 
         Path rust220 = tempDir.resolve("rust_new" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(rust220, "2.2.0", 220L, "RUST");
-        assertTrue(TreeSitterStateIO.load(rust220).isPresent(), "Rust should accept schema 2.2.0");
+        assertTrue(
+                TreeSitterStateIO.load(rust220).isEmpty(),
+                "Rust should REJECT schema 2.2.0 (major mismatch with current 3.x)");
+
+        Path rust300 = tempDir.resolve("rust_accept" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(rust300, "3.0.0", 230L, "RUST");
+        assertTrue(TreeSitterStateIO.load(rust300).isPresent(), "Rust should accept schema 3.0.0");
     }
 
     @Test
     void javaSchemaMigrationTo210ForcesRebuild(@TempDir Path tempDir) throws Exception {
-        // Java is strict and we've set JAVA_REBUILD_THRESHOLD to 2.1.0 in the migrator.
-        // A 2.0.0 snapshot should now be rejected to force regeneration of synthetic flags.
+        // Java is strict: legacy 2.x snapshots are rejected (major mismatch or below JAVA_REBUILD_THRESHOLD).
         Path java200 = tempDir.resolve("java-rebuild" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(java200, "2.0.0", 200L, "JAVA");
 
         var loaded = TreeSitterStateIO.load(java200);
         assertTrue(
-                loaded.isEmpty(), "Java should REJECT schema 2.0.0 because it is below JAVA_REBUILD_THRESHOLD (2.1.0)");
+                loaded.isEmpty(), "Java should REJECT schema 2.0.0 because it is below JAVA_REBUILD_THRESHOLD (3.0.0)");
 
-        // A 2.1.0 snapshot should be accepted.
         Path java210 = tempDir.resolve("java_new" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(java210, "2.1.0", 210L, "JAVA");
-        assertTrue(TreeSitterStateIO.load(java210).isPresent(), "Java should accept schema 2.1.0");
+        assertTrue(
+                TreeSitterStateIO.load(java210).isEmpty(),
+                "Java should REJECT schema 2.1.0 because it is below JAVA_REBUILD_THRESHOLD (3.0.0)");
+
+        Path java300 = tempDir.resolve("java_accept" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(java300, "3.0.0", 230L, "JAVA");
+        assertTrue(TreeSitterStateIO.load(java300).isPresent(), "Java should accept schema 3.0.0");
     }
 
     @Test
     void pythonSchemaMigrationTo210AllowsMinorMismatch(@TempDir Path tempDir) throws Exception {
-        // Python is not strict. 2.0.0 is same major as 2.1.0, so it should still be accepted
-        // and migrated instead of being rejected.
-        Path python200 = tempDir.resolve("python" + Language.ANALYZER_STATE_SUFFIX);
-        writeDtoWithSchemaVersion(python200, "2.0.0", 200L);
+        // Python is not strict: same-major snapshots load without per-language rebuild rules.
+        Path python300 = tempDir.resolve("python" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(python300, "3.0.0", 200L);
 
-        var loaded = TreeSitterStateIO.load(python200);
-        assertTrue(loaded.isPresent(), "Python should accept schema 2.0.0 as it is within the same major version");
+        var loaded = TreeSitterStateIO.load(python300);
+        assertTrue(loaded.isPresent(), "Python should accept schema 3.0.0");
         assertEquals(200L, loaded.get().snapshotEpochNanos());
     }
 
@@ -979,7 +1008,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
-        stateDtoMap.put("schemaVersion", "2.1.0");
+        stateDtoMap.put("schemaVersion", "3.0.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);

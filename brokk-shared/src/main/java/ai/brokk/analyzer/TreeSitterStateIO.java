@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.JsonSerializer;
+import com.fasterxml.jackson.databind.KeyDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
@@ -50,7 +51,7 @@ public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     // Current analyzer snapshot schema version. Bump MAJOR for incompatible changes.
-    static final SemVer CURRENT_SCHEMA = SemVer.parse("2.2.0");
+    static final SemVer CURRENT_SCHEMA = SemVer.parse("3.0.0");
 
     // Dedicated Smile ObjectMapper
     private static final ObjectMapper SMILE_MAPPER =
@@ -64,12 +65,40 @@ public final class TreeSitterStateIO {
         module.addDeserializer(CodeUnit.class, new CodeUnitJsonDeserializer());
         module.addSerializer(ProjectFile.class, new ProjectFileJsonSerializer());
         module.addDeserializer(ProjectFile.class, new ProjectFileJsonDeserializer());
+        module.addKeySerializer(ProjectFileDto.class, new ProjectFileDtoKeySerializer());
+        module.addKeyDeserializer(ProjectFileDto.class, new ProjectFileDtoKeyDeserializer());
         SMILE_MAPPER.registerModule(module);
     }
 
     private TreeSitterStateIO() {}
 
     /* ================= Jackson adapters for nested types ================= */
+
+    /**
+     * Serializer for ProjectFileDto when used as a Map key.
+     */
+    static final class ProjectFileDtoKeySerializer extends JsonSerializer<ProjectFileDto> {
+        @Override
+        public void serialize(ProjectFileDto value, JsonGenerator gen, SerializerProvider serializers)
+                throws IOException {
+            // Encode as root|relPath
+            gen.writeFieldName(value.root() + "|" + value.relPath());
+        }
+    }
+
+    /**
+     * Deserializer for ProjectFileDto when used as a Map key.
+     */
+    static final class ProjectFileDtoKeyDeserializer extends KeyDeserializer {
+        @Override
+        public Object deserializeKey(String key, DeserializationContext ctxt) throws IOException {
+            int sep = key.lastIndexOf('|');
+            if (sep == -1) {
+                return new ProjectFileDto("", key);
+            }
+            return new ProjectFileDto(key.substring(0, sep), key.substring(sep + 1));
+        }
+    }
 
     /**
      * Serialize ProjectFile as a minimal DTO with a guaranteed relative relPath.
@@ -245,6 +274,7 @@ public final class TreeSitterStateIO {
             List<CodeUnitEntryDto> codeUnitState,
             List<FileStateEntryDto> fileState,
             List<String> symbolKeys,
+            @Nullable Map<ProjectFileDto, List<TemplateAnalysisResultDto>> templateResults,
             long snapshotEpochNanos,
             @Nullable String schemaVersion,
             @Nullable String languageInternalName) {
@@ -255,6 +285,8 @@ public final class TreeSitterStateIO {
                 @JsonProperty("codeUnitState") List<CodeUnitEntryDto> codeUnitState,
                 @JsonProperty("fileState") List<FileStateEntryDto> fileState,
                 @JsonProperty("symbolKeys") List<String> symbolKeys,
+                @JsonProperty("templateResults") @Nullable
+                        Map<ProjectFileDto, List<TemplateAnalysisResultDto>> templateResults,
                 @JsonProperty("snapshotEpochNanos") long snapshotEpochNanos,
                 @JsonProperty("schemaVersion") @Nullable String schemaVersion,
                 @JsonProperty("languageInternalName") @Nullable String languageInternalName) {
@@ -262,6 +294,7 @@ public final class TreeSitterStateIO {
             this.codeUnitState = codeUnitState;
             this.fileState = fileState;
             this.symbolKeys = symbolKeys;
+            this.templateResults = templateResults;
             this.snapshotEpochNanos = snapshotEpochNanos;
             this.schemaVersion = schemaVersion;
             this.languageInternalName = languageInternalName;
@@ -277,7 +310,8 @@ public final class TreeSitterStateIO {
             @Nullable List<String> signatures,
             @Nullable List<IAnalyzer.Range> ranges,
             boolean hasBody,
-            boolean isTypeAlias) {}
+            boolean isTypeAlias,
+            @Nullable Map<String, Object> attributes) {}
 
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
@@ -293,6 +327,13 @@ public final class TreeSitterStateIO {
     public record FileStateEntryDto(ProjectFileDto key, FilePropertiesDto value) {}
 
     /**
+     * DTO for TemplateAnalysisResult persistence.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record TemplateAnalysisResultDto(
+            String analyzerName, ProjectFileDto templateFile, Set<CodeUnitDto> discoveredUnits, List<String> errors) {}
+
+    /**
      * DTO for TreeSitterAnalyzer.FileProperties without the TSTree.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -306,6 +347,73 @@ public final class TreeSitterStateIO {
             this.topLevelCodeUnits = topLevelCodeUnits;
             this.importStatements = importStatements;
             this.containsTests = containsTests;
+        }
+    }
+
+    @Blocking
+    public static void saveTemplateState(List<TemplateAnalysisResult> results, Path file) {
+        long startMs = System.currentTimeMillis();
+        Path temp = null;
+        Path parent = (file.getParent() != null ? file.getParent() : Path.of("."))
+                .toAbsolutePath()
+                .normalize();
+        try {
+            Files.createDirectories(parent);
+            temp = Files.createTempFile(parent, "." + file.getFileName().toString() + ".", ".tmp");
+
+            List<TemplateAnalysisResultDto> dtos = results.stream()
+                    .map(r -> new TemplateAnalysisResultDto(
+                            r.analyzerName(),
+                            toDto(r.templateFile()),
+                            r.discoveredUnits().stream()
+                                    .map(TreeSitterStateIO::toDto)
+                                    .collect(Collectors.toSet()),
+                            r.errors()))
+                    .toList();
+
+            try (var os = Files.newOutputStream(temp);
+                    var out = new LZ4FrameOutputStream(os)) {
+                SMILE_MAPPER.writeValue(out, dtos);
+            }
+
+            try {
+                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                moveWithRetriesOrCopyFallback(temp, file);
+            }
+            log.debug("Saved template state to {} in {} ms", file, System.currentTimeMillis() - startMs);
+        } catch (IOException e) {
+            log.warn("Failed to save template state to {}: {}", file, e.getMessage());
+            if (temp != null) {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (IOException ex) {
+                    log.debug("Failed to delete temp file {} after template save failure: {}", temp, ex.getMessage());
+                }
+            }
+        }
+    }
+
+    @Blocking
+    public static List<TemplateAnalysisResult> loadTemplateState(Path file) {
+        if (!Files.exists(file)) return List.of();
+        try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
+            JsonNode root = SMILE_MAPPER.readTree(in);
+            List<TemplateAnalysisResultDto> dtos = SMILE_MAPPER
+                    .readerForListOf(TemplateAnalysisResultDto.class)
+                    .readValue(root);
+            return dtos.stream()
+                    .map(dto -> new TemplateAnalysisResult(
+                            dto.analyzerName(),
+                            fromDto(dto.templateFile()),
+                            dto.discoveredUnits().stream()
+                                    .map(TreeSitterStateIO::fromDto)
+                                    .collect(Collectors.toSet()),
+                            dto.errors()))
+                    .toList();
+        } catch (IOException e) {
+            log.debug("Failed to load template state from {}: {}", file, e.getMessage());
+            return List.of();
         }
     }
 
@@ -365,8 +473,9 @@ public final class TreeSitterStateIO {
      * <p>Version semantics:
      * <ul>
      *   <li>If major versions differ -> incompatible: return Optional.empty().
-     *   <li>For strict languages (JAVA, TYPESCRIPT): if snapshot < CURRENT_SCHEMA, return empty.
-     *   <li>For other languages: allow minor/patch differences and migrate.
+     *   <li>For strict languages (JAVA, TYPESCRIPT, RUST): {@link TreeSitterAnalyzerStateMigrator} may force a rebuild
+     *       to drop stale snapshots.
+     *   <li>For other languages: allow minor/patch differences and migrate (still subject to major-version check).
      * </ul>
      */
     @Blocking
@@ -496,7 +605,8 @@ public final class TreeSitterStateIO {
                     new ArrayList<>(props.signatures()),
                     new ArrayList<>(props.ranges()),
                     props.hasBody(),
-                    props.isTypeAlias());
+                    props.isTypeAlias(),
+                    props.attributes().isEmpty() ? null : new HashMap<>(props.attributes()));
 
             cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }
@@ -528,11 +638,27 @@ public final class TreeSitterStateIO {
             symbolKeys.add(key);
         }
 
+        // templateResults -> deep copy to DTO
+        Map<ProjectFileDto, List<TemplateAnalysisResultDto>> templateResultsCopy = new HashMap<>();
+        for (var e : state.templateResults().entrySet()) {
+            var dtos = e.getValue().stream()
+                    .map(r -> new TemplateAnalysisResultDto(
+                            r.analyzerName(),
+                            toDto(r.templateFile()),
+                            r.discoveredUnits().stream()
+                                    .map(TreeSitterStateIO::toDto)
+                                    .collect(Collectors.toSet()),
+                            r.errors()))
+                    .toList();
+            templateResultsCopy.put(toDto(e.getKey()), dtos);
+        }
+
         return new AnalyzerStateDto(
                 symbolIndexCopy,
                 cuEntries,
                 fileEntries,
                 symbolKeys,
+                templateResultsCopy.isEmpty() ? null : templateResultsCopy,
                 state.snapshotEpochNanos(),
                 CURRENT_SCHEMA.toString(),
                 language != null ? language.internalName() : null);
@@ -572,7 +698,8 @@ public final class TreeSitterStateIO {
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>(signatures)),
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>(ranges)),
                     v.hasBody(),
-                    v.isTypeAlias());
+                    v.isTypeAlias(),
+                    v.attributes() == null ? Map.of() : Map.copyOf(v.attributes()));
 
             cuState.put(fromDto(entry.key()), props);
         }
@@ -603,9 +730,27 @@ public final class TreeSitterStateIO {
         var unmodifiableKeys = Collections.unmodifiableNavigableSet(keySet);
         var symbolKeyIndex = new TreeSitterAnalyzer.SymbolKeyIndex(unmodifiableKeys);
 
+        // Rebuild templateResults PMap
+        Map<ProjectFile, List<TemplateAnalysisResult>> templateResultsMap = new HashMap<>();
+        if (dto.templateResults() != null) {
+            for (var entry : dto.templateResults().entrySet()) {
+                var results = entry.getValue().stream()
+                        .map(resDto -> new TemplateAnalysisResult(
+                                resDto.analyzerName(),
+                                fromDto(resDto.templateFile()),
+                                resDto.discoveredUnits().stream()
+                                        .map(TreeSitterStateIO::fromDto)
+                                        .collect(Collectors.toSet()),
+                                resDto.errors()))
+                        .toList();
+                templateResultsMap.put(fromDto(entry.getKey()), results);
+            }
+        }
+        PMap<ProjectFile, List<TemplateAnalysisResult>> templateResults = HashTreePMap.from(templateResultsMap);
+
         // Construct new immutable AnalyzerState
         return new TreeSitterAnalyzer.AnalyzerState(
-                symbolIndex, codeUnitState, fileState, symbolKeyIndex, dto.snapshotEpochNanos());
+                symbolIndex, codeUnitState, fileState, symbolKeyIndex, templateResults, dto.snapshotEpochNanos());
     }
 
     /* ================= Helpers ================= */

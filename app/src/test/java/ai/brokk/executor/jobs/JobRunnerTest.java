@@ -5,18 +5,34 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.ContextManager;
+import ai.brokk.Service;
+import ai.brokk.TaskResult;
 import ai.brokk.agents.IssueRewriterAgent;
+import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestService;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.openai.OpenAiChatResponseMetadata;
+import dev.langchain4j.model.openai.OpenAiTokenUsage;
+import dev.langchain4j.model.output.FinishReason;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jetbrains.annotations.Blocking;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class JobRunnerTest {
+    @TempDir
+    Path tempDir;
+
     @Test
     void testParseModeLegacyPrReviewFallsBackToArchitect() {
         var spec = JobSpec.of(
@@ -244,6 +260,48 @@ class JobRunnerTest {
         var parsed = PrReviewService.parsePrReviewResponse(json);
         assertNotNull(parsed, "Valid review JSON should parse");
         assertEquals("## Review\nLooks good.", parsed.summaryMarkdown());
+    }
+
+    @Test
+    void testPrReviewExecutor_doesNotExposeErroredOverthinkingResponse() {
+        var project = new TestProject(tempDir);
+        Service.Provider provider = new Service.Provider() {
+            private TestService svc = new TestService(project);
+
+            @Override
+            public ai.brokk.AbstractService get() {
+                return svc;
+            }
+
+            @Override
+            public void reinit(ai.brokk.project.IProject p) {
+                svc = new TestService(p);
+            }
+        };
+        try (var cm = new ContextManager(project, provider)) {
+            var executor = new PrReviewExecutor(cm);
+            var response = ChatResponse.builder()
+                    .aiMessage(new AiMessage(""))
+                    .metadata(OpenAiChatResponseMetadata.builder()
+                            .modelName("test-model")
+                            .tokenUsage(OpenAiTokenUsage.builder()
+                                    .inputTokenCount(40)
+                                    .outputTokenCount(10)
+                                    .totalTokenCount(50)
+                                    .build())
+                            .finishReason(FinishReason.LENGTH)
+                            .build())
+                    .build();
+            var model = new TestScriptedLanguageModel(response);
+
+            var review = executor.reviewDiff(
+                    cm.liveContext(), model, "@@ -1 +1 @@", "Title", "Description", PrReviewService.Severity.HIGH);
+
+            assertEquals(
+                    TaskResult.StopReason.LLM_OVERTHINKING,
+                    review.taskResult().stopDetails().reason());
+            assertEquals("", review.responseText());
+        }
     }
 
     @Test

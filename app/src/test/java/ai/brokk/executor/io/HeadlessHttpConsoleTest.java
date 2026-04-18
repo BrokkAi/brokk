@@ -790,7 +790,7 @@ class HeadlessHttpConsoleTest {
                 .arguments("{\"arg\": \"val\"}")
                 .build();
 
-        console.beforeToolCall(request);
+        console.beforeToolCall(request, false);
 
         var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
@@ -812,7 +812,7 @@ class HeadlessHttpConsoleTest {
         var request =
                 ToolExecutionRequest.builder().id("call-123").name("testTool").build();
 
-        assertDoesNotThrow(() -> console.beforeToolCall(request));
+        assertDoesNotThrow(() -> console.beforeToolCall(request, false));
 
         var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());

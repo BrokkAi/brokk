@@ -20,6 +20,11 @@ public final class PhpTreeSitterNodeTypes {
     // Statements
     public static final String DECLARE_STATEMENT = "declare_statement";
     public static final String COMPOUND_STATEMENT = "compound_statement";
+    public static final String TRY_STATEMENT = "try_statement";
+    public static final String CATCH_CLAUSE = "catch_clause";
+    public static final String THROW_STATEMENT = "throw_statement";
+    public static final String EXPRESSION_STATEMENT = "expression_statement";
+    public static final String VARIABLE_NAME = "variable_name";
 
     // Class-like declarations
     public static final String TRAIT_DECLARATION = "trait_declaration";

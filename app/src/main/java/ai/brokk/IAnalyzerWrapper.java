@@ -47,6 +47,10 @@ public interface IAnalyzerWrapper extends AutoCloseable {
         return new NoopWatchService();
     }
 
+    default void close(long awaitMillis) {
+        close();
+    }
+
     @Override
     default void close() {}
 }

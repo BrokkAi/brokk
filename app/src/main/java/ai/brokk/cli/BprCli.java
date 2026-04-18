@@ -31,6 +31,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -874,11 +875,27 @@ public final class BprCli implements Callable<Integer> {
             io.toolError(
                     result.stopDetails().explanation(),
                     result.stopDetails().reason().toString());
-            // exit code is 0 since we ran the task as requested; we print out the metrics from Code Agent to let
-            // harness see how we did
+            return finalExitCode(
+                    codePrompt != null,
+                    isSingleTurnCodeAgentEnabled(),
+                    result.stopDetails().reason());
         }
 
         return 0;
+    }
+
+    static int finalExitCode(boolean codePromptRequested, boolean singleTurnMode, TaskResult.StopReason reason) {
+        if (reason == TaskResult.StopReason.SUCCESS) {
+            return 0;
+        }
+        if (codePromptRequested && singleTurnMode) {
+            return 2;
+        }
+        return 0;
+    }
+
+    private static boolean isSingleTurnCodeAgentEnabled() {
+        return Environment.isBooleanFlagEnabled(System.getenv("BRK_CODEAGENT_SINGLE_TURN"));
     }
 
     private List<String> resolveFiles(List<String> inputs, String entityType) {

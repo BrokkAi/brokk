@@ -9,6 +9,7 @@ from brokk_code.runtime_utils import find_dev_jar
 
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
+_MCP_CORE_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkCoreMcpServer"
 
 
 def git_toplevel_for(path: Path) -> Optional[Path]:
@@ -38,7 +39,12 @@ def resolve_mcp_workspace_dir(path: Path) -> Path:
     return git_toplevel_for(current) or current
 
 
-def build_direct_mcp_command(jar_path: Path) -> list[str]:
+# ---------------------------------------------------------------------------
+# Shared parameterized helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_direct_mcp_command(main_class: str, jar_path: Path) -> list[str]:
     return [
         "java",
         "-Djava.awt.headless=true",
@@ -46,13 +52,19 @@ def build_direct_mcp_command(jar_path: Path) -> list[str]:
         "--enable-native-access=ALL-UNNAMED",
         "-cp",
         str(jar_path),
-        _MCP_SERVER_MAIN_CLASS,
+        main_class,
     ]
 
 
-def build_jbang_mcp_command(*, jbang_binary: str, executor_version: str | None) -> list[str]:
+def _build_jbang_mcp_command(
+    main_class: str,
+    jar_name_prefix: str,
+    *,
+    jbang_binary: str,
+    executor_version: str | None,
+) -> list[str]:
     version = executor_version or BUNDLED_EXECUTOR_VERSION
-    jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
+    jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/{jar_name_prefix}-{version}.jar"
     return [
         jbang_binary,
         "--java",
@@ -64,29 +76,41 @@ def build_jbang_mcp_command(*, jbang_binary: str, executor_version: str | None) 
         "-R",
         "--enable-native-access=ALL-UNNAMED",
         "--main",
-        _MCP_SERVER_MAIN_CLASS,
+        main_class,
         jar_url,
     ]
 
 
-def resolve_mcp_command(
+def _resolve_mcp_command(
+    main_class: str,
+    jar_name_prefix: str,
+    subproject: str,
     *,
     workspace_dir: Path,
     jar_path: Optional[Path],
     executor_version: str | None,
 ) -> list[str]:
     if jar_path:
-        return build_direct_mcp_command(jar_path)
+        return _build_direct_mcp_command(main_class, jar_path)
 
-    dev_jar = find_dev_jar(workspace_dir)
+    dev_jar = find_dev_jar(workspace_dir, subproject=subproject)
     if dev_jar:
-        return build_direct_mcp_command(dev_jar)
+        return _build_direct_mcp_command(main_class, dev_jar)
 
     jbang_binary = ensure_jbang_ready()
-    return build_jbang_mcp_command(jbang_binary=jbang_binary, executor_version=executor_version)
+    return _build_jbang_mcp_command(
+        main_class,
+        jar_name_prefix,
+        jbang_binary=jbang_binary,
+        executor_version=executor_version,
+    )
 
 
-def run_mcp_server(
+def _run_mcp(
+    main_class: str,
+    jar_name_prefix: str,
+    subproject: str,
+    label: str,
     *,
     workspace_dir: Path,
     jar_path: Optional[Path],
@@ -94,18 +118,23 @@ def run_mcp_server(
     passthrough_args: list[str] | None = None,
 ) -> None:
     resolved_workspace_dir = resolve_mcp_workspace_dir(workspace_dir)
+    launcher = "runtime"
 
     try:
-        command = resolve_mcp_command(
+        command = _resolve_mcp_command(
+            main_class,
+            jar_name_prefix,
+            subproject,
             workspace_dir=resolved_workspace_dir,
             jar_path=jar_path,
             executor_version=executor_version,
         )
+        launcher = command[0]
         if passthrough_args:
             # JBang requires '--' before arguments intended for the Java main class
             # to distinguish them from JBang's own options.
-            # build_direct_mcp_command always starts with 'java'.
-            if command[0] != "java":
+            # _build_direct_mcp_command always starts with 'java'.
+            if launcher != "java":
                 command.append("--")
             command.extend(passthrough_args)
 
@@ -117,17 +146,91 @@ def run_mcp_server(
             result = subprocess.run(command, env=os.environ.copy())
             sys.exit(result.returncode)
         else:
-            os.execvpe(command[0], command, os.environ.copy())
+            os.execvpe(launcher, command, os.environ.copy())
     except ExecutorError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
     except FileNotFoundError:
+        kind = f"{label} runtime" if label else "runtime"
         print(
-            f"Error: Unable to launch MCP runtime via '{command[0]}'. "
+            f"Error: Unable to launch MCP {kind} via '{launcher}'. "
             "Ensure the required runtime is installed or pass --jar.",
             file=sys.stderr,
         )
         sys.exit(1)
     except OSError as exc:
-        print(f"Error: Failed to launch MCP runtime: {exc}", file=sys.stderr)
+        kind = f"{label} runtime" if label else "runtime"
+        print(f"Error: Failed to launch MCP {kind}: {exc}", file=sys.stderr)
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Public API — preserved signatures
+# ---------------------------------------------------------------------------
+
+
+def build_direct_mcp_command(jar_path: Path) -> list[str]:
+    return _build_direct_mcp_command(_MCP_SERVER_MAIN_CLASS, jar_path)
+
+
+def build_jbang_mcp_command(*, jbang_binary: str, executor_version: str | None) -> list[str]:
+    return _build_jbang_mcp_command(
+        _MCP_SERVER_MAIN_CLASS,
+        "brokk",
+        jbang_binary=jbang_binary,
+        executor_version=executor_version,
+    )
+
+
+def resolve_mcp_command(
+    *,
+    workspace_dir: Path,
+    jar_path: Optional[Path],
+    executor_version: str | None,
+) -> list[str]:
+    return _resolve_mcp_command(
+        _MCP_SERVER_MAIN_CLASS,
+        "brokk",
+        "app",
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+    )
+
+
+def run_mcp_server(
+    *,
+    workspace_dir: Path,
+    jar_path: Optional[Path],
+    executor_version: str | None,
+    passthrough_args: list[str] | None = None,
+) -> None:
+    _run_mcp(
+        _MCP_SERVER_MAIN_CLASS,
+        "brokk",
+        "app",
+        "",
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        passthrough_args=passthrough_args,
+    )
+
+
+def run_mcp_core_server(
+    *,
+    workspace_dir: Path,
+    jar_path: Optional[Path],
+    executor_version: str | None,
+    passthrough_args: list[str] | None = None,
+) -> None:
+    _run_mcp(
+        _MCP_CORE_SERVER_MAIN_CLASS,
+        "brokk-core",
+        "brokk-core",
+        "core",
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        passthrough_args=passthrough_args,
+    )
