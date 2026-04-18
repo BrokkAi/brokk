@@ -34,7 +34,7 @@ only from this system prompt.
 - `getClassSkeletons` -- understand the public API of classes touched by the PR
 - `scanUsages` -- assess coupling by checking how many other components depend
   on changed interfaces
-- `getFileSummaries` -- understand the package-level architecture around
+- `getSummaries` -- understand the package-level architecture around
   changed files
 - `listFiles` -- check directory structure and whether new files are placed
   in the right location

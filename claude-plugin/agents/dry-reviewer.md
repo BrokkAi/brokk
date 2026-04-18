@@ -29,7 +29,7 @@ only from this system prompt.
   newly added code
 - `searchFileContents` -- search for key string literals, algorithm patterns,
   or logic fragments from the new code to find existing implementations
-- `getClassSkeletons` and `getFileSummaries` -- scan packages adjacent to the
+- `getClassSkeletons` and `getSummaries` -- scan packages adjacent to the
   changed files for existing utilities that could be reused
 - `scanUsages` -- check if callers of similar code elsewhere already use a
   shared helper that this PR should also use

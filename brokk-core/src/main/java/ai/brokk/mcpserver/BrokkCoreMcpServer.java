@@ -276,25 +276,13 @@ public class BrokkCoreMcpServer {
                 "getSummaries",
                 "Understand the API surface of classes or files without reading full implementations. "
                         + "Accepts fully qualified class names, workspace-relative file paths, and file globs in one call. "
+                        + "File targets for supported framework template DSLs may return structured template summaries. "
                         + "Use this to inspect fields, signatures, and structure before deciding which classes or methods need full source. "
                         + "Example output: public class BillingService { Payment authorize(Order order); }",
                 schema(Map.of("targets", arrayProp("Class names, file paths, or glob patterns.")), List.of("targets")),
                 (exchange, request) -> withReadLock(() -> {
                     var targets = stringListArg(request, "targets");
                     return textResult(searchTools.getSummaries(targets));
-                })));
-
-        specs.add(tool(
-                "getFileSummaries",
-                "Deprecated alias for getSummaries when you only have file paths or file globs. "
-                        + "For file targets it returns the same summaries, including structured template summaries "
-                        + "for supported framework DSLs.",
-                schema(
-                        Map.of("filePaths", arrayProp("File paths relative to project root. Supports glob patterns.")),
-                        List.of("filePaths")),
-                (exchange, request) -> withReadLock(() -> {
-                    var filePaths = stringListArg(request, "filePaths");
-                    return textResult(searchTools.getSummaries(filePaths));
                 })));
 
         specs.add(tool(

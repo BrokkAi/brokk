@@ -28,7 +28,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.google.errorprone.annotations.InlineMe;
 import java.io.ByteArrayInputStream;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
@@ -868,12 +867,6 @@ public class SearchTools {
                 : "No project files found matching: " + String.join(", ", summaryTargets.unmatchedFileTargets())
                         + "\n\n";
         return recordResearchTokens(appendRelatedContent(prefix + String.join("\n\n", skeletons), sourceFiles));
-    }
-
-    @Deprecated
-    @InlineMe(replacement = "this.getSummaries(filePaths)")
-    public final String getFileSummaries(List<String> filePaths) {
-        return getSummaries(filePaths);
     }
 
     private SummaryTargets routeSummaryTargets(List<String> targets) {

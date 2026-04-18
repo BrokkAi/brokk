@@ -27,7 +27,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.google.errorprone.annotations.InlineMe;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.io.ByteArrayInputStream;
@@ -801,6 +800,7 @@ public class SearchTools {
             """
                     Understand the API surface of classes or files without reading full implementations.
                     Accepts fully qualified class names, workspace-relative file paths, and file globs in one call.
+                    File targets for supported framework template DSLs may return structured template summaries.
                     Use this to inspect fields, signatures, and structure before deciding which classes or methods need full source.
 
                     Example output:
@@ -843,20 +843,6 @@ public class SearchTools {
                 : "No project files found matching: " + String.join(", ", summaryTargets.unmatchedFileTargets())
                         + "\n\n";
         return recordResearchTokens(appendRelatedContent(prefix + String.join("\n\n", skeletons), sourceFiles));
-    }
-
-    @Deprecated
-    @InlineMe(replacement = "this.getSummaries(filePaths)")
-    @Tool(
-            """
-                    Deprecated alias for getSummaries when you only have file paths or file globs.
-                    Prefer getSummaries for new calls.
-                    """)
-    public final String getFileSummaries(
-            @P(
-                            "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']")
-                    List<String> filePaths) {
-        return getSummaries(filePaths);
     }
 
     private SummaryTargets routeSummaryTargets(List<String> targets) {

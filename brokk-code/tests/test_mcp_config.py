@@ -269,6 +269,7 @@ def test_install_codex_mcp_workspace_skill_creates_expected_skill(monkeypatch, t
 
 def test_install_codex_mcp_summaries_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
+    removed_tool_name = "get" + "FileSummaries"
 
     skill_path = install_codex_mcp_summaries_skill()
 
@@ -277,6 +278,7 @@ def test_install_codex_mcp_summaries_skill_creates_expected_skill(monkeypatch, t
     content = skill_path.read_text(encoding="utf-8")
     assert "name: brokk-get-summaries" in content
     assert "getSummaries" in content
+    assert removed_tool_name not in content
     assert "class skeletons" in content
     assert "After `searchSymbols`" in content
     assert "display signatures grouped by file" in content
@@ -298,6 +300,7 @@ def test_install_claude_mcp_workspace_skill_creates_expected_skill(monkeypatch, 
 
 def test_install_claude_mcp_summaries_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
+    removed_tool_name = "get" + "FileSummaries"
 
     skill_path = install_claude_mcp_summaries_skill()
 
@@ -306,6 +309,7 @@ def test_install_claude_mcp_summaries_skill_creates_expected_skill(monkeypatch, 
     content = skill_path.read_text(encoding="utf-8")
     assert "name: brokk-get-summaries" in content
     assert "getSummaries" in content
+    assert removed_tool_name not in content
     assert "class skeletons" in content
     assert "After `searchSymbols`" in content
     assert "display signatures grouped by file" in content

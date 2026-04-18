@@ -480,8 +480,7 @@ public class AskModeLutzAgentTest {
             "findFilesContaining",
             "findFilenames",
             "getFileContents",
-            "getSummaries",
-            "getFileSummaries"
+            "getSummaries"
         };
         for (String tool : forbiddenSearchTools) {
             assertFalse(

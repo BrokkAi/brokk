@@ -579,7 +579,6 @@ public class WorkspaceTools {
             "getSymbolLocations",
             "scanUsages",
             "getSummaries",
-            "getFileSummaries",
             "skimFiles");
 
     /**

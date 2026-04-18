@@ -95,7 +95,6 @@ public record AgentDefinition(
             "findFilesContaining",
             "findFilenames",
             "searchFileContents",
-            "getFileSummaries",
             "getClassSkeletons",
             "getClassSources",
             "getMethodSources",

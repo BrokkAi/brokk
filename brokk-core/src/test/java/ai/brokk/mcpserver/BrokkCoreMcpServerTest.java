@@ -71,7 +71,6 @@ class BrokkCoreMcpServerTest {
                 "searchSymbols",
                 "scanUsages",
                 "getSummaries",
-                "getFileSummaries",
                 "getClassSources",
                 "getMethodSources",
                 "getClassSkeletons",
