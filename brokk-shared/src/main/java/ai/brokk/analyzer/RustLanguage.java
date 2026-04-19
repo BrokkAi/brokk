@@ -178,27 +178,53 @@ public class RustLanguage implements Language {
 
     private CargoMetadata getMergedMetadata(ICoreProject project) {
         var rootManifest = project.getRoot().resolve("Cargo.toml");
+        List<Path> manifests = findCargoManifests(project);
+
+        @Nullable CargoMetadata rootMeta = null;
+        Set<Path> rootCoveredManifests = new LinkedHashSet<>();
         if (Files.isRegularFile(rootManifest)) {
             try {
-                return runCargoMetadata(rootManifest);
+                rootMeta = runCargoMetadata(rootManifest);
+                rootCoveredManifests.add(rootManifest.normalize());
+                for (var pkg : rootMeta.packages) {
+                    if (pkg.manifest_path == null || pkg.manifest_path.isEmpty()) continue;
+                    rootCoveredManifests.add(Path.of(pkg.manifest_path).normalize());
+                }
             } catch (Exception e) {
                 logger.debug("cargo metadata failed at project root: {}", e.toString());
             }
         }
 
-        List<Path> manifests = findCargoManifests(project);
         if (manifests.isEmpty()) {
-            return new CargoMetadata();
+            return rootMeta != null ? rootMeta : new CargoMetadata();
         }
 
-        CargoMetadata merged = new CargoMetadata();
-        merged.packages = new ArrayList<>();
-        merged.workspace_members = new ArrayList<>();
+        if (rootMeta != null
+                && rootCoveredManifests.containsAll(
+                        manifests.stream().map(Path::normalize).toList())) {
+            return rootMeta;
+        }
+
+        CargoMetadata merged = rootMeta != null ? rootMeta : new CargoMetadata();
+        if (merged.packages == null) merged.packages = new ArrayList<>();
+        if (merged.workspace_members == null) merged.workspace_members = new ArrayList<>();
 
         Set<String> packageIdentities = new LinkedHashSet<>();
         Set<String> memberIds = new LinkedHashSet<>();
+        for (var pkg : merged.packages) {
+            String identity = pkg.id;
+            if (identity.isEmpty()) {
+                identity = String.format("%s:%s:%s:%s", pkg.name, pkg.version, pkg.manifest_path, pkg.source);
+            }
+            packageIdentities.add(identity);
+        }
+        memberIds.addAll(merged.workspace_members);
 
         for (var manifest : manifests) {
+            if (rootCoveredManifests.contains(manifest.normalize())) {
+                continue;
+            }
+
             CargoMetadata meta;
             try {
                 meta = runCargoMetadata(manifest);
