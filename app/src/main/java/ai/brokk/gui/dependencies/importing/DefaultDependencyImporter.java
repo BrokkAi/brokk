@@ -34,7 +34,7 @@ public final class DefaultDependencyImporter implements DependencyImporter {
     public Language.ImportSupport getImportSupport(Language language) {
         if (language.internalName().equalsIgnoreCase("JAVA")) return Language.ImportSupport.BASIC;
         if (language.internalName().equalsIgnoreCase("PYTHON")) return Language.ImportSupport.BASIC;
-        if (language.internalName().equalsIgnoreCase("RUST")) return Language.ImportSupport.BASIC;
+        if (language.internalName().equalsIgnoreCase("RUST")) return Language.ImportSupport.FINE_GRAINED;
         if (language.internalName().equalsIgnoreCase("TYPESCRIPT")) return Language.ImportSupport.FINE_GRAINED;
         if (language.internalName().equalsIgnoreCase("JAVASCRIPT")) return Language.ImportSupport.FINE_GRAINED;
         return Language.ImportSupport.NONE;
@@ -70,7 +70,7 @@ public final class DefaultDependencyImporter implements DependencyImporter {
         return switch (language.internalName().toUpperCase(Locale.ROOT)) {
             case "PYTHON", "RUST" -> language.isAnalyzed(project, pathToImport);
             case "TYPESCRIPT", "JAVASCRIPT" -> NodeJsDependencyHelper.isAnalyzed(project, pathToImport);
-            default -> true;
+            default -> language.isAnalyzed(project, pathToImport);
         };
     }
 
