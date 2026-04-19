@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -112,7 +112,7 @@ public class GoExceptionHandlingSmellTest {
     }
 
     private List<IAnalyzer.ExceptionHandlingSmell> analyze(String source) {
-        try (var testProject = InlineTestProjectCreator.code(source, "main.go").build()) {
+        try (var testProject = InlineCoreProject.code(source, "main.go").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             ProjectFile file = new ProjectFile(testProject.getRoot(), "main.go");
             return analyzer.findExceptionHandlingSmells(file, IAnalyzer.ExceptionSmellWeights.defaults());

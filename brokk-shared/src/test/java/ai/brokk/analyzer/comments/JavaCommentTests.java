@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CommentDensityStats;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -24,7 +24,7 @@ public class JavaCommentTests {
                 }
                 """;
         try (var testProject =
-                InlineTestProjectCreator.code(code, "com/example/OnlyDoc.java").build()) {
+                InlineCoreProject.code(code, "com/example/OnlyDoc.java").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             Optional<CommentDensityStats> opt = analyzer.commentDensity(classUnit(analyzer, "com.example.OnlyDoc"));
             assertTrue(opt.isPresent());
@@ -50,7 +50,7 @@ public class JavaCommentTests {
                 }
                 """;
         try (var testProject =
-                InlineTestProjectCreator.code(code, "com/example/Foo.java").build()) {
+                InlineCoreProject.code(code, "com/example/Foo.java").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             Optional<CommentDensityStats> opt = analyzer.commentDensity(methodUnit(analyzer, "com.example.Foo.bar"));
             assertTrue(opt.isPresent());
@@ -80,7 +80,7 @@ public class JavaCommentTests {
                 }
                 """;
         try (var testProject =
-                InlineTestProjectCreator.code(code, "com/example/Two.java").build()) {
+                InlineCoreProject.code(code, "com/example/Two.java").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             CommentDensityStats dense = analyzer.commentDensity(methodUnit(analyzer, "com.example.Two.dense"))
                     .orElseThrow();
@@ -107,7 +107,7 @@ public class JavaCommentTests {
                 }
                 """;
         try (var testProject =
-                InlineTestProjectCreator.code(code, "com/example/Outer.java").build()) {
+                InlineCoreProject.code(code, "com/example/Outer.java").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             CommentDensityStats outer = analyzer.commentDensity(classUnit(analyzer, "com.example.Outer"))
                     .orElseThrow();
@@ -138,7 +138,7 @@ public class JavaCommentTests {
                 class B {}
                 """;
         try (var testProject =
-                InlineTestProjectCreator.code(code, "com/example/MultiTop.java").build()) {
+                InlineCoreProject.code(code, "com/example/MultiTop.java").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             var file = testProject
                     .getFileByRelPath(Path.of("com/example/MultiTop.java"))

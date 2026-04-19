@@ -4,19 +4,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-public class PythonTestAssertionSmellTest extends AbstractBrittleTestSuite {
+public class JsTsTestAssertionSmellTest extends AbstractBrittleTestSuite {
 
     @Test
     void flagsSelfComparisonAssertion() {
         String code =
                 """
-                def test_same_value():
-                    value = "x"
-                    assert value == value
+                test("same value", () => {
+                    const value = "x";
+                    expect(value).toBe(value);
+                });
                 """;
         var findings = analyze(code);
         assertTrue(hasReason(findings, "self-comparison"));
@@ -26,27 +27,23 @@ public class PythonTestAssertionSmellTest extends AbstractBrittleTestSuite {
     void flagsConstantTruthAndConstantEquality() {
         String code =
                 """
-                import unittest
-
-                class SampleTest(unittest.TestCase):
-                    def test_constants(self):
-                        assert True
-                        self.assertEqual(1, 1)
+                test("constants", () => {
+                    expect(true).toBe(true);
+                });
                 """;
         var findings = analyze(code);
-        assertTrue(hasReason(findings, "constant-truth"));
         assertTrue(hasReason(findings, "constant-equality"));
     }
 
     @Test
-    void flagsTestFunctionWithNoAssertions() {
+    void flagsItBodyWithNoAssertions() {
         String code =
                 """
-                def test_no_assertions():
-                    helper()
+                it("has no assertions", () => {
+                    work();
+                });
 
-                def helper():
-                    return 1
+                function work() {}
                 """;
         var findings = analyze(code);
         assertTrue(hasReason(findings, "no-assertions"));
@@ -56,21 +53,27 @@ public class PythonTestAssertionSmellTest extends AbstractBrittleTestSuite {
     void meaningfulAssertionIsNotFlaggedWithDefaultWeights() {
         String code =
                 """
-                def test_meaningful():
-                    result = {"name": "expected"}
-                    assert result["name"] == "expected"
+                it("checks the semantic value", () => {
+                    const result = { name: "expected" };
+                    expect(result.name).toBe("expected");
+                });
                 """;
         var findings = analyze(code);
         assertTrue(findings.isEmpty());
     }
 
     @Test
-    void flagsOnlyNullnessAssertionAsShallow() {
+    void flagsOnlyTruthyAssertionAsShallow() {
         String code =
                 """
-                def test_nullness():
-                    result = object()
-                    assert result is not None
+                it("only checks truthiness", () => {
+                    const result = build();
+                    expect(result).toBeTruthy();
+                });
+
+                function build() {
+                    return {};
+                }
                 """;
         var findings = analyze(code);
         assertTrue(hasReason(findings, "nullness-only"));
@@ -78,39 +81,43 @@ public class PythonTestAssertionSmellTest extends AbstractBrittleTestSuite {
     }
 
     @Test
-    void nonTestPythonFileIsSkipped() {
-        String code = """
-                def helper():
-                    assert True
+    void flagsSnapshotOnlyAssertion() {
+        String code =
+                """
+                test("snapshot only", () => {
+                    const rendered = render();
+                    expect(rendered).toMatchSnapshot();
+                });
+
+                function render() {
+                    return "<div>value</div>";
+                }
                 """;
-        var findings = analyze(code, "pkg/module.py");
-        assertTrue(findings.isEmpty());
+        var findings = analyze(code);
+        assertTrue(hasReason(findings, "snapshot-assertion"));
     }
 
     @Test
-    void pytestFixtureNamedLikeTestIsSkipped() {
+    void nonTestTypeScriptFileIsSkipped() {
         String code =
                 """
-                import pytest
-
-                @pytest.fixture
-                def test_data():
-                    assert True
-                    return 1
+                function helper() {
+                    expect(true).toBe(true);
+                }
                 """;
-        var findings = analyze(code);
+        var findings = analyze(code, "src/sample.ts");
         assertTrue(findings.isEmpty());
     }
 
     @Override
     protected String defaultTestPath() {
-        return "pkg/test_sample.py";
+        return "src/sample.test.ts";
     }
 
     @Override
     protected List<IAnalyzer.TestAssertionSmell> analyze(
             String source, String path, IAnalyzer.TestAssertionWeights weights) {
-        try (var testProject = InlineTestProjectCreator.code(source, path).build()) {
+        try (var testProject = InlineCoreProject.code(source, path).build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             ProjectFile file = new ProjectFile(testProject.getRoot(), path);
             return analyzer.findTestAssertionSmells(file, weights);

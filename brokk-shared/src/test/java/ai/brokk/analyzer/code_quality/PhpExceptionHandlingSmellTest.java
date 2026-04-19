@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -125,8 +125,7 @@ public class PhpExceptionHandlingSmellTest {
     }
 
     private List<IAnalyzer.ExceptionHandlingSmell> analyze(String source, IAnalyzer.ExceptionSmellWeights weights) {
-        try (var testProject =
-                InlineTestProjectCreator.code(source, "pkg/Test.php").build()) {
+        try (var testProject = InlineCoreProject.code(source, "pkg/Test.php").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             ProjectFile file = new ProjectFile(testProject.getRoot(), "pkg/Test.php");
             return analyzer.findExceptionHandlingSmells(file, weights);

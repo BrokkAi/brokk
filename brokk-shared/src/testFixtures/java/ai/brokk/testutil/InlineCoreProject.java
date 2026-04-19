@@ -5,6 +5,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.ICoreProject;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -20,17 +21,25 @@ public final class InlineCoreProject {
 
     private InlineCoreProject() {}
 
+    public static Builder empty() {
+        return new Builder();
+    }
+
     public static Builder code(String contents, String relPath) {
-        return new Builder().addFile(relPath, contents);
+        return new Builder().addFile(contents, relPath);
     }
 
     public static final class Builder {
         private final List<FileEntry> files = new ArrayList<>();
         private Set<Language> languages = Set.of();
 
-        public Builder addFile(String relPath, String contents) {
+        public Builder addFile(String contents, String relPath) {
             files.add(new FileEntry(relPath, contents));
             return this;
+        }
+
+        public Builder addFileContents(String contents, String relPath) {
+            return addFile(contents, relPath);
         }
 
         public Builder languages(Set<Language> languages) {
@@ -54,7 +63,8 @@ public final class InlineCoreProject {
                     if (absPath.getParent() != null) {
                         Files.createDirectories(absPath.getParent());
                     }
-                    Files.writeString(absPath, entry.contents(), StandardOpenOption.CREATE_NEW);
+                    Files.writeString(
+                            absPath, entry.contents(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }
@@ -99,9 +109,132 @@ public final class InlineCoreProject {
 
     private record FileEntry(String relPath, String contents) {}
 
-    public record BuiltProject(Path root, CoreTestProject project, IAnalyzer analyzer) implements AutoCloseable {
+    public record BuiltProject(Path root, CoreTestProject project, IAnalyzer analyzer) implements ICoreProject {
+        public IAnalyzer getAnalyzer() {
+            return analyzer;
+        }
+
+        public CoreTestProject getProject() {
+            return project;
+        }
+
         public ProjectFile file(String relPath) {
             return new ProjectFile(root, Path.of(relPath));
+        }
+
+        @Override
+        public Path getRoot() {
+            return project.getRoot();
+        }
+
+        @Override
+        public java.util.Set<ProjectFile> getAllFiles() {
+            return project.getAllFiles();
+        }
+
+        @Override
+        public java.util.Optional<ProjectFile> getFileByRelPath(Path relPath) {
+            return project.getFileByRelPath(relPath);
+        }
+
+        @Override
+        public boolean isEmptyProject() {
+            return project.isEmptyProject();
+        }
+
+        @Override
+        public java.util.Set<ProjectFile> getAnalyzableFiles(Language language) {
+            return project.getAnalyzableFiles(language);
+        }
+
+        @Override
+        public java.util.Set<Language> getAnalyzerLanguages() {
+            return project.getAnalyzerLanguages();
+        }
+
+        @Override
+        public void setAnalyzerLanguages(java.util.Set<Language> languages) {
+            project.setAnalyzerLanguages(languages);
+        }
+
+        @Override
+        public void invalidateAutoDetectedLanguages() {
+            project.invalidateAutoDetectedLanguages();
+        }
+
+        @Override
+        public java.util.List<String> getSourceRoots(Language language) {
+            return project.getSourceRoots(language);
+        }
+
+        @Override
+        public void setSourceRoots(Language language, java.util.List<String> roots) {
+            project.setSourceRoots(language, roots);
+        }
+
+        @Override
+        public boolean isGitignored(Path relPath) {
+            return project.isGitignored(relPath);
+        }
+
+        @Override
+        public boolean isGitignored(Path relPath, boolean isDirectory) {
+            return project.isGitignored(relPath, isDirectory);
+        }
+
+        @Override
+        public boolean shouldSkipPath(Path relPath, boolean isDirectory) {
+            return project.shouldSkipPath(relPath, isDirectory);
+        }
+
+        @Override
+        public java.util.Set<String> getExclusionPatterns() {
+            return project.getExclusionPatterns();
+        }
+
+        @Override
+        public java.util.Set<String> getExcludedDirectories() {
+            return project.getExcludedDirectories();
+        }
+
+        @Override
+        public java.util.Set<String> getExcludedGlobPatterns() {
+            return project.getExcludedGlobPatterns();
+        }
+
+        @Override
+        public boolean isPathExcluded(String relativePath, boolean isDirectory) {
+            return project.isPathExcluded(relativePath, isDirectory);
+        }
+
+        @Override
+        public java.util.Set<ProjectFile> filterExcludedFiles(java.util.Set<ProjectFile> files) {
+            return project.filterExcludedFiles(files);
+        }
+
+        @Override
+        public void invalidateAllFiles() {
+            project.invalidateAllFiles();
+        }
+
+        @Override
+        public ai.brokk.git.IGitRepo getRepo() {
+            return project.getRepo();
+        }
+
+        @Override
+        public boolean hasGit() {
+            return project.hasGit();
+        }
+
+        @Override
+        public Path getMasterRootPathForConfig() {
+            return project.getMasterRootPathForConfig();
+        }
+
+        @Override
+        public ai.brokk.util.IStringDiskCache getDiskCache() {
+            return project.getDiskCache();
         }
 
         @Override

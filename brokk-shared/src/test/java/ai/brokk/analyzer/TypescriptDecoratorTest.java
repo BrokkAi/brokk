@@ -3,7 +3,7 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -22,9 +22,8 @@ class TypescriptDecoratorTest {
                 export class AppComponent {}
                 """;
 
-        try (var project = InlineTestProjectCreator.empty()
-                .addFileContents(tsCode, "app.component.ts")
-                .build()) {
+        try (var project =
+                InlineCoreProject.empty().addFile(tsCode, "app.component.ts").build()) {
 
             var analyzer = new TypescriptAnalyzer(project);
 

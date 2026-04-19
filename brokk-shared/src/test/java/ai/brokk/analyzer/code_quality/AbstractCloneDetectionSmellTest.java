@@ -14,7 +14,7 @@ abstract class AbstractCloneDetectionSmellTest {
     protected List<IAnalyzer.CloneSmell> analyze(
             String pathA, String sourceA, String pathB, String sourceB, IAnalyzer.CloneSmellWeights weights) {
         try (var built =
-                InlineCoreProject.code(sourceA, pathA).addFile(pathB, sourceB).build()) {
+                InlineCoreProject.code(sourceA, pathA).addFile(sourceB, pathB).build()) {
             IAnalyzer analyzer = built.analyzer();
             ProjectFile file = new ProjectFile(built.root(), pathA);
             return analyzer.findStructuralCloneSmells(file, weights);

@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -34,7 +34,7 @@ public final class PythonDecoratorsTest {
                     def static_m():
                         pass
                 """;
-        try (var project = InlineTestProjectCreator.code(py, "decorators.py").build()) {
+        try (var project = InlineCoreProject.code(py, "decorators.py").build()) {
             var analyzer = new PythonAnalyzer(project);
             assertNotNull(analyzer, "Analyzer should be initialized");
             assertNotNull(project, "Project should be initialized");
@@ -101,7 +101,7 @@ public final class PythonDecoratorsTest {
                             pass
                     return Inner
                 """;
-        try (var project = InlineTestProjectCreator.code(py, "decorators.py").build()) {
+        try (var project = InlineCoreProject.code(py, "decorators.py").build()) {
             var analyzer = new PythonAnalyzer(project);
             assertNotNull(analyzer, "Analyzer should be initialized");
             assertNotNull(project, "Project should be initialized");
@@ -150,7 +150,7 @@ public final class PythonDecoratorsTest {
                     class CondClass:
                         pass
                 """;
-        try (var project = InlineTestProjectCreator.code(py, "decorators.py").build()) {
+        try (var project = InlineCoreProject.code(py, "decorators.py").build()) {
             var analyzer = new PythonAnalyzer(project);
             assertNotNull(analyzer, "Analyzer should be initialized");
             assertNotNull(project, "Project should be initialized");
@@ -200,7 +200,7 @@ public final class PythonDecoratorsTest {
                 class TopClass:
                     pass
                 """;
-        try (var project = InlineTestProjectCreator.code(py, "decorators.py").build()) {
+        try (var project = InlineCoreProject.code(py, "decorators.py").build()) {
             var analyzer = new PythonAnalyzer(project);
             assertNotNull(analyzer, "Analyzer should be initialized");
             assertNotNull(project, "Project should be initialized");
@@ -249,7 +249,7 @@ public final class PythonDecoratorsTest {
                     class CondClass:
                         pass
                 """;
-        try (var project = InlineTestProjectCreator.code(py, "decorators.py").build()) {
+        try (var project = InlineCoreProject.code(py, "decorators.py").build()) {
             var analyzer = new PythonAnalyzer(project);
             assertNotNull(analyzer, "Analyzer should be initialized");
             assertNotNull(project, "Project should be initialized");
@@ -295,7 +295,7 @@ public final class PythonDecoratorsTest {
                             pass
                     return Inner
                 """;
-        try (var project = InlineTestProjectCreator.code(py, "decorators.py").build()) {
+        try (var project = InlineCoreProject.code(py, "decorators.py").build()) {
             var analyzer = new PythonAnalyzer(project);
             assertNotNull(analyzer, "Analyzer should be initialized");
             assertNotNull(project, "Project should be initialized");

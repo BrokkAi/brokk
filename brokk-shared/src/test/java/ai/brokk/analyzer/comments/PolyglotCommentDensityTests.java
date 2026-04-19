@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CommentDensityStats;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -23,7 +23,7 @@ public class PolyglotCommentDensityTests {
                         # inline in body
                         return 1
                 """;
-        try (var testProject = InlineTestProjectCreator.code(code, "sample.py").build()) {
+        try (var testProject = InlineCoreProject.code(code, "sample.py").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             var file = testProject.getFileByRelPath(Path.of("sample.py")).orElseThrow();
 
@@ -56,7 +56,7 @@ public class PolyglotCommentDensityTests {
                   }
                 }
                 """;
-        try (var testProject = InlineTestProjectCreator.code(code, "sample.js").build()) {
+        try (var testProject = InlineCoreProject.code(code, "sample.js").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             var file = testProject.getFileByRelPath(Path.of("sample.js")).orElseThrow();
 

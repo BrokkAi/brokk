@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import org.junit.jupiter.api.Test;
 
 public class JavaCyclomaticComplexityTest {
@@ -130,7 +130,7 @@ public class JavaCyclomaticComplexityTest {
 
     private void assertComplexity(String source, String fqName, int expected) {
         try (var testProject =
-                InlineTestProjectCreator.code(source, "com/example/Test.java").build()) {
+                InlineCoreProject.code(source, "com/example/Test.java").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             CodeUnit cu = analyzer.getDefinitions(fqName).stream()
                     .filter(CodeUnit::isFunction)

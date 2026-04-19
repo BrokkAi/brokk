@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -368,7 +368,7 @@ public class JavaTestAssertionSmellTest extends AbstractBrittleTestSuite {
     @Override
     protected List<IAnalyzer.TestAssertionSmell> analyze(
             String source, String path, IAnalyzer.TestAssertionWeights weights) {
-        try (var testProject = InlineTestProjectCreator.code(source, path).build()) {
+        try (var testProject = InlineCoreProject.code(source, path).build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             ProjectFile file = new ProjectFile(testProject.getRoot(), path);
             return analyzer.findTestAssertionSmells(file, weights);

@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.PythonAnalyzer;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -22,15 +22,15 @@ public class PythonImportTest {
     @Test
     public void testLastImportWins_WildcardAfterExplicit() throws IOException {
         // In Python: wildcard import after explicit import shadows the explicit one
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg1/__init__.py")
-                .addFileContents("# Package marker\n", "pkg2/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg1/__init__.py")
+                .addFile("# Package marker\n", "pkg2/__init__.py")
+                .addFile(
                         """
                         class Ambiguous:
                             pass
                         """,
                         "pkg1/ambiguous.py")
-                .addFileContents(
+                .addFile(
                         """
                         class Ambiguous:
                             pass
@@ -40,7 +40,7 @@ public class PythonImportTest {
                         """,
                         "pkg2/ambiguous.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg1.ambiguous import Ambiguous  # explicit import (first)
                         from pkg2.ambiguous import *          # wildcard import (second - wins)
@@ -71,22 +71,22 @@ public class PythonImportTest {
     @Test
     public void testLastImportWins_ExplicitAfterWildcard() throws IOException {
         // In Python: explicit import after wildcard shadows the wildcard one
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg1/__init__.py")
-                .addFileContents("# Package marker\n", "pkg2/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg1/__init__.py")
+                .addFile("# Package marker\n", "pkg2/__init__.py")
+                .addFile(
                         """
                         class Ambiguous:
                             pass
                         """,
                         "pkg1/ambiguous.py")
-                .addFileContents(
+                .addFile(
                         """
                         class Ambiguous:
                             pass
                         """,
                         "pkg2/ambiguous.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg1.ambiguous import *          # wildcard import (first)
                         from pkg2.ambiguous import Ambiguous  # explicit import (second - wins)
@@ -116,22 +116,22 @@ public class PythonImportTest {
     @Test
     public void testLastWildcardWins() throws IOException {
         // In Python: second wildcard shadows the first when both provide the same name
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg1/__init__.py")
-                .addFileContents("# Package marker\n", "pkg2/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg1/__init__.py")
+                .addFile("# Package marker\n", "pkg2/__init__.py")
+                .addFile(
                         """
                         class Ambiguous:
                             pass
                         """,
                         "pkg1/ambiguous.py")
-                .addFileContents(
+                .addFile(
                         """
                         class Ambiguous:
                             pass
                         """,
                         "pkg2/ambiguous.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg1.ambiguous import *  # first wildcard
                         from pkg2.ambiguous import *  # second wildcard (wins)
@@ -161,8 +161,8 @@ public class PythonImportTest {
     @Test
     public void testWildcardImportsPublicClassesOnly() throws IOException {
         // Wildcard imports should only include public classes (no underscore prefix)
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg/__init__.py")
+                .addFile(
                         """
                         class PublicClass:
                             pass
@@ -175,7 +175,7 @@ public class PythonImportTest {
                         """,
                         "pkg/module.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg.module import *
 
@@ -201,16 +201,16 @@ public class PythonImportTest {
     @Test
     public void testWildcardWithRelativeImport() throws IOException {
         // Relative wildcard imports should work correctly
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
-                .addFileContents("# Package marker\n", "pkg/sub/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg/__init__.py")
+                .addFile("# Package marker\n", "pkg/sub/__init__.py")
+                .addFile(
                         """
                         class BaseClass:
                             pass
                         """,
                         "pkg/base.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from ..base import *
 
@@ -233,22 +233,22 @@ public class PythonImportTest {
     @Test
     public void testLastImportWins_RelativeWildcardAfterExplicit() throws IOException {
         // Last import wins applies to relative wildcards too
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
-                .addFileContents("# Package marker\n", "pkg/sub/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg/__init__.py")
+                .addFile("# Package marker\n", "pkg/sub/__init__.py")
+                .addFile(
                         """
                         class Target:
                             pass
                         """,
                         "pkg/explicit.py")
-                .addFileContents(
+                .addFile(
                         """
                         class Target:
                             pass
                         """,
                         "pkg/wildcard.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg.explicit import Target  # explicit import (first)
                         from ..wildcard import *         # relative wildcard (second - wins)
@@ -279,7 +279,7 @@ public class PythonImportTest {
     public void testWildcardImportFromPackageInit() throws IOException {
         // Test that wildcard imports can find exports in __init__.py
         // This tests the __init__.py fallback when no module.py exists
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                         class PackageClass:
                             pass
@@ -288,9 +288,9 @@ public class PythonImportTest {
                             pass
                         """,
                         "mypkg/__init__.py")
-                .addFileContents("# Package marker\n", "mypkg/subpkg/__init__.py");
+                .addFile("# Package marker\n", "mypkg/subpkg/__init__.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from mypkg import *
 
@@ -316,7 +316,7 @@ public class PythonImportTest {
     public void testInitPyClassFqName() throws IOException {
         // Test the FQN of a class defined in __init__.py
         // FQN matches Python import semantics: from mypackage import ClassName
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 class InitClass:
                     def method(self):
@@ -345,14 +345,14 @@ public class PythonImportTest {
     public void testFromPackageImportClassName() throws IOException {
         // Test: from mypackage import ClassName where ClassName is in __init__.py
         // Verifies resolveImports can find it when referenced this way
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 class InitClass:
                     pass
                 """,
                 "mypackage/__init__.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from mypackage import InitClass
 
@@ -383,14 +383,14 @@ public class PythonImportTest {
     public void testImportPackageAttributeAccess() throws IOException {
         // Test: import mypackage followed by mypackage.ClassName usage
         // This pattern uses attribute access rather than direct import
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 class InitClass:
                     pass
                 """,
                 "mypackage/__init__.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         import mypackage
 
@@ -426,8 +426,8 @@ public class PythonImportTest {
     @Test
     public void testWildcardImportsPublicFunctions() throws IOException {
         // Wildcard imports should include public functions (not just classes)
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg/__init__.py")
+                .addFile(
                         """
                         class PublicClass:
                             pass
@@ -443,7 +443,7 @@ public class PythonImportTest {
                         """,
                         "pkg/module.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg.module import *
 
@@ -474,7 +474,7 @@ public class PythonImportTest {
     @Test
     public void testRelativePackageWildcardFromInit() throws IOException {
         // Test: from .. import * should import from parent package's __init__.py
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                         class ParentClass:
                             pass
@@ -486,9 +486,9 @@ public class PythonImportTest {
                             pass
                         """,
                         "pkg/__init__.py")
-                .addFileContents("# Subpackage marker\n", "pkg/sub/__init__.py");
+                .addFile("# Subpackage marker\n", "pkg/sub/__init__.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from .. import *
 
@@ -518,22 +518,22 @@ public class PythonImportTest {
     public void testAliasLastWins() throws IOException {
         // Test: from pkg1.m import A as X then from pkg2.m import A as X
         // Last import wins on the alias name X
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg1/__init__.py")
-                .addFileContents("# Package marker\n", "pkg2/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg1/__init__.py")
+                .addFile("# Package marker\n", "pkg2/__init__.py")
+                .addFile(
                         """
                         class A:
                             pass
                         """,
                         "pkg1/m.py")
-                .addFileContents(
+                .addFile(
                         """
                         class A:
                             pass
                         """,
                         "pkg2/m.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg1.m import A as X  # first
                         from pkg2.m import A as X  # second - wins
@@ -565,7 +565,7 @@ public class PythonImportTest {
     @Test
     public void testCurrentPackageWildcard() throws IOException {
         // Test: from . import * within a package should import from current package's __init__.py
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                         class SiblingClass:
                             pass
@@ -575,7 +575,7 @@ public class PythonImportTest {
                         """,
                 "pkg/__init__.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from . import *
 
@@ -605,8 +605,8 @@ public class PythonImportTest {
     public void testModuleAndPackageWildcardCoexistence() throws IOException {
         // Test: from pkg import module as m followed by from pkg.module import *
         // Verify wildcard expansion works correctly with package vs module handling
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg/__init__.py")
+                .addFile(
                         """
                         class ModuleClass:
                             pass
@@ -616,7 +616,7 @@ public class PythonImportTest {
                         """,
                         "pkg/module.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg import module as m
                         from pkg.module import *
@@ -641,13 +641,13 @@ public class PythonImportTest {
 
     @Test
     public void testRelevantImportsForFunction() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                         class Foo:
                             pass
                         """,
                         "pkg/foo.py")
-                .addFileContents(
+                .addFile(
                         """
                         from pkg.foo import Foo
 
@@ -674,9 +674,9 @@ public class PythonImportTest {
 
     @Test
     public void testRelevantImportsExcludesUnused() throws IOException {
-        var builder = InlineTestProjectCreator.code("class Foo: pass", "pkg/foo.py")
-                .addFileContents("class Bar: pass", "pkg/bar.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("class Foo: pass", "pkg/foo.py")
+                .addFile("class Bar: pass", "pkg/bar.py")
+                .addFile(
                         """
                         from pkg.foo import Foo
                         from pkg.bar import Bar
@@ -705,8 +705,8 @@ public class PythonImportTest {
 
     @Test
     public void testRelevantImportsWildcard() throws IOException {
-        var builder = InlineTestProjectCreator.code("class Foo: pass", "pkg/foo.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("class Foo: pass", "pkg/foo.py")
+                .addFile(
                         """
                         from pkg.foo import *
 
@@ -734,7 +734,7 @@ public class PythonImportTest {
 
     @Test
     public void testRelevantImportsForDirectFunctionImport() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                         def my_function():
                             pass
@@ -742,7 +742,7 @@ public class PythonImportTest {
                             pass
                         """,
                         "pkg/utils.py")
-                .addFileContents(
+                .addFile(
                         """
                         from pkg.utils import my_function
                         from pkg.utils import other_function
@@ -775,13 +775,13 @@ public class PythonImportTest {
 
     @Test
     public void testRelevantImportsForAliasedFunctionImport() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                         def my_function():
                             pass
                         """,
                         "pkg/utils.py")
-                .addFileContents(
+                .addFile(
                         """
                         from pkg.utils import my_function as mf
 
@@ -812,8 +812,8 @@ public class PythonImportTest {
     public void testSamePackageModuleCollisionWithImports() throws IOException {
         // Test: Two modules in the same package both define class 'C'
         // Validates that "last import wins" correctly resolves ambiguity
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg/__init__.py")
+                .addFile(
                         """
                         class C:
                             '''Class C from module a'''
@@ -823,7 +823,7 @@ public class PythonImportTest {
                             pass
                         """,
                         "pkg/a.py")
-                .addFileContents(
+                .addFile(
                         """
                         class C:
                             '''Class C from module b'''
@@ -835,7 +835,7 @@ public class PythonImportTest {
                         "pkg/b.py");
 
         // Case 1: Explicit import from a, then wildcard from b - b wins for C
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg.a import C        # explicit import from a
                         from pkg.b import *        # wildcard from b - should shadow C
@@ -866,7 +866,7 @@ public class PythonImportTest {
         }
 
         // Case 2: Wildcard from a, then explicit from b - b wins for C
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg.a import *        # wildcard from a
                         from pkg.b import C        # explicit from b - should shadow C
@@ -895,7 +895,7 @@ public class PythonImportTest {
         }
 
         // Case 3: Both wildcards - last wins
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from pkg.a import *        # wildcard from a (first)
                         from pkg.b import *        # wildcard from b (second - wins)
@@ -933,14 +933,14 @@ public class PythonImportTest {
     @Test
     public void testCouldImportFile_fromPackageModuleImport() throws Exception {
         // Test: "from mypackage.utils import helper" should match mypackage/utils.py
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "mypackage/__init__.py")
+                .addFile(
                         """
                         def helper():
                             pass
                         """,
                         "mypackage/utils.py")
-                .addFileContents(
+                .addFile(
                         """
                         from mypackage.utils import helper
 
@@ -964,14 +964,14 @@ public class PythonImportTest {
     @Test
     public void testCouldImportFile_relativeImportSibling() throws Exception {
         // Test: "from . import sibling" should match sibling module in same package
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# Package marker\n", "mypackage/__init__.py")
+                .addFile(
                         """
                         def sibling_func():
                             pass
                         """,
                         "mypackage/sibling.py")
-                .addFileContents(
+                .addFile(
                         """
                         from . import sibling
 
@@ -996,13 +996,13 @@ public class PythonImportTest {
     @Test
     public void testCouldImportFile_standardLibraryImport() throws Exception {
         // Test: "import os" should NOT match any project files
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                         class MyClass:
                             pass
                         """,
                         "mymodule.py")
-                .addFileContents(
+                .addFile(
                         """
                         import os
 
@@ -1027,13 +1027,13 @@ public class PythonImportTest {
     @Test
     public void testCouldImportFile_wildcardImport() throws Exception {
         // Test: "from mypackage import *" should match files in mypackage
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                         class PackageClass:
                             pass
                         """,
                         "mypackage/__init__.py")
-                .addFileContents(
+                .addFile(
                         """
                         from mypackage import *
 
@@ -1058,18 +1058,18 @@ public class PythonImportTest {
     @Test
     public void testTripleDotRelativeImport() throws IOException {
         // Test: from ...grandparent import GrandparentClass (3 dots = grandparent)
-        var builder = InlineTestProjectCreator.code("# root", "root/__init__.py")
-                .addFileContents("# level1", "root/level1/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# root", "root/__init__.py")
+                .addFile("# level1", "root/level1/__init__.py")
+                .addFile(
                         """
                         class GrandparentClass:
                             pass
                         """,
                         "root/level1/grandparent.py")
-                .addFileContents("# level2", "root/level1/level2/__init__.py")
-                .addFileContents("# level3", "root/level1/level2/level3/__init__.py");
+                .addFile("# level2", "root/level1/level2/__init__.py")
+                .addFile("# level3", "root/level1/level2/level3/__init__.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from ...grandparent import GrandparentClass
 
@@ -1093,17 +1093,17 @@ public class PythonImportTest {
     @Test
     public void testQuadrupleDotRelativeImport() throws IOException {
         // Test: from .... import ClassName (4 dots = great-grandparent)
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                         class GreatGrandparentClass:
                             pass
                         """,
                         "a/__init__.py")
-                .addFileContents("# b", "a/b/__init__.py")
-                .addFileContents("# c", "a/b/c/__init__.py")
-                .addFileContents("# d", "a/b/c/d/__init__.py");
+                .addFile("# b", "a/b/__init__.py")
+                .addFile("# c", "a/b/c/__init__.py")
+                .addFile("# d", "a/b/c/d/__init__.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from .... import GreatGrandparentClass
 
@@ -1127,9 +1127,9 @@ public class PythonImportTest {
     public void testRelativeImportAboveProjectRoot() throws IOException {
         // Test: from ... import something (3 dots when only 1 level deep)
         // This is invalid as it goes above the project root.
-        var builder = InlineTestProjectCreator.code("# Package", "pkg/__init__.py");
+        var builder = InlineCoreProject.code("# Package", "pkg/__init__.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from ... import something
 
@@ -1151,8 +1151,8 @@ public class PythonImportTest {
     @Test
     public void testTripleDotRelativeWildcardImport() throws IOException {
         // Test: from ... import * (3 dots = grandparent)
-        var builder = InlineTestProjectCreator.code("# root", "root/__init__.py")
-                .addFileContents(
+        var builder = InlineCoreProject.code("# root", "root/__init__.py")
+                .addFile(
                         """
                         class GrandparentClass:
                             pass
@@ -1160,10 +1160,10 @@ public class PythonImportTest {
                             pass
                         """,
                         "root/level1/__init__.py")
-                .addFileContents("# level2", "root/level1/level2/__init__.py")
-                .addFileContents("# level3", "root/level1/level2/level3/__init__.py");
+                .addFile("# level2", "root/level1/level2/__init__.py")
+                .addFile("# level3", "root/level1/level2/level3/__init__.py");
 
-        try (var testProject = builder.addFileContents(
+        try (var testProject = builder.addFile(
                         """
                         from ... import *
 
