@@ -1,4 +1,4 @@
-package ai.brokk.analyzer.usages;
+package ai.brokk.usages;
 
 import ai.brokk.AbstractService;
 import ai.brokk.Llm;
@@ -10,6 +10,10 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
+import ai.brokk.analyzer.usages.FuzzyResult;
+import ai.brokk.analyzer.usages.UsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.analyzer.usages.UsagePrompt;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;

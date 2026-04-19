@@ -1,4 +1,4 @@
-package ai.brokk.analyzer.usages;
+package ai.brokk.usages;
 
 import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
@@ -10,6 +10,11 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.CandidateFileProvider;
+import ai.brokk.analyzer.usages.FuzzyResult;
+import ai.brokk.analyzer.usages.ImportGraphCandidateProvider;
+import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
+import ai.brokk.analyzer.usages.UsageAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
 import java.util.List;
@@ -77,7 +82,7 @@ public final class UsageFinder {
         return createFallbackProvider(new ImportGraphCandidateProvider(), new TextSearchCandidateProvider());
     }
 
-    static CandidateFileProvider createFallbackProvider(
+    public static CandidateFileProvider createFallbackProvider(
             CandidateFileProvider graphProvider, CandidateFileProvider textProvider) {
         return (target, analyzer) -> {
             var candidates = graphProvider.findCandidates(target, analyzer);

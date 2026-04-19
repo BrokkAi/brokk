@@ -4,7 +4,6 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.analyzer.DependencyImportable;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
@@ -15,6 +14,8 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.FileSelectionPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.gui.dependencies.importing.DefaultDependencyImporter;
+import ai.brokk.gui.dependencies.importing.DependencyImporter;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.util.CloneOperationTracker;
 import ai.brokk.util.DependencyUpdater;
@@ -78,6 +79,7 @@ public class ImportDependencyDialog {
         private final Chrome chrome;
         private final Window owner;
         private BaseThemedDialog dialog;
+        private final DependencyImporter importer = new DefaultDependencyImporter();
 
         @Nullable
         private final DependenciesPanel.DependencyLifecycleListener listener;
@@ -139,10 +141,9 @@ public class ImportDependencyDialog {
             var project = chrome.getProject();
             for (var lang : project.getAnalyzerLanguages()) {
                 try {
-                    if (lang.getDependencyImportSupport() == Language.ImportSupport.NONE) continue;
-                    if (!(lang instanceof DependencyImportable importable)) continue;
+                    if (importer.getImportSupport(lang) == Language.ImportSupport.NONE) continue;
 
-                    var lp = new ImportLanguagePanel(chrome, importable);
+                    var lp = new ImportLanguagePanel(chrome, lang, importer);
                     lp.setLifecycleListener(listener);
                     lp.addSelectionListener(pkg -> updateImportButtonState());
                     lp.addDoubleClickListener(() -> {
