@@ -11,8 +11,8 @@ import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
-import ai.brokk.project.IProject;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.project.ICoreProject;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
@@ -26,7 +26,7 @@ class GoImportTest {
                 package main
                 func main() {}
                 """;
-        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        ICoreProject project = InlineCoreProject.code(code, "main.go").build();
         GoAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
@@ -36,7 +36,7 @@ class GoImportTest {
 
     @Test
     void testResolveImports_StandardImport() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package fmt
                 func Println(a ...any) {}
@@ -64,7 +64,7 @@ class GoImportTest {
 
     @Test
     void testResolveImports_GroupedImports() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package fmt
                 func Println() {}
@@ -102,7 +102,7 @@ class GoImportTest {
 
     @Test
     void testResolveImports_BlankImportSkipped() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package png
                 func Decode() {}
@@ -126,7 +126,7 @@ class GoImportTest {
 
     @Test
     void testResolveImports_AliasedImport() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package fmt
                 func Println() {}
@@ -151,7 +151,7 @@ class GoImportTest {
 
     @Test
     void testResolveImports_DotImport() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package fmt
                 func Println() {}
@@ -176,7 +176,7 @@ class GoImportTest {
 
     @Test
     void testResolveImports_BacktickQuotedPath() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package fmt
                 func Println() {}
@@ -201,7 +201,7 @@ class GoImportTest {
 
     @Test
     void testResolveImports_CommentedImportIgnored() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package fmt
                 func Println() {}
@@ -238,7 +238,7 @@ class GoImportTest {
 
     @Test
     void testResolveImports_BlockCommentIgnored() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package fmt
                 func Println() {}
@@ -275,7 +275,7 @@ class GoImportTest {
 
     @Test
     void testResolveImports_AliasWithComment() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package fmt
                 func Println() {}
@@ -301,7 +301,7 @@ class GoImportTest {
     @Test
     void testResolveImports_VersionedImportPath() throws IOException {
         // Create a project where gopkg.in/yaml.v3 maps to a directory containing package yaml
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package yaml
                 func Marshal(in any) ([]byte, error) { return nil, nil }
@@ -340,7 +340,7 @@ class GoImportTest {
                 import "fmt"
                 func main() {}
                 """;
-        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        ICoreProject project = InlineCoreProject.code(code, "main.go").build();
         IAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
@@ -359,7 +359,7 @@ class GoImportTest {
                 )
                 func main() {}
                 """;
-        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        ICoreProject project = InlineCoreProject.code(code, "main.go").build();
         IAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
@@ -377,7 +377,7 @@ class GoImportTest {
                 import f "fmt"
                 func main() { f.Println("hello") }
                 """;
-        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        ICoreProject project = InlineCoreProject.code(code, "main.go").build();
         IAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
@@ -393,7 +393,7 @@ class GoImportTest {
                 import . "fmt"
                 func main() { Println("hello") }
                 """;
-        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        ICoreProject project = InlineCoreProject.code(code, "main.go").build();
         IAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
@@ -409,7 +409,7 @@ class GoImportTest {
                 import _ "image/png"
                 func main() {}
                 """;
-        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        ICoreProject project = InlineCoreProject.code(code, "main.go").build();
         IAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
@@ -419,7 +419,7 @@ class GoImportTest {
 
     @Test
     void testRelevantImportsForFunction() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package fmt
                 func Println(a ...any) {}
@@ -450,7 +450,7 @@ class GoImportTest {
 
     @Test
     void testRelevantImportsExcludesUnused() throws IOException {
-        IProject project = InlineTestProjectCreator.code("package fmt\nfunc Println() {}", "fmt/f.go")
+        ICoreProject project = InlineCoreProject.code("package fmt\nfunc Println() {}", "fmt/f.go")
                 .addFileContents("package os\nfunc Exit(i int) {}", "os/o.go")
                 .addFileContents(
                         """
@@ -485,7 +485,7 @@ class GoImportTest {
                 import _ "image/png"
                 func main() {}
                 """;
-        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        ICoreProject project = InlineCoreProject.code(code, "main.go").build();
         GoAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
@@ -503,7 +503,7 @@ class GoImportTest {
                 import . "fmt"
                 func main() { Println("hello") }
                 """;
-        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        ICoreProject project = InlineCoreProject.code(code, "main.go").build();
         GoAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
@@ -521,7 +521,7 @@ class GoImportTest {
                 import f "fmt"
                 func main() { f.Println("hello") }
                 """;
-        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        ICoreProject project = InlineCoreProject.code(code, "main.go").build();
         GoAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
@@ -544,7 +544,7 @@ class GoImportTest {
                 import _ "net/http"
                 func main() {}
                 """;
-        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        ICoreProject project = InlineCoreProject.code(code, "main.go").build();
         IAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
@@ -558,7 +558,7 @@ class GoImportTest {
 
     @Test
     void testCouldImportFile_matchesFilesInImportPath() throws Exception {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package main
                 import "myproject/pkg/utils"
@@ -580,7 +580,7 @@ class GoImportTest {
 
     @Test
     void testCouldImportFile_standardLibraryReturnsFalse() throws Exception {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package main
                 import "fmt"
@@ -601,7 +601,7 @@ class GoImportTest {
 
     @Test
     void testCouldImportFile_aliasedImportWorks() throws Exception {
-        IProject project = InlineTestProjectCreator.code(
+        ICoreProject project = InlineCoreProject.code(
                         """
                 package main
                 import f "myproject/pkg/utils"

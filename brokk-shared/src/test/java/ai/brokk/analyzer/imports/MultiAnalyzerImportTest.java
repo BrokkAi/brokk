@@ -1,14 +1,15 @@
 package ai.brokk.analyzer.imports;
 
-import static ai.brokk.testutil.AnalyzerCreator.createMultiAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.Languages;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.analyzer.MultiAnalyzer;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -17,7 +18,9 @@ public class MultiAnalyzerImportTest {
 
     @Test
     public void testDelegationToJavaAnalyzer() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.empty()
+                .languages(Set.of(Languages.JAVA, Languages.PYTHON))
+                .addFile(
                         """
                 import java.util.List;
                 public class JavaClass {
@@ -25,9 +28,11 @@ public class MultiAnalyzerImportTest {
                 }
                 """,
                         "JavaClass.java")
+                .addFile("def placeholder(): pass\n", "placeholder.py")
                 .build()) {
 
-            var multiAnalyzer = createMultiAnalyzer(testProject, Languages.JAVA);
+            IAnalyzer multiAnalyzer = testProject.getAnalyzer();
+            assertTrue(multiAnalyzer instanceof MultiAnalyzer, "Expected MultiAnalyzer when multiple languages active");
 
             var javaFile = AnalyzerUtil.getFileFor(multiAnalyzer, "JavaClass").orElseThrow();
 
@@ -52,16 +57,20 @@ public class MultiAnalyzerImportTest {
 
     @Test
     public void testDelegationToPythonAnalyzer() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.empty()
+                .languages(Set.of(Languages.JAVA, Languages.PYTHON))
+                .addFile(
                         """
                 import os
                 def python_fn():
                     pass
                 """,
                         "script.py")
+                .addFile("class Placeholder {}\n", "Placeholder.java")
                 .build()) {
 
-            var multiAnalyzer = createMultiAnalyzer(testProject, Languages.PYTHON);
+            IAnalyzer multiAnalyzer = testProject.getAnalyzer();
+            assertTrue(multiAnalyzer instanceof MultiAnalyzer, "Expected MultiAnalyzer when multiple languages active");
 
             var pythonFile = AnalyzerUtil.getFileFor(multiAnalyzer, "script").orElseThrow();
 
@@ -90,7 +99,9 @@ public class MultiAnalyzerImportTest {
     @Test
     public void testDelegationRoutesToCorrectLanguage() throws IOException {
         // Create a single project with both Java and Python files
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.empty()
+                .languages(Set.of(Languages.JAVA, Languages.PYTHON))
+                .addFile(
                         """
                 import java.util.List;
                 public class JavaClass {
@@ -107,7 +118,8 @@ public class MultiAnalyzerImportTest {
                         "script.py")
                 .build()) {
 
-            var multiAnalyzer = createMultiAnalyzer(testProject, Languages.JAVA, Languages.PYTHON);
+            IAnalyzer multiAnalyzer = testProject.getAnalyzer();
+            assertTrue(multiAnalyzer instanceof MultiAnalyzer, "Expected MultiAnalyzer when multiple languages active");
 
             // Get files from multi analyzer
             var javaFile = AnalyzerUtil.getFileFor(multiAnalyzer, "JavaClass").orElseThrow();
@@ -163,13 +175,15 @@ public class MultiAnalyzerImportTest {
 
     @Test
     public void testThreeWayRoutingJavaPythonGo() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
-                        "package main\nimport \"fmt\"\nfunc main() { fmt.Println() }", "main.go")
+        try (var testProject = InlineCoreProject.empty()
+                .languages(Set.of(Languages.JAVA, Languages.PYTHON, Languages.GO))
+                .addFile("package main\nimport \"fmt\"\nfunc main() { fmt.Println() }\n", "main.go")
                 .addFileContents("import math\ndef f(): return math.sqrt(2)", "lib.py")
                 .addFileContents("import java.util.Set;\nclass C { Set s; }", "C.java")
                 .build()) {
 
-            var multiAnalyzer = createMultiAnalyzer(testProject, Languages.JAVA, Languages.PYTHON, Languages.GO);
+            IAnalyzer multiAnalyzer = testProject.getAnalyzer();
+            assertTrue(multiAnalyzer instanceof MultiAnalyzer, "Expected MultiAnalyzer when multiple languages active");
             ImportAnalysisProvider provider =
                     multiAnalyzer.as(ImportAnalysisProvider.class).orElseThrow();
 

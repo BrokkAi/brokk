@@ -2,8 +2,8 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.project.IProject;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.project.ICoreProject;
+import ai.brokk.testutil.InlineCoreProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -14,7 +14,7 @@ public class MultiLanguageStateIOTest {
     @Test
     void roundTripMultiLanguageAnalyzerState() throws Exception {
         // Build a temp project with Java + Python sources; project cleans itself up when closed
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package com.example;
                 public class Hello {
@@ -34,7 +34,7 @@ public class MultiLanguageStateIOTest {
         // Configure languages: Java + Python
         Set<Language> langs = Set.of(Languages.JAVA, Languages.PYTHON);
 
-        try (IProject project = builder.build()) {
+        try (ICoreProject project = builder.build()) {
             // Build a MultiLanguage analyzer (load attempts persisted state; initial run falls back to full build)
             Language.MultiLanguage multiLang = new Language.MultiLanguage(langs);
             IAnalyzer analyzer = multiLang.loadAnalyzer(project);

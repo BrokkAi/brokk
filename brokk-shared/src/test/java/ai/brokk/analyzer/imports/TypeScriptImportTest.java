@@ -1,6 +1,5 @@
 package ai.brokk.analyzer.imports;
 
-import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,7 +8,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.TypescriptAnalyzer;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
@@ -20,7 +19,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import React, { useState } from 'react';
                 import { Something, AnotherThing as AT } from './another-module';
@@ -31,7 +30,7 @@ public class TypeScriptImportTest {
                 """,
                         "foo.ts")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var file = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().equals("foo.ts"))
                     .findFirst()
@@ -48,7 +47,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testResolveImports() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function helper(): number { return 42; }
                 """,
@@ -61,7 +60,7 @@ public class TypeScriptImportTest {
                         "main.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
                     .findFirst()
@@ -80,7 +79,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testResolveWildcardImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function add(a: number, b: number): number { return a + b; }
                 export function subtract(a: number, b: number): number { return a - b; }
@@ -98,7 +97,7 @@ public class TypeScriptImportTest {
                         "calculator.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var calculatorFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("calculator.ts"))
                     .findFirst()
@@ -122,7 +121,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testResolveImportsFromNestedDirectoryToParent() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export class BaseService {
                     getData(): any[] { return []; }
@@ -140,7 +139,7 @@ public class TypeScriptImportTest {
                         "src/some/dir/ChildService.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var childFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("ChildService.ts"))
                     .findFirst()
@@ -161,7 +160,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testRequireImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 const path = require('path');
                 const fs = require('fs');
@@ -172,7 +171,7 @@ public class TypeScriptImportTest {
                 """,
                         "app.ts")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var file = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().equals("app.ts"))
                     .findFirst()
@@ -189,7 +188,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testResolveRequireImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function shared(): number { return 1; }
                 """,
@@ -202,7 +201,7 @@ public class TypeScriptImportTest {
                         "index.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var indexFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("index.ts"))
                     .findFirst()
@@ -222,7 +221,7 @@ public class TypeScriptImportTest {
     @Test
     public void testImportWithExplicitExtension() throws IOException {
         // Test that importing './foo.ts' resolves correctly without trying 'foo.ts.ts'
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function greet(): string { return 'hello'; }
                 """,
@@ -235,7 +234,7 @@ public class TypeScriptImportTest {
                         "main.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
                     .findFirst()
@@ -254,7 +253,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testMixedImportAndRequire() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export const val: number = 100;
                 """, "mod1.ts")
@@ -270,7 +269,7 @@ public class TypeScriptImportTest {
                         "mixed.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mixedFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("mixed.ts"))
                     .findFirst()
@@ -291,7 +290,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testImportFromDirectoryIndex() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function libFunc(): string { return 'lib'; }
                 """,
@@ -305,7 +304,7 @@ public class TypeScriptImportTest {
                         "main.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
                     .findFirst()
@@ -325,7 +324,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testRequireFromDirectoryIndex() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function libFunc(): string { return 'lib'; }
                 """,
@@ -338,7 +337,7 @@ public class TypeScriptImportTest {
                         "main.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
                     .findFirst()
@@ -358,7 +357,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testExplicitFileNotFallbackToDirectoryIndex() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function fromFile(): number { return 1; }
                 """,
@@ -376,7 +375,7 @@ public class TypeScriptImportTest {
                         "main.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
                     .findFirst()
@@ -401,7 +400,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testRelevantImportsForFunction() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import { Foo } from './foo';
                 import { Bar } from './bar';
@@ -412,7 +411,7 @@ public class TypeScriptImportTest {
                 """,
                         "main.ts")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var useFoo = analyzer.searchDefinitions("useFoo").iterator().next();
 
             Set<String> relevant =
@@ -425,7 +424,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testRelevantImportsExcludesUnused() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import { Used } from './used';
                 import { Unused } from './unused';
@@ -436,7 +435,7 @@ public class TypeScriptImportTest {
                 """,
                         "work.ts")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var doWork = analyzer.searchDefinitions("doWork").iterator().next();
 
             Set<String> relevant =
@@ -449,7 +448,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testExtractTypeIdentifiers() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import { Foo } from './models';
                 function process(input: Foo): void {
@@ -458,7 +457,7 @@ public class TypeScriptImportTest {
                 """,
                         "test.ts")
                 .build()) {
-            var analyzer = (TypescriptAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (TypescriptAnalyzer) testProject.getAnalyzer();
             String source =
                     """
                 function process(input: Foo): void {
@@ -475,7 +474,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testRelevantImportsForRequire() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 const fs = require('fs');
                 const { readFile } = require('fs');
@@ -492,7 +491,7 @@ public class TypeScriptImportTest {
                 """,
                         "app.ts")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
 
             // Test 1: Function using fs and readFile
@@ -518,7 +517,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testCouldImportFileRelativeImport() throws Exception {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import { X } from './utils/helper';
                 function foo(): void {}
@@ -530,7 +529,7 @@ public class TypeScriptImportTest {
                 """, "src/utils/helper.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = (TypescriptAnalyzer) testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
                     .findFirst()
@@ -549,7 +548,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testCouldImportFileParentRelativeImport() throws Exception {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import User from '../models/User';
                 function foo(): void {}
@@ -561,7 +560,7 @@ public class TypeScriptImportTest {
                 """, "src/models/User.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = (TypescriptAnalyzer) testProject.getAnalyzer();
             var componentFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("Component.ts"))
                     .findFirst()
@@ -580,7 +579,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testCouldImportFileExternalModule() throws Exception {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import _ from 'lodash';
                 function foo(): void {}
@@ -593,7 +592,7 @@ public class TypeScriptImportTest {
                         "src/utils/helper.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = (TypescriptAnalyzer) testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
                     .findFirst()
@@ -612,7 +611,7 @@ public class TypeScriptImportTest {
 
     @Test
     public void testCouldImportFileDirectoryIndex() throws Exception {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import { something } from './utils';
                 function foo(): void {}
@@ -625,7 +624,7 @@ public class TypeScriptImportTest {
                         "src/utils/index.ts")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = (TypescriptAnalyzer) testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
                     .findFirst()

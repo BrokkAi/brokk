@@ -1,6 +1,5 @@
 package ai.brokk.analyzer.imports;
 
-import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -12,7 +11,7 @@ import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.SourceContent;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
@@ -25,7 +24,7 @@ public class JavaImportTest {
 
     @Test
     public void testOrdinaryImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import foo.bar.Baz;
                 import Bar;
@@ -34,7 +33,7 @@ public class JavaImportTest {
                 """,
                         "Foo.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.Baz;", "import Bar;");
@@ -44,7 +43,7 @@ public class JavaImportTest {
 
     @Test
     public void testStaticImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import static foo.bar.Baz.method;
 
@@ -52,7 +51,7 @@ public class JavaImportTest {
                 """,
                         "Foo.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import static foo.bar.Baz.method;");
@@ -63,7 +62,7 @@ public class JavaImportTest {
     @Disabled
     @Test
     public void testWildcardImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import foo.bar.*;
 
@@ -71,7 +70,7 @@ public class JavaImportTest {
                 """,
                         "Foo.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.*;");
@@ -81,7 +80,7 @@ public class JavaImportTest {
 
     @Test
     public void testResolvedExplicitImport() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package example;
                 public class Baz {}
@@ -95,7 +94,7 @@ public class JavaImportTest {
                 """,
                         "Foo.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
                     .map(p -> p.importedCodeUnitsOf(fooFile))
@@ -112,7 +111,7 @@ public class JavaImportTest {
 
     @Test
     public void testResolvedWildcardImport() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package sample;
                 public class ClassA {}
@@ -132,7 +131,7 @@ public class JavaImportTest {
                 """,
                         "Consumer.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var consumerFile = AnalyzerUtil.getFileFor(analyzer, "Consumer").get();
             var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
                     .map(p -> p.importedCodeUnitsOf(consumerFile))
@@ -151,7 +150,7 @@ public class JavaImportTest {
 
     @Test
     public void testResolvedImportsDoesNotIncludeStaticImports() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package util;
                 public class Helper {
@@ -168,7 +167,7 @@ public class JavaImportTest {
                 """,
                         "Consumer.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var consumerFile = AnalyzerUtil.getFileFor(analyzer, "Consumer").get();
             var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
                     .map(p -> p.importedCodeUnitsOf(consumerFile))
@@ -184,7 +183,7 @@ public class JavaImportTest {
 
     @Test
     public void testResolvedImportsEmptyForUnresolvedImports() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import nonexistent.package.Class;
 
@@ -192,7 +191,7 @@ public class JavaImportTest {
                 """,
                         "Foo.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
                     .map(p -> p.importedCodeUnitsOf(fooFile))
@@ -204,7 +203,7 @@ public class JavaImportTest {
 
     @Test
     public void testMixedImportResolution() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package pkg1;
                 public class TypeA {}
@@ -227,7 +226,7 @@ public class JavaImportTest {
                 """,
                         "Consumer.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var consumerFile = AnalyzerUtil.getFileFor(analyzer, "Consumer").get();
             var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
                     .map(p -> p.importedCodeUnitsOf(consumerFile))
@@ -245,7 +244,7 @@ public class JavaImportTest {
 
     @Test
     public void testExplicitImportHasPrecedenceOverWildcard() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package pkg1;
                 public class Ambiguous {}
@@ -269,7 +268,7 @@ public class JavaImportTest {
                         """,
                         "Consumer.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var consumerFile = analyzer.getDefinitions("consumer.Consumer").stream()
                     .findFirst()
                     .get()
@@ -290,7 +289,7 @@ public class JavaImportTest {
 
     @Test
     public void testAmbiguousWildcardImportsAreResolvedDeterministically() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package pkg1;
                 public class Ambiguous {}
@@ -314,7 +313,7 @@ public class JavaImportTest {
                         """,
                         "Consumer.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var consumerFile = analyzer.getDefinitions("consumer.Consumer").stream()
                     .findFirst()
                     .get()
@@ -337,7 +336,7 @@ public class JavaImportTest {
 
     @Test
     public void testCircularImportsABC() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                 package pkg;
                 import pkg.B;
@@ -360,7 +359,7 @@ public class JavaImportTest {
                         "C.java");
 
         try (var testProject = builder.build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var fileA = AnalyzerUtil.getFileFor(analyzer, "pkg.A").get();
             var fileB = AnalyzerUtil.getFileFor(analyzer, "pkg.B").get();
             var fileC = AnalyzerUtil.getFileFor(analyzer, "pkg.C").get();
@@ -402,7 +401,7 @@ public class JavaImportTest {
     @Test
     public void testCircularImportsRecursionGuard() throws IOException {
         // This test ensures that the recursion guard in TreeSitterAnalyzer prevents StackOverflowError
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                 import B;
                 public class A {}
@@ -414,7 +413,7 @@ public class JavaImportTest {
                 """, "B.java");
 
         try (var testProject = builder.build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var fileA = AnalyzerUtil.getFileFor(analyzer, "A").get();
 
             // This call triggers resolveImports -> getDefinitions -> importedCodeUnitsOf...
@@ -429,7 +428,7 @@ public class JavaImportTest {
 
     @Test
     public void testCircularImportsConsistency() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                         """
                 package pkg;
                 import pkg.B;
@@ -445,7 +444,7 @@ public class JavaImportTest {
                         "B.java");
 
         try (var testProject = builder.build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var fileA = AnalyzerUtil.getFileFor(analyzer, "pkg.A").get();
 
             var firstCall = analyzer.as(ImportAnalysisProvider.class)
@@ -463,7 +462,7 @@ public class JavaImportTest {
 
     @Test
     public void testImportInfoStructure() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 import java.util.List;
                 import java.util.Map;
@@ -475,7 +474,7 @@ public class JavaImportTest {
                 """,
                 "Foo.java");
         try (var testProject = builder.build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var importInfos = analyzer.as(ImportAnalysisProvider.class)
                     .map(p -> p.importInfoOf(fooFile))
@@ -524,7 +523,7 @@ public class JavaImportTest {
 
     @Test
     public void testRelevantImportsForMethod() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
             package pkg;
             public class Foo {}
@@ -542,7 +541,7 @@ public class JavaImportTest {
                     """,
                         "Consumer.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var consumerFile =
                     AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var declarations = analyzer.getDeclarations(consumerFile);
@@ -568,7 +567,7 @@ public class JavaImportTest {
 
     @Test
     public void testRelevantImportsExcludesUnused() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
             package pkg;
             public class Foo {}
@@ -593,7 +592,7 @@ public class JavaImportTest {
                     """,
                         "Consumer.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var consumerFile =
                     AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var declarations = analyzer.getDeclarations(consumerFile);
@@ -620,7 +619,7 @@ public class JavaImportTest {
 
     @Test
     public void testRelevantImportsIncludesWildcardWhenNeeded() throws IOException {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
             package pkg;
             public class Foo {}
@@ -639,7 +638,7 @@ public class JavaImportTest {
                     """,
                         "Consumer.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var consumerFile =
                     AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var declarations = analyzer.getDeclarations(consumerFile);
@@ -686,7 +685,7 @@ public class JavaImportTest {
     @Test
     public void testRelevantImportsResolvesWildcardToKnownProjectType() throws IOException {
         // Create the internal package with InternalService class
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package internal;
                 public class InternalService {}
@@ -707,7 +706,7 @@ public class JavaImportTest {
                     """,
                         "consumer/Consumer.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var consumerFile =
                     AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var declarations = analyzer.getDeclarations(consumerFile);
@@ -744,7 +743,7 @@ public class JavaImportTest {
 
     @Test
     public void testRelevantImportsExcludesFullyQualifiedTypes() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 package consumer;
                 import java.util.List;
@@ -760,7 +759,7 @@ public class JavaImportTest {
                 """,
                         "Consumer.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var consumerFile =
                     AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var declarations = analyzer.getDeclarations(consumerFile);
@@ -787,7 +786,7 @@ public class JavaImportTest {
 
     @Test
     public void testExtractTypeIdentifiersCapturesQualifiedTypes() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 public class Foo {
                     List simple;
@@ -796,7 +795,7 @@ public class JavaImportTest {
                 """,
                         "Foo.java")
                 .build()) {
-            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
             var pf = testProject.getAnalyzableFiles(Languages.JAVA).stream()
                     .filter(f -> f.getFileName().equals("Foo.java"))
                     .findFirst()
@@ -813,11 +812,11 @@ public class JavaImportTest {
 
     @Test
     public void testCouldImportFileExplicitImportMatches() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         "package com.example; public class Foo {}", "com/example/Foo.java")
                 .addFileContents("import com.example.Foo; public class Bar {}", "Bar.java")
                 .build()) {
-            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
             var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
             var imports = analyzer.importInfoOf(barFile);
@@ -828,11 +827,11 @@ public class JavaImportTest {
 
     @Test
     public void testCouldImportFileWildcardImportMatches() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         "package com.example; public class Foo {}", "com/example/Foo.java")
                 .addFileContents("import com.example.*; public class Bar {}", "Bar.java")
                 .build()) {
-            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
             var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
             var imports = analyzer.importInfoOf(barFile);
@@ -843,11 +842,11 @@ public class JavaImportTest {
 
     @Test
     public void testCouldImportFileUnrelatedImportsReturnsFalse() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         "package com.example; public class Foo {}", "com/example/Foo.java")
                 .addFileContents("import other.pkg.Bar; public class Baz {}", "Baz.java")
                 .build()) {
-            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
             var bazFile = AnalyzerUtil.getFileFor(analyzer, "Baz").get();
             var imports = analyzer.importInfoOf(bazFile);
@@ -858,12 +857,12 @@ public class JavaImportTest {
 
     @Test
     public void testCouldImportFileStaticImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         "package com.example; public class Foo { public static final int METHOD = 1; }",
                         "com/example/Foo.java")
                 .addFileContents("import static com.example.Foo.METHOD; public class Bar {}", "Bar.java")
                 .build()) {
-            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
             var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
             var imports = analyzer.importInfoOf(barFile);
@@ -874,11 +873,11 @@ public class JavaImportTest {
 
     @Test
     public void testCouldImportFileStaticWildcardImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         "package com.example; public class Foo { }", "com/example/Foo.java")
                 .addFileContents("import static com.example.Foo.*; public class Bar {}", "Bar.java")
                 .build()) {
-            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
             var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
             var imports = analyzer.importInfoOf(barFile);
@@ -890,12 +889,12 @@ public class JavaImportTest {
 
     @Test
     public void testCouldImportFileInnerClass() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         "package com.example; public class Outer { public static class Inner {} }",
                         "com/example/Outer.java")
                 .addFileContents("import com.example.Outer.Inner; public class Bar {}", "Bar.java")
                 .build()) {
-            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
             var outerFile =
                     AnalyzerUtil.getFileFor(analyzer, "com.example.Outer").get();
             var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
@@ -909,11 +908,11 @@ public class JavaImportTest {
     @Test
     public void testCouldImportFileSamePackageNoImport() throws IOException {
         // Two files in the same package - no import statement needed in Java
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         "package com.example; public class Foo {}", "com/example/Foo.java")
                 .addFileContents("package com.example; public class Bar {}", "com/example/Bar.java")
                 .build()) {
-            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
             var barFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Bar").get();
 
@@ -931,11 +930,11 @@ public class JavaImportTest {
     @Test
     public void testReferencingFilesOfSamePackageNoImport() throws IOException {
         // Two files in the same package - Bar references Foo without an import
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         "package com.example; public class Foo {}", "com/example/Foo.java")
                 .addFileContents("package com.example; public class Bar { private Foo foo; }", "com/example/Bar.java")
                 .build()) {
-            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
             var barFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Bar").get();
 

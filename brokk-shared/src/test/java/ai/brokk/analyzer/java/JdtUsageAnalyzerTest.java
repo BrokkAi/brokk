@@ -7,8 +7,8 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
-import ai.brokk.project.IProject;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.project.ICoreProject;
+import ai.brokk.testutil.InlineCoreProject;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -42,7 +42,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(targetSource, "com/example/Target.java")
+        try (ICoreProject project = InlineCoreProject.code(targetSource, "com/example/Target.java")
                 .addFileContents(consumerSource, "com/consumer/Consumer.java")
                 .build()) {
 
@@ -108,7 +108,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(source, "com/example/Target.java")
+        try (ICoreProject project = InlineCoreProject.code(source, "com/example/Target.java")
                 .addFileContents(consumer, "com/example/Consumer.java")
                 .build()) {
 
@@ -140,7 +140,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(source, "com/example/Target.java")
+        try (ICoreProject project = InlineCoreProject.code(source, "com/example/Target.java")
                 .addFileContents(consumer, "com/example/FieldConsumer.java")
                 .build()) {
 
@@ -179,7 +179,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(source, "com/example/Base.java")
+        try (ICoreProject project = InlineCoreProject.code(source, "com/example/Base.java")
                 .addFileContents(consumer, "com/example/AnonConsumer.java")
                 .build()) {
 
@@ -211,8 +211,8 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project =
-                InlineTestProjectCreator.code(source, "com/example/Target.java").build()) {
+        try (ICoreProject project =
+                InlineCoreProject.code(source, "com/example/Target.java").build()) {
             ProjectFile targetFile = project.getAllFiles().iterator().next();
 
             // 1. Verify method self-call is found (logic in FuzzyUsageFinder filters it out, not JDT)
@@ -263,7 +263,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(targetSource, "com/example/Target.java")
+        try (ICoreProject project = InlineCoreProject.code(targetSource, "com/example/Target.java")
                 .addFileContents(dependencySource, "com/lib/Library.java")
                 .addFileContents(consumerSource, "com/app/Main.java")
                 .build()) {
@@ -321,8 +321,8 @@ public class JdtUsageAnalyzerTest {
                     public static final Target INSTANCE = new Target();
                 }
                 """;
-        try (IProject project =
-                InlineTestProjectCreator.code(source, "com/example/Target.java").build()) {
+        try (ICoreProject project =
+                InlineCoreProject.code(source, "com/example/Target.java").build()) {
             ProjectFile targetFile = project.getAllFiles().iterator().next();
             CodeUnit classTarget = new CodeUnit(targetFile, CodeUnitType.CLASS, "com.example", "Target");
             Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(classTarget, project.getAllFiles(), project);
@@ -365,7 +365,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(source, "com/example/Overload.java")
+        try (ICoreProject project = InlineCoreProject.code(source, "com/example/Overload.java")
                 .addFileContents(consumer, "com/example/Consumer.java")
                 .build()) {
 
@@ -409,7 +409,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(source, "com/example/FqnParams.java")
+        try (ICoreProject project = InlineCoreProject.code(source, "com/example/FqnParams.java")
                 .addFileContents(consumer, "com/example/Consumer.java")
                 .build()) {
 
@@ -444,7 +444,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(source, "com/example/ComplexSignatures.java")
+        try (ICoreProject project = InlineCoreProject.code(source, "com/example/ComplexSignatures.java")
                 .build()) {
 
             Set<String> signatures = JdtUsageAnalyzer.extractMethodSignatures(source, project);
@@ -510,7 +510,7 @@ public class JdtUsageAnalyzerTest {
             }
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(source, "com/example/OverloadedMethods.java")
+        try (ICoreProject project = InlineCoreProject.code(source, "com/example/OverloadedMethods.java")
                 .build()) {
 
             // Get signatures from JavaAnalyzer (Tree-sitter based)
@@ -548,7 +548,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(targetSource, "com/example/Target.java")
+        try (ICoreProject project = InlineCoreProject.code(targetSource, "com/example/Target.java")
                 .addFileContents(consumerSource, "com/example/Consumer.java")
                 .addFileContents("some text", "notes.txt")
                 .build()) {
@@ -586,7 +586,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(targetSource, "com/example/GenericTarget.java")
+        try (ICoreProject project = InlineCoreProject.code(targetSource, "com/example/GenericTarget.java")
                 .addFileContents(consumerSource, "com/consumer/Consumer.java")
                 .build()) {
 
@@ -632,7 +632,7 @@ public class JdtUsageAnalyzerTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(boxSource, "com/example/Box.java")
+        try (ICoreProject project = InlineCoreProject.code(boxSource, "com/example/Box.java")
                 .addFileContents(consumerSource, "com/consumer/Consumer.java")
                 .build()) {
 

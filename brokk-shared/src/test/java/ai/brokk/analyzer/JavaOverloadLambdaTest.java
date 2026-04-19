@@ -3,8 +3,7 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.project.IProject;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.util.List;
 import java.util.SequencedSet;
@@ -32,8 +31,7 @@ public class JavaOverloadLambdaTest {
                 }
                 """;
 
-        try (IProject project =
-                InlineTestProjectCreator.code(javaSource, "C.java").build()) {
+        try (var project = InlineCoreProject.code(javaSource, "C.java").build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
 
             // 1. Assert getDefinitions("C.m") returns 2 CodeUnits with distinct signatures

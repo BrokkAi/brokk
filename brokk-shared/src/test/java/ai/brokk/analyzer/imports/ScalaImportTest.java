@@ -1,10 +1,9 @@
 package ai.brokk.analyzer.imports;
 
-import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
@@ -14,7 +13,7 @@ public class ScalaImportTest {
 
     @Test
     public void testOrdinaryImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import foo.bar.Baz
                 import Bar
@@ -23,7 +22,7 @@ public class ScalaImportTest {
                 """,
                         "Foo.scala")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.Baz", "import Bar");
@@ -33,7 +32,7 @@ public class ScalaImportTest {
 
     @Test
     public void testStaticImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import foo.bar.{Baz as Bar}
 
@@ -41,7 +40,7 @@ public class ScalaImportTest {
                 """,
                         "Foo.scala")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.{Baz as Bar}");
@@ -51,7 +50,7 @@ public class ScalaImportTest {
 
     @Test
     public void testWildcardImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import foo.bar.*
 
@@ -59,7 +58,7 @@ public class ScalaImportTest {
                 """,
                         "Foo.scala")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.*");

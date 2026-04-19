@@ -6,8 +6,8 @@ import ai.brokk.analyzer.TreeSitterStateIO.AnalyzerStateDto;
 import ai.brokk.analyzer.TreeSitterStateIO.FilePropertiesDto;
 import ai.brokk.analyzer.TreeSitterStateIO.FileStateEntryDto;
 import ai.brokk.analyzer.TreeSitterStateIO.ProjectFileDto;
-import ai.brokk.project.IProject;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.project.ICoreProject;
+import ai.brokk.testutil.InlineCoreProject;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
@@ -61,7 +61,7 @@ public class TreeSitterStateIOTest {
     @Test
     void roundTripJavaAnalyzerState() throws Exception {
         // Build an ephemeral project with a single Java file; project cleans itself up when closed
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                         package com.example;
 
@@ -71,7 +71,7 @@ public class TreeSitterStateIOTest {
                         """,
                 "src/main/java/com/example/Hello.java");
 
-        try (IProject project = builder.build()) {
+        try (ICoreProject project = builder.build()) {
             // Build analyzer and assert we have declarations
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
             var decls = analyzer.getAllDeclarations();
@@ -108,14 +108,14 @@ public class TreeSitterStateIOTest {
         // TreeSitterStateIO omits parse tree persistence; this test ensures that after deserialization
         // an update on a changed file lazily reconstructs the missing parse tree via treeOf(...).
 
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                     int add(int a, int b) { return a + b; }
                     int main() { return add(1, 2); }
                     """,
                 "main.cpp");
 
-        try (IProject project = builder.build()) {
+        try (ICoreProject project = builder.build()) {
             // Build C++ analyzer and assert declarations/skeletons exist before persistence
             CppAnalyzer analyzer = new CppAnalyzer(project);
 
@@ -406,7 +406,7 @@ public class TreeSitterStateIOTest {
     @Test
     void lazyTreeParsingAfterRoundtrip(@TempDir Path tempDir) throws Exception {
         // 1. Create test project with a Java file
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                         package com.example;
 
@@ -416,7 +416,7 @@ public class TreeSitterStateIOTest {
                         """,
                 "src/main/java/com/example/Lazy.java");
 
-        try (IProject project = builder.build()) {
+        try (ICoreProject project = builder.build()) {
             // 2. Create JavaAnalyzer and get ProjectFile reference
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
             ProjectFile file = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Lazy.java"));
@@ -456,7 +456,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void roundTripTypeHierarchy(@TempDir Path tempDir) throws Exception {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package com.example;
                 interface Base {}
@@ -464,7 +464,7 @@ public class TreeSitterStateIOTest {
                 """,
                 "src/main/java/com/example/Hierarchy.java");
 
-        try (IProject project = builder.build()) {
+        try (ICoreProject project = builder.build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
 
             CodeUnit baseCu = analyzer.getDefinitions("com.example.Base").getFirst();
@@ -494,7 +494,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void roundTripLazySubtypes(@TempDir Path tempDir) throws Exception {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package com.example;
                 interface Base {}
@@ -503,7 +503,7 @@ public class TreeSitterStateIOTest {
                 """,
                 "src/main/java/com/example/Hierarchy.java");
 
-        try (IProject project = builder.build()) {
+        try (ICoreProject project = builder.build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
 
             CodeUnit baseCu = analyzer.getDefinitions("com.example.Base").getFirst();
@@ -535,7 +535,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void roundTripAncestorTriggeredSubtypes(@TempDir Path tempDir) throws Exception {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package com.example;
                 interface Base {}
@@ -544,7 +544,7 @@ public class TreeSitterStateIOTest {
                 """,
                 "src/main/java/com/example/Hierarchy.java");
 
-        try (IProject project = builder.build()) {
+        try (ICoreProject project = builder.build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
 
             CodeUnit baseCu = analyzer.getDefinitions("com.example.Base").getFirst();
@@ -587,7 +587,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void descendantsRecoveredFromPersistedSupertypesEvenIfSubtypeGraphMissing() throws Exception {
-        var builder = InlineTestProjectCreator.code(
+        var builder = InlineCoreProject.code(
                 """
                 package com.example;
                 interface Base {}
@@ -596,7 +596,7 @@ public class TreeSitterStateIOTest {
                 """,
                 "src/main/java/com/example/Hierarchy.java");
 
-        try (IProject project = builder.build()) {
+        try (ICoreProject project = builder.build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
 
             CodeUnit baseOriginal = analyzer.getDefinitions("com.example.Base").getFirst();
@@ -954,7 +954,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void withTreeOfClosesTreeDeterministically() throws Exception {
-        var builder = InlineTestProjectCreator.code("class A {}", "A.java");
+        var builder = InlineCoreProject.code("class A {}", "A.java");
         try (var project = builder.build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
             ProjectFile file = new ProjectFile(project.getRoot(), "A.java");

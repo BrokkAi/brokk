@@ -2,9 +2,7 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.project.IProject;
-import ai.brokk.testutil.AnalyzerCreator;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
@@ -32,9 +30,8 @@ public class JavaAnalyzerReproductionTest {
                 }
                 """;
 
-        try (IProject project =
-                InlineTestProjectCreator.code(content, "pkg/Target.java").build()) {
-            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+        try (var project = InlineCoreProject.code(content, "pkg/Target.java").build()) {
+            IAnalyzer analyzer = project.getAnalyzer();
 
             Set<CodeUnit> definitions = analyzer.getDefinitions("pkg.Target");
             assertEquals(1, definitions.size(), "Should only have one consolidated definition for pkg.Target");
@@ -66,9 +63,8 @@ public class JavaAnalyzerReproductionTest {
                 }
                 """;
 
-        try (IProject project =
-                InlineTestProjectCreator.code(content, "pkg/Outer.java").build()) {
-            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+        try (var project = InlineCoreProject.code(content, "pkg/Outer.java").build()) {
+            IAnalyzer analyzer = project.getAnalyzer();
 
             CodeUnit innerCu = analyzer.getDefinitions("pkg.Outer.Inner").stream()
                     .findFirst()

@@ -3,8 +3,8 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.project.IProject;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.project.ICoreProject;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
@@ -25,7 +25,7 @@ public class TreeSitterDuplicateReplacementTest {
      * Test analyzer that forces replacement ONLY for matching signatures.
      */
     private static class ReplacingJavaAnalyzer extends JavaAnalyzer {
-        ReplacingJavaAnalyzer(IProject project) {
+        ReplacingJavaAnalyzer(ICoreProject project) {
             super(project, ProgressListener.NOOP);
         }
 
@@ -56,8 +56,7 @@ public class TreeSitterDuplicateReplacementTest {
                 }
                 """;
 
-        try (IProject project =
-                InlineTestProjectCreator.code(javaSource, "C.java").build()) {
+        try (ICoreProject project = InlineCoreProject.code(javaSource, "C.java").build()) {
             ReplacingJavaAnalyzer analyzer = new ReplacingJavaAnalyzer(project);
 
             // 1. Assert getDefinitions("C.m") returns exactly 2 entries (one for (int), one for (String))

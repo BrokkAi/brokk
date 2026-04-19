@@ -4,8 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.testutil.ITestProject;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import org.junit.jupiter.api.Test;
 
 public class PythonCyclomaticComplexityTest {
@@ -64,8 +63,8 @@ public class PythonCyclomaticComplexityTest {
                         return "Error"
             """;
 
-        try (ITestProject project = InlineTestProjectCreator.code(pythonSource, "complexity_test.py")
-                .build()) {
+        try (var project =
+                InlineCoreProject.code(pythonSource, "complexity_test.py").build()) {
             IAnalyzer analyzer = project.getAnalyzer();
 
             assertComplexity(analyzer, "base_method", 1);

@@ -1,6 +1,5 @@
 package ai.brokk.analyzer.imports;
 
-import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,7 +8,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.JavascriptAnalyzer;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -20,7 +19,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import React, { useState } from 'react';
                 import { Something, AnotherThing as AT } from './another-module';
@@ -33,7 +32,7 @@ public class JavaScriptImportTest {
                 """,
                         "foo.js")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var file = AnalyzerUtil.getFileFor(analyzer, "foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of(
@@ -49,7 +48,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testResolveImports() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function helper() { return 42; }
                 """,
@@ -62,7 +61,7 @@ public class JavaScriptImportTest {
                         "main.js")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.js"))
                     .findFirst()
@@ -81,7 +80,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testResolveWildcardImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function add(a, b) { return a + b; }
                 export function subtract(a, b) { return a - b; }
@@ -99,7 +98,7 @@ public class JavaScriptImportTest {
                         "calculator.js")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var calculatorFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("calculator.js"))
                     .findFirst()
@@ -123,7 +122,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testResolveImportsFromNestedDirectoryToParent() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export class BaseService {
                     getData() { return []; }
@@ -141,7 +140,7 @@ public class JavaScriptImportTest {
                         "src/some/dir/ChildService.js")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var childFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("ChildService.js"))
                     .findFirst()
@@ -162,7 +161,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testRequireImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 const path = require('path');
                 const fs = require('fs');
@@ -173,7 +172,7 @@ public class JavaScriptImportTest {
                 """,
                         "app.js")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var file = AnalyzerUtil.getFileFor(analyzer, "app").get();
             var imports = analyzer.importStatementsOf(file);
 
@@ -187,7 +186,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testResolveRequireImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function shared() { return 1; }
                 """, "lib/shared.js")
@@ -199,7 +198,7 @@ public class JavaScriptImportTest {
                         "index.js")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var indexFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("index.js"))
                     .findFirst()
@@ -218,7 +217,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testSideEffectImportResolution() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 // polyfill.js sets up global state
                 if (typeof window !== 'undefined') {
@@ -238,7 +237,7 @@ public class JavaScriptImportTest {
                         "app.js")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var appFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("app.js"))
                     .findFirst()
@@ -258,7 +257,7 @@ public class JavaScriptImportTest {
     @Test
     public void testImportWithExplicitExtension() throws IOException {
         // Test that importing './foo.js' resolves correctly without trying 'foo.js.js'
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function greet() { return 'hello'; }
                 """,
@@ -271,7 +270,7 @@ public class JavaScriptImportTest {
                         "main.js")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.js"))
                     .findFirst()
@@ -290,7 +289,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testMixedImportAndRequire() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export const val = 100;
                 """, "mod1.js")
@@ -305,7 +304,7 @@ public class JavaScriptImportTest {
                         "mixed.js")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mixedFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("mixed.js"))
                     .findFirst()
@@ -326,7 +325,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testImportFromDirectoryIndex() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function libFunc() { return 'lib'; }
                 """,
@@ -340,7 +339,7 @@ public class JavaScriptImportTest {
                         "main.js")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.js"))
                     .findFirst()
@@ -360,7 +359,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testRequireFromDirectoryIndex() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function libFunc() { return 'lib'; }
                 """,
@@ -373,7 +372,7 @@ public class JavaScriptImportTest {
                         "main.js")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.js"))
                     .findFirst()
@@ -393,7 +392,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testExtractTypeIdentifiers() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import { Foo } from './foo';
                 import { Bar } from './bar';
@@ -405,7 +404,7 @@ public class JavaScriptImportTest {
                 """,
                         "test.js")
                 .build()) {
-            var analyzer = (JavascriptAnalyzer) createTreeSitterAnalyzer(testProject);
+            var analyzer = (JavascriptAnalyzer) testProject.getAnalyzer();
             String source =
                     """
                 function useFoo() {
@@ -423,7 +422,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testRelevantImportsForFunction() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import { Foo } from './foo';
                 import { Bar } from './bar';
@@ -434,7 +433,7 @@ public class JavaScriptImportTest {
                 """,
                         "main.js")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var useFoo = analyzer.searchDefinitions("useFoo").iterator().next();
 
             Set<String> relevant =
@@ -447,7 +446,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testRelevantImportsExcludesUnused() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import { Used } from './used';
                 import { Unused } from './unused';
@@ -458,7 +457,7 @@ public class JavaScriptImportTest {
                 """,
                         "work.js")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var doWork = analyzer.searchDefinitions("doWork").iterator().next();
 
             Set<String> relevant =
@@ -471,7 +470,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testRelevantImportsForRequire() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 const fs = require('fs');
                 const { readFile } = require('fs');
@@ -488,7 +487,7 @@ public class JavaScriptImportTest {
                 """,
                         "app.js")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
 
             // Test 1: Function using fs and readFile
@@ -514,7 +513,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testRelevantImportsForDestructuredRequire() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 const { helper, other } = require('./utils');
 
@@ -528,7 +527,7 @@ public class JavaScriptImportTest {
                 """,
                         "app.js")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
 
             var callHelper = analyzer.searchDefinitions("callHelper").iterator().next();
@@ -542,7 +541,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testRelevantImportsMixedEs6AndRequire() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 import React from 'react';
                 import { useState } from 'react';
@@ -557,7 +556,7 @@ public class JavaScriptImportTest {
                 """,
                         "app.js")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
 
             var component = analyzer.searchDefinitions("MyComponent").iterator().next();
@@ -576,7 +575,7 @@ public class JavaScriptImportTest {
 
     @Test
     public void testExplicitFileNotFallbackToDirectoryIndex() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
+        try (var testProject = InlineCoreProject.code(
                         """
                 export function fromFile() { return 1; }
                 """, "util-dir.js")
@@ -593,7 +592,7 @@ public class JavaScriptImportTest {
                         "main.js")
                 .build()) {
 
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
             var mainFile = testProject.getAllFiles().stream()
                     .filter(f -> f.getRelPath().toString().endsWith("main.js"))
                     .findFirst()

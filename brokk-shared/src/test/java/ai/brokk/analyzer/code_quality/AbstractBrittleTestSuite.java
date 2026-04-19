@@ -36,4 +36,3 @@ abstract class AbstractBrittleTestSuite {
     protected abstract List<IAnalyzer.TestAssertionSmell> analyze(
             String source, String path, IAnalyzer.TestAssertionWeights weights);
 }
-

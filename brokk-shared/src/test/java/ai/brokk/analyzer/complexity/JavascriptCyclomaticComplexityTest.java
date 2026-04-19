@@ -1,10 +1,9 @@
 package ai.brokk.analyzer.complexity;
 
-import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
 
@@ -93,8 +92,8 @@ public class JavascriptCyclomaticComplexityTest {
     }
 
     private void assertComplexity(String code, int expected) throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(code, "test.js").build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+        try (var testProject = InlineCoreProject.code(code, "test.js").build()) {
+            var analyzer = testProject.getAnalyzer();
             CodeUnit cu = analyzer.getAllDeclarations().stream()
                     .filter(CodeUnit::isFunction)
                     .findFirst()

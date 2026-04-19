@@ -9,8 +9,8 @@ import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.analyzer.TypeAliasProvider;
-import ai.brokk.project.IProject;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.project.ICoreProject;
+import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -20,7 +20,7 @@ class RustImportTest {
     @Test
     void testBasicImport() throws IOException {
         String code = "use std::collections::HashMap;";
-        IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
+        ICoreProject project = InlineCoreProject.code(code, "src/main.rs").build();
         IAnalyzer analyzer = new RustAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "src/main.rs");
 
@@ -31,7 +31,7 @@ class RustImportTest {
     @Test
     void testNestedImports() throws IOException {
         String code = "use std::collections::{HashMap, HashSet};";
-        IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
+        ICoreProject project = InlineCoreProject.code(code, "src/main.rs").build();
         IAnalyzer analyzer = new RustAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "src/main.rs");
 
@@ -44,7 +44,7 @@ class RustImportTest {
     @Test
     void testAliasedImport() throws IOException {
         String code = "use std::collections::HashMap as MyMap;";
-        IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
+        ICoreProject project = InlineCoreProject.code(code, "src/main.rs").build();
         IAnalyzer analyzer = new RustAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "src/main.rs");
 
@@ -55,7 +55,7 @@ class RustImportTest {
     @Test
     void testWildcardImport() throws IOException {
         String code = "use std::collections::*;";
-        IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
+        ICoreProject project = InlineCoreProject.code(code, "src/main.rs").build();
         IAnalyzer analyzer = new RustAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "src/main.rs");
 
@@ -66,7 +66,7 @@ class RustImportTest {
     @Test
     void testSelfInImports() throws IOException {
         String code = "use std::io::{self, Read, Write};";
-        IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
+        ICoreProject project = InlineCoreProject.code(code, "src/main.rs").build();
         IAnalyzer analyzer = new RustAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "src/main.rs");
 
@@ -79,7 +79,7 @@ class RustImportTest {
     @Test
     void testTypeAlias() throws IOException {
         String code = "type MyResult<T> = Result<T, Error>;";
-        IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
+        ICoreProject project = InlineCoreProject.code(code, "src/main.rs").build();
         RustAnalyzer analyzer = new RustAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "src/main.rs");
 
@@ -97,7 +97,7 @@ class RustImportTest {
 
     @Test
     void testResolveImports_Semantic() throws IOException {
-        IProject project = InlineTestProjectCreator.code("pub struct MyStruct;", "src/my_module.rs")
+        ICoreProject project = InlineCoreProject.code("pub struct MyStruct;", "src/my_module.rs")
                 .addFileContents(
                         """
                 use crate::my_module::MyStruct;
@@ -119,7 +119,7 @@ class RustImportTest {
 
     @Test
     void testResolveImports_Aliased() throws IOException {
-        IProject project = InlineTestProjectCreator.code("pub struct TargetStruct;", "src/lib.rs")
+        ICoreProject project = InlineCoreProject.code("pub struct TargetStruct;", "src/lib.rs")
                 .addFileContents(
                         """
                 use crate::TargetStruct as AliasStruct;
@@ -142,7 +142,7 @@ class RustImportTest {
 
     @Test
     void testResolveImports_NestedNamespace() throws IOException {
-        IProject project = InlineTestProjectCreator.code("pub struct TargetStruct;", "src/shared/models.rs")
+        ICoreProject project = InlineCoreProject.code("pub struct TargetStruct;", "src/shared/models.rs")
                 .addFileContents(
                         """
                         use crate::shared::models::TargetStruct;
@@ -166,7 +166,7 @@ class RustImportTest {
     void testResolveImports_SuperAtRoot() throws IOException {
         // In Rust, 'super' at the crate root is usually an error or refers to nothing in standard bin/lib,
         // but our resolver should at least not crash or produce empty/invalid strings.
-        IProject project = InlineTestProjectCreator.code("pub struct ExternalStruct;", "src/lib.rs")
+        ICoreProject project = InlineCoreProject.code("pub struct ExternalStruct;", "src/lib.rs")
                 .addFileContents(
                         """
                         use super::ExternalStruct;

@@ -1,6 +1,6 @@
 package ai.brokk.analyzer.imports;
 
-import static ai.brokk.testutil.InlineTestProjectCreator.code;
+import static ai.brokk.testutil.InlineCoreProject.code;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -10,8 +10,6 @@ import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
-import ai.brokk.project.IProject;
-import ai.brokk.testutil.AnalyzerCreator;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
@@ -27,16 +25,12 @@ class CppImportTest {
                 #include "header.h"
                 #include <vector>
 
-                int main() { return 0; }
-                """;
+        int main() { return 0; }
+        """;
 
-        try (IProject project = code(content, "main.cpp").build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
-            analyzer = (TreeSitterAnalyzer) analyzer.update();
-
-            ProjectFile projectFile = new ProjectFile(project.getRoot(), "main.cpp");
-
-            List<String> imports = analyzer.importStatementsOf(projectFile);
+        try (var project = code(content, "main.cpp").build()) {
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
+            List<String> imports = analyzer.importStatementsOf(project.file("main.cpp"));
 
             assertEquals(3, imports.size(), "Should detect 3 include statements");
             assertTrue(imports.contains("#include <iostream>"));
@@ -54,11 +48,9 @@ class CppImportTest {
                 }
                 """;
 
-        try (IProject project = code(content, "math.cpp").build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
-            ProjectFile projectFile = new ProjectFile(project.getRoot(), "math.cpp");
-
-            List<String> imports = analyzer.importStatementsOf(projectFile);
+        try (var project = code(content, "math.cpp").build()) {
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
+            List<String> imports = analyzer.importStatementsOf(project.file("math.cpp"));
 
             assertTrue(imports.isEmpty(), "Should return empty list for file with no includes");
         }
@@ -86,14 +78,13 @@ class CppImportTest {
                 int main() { return 0; }
                 """;
 
-        try (IProject project = code(headerContent, "math.h")
+        try (var project = code(headerContent, "math.h")
                 .addFileContents(sourceContent, "main.cpp")
                 .build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
-            analyzer = (TreeSitterAnalyzer) analyzer.update();
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
 
-            ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.cpp");
-            ProjectFile mathHeader = new ProjectFile(project.getRoot(), "math.h");
+            var mainFile = project.file("main.cpp");
+            var mathHeader = project.file("math.h");
 
             // 3. Verify imported code units
             Set<CodeUnit> importedUnits = ((ImportAnalysisProvider) analyzer).importedCodeUnitsOf(mainFile);
@@ -129,8 +120,8 @@ class CppImportTest {
                 int main() { return 0; }
                 """;
 
-        try (IProject project = code(content, "main.cpp").build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+        try (var project = code(content, "main.cpp").build()) {
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
             analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile projectFile = new ProjectFile(project.getRoot(), "main.cpp");
@@ -157,10 +148,10 @@ class CppImportTest {
                 int main() { return 0; }
                 """;
 
-        try (IProject project = code(headerContent, "helper.h")
+        try (var project = code(headerContent, "helper.h")
                 .addFileContents(sourceContent, "main.cpp")
                 .build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
             analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.cpp");
@@ -183,9 +174,9 @@ class CppImportTest {
                 void caller() { helperFunction(); }
                 """;
 
-        try (IProject project =
+        try (var project =
                 code(header, "helper.h").addFileContents(source, "main.cpp").build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
             analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.cpp");
@@ -211,11 +202,11 @@ class CppImportTest {
                 void caller() { f1(); }
                 """;
 
-        try (IProject project = code(h1, "h1.h")
+        try (var project = code(h1, "h1.h")
                 .addFileContents(h2, "h2.h")
                 .addFileContents(source, "main.cpp")
                 .build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
             analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.cpp");
@@ -241,8 +232,8 @@ class CppImportTest {
                 int main() { return 0; }
                 """;
 
-        try (IProject project = code(sourceContent, "src/main.cpp").build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+        try (var project = code(sourceContent, "src/main.cpp").build()) {
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
             analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile mainFile = new ProjectFile(project.getRoot(), "src/main.cpp");
@@ -266,10 +257,10 @@ class CppImportTest {
                 int main() { return 0; }
                 """;
 
-        try (IProject project = code(headerContent, "utils/helper.h")
+        try (var project = code(headerContent, "utils/helper.h")
                 .addFileContents(sourceContent, "main.cpp")
                 .build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
             analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.cpp");
@@ -296,10 +287,10 @@ class CppImportTest {
                 int main() { return 0; }
                 """;
 
-        try (IProject project = code(headerContent, "myheader.h")
+        try (var project = code(headerContent, "myheader.h")
                 .addFileContents(sourceContent, "main.cpp")
                 .build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
             analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.cpp");
@@ -324,10 +315,10 @@ class CppImportTest {
                 int main() { return 0; }
                 """;
 
-        try (IProject project = code(headerContent, "src/helper.h")
+        try (var project = code(headerContent, "src/helper.h")
                 .addFileContents(sourceContent, "src/main.cpp")
                 .build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var analyzer = (TreeSitterAnalyzer) project.getAnalyzer();
             analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile sourceFile = new ProjectFile(project.getRoot(), "src/main.cpp");

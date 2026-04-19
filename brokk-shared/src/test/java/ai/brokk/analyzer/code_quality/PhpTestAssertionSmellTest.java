@@ -4,12 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestConsoleIO;
-import ai.brokk.testutil.TestContextManager;
-import ai.brokk.tools.CodeQualityTools;
+import ai.brokk.testutil.InlineCoreProject;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 public class PhpTestAssertionSmellTest extends AbstractBrittleTestSuite {
@@ -108,8 +105,8 @@ public class PhpTestAssertionSmellTest extends AbstractBrittleTestSuite {
                     }
                 }
                 """;
-        String report = toolReport(code, 4);
-        assertTrue(report.startsWith("No test assertion smells met minScore"), report);
+        var findings = analyze(code);
+        assertTrue(findings.stream().noneMatch(f -> f.score() >= 4), findings.toString());
     }
 
     @Test
@@ -123,21 +120,10 @@ public class PhpTestAssertionSmellTest extends AbstractBrittleTestSuite {
                     }
                 }
                 """;
-        String report = toolReport(code, 1);
-        assertTrue(report.contains("## Test assertion smells"), report);
-        assertTrue(report.contains("| Score | Kind | Assertions | Symbol | File | Reasons | Excerpt |"), report);
-        assertTrue(report.contains("constant-truth"), report);
-    }
-
-    private String toolReport(String source, int minScore) {
-        String path = defaultTestPath();
-        try (var testProject = InlineTestProjectCreator.code(source, path).build()) {
-            IAnalyzer analyzer = testProject.getAnalyzer();
-            var cm = new TestContextManager(testProject, new TestConsoleIO(), java.util.Set.of(), analyzer);
-            var tools = new CodeQualityTools(cm);
-            return tools.reportTestAssertionSmells(
-                    List.of(path), minScore, 80, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
-        }
+        var findings = analyze(code);
+        var strong = findings.stream().filter(f -> f.score() >= 1).toList();
+        assertTrue(!strong.isEmpty(), findings.toString());
+        assertTrue(hasReason(strong, "constant-truth"), strong.toString());
     }
 
     @Override
@@ -148,10 +134,19 @@ public class PhpTestAssertionSmellTest extends AbstractBrittleTestSuite {
     @Override
     protected List<IAnalyzer.TestAssertionSmell> analyze(
             String source, String path, IAnalyzer.TestAssertionWeights weights) {
-        try (var testProject = InlineTestProjectCreator.code(source, path).build()) {
+        try (var testProject = InlineCoreProject.code(source, path).build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
-            ProjectFile file = new ProjectFile(testProject.getRoot(), path);
-            return analyzer.findTestAssertionSmells(file, weights);
+            return analyzer.findTestAssertionSmells(testProject.file(path), weights).stream()
+                    .map(f -> new IAnalyzer.TestAssertionSmell(
+                            f.file(),
+                            f.enclosingFqName(),
+                            f.assertionKind(),
+                            f.score(),
+                            f.assertionCount(),
+                            // keep reasons stable in failure output ordering
+                            f.reasons().stream().sorted().collect(Collectors.toList()),
+                            f.excerpt()))
+                    .toList();
         }
     }
 }
