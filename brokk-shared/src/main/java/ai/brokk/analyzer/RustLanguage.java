@@ -177,21 +177,16 @@ public class RustLanguage implements Language {
     // ---- helpers (moved/adapted from ImportRustPanel) ----
 
     private CargoMetadata getMergedMetadata(ICoreProject project) {
+        try {
+            return runCargoMetadata(project.getRoot());
+        } catch (Exception e) {
+            logger.debug("cargo metadata failed at project root: {}", e.toString());
+        }
+
         List<Path> manifests = findCargoManifests(project);
         if (manifests.isEmpty()) {
             return new CargoMetadata();
         }
-
-        List<CompletableFuture<CargoMetadata>> futures = manifests.stream()
-                .map(manifest -> CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return runCargoMetadata(manifest);
-                    } catch (Exception e) {
-                        logger.warn("Failed to run cargo metadata for " + manifest, e);
-                        return null;
-                    }
-                }))
-                .toList();
 
         CargoMetadata merged = new CargoMetadata();
         merged.packages = new ArrayList<>();
@@ -200,9 +195,14 @@ public class RustLanguage implements Language {
         Set<String> packageIdentities = new LinkedHashSet<>();
         Set<String> memberIds = new LinkedHashSet<>();
 
-        for (var future : futures) {
-            CargoMetadata meta = future.join();
-            if (meta == null) continue;
+        for (var manifest : manifests) {
+            CargoMetadata meta;
+            try {
+                meta = runCargoMetadata(manifest);
+            } catch (Exception e) {
+                logger.warn("Failed to run cargo metadata for " + manifest, e);
+                continue;
+            }
 
             for (var pkg : meta.packages) {
                 String identity = pkg.id;
@@ -229,9 +229,22 @@ public class RustLanguage implements Language {
         return files.stream()
                 .filter(pf -> pf.getFileName().equalsIgnoreCase("Cargo.toml"))
                 .map(ProjectFile::absPath)
+                .filter(p -> isCandidateManifest(project.getRoot(), p))
                 .distinct()
                 .sorted()
                 .toList();
+    }
+
+    private boolean isCandidateManifest(Path projectRoot, Path manifestPath) {
+        Path normalized = manifestPath.normalize();
+        if (!normalized.startsWith(projectRoot)) return false;
+        var rel =
+                projectRoot.relativize(normalized).toString().replace('\\', '/').toLowerCase(Locale.ROOT);
+        if (rel.isEmpty()) return false;
+        for (var prefix : List.of(".brokk/", "target/", "vendor/", ".git/")) {
+            if (rel.startsWith(prefix)) return false;
+        }
+        return true;
     }
 
     private CargoMetadata runCargoMetadata(Path manifestPath) throws IOException, InterruptedException {
