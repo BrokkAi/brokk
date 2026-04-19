@@ -177,10 +177,13 @@ public class RustLanguage implements Language {
     // ---- helpers (moved/adapted from ImportRustPanel) ----
 
     private CargoMetadata getMergedMetadata(ICoreProject project) {
-        try {
-            return runCargoMetadata(project.getRoot());
-        } catch (Exception e) {
-            logger.debug("cargo metadata failed at project root: {}", e.toString());
+        var rootManifest = project.getRoot().resolve("Cargo.toml");
+        if (Files.isRegularFile(rootManifest)) {
+            try {
+                return runCargoMetadata(rootManifest);
+            } catch (Exception e) {
+                logger.debug("cargo metadata failed at project root: {}", e.toString());
+            }
         }
 
         List<Path> manifests = findCargoManifests(project);

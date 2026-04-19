@@ -32,22 +32,17 @@ public final class DefaultDependencyImporter implements DependencyImporter {
 
     @Override
     public Language.ImportSupport getImportSupport(Language language) {
+        // Java dependency import is GUI-only; analyzer-layer JavaLanguage reports NONE.
         if (language.internalName().equalsIgnoreCase("JAVA")) return Language.ImportSupport.BASIC;
-        if (language.internalName().equalsIgnoreCase("PYTHON")) return Language.ImportSupport.BASIC;
-        if (language.internalName().equalsIgnoreCase("RUST")) return Language.ImportSupport.FINE_GRAINED;
-        if (language.internalName().equalsIgnoreCase("TYPESCRIPT")) return Language.ImportSupport.FINE_GRAINED;
-        if (language.internalName().equalsIgnoreCase("JAVASCRIPT")) return Language.ImportSupport.FINE_GRAINED;
-        return Language.ImportSupport.NONE;
+        return language.getDependencyImportSupport();
     }
 
     @Override
     public List<Language.DependencyCandidate> listDependencyPackages(ICoreProject project, Language language) {
-        return switch (language.internalName().toUpperCase(Locale.ROOT)) {
-            case "JAVA" -> listJavaJars();
-            case "PYTHON", "RUST" -> language.listDependencyPackages(project);
-            case "TYPESCRIPT", "JAVASCRIPT" -> NodeJsDependencyHelper.listDependencyPackages(project);
-            default -> List.of();
-        };
+        if (language.internalName().equalsIgnoreCase("JAVA")) {
+            return listJavaJars();
+        }
+        return language.listDependencyPackages(project);
     }
 
     @Override
@@ -67,11 +62,7 @@ public final class DefaultDependencyImporter implements DependencyImporter {
 
     @Override
     public boolean isAnalyzed(ICoreProject project, Language language, Path pathToImport) {
-        return switch (language.internalName().toUpperCase(Locale.ROOT)) {
-            case "PYTHON", "RUST" -> language.isAnalyzed(project, pathToImport);
-            case "TYPESCRIPT", "JAVASCRIPT" -> NodeJsDependencyHelper.isAnalyzed(project, pathToImport);
-            default -> language.isAnalyzed(project, pathToImport);
-        };
+        return language.isAnalyzed(project, pathToImport);
     }
 
     // ---- Java ----
