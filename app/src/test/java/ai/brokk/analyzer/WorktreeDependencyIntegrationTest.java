@@ -5,11 +5,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
-import ai.brokk.testutil.AssertionHelperUtil;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -102,12 +102,19 @@ class WorktreeDependencyIntegrationTest {
                     }
                 """;
 
-        AssertionHelperUtil.assertCodeEquals(expectedMethodSource, sourceOpt.get());
+        assertEquals(normalizeSource(expectedMethodSource), normalizeSource(sourceOpt.get()));
 
         // 7. Verify ProjectFile properties
         ProjectFile pf = methodCu.source();
         assertEquals(mainRoot, pf.getRoot(), "ProjectFile root should be main project root");
         assertTrue(pf.absPath().startsWith(mainRoot), "Absolute path should be inside main project");
         assertFalse(pf.absPath().startsWith(worktreeRoot), "Absolute path should NOT be inside worktree");
+    }
+
+    private static String normalizeSource(String source) {
+        return source.lines()
+                .map(String::stripTrailing)
+                .collect(Collectors.joining("\n"))
+                .trim();
     }
 }
