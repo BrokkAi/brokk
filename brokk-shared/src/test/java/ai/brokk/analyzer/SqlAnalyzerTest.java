@@ -8,7 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.project.IProject;
+import ai.brokk.git.IGitRepo;
+import ai.brokk.project.ICoreProject;
+import ai.brokk.testutil.NoopGitRepo;
+import ai.brokk.util.IStringDiskCache;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -26,32 +29,127 @@ class SqlAnalyzerTest {
     @TempDir
     Path tempDir;
 
-    // Helper to create a Project instance for testing.
-    // SqlAnalyzer requires a concrete Project, not just IProject.
-    // This mock-like Project provides the minimal methods needed by SqlAnalyzer.
-    private IProject createTestProject(Set<ProjectFile> filesSet) {
-        // Use the single-argument constructor for Project
-        return new IProject() {
+    private ICoreProject createTestProject(Set<ProjectFile> allFiles) {
+        return createTestProject(allFiles, allFiles);
+    }
+
+    private ICoreProject createTestProject(Set<ProjectFile> allFiles, Set<ProjectFile> analyzableFiles) {
+        return new ICoreProject() {
+            private final IGitRepo repo = new NoopGitRepo();
+            private final IStringDiskCache diskCache = new IStringDiskCache.NoopCache();
+
             @Override
             public Path getRoot() {
-                // Ensure the mock returns the tempDir as its root, consistent with Project's behavior
                 return tempDir;
             }
 
             @Override
             public Set<ProjectFile> getAllFiles() {
-                // This mock implementation directly returns the provided filesSet.
-                // SqlAnalyzer will then filter these based on .sql extension and exclusions.
-                return filesSet;
+                return allFiles;
+            }
+
+            @Override
+            public Optional<ProjectFile> getFileByRelPath(Path relPath) {
+                return Optional.empty();
+            }
+
+            @Override
+            public boolean isEmptyProject() {
+                return getAllFiles().isEmpty();
             }
 
             @Override
             public Set<ProjectFile> getAnalyzableFiles(Language language) {
                 var extensions = language.getExtensions();
-                return getAllFiles().stream()
+                return analyzableFiles.stream()
                         .filter(pf -> extensions.contains(pf.extension()))
                         .collect(Collectors.toSet());
             }
+
+            @Override
+            public Set<Language> getAnalyzerLanguages() {
+                return Set.of(Languages.SQL);
+            }
+
+            @Override
+            public void setAnalyzerLanguages(Set<Language> languages) {}
+
+            @Override
+            public void invalidateAutoDetectedLanguages() {}
+
+            @Override
+            public List<String> getSourceRoots(Language language) {
+                return List.of("");
+            }
+
+            @Override
+            public void setSourceRoots(Language language, List<String> roots) {}
+
+            @Override
+            public boolean isGitignored(Path relPath) {
+                return false;
+            }
+
+            @Override
+            public boolean isGitignored(Path relPath, boolean isDirectory) {
+                return false;
+            }
+
+            @Override
+            public boolean shouldSkipPath(Path relPath, boolean isDirectory) {
+                return false;
+            }
+
+            @Override
+            public Set<String> getExclusionPatterns() {
+                return Set.of();
+            }
+
+            @Override
+            public Set<String> getExcludedDirectories() {
+                return Set.of();
+            }
+
+            @Override
+            public Set<String> getExcludedGlobPatterns() {
+                return Set.of();
+            }
+
+            @Override
+            public boolean isPathExcluded(String relativePath, boolean isDirectory) {
+                return false;
+            }
+
+            @Override
+            public Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
+                return files;
+            }
+
+            @Override
+            public void invalidateAllFiles() {}
+
+            @Override
+            public IGitRepo getRepo() {
+                return repo;
+            }
+
+            @Override
+            public boolean hasGit() {
+                return false;
+            }
+
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return tempDir;
+            }
+
+            @Override
+            public IStringDiskCache getDiskCache() {
+                return diskCache;
+            }
+
+            @Override
+            public void close() {}
         };
     }
 
@@ -178,7 +276,6 @@ class SqlAnalyzerTest {
         assertTrue(tblOneOpt.isPresent());
         CodeUnit tblOne = tblOneOpt.get();
 
-        // Get ranges for tbl_one (should be one range)
         List<TreeSitterAnalyzer.Range> tblOneRanges = analyzer.rangesByCodeUnit.get(tblOne);
         assertNotNull(tblOneRanges);
         assertEquals(1, tblOneRanges.size());
@@ -203,12 +300,10 @@ class SqlAnalyzerTest {
 
         assertEquals(2, r2.startLine(), "v_two start line");
         assertEquals(2, r2.endLine(), "v_two end line");
-        // Start byte is after line1 and the newline character
         SourceContent scNewline = SourceContent.of("\n");
         assertEquals(scLine1.byteLength() + scNewline.byteLength(), r2.startByte(), "v_two start byte");
         assertEquals(scSql.byteLength(), r2.endByte(), "v_two end byte");
 
-        // Test skeleton extraction based on these ranges
         Optional<String> skel1 = AnalyzerUtil.getSkeleton(analyzer, "tbl_one");
         assertTrue(skel1.isPresent());
         assertCodeEquals(line1, skel1.get());
@@ -229,36 +324,13 @@ class SqlAnalyzerTest {
         Files.createDirectories(excludedDir);
         Path excludedSqlFile = excludedDir.resolve("excluded.sql");
         Files.writeString(excludedSqlFile, "CREATE TABLE tbl_excluded (id INT);", StandardCharsets.UTF_8);
-        // Note: ProjectFile for excluded file won't be created if it's correctly filtered by getAllFiles mock setup,
-        // but SqlAnalyzer expects ProjectFile instances from project.getAllFiles().
-        // So, we must provide it, and SqlAnalyzer's internal exclusion logic will filter it.
         ProjectFile excludedProjectFile = new ProjectFile(
                 tempDir,
                 excludedDir.getFileName().toString() + "/"
                         + excludedSqlFile.getFileName().toString());
 
-        // Create a mock where getAnalyzableFiles() only returns the included file
-        var testProject = new IProject() {
-            @Override
-            public Path getRoot() {
-                return tempDir;
-            }
-
-            @Override
-            public Set<ProjectFile> getAllFiles() {
-                return Set.of(includedProjectFile, excludedProjectFile);
-            }
-
-            @Override
-            public Set<ProjectFile> getAnalyzableFiles(Language language) {
-                var extensions = language.getExtensions();
-                // Only return the included file, simulating gitignore filtering
-                return getAllFiles().stream()
-                        .filter(pf -> extensions.contains(pf.extension()))
-                        .filter(pf -> !pf.absPath().toString().contains("excluded_dir"))
-                        .collect(Collectors.toSet());
-            }
-        };
+        var testProject =
+                createTestProject(Set.of(includedProjectFile, excludedProjectFile), Set.of(includedProjectFile));
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject);
 
         List<CodeUnit> allDecls = analyzer.getAllDeclarations();
@@ -273,7 +345,7 @@ class SqlAnalyzerTest {
     @Test
     void testEmptySqlFile() throws IOException {
         Path sqlFile = tempDir.resolve("empty.sql");
-        Files.writeString(sqlFile, "", StandardCharsets.UTF_8); // Empty content
+        Files.writeString(sqlFile, "", StandardCharsets.UTF_8);
 
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
@@ -287,7 +359,7 @@ class SqlAnalyzerTest {
 
     @Test
     void testNonSqlFile() throws IOException {
-        Path txtFile = tempDir.resolve("test.txt"); // Not a .sql file
+        Path txtFile = tempDir.resolve("test.txt");
         Files.writeString(txtFile, "CREATE TABLE my_table (id INT);", StandardCharsets.UTF_8);
 
         ProjectFile projectFile = new ProjectFile(tempDir, txtFile.getFileName().toString());
@@ -302,7 +374,6 @@ class SqlAnalyzerTest {
     @Test
     void testInvalidSqlStatement() throws IOException {
         Path sqlFile = tempDir.resolve("invalid.sql");
-        // Contains a valid statement and an invalid one
         String sqlContent =
                 "CREATE TABLE valid_table (id INT);\nINVALID SQL STATEMENT;\nCREATE VIEW valid_view AS SELECT 1;";
         Files.writeString(sqlFile, sqlContent, StandardCharsets.UTF_8);
@@ -313,7 +384,6 @@ class SqlAnalyzerTest {
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject);
 
         List<CodeUnit> allDecls = analyzer.getAllDeclarations();
-        // Should only find the valid table and view
         assertEquals(2, allDecls.size(), "Should only parse valid CREATE statements.");
         assertTrue(allDecls.stream().anyMatch(cu -> cu.fqName().equals("valid_table")));
         assertTrue(allDecls.stream().anyMatch(cu -> cu.fqName().equals("valid_view")));
@@ -403,12 +473,10 @@ class SqlAnalyzerTest {
         assertEquals(1, analyzer1.getAllDeclarations().size());
         assertEquals("original_table", analyzer1.getAllDeclarations().get(0).shortName());
 
-        // Modify the file
-        Thread.sleep(50); // Ensure mtime difference
+        Thread.sleep(50);
         String modifiedContent = "CREATE TABLE modified_table (id INT, name VARCHAR(100));";
         Files.writeString(sqlFile, modifiedContent, StandardCharsets.UTF_8);
 
-        // Update analyzer with the modified file
         IAnalyzer analyzer2 = analyzer1.update(Set.of(projectFile));
 
         List<CodeUnit> declarations = analyzer2.getAllDeclarations();
@@ -432,10 +500,8 @@ class SqlAnalyzerTest {
         SqlAnalyzer analyzer1 = new SqlAnalyzer(testProject);
         assertEquals(2, analyzer1.getAllDeclarations().size());
 
-        // Delete the first file
         Files.delete(sqlFile1);
 
-        // Update analyzer with the deleted file
         IAnalyzer analyzer2 = analyzer1.update(Set.of(projectFile1));
 
         List<CodeUnit> declarations = analyzer2.getAllDeclarations();
@@ -455,18 +521,15 @@ class SqlAnalyzerTest {
         SqlAnalyzer analyzer1 = new SqlAnalyzer(testProject);
         assertEquals(1, analyzer1.getAllDeclarations().size());
 
-        Thread.sleep(50); // Ensure mtime difference
+        Thread.sleep(50);
 
-        // Create a new file
         Path sqlFile2 = tempDir.resolve("file2.sql");
         Files.writeString(sqlFile2, "CREATE TABLE table2 (id INT);", StandardCharsets.UTF_8);
         ProjectFile projectFile2 =
                 new ProjectFile(tempDir, sqlFile2.getFileName().toString());
 
-        // Update the project mock to include both files
         var updatedTestProject = createTestProject(Set.of(projectFile1, projectFile2));
 
-        // Create a new analyzer with the updated project that includes both files
         SqlAnalyzer analyzer2 = new SqlAnalyzer(updatedTestProject);
 
         List<CodeUnit> declarations = analyzer2.getAllDeclarations();
@@ -487,7 +550,6 @@ class SqlAnalyzerTest {
         SqlAnalyzer analyzer1 = new SqlAnalyzer(testProject);
         IAnalyzer analyzer2 = analyzer1.update(Collections.emptySet());
 
-        // Should return the same analyzer instance when no changes
         assertSame(analyzer1, analyzer2);
     }
 
@@ -504,12 +566,10 @@ class SqlAnalyzerTest {
         SqlAnalyzer analyzer1 = new SqlAnalyzer(testProject);
         assertEquals(1, analyzer1.getAllDeclarations().size());
 
-        // Try to update with a non-SQL file (should be ignored)
         ProjectFile txtProjectFile =
                 new ProjectFile(tempDir, txtFile.getFileName().toString());
         IAnalyzer analyzer2 = analyzer1.update(Set.of(txtProjectFile));
 
-        // Should still be the same since no SQL files were updated
         assertSame(analyzer1, analyzer2);
     }
 
@@ -526,12 +586,10 @@ class SqlAnalyzerTest {
         assertEquals(1, analyzer1.getAllDeclarations().size());
         assertEquals("initial_table", analyzer1.getAllDeclarations().get(0).shortName());
 
-        // Modify the file
-        Thread.sleep(50); // Ensure mtime difference
+        Thread.sleep(50);
         String modifiedContent = "CREATE TABLE modified_table (id INT);";
         Files.writeString(sqlFile, modifiedContent, StandardCharsets.UTF_8);
 
-        // Use full update (no explicit file list)
         IAnalyzer analyzer2 = analyzer1.update();
 
         List<CodeUnit> declarations = analyzer2.getAllDeclarations();

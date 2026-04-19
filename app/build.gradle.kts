@@ -195,6 +195,7 @@ dependencies {
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.bundles.junit)
     testImplementation(libs.jupiter.iface)
+    testImplementation(testFixtures(project(":brokk-shared")))
     testRuntimeOnly(libs.bundles.junit.runtime)
 
     // Error Prone and NullAway for null safety checking

@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.util.IndentUtil;
 import java.util.Collection;
 import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
@@ -19,16 +18,10 @@ public final class AssertionHelperUtil {
 
     private AssertionHelperUtil() {}
 
-    /**
-     * Provides a line-ending agnostic string equality assertion.
-     */
     public static void assertCodeEquals(String expected, String actual) {
         assertCodeEquals(expected, actual, null);
     }
 
-    /**
-     * Provides a line-ending agnostic string equality assertion.
-     */
     public static void assertCodeEquals(String expected, String actual, @Nullable String message) {
         var cleanExpected = normalizeLineEndings(expected);
         var cleanActual = normalizeLineEndings(actual);
@@ -39,16 +32,10 @@ public final class AssertionHelperUtil {
         }
     }
 
-    /**
-     * Provides a line-ending agnostic string starts-with assertion.
-     */
     public static void assertCodeStartsWith(String fullContent, String expectedPrefix) {
         assertCodeStartsWith(fullContent, expectedPrefix, null);
     }
 
-    /**
-     * Provides a line-ending agnostic string starts-with assertion.
-     */
     public static void assertCodeStartsWith(String fullContent, String expectedPrefix, @Nullable String message) {
         var cleanFullContent = normalizeLineEndings(fullContent);
         var cleanExpectedPrefix = normalizeLineEndings(expectedPrefix);
@@ -57,16 +44,10 @@ public final class AssertionHelperUtil {
                 Objects.requireNonNullElseGet(message, () -> "Expected code starting with " + expectedPrefix));
     }
 
-    /**
-     * Provides a line-ending agnostic string ends-with assertion.
-     */
     public static void assertCodeEndsWith(String fullContent, String expectedSuffix) {
         assertCodeEndsWith(fullContent, expectedSuffix, null);
     }
 
-    /**
-     * Provides a line-ending agnostic string ends-wit assertion.
-     */
     public static void assertCodeEndsWith(String fullContent, String expectedSuffix, @Nullable String message) {
         var cleanFullContent = normalizeLineEndings(fullContent);
         var cleanSuffix = normalizeLineEndings(expectedSuffix);
@@ -75,16 +56,10 @@ public final class AssertionHelperUtil {
                 Objects.requireNonNullElseGet(message, () -> "Expected code ending with " + expectedSuffix));
     }
 
-    /**
-     * Provides a line-ending agnostic string substring assertion.
-     */
     public static void assertCodeContains(String fullContent, String substring) {
         assertCodeContains(fullContent, substring, null);
     }
 
-    /**
-     * Provides a line-ending agnostic string substring assertion.
-     */
     public static void assertCodeContains(String fullContent, String substring, @Nullable String message) {
         var cleanFullContent = normalizeLineEndings(fullContent);
         var cleanSubstring = normalizeLineEndings(substring);
@@ -93,22 +68,11 @@ public final class AssertionHelperUtil {
                 Objects.requireNonNullElseGet(message, () -> "Expected code containing " + substring));
     }
 
-    // -------------------------
-    // Indentation-aware helpers
-    // -------------------------
-
-    /**
-     * Returns the indent count (leading whitespace chars) of the first line in the given code string.
-     */
     public static int indentOfFirstLine(String code) {
         var firstLine = code.replaceAll("\\R", "\n").split("\n", -1)[0];
-        return IndentUtil.countLeadingWhitespace(firstLine);
+        return countLeadingWhitespace(firstLine);
     }
 
-    /**
-     * Returns the indent count (leading whitespace chars) of the first non-blank line after the first line.
-     * If none exist, returns the indent of the first line.
-     */
     public static int indentOfSecondNonBlankLine(String code) {
         var lines = code.replaceAll("\\R", "\n").split("\n", -1);
         if (lines.length == 0) {
@@ -117,33 +81,24 @@ public final class AssertionHelperUtil {
         for (int i = 1; i < lines.length; i++) {
             var ln = lines[i];
             if (!ln.trim().isEmpty()) {
-                return IndentUtil.countLeadingWhitespace(ln);
+                return countLeadingWhitespace(ln);
             }
         }
-        return IndentUtil.countLeadingWhitespace(lines[0]);
+        return countLeadingWhitespace(lines[0]);
     }
 
-    /**
-     * Finds the indent of the first line in fullContent whose text equals targetLine ignoring leading whitespace.
-     * Returns -1 if no such line is found.
-     */
     public static int findIndentOfLineIgnoringLeadingWhitespace(String fullContent, String targetLine) {
-        // Normalize line endings but do NOT strip leading/trailing whitespace of the entire content.
         var normalized = fullContent.replaceAll("\\R", "\n");
         var lines = normalized.split("\n", -1);
         var target = targetLine.stripLeading();
         for (var ln : lines) {
             if (ln.stripLeading().equals(target)) {
-                return IndentUtil.countLeadingWhitespace(ln);
+                return countLeadingWhitespace(ln);
             }
         }
         return -1;
     }
 
-    /**
-     * Assert that a line equal to targetLine (ignoring leading whitespace) exists in fullContent and
-     * that its leading whitespace count equals expectedIndent.
-     */
     public static void assertLineIndentEqualsIgnoringLeadingWhitespace(
             String fullContent, String targetLine, int expectedIndent, @Nullable String message) {
         int actual = findIndentOfLineIgnoringLeadingWhitespace(fullContent, targetLine);
@@ -152,9 +107,6 @@ public final class AssertionHelperUtil {
         assertEquals(expectedIndent, actual, Objects.requireNonNullElse(message, baseMsg));
     }
 
-    /**
-     * Asserts that a code unit with the given fully-qualified name exists and has the expected type.
-     */
     public static void assertCodeUnitType(IAnalyzer analyzer, String fqName, CodeUnitType codeUnitType) {
         Collection<CodeUnit> units = analyzer.getDefinitions(fqName);
         assertFalse(units.isEmpty(), "Should find code unit for: " + fqName);
@@ -165,5 +117,17 @@ public final class AssertionHelperUtil {
 
     private static String normalizeLineEndings(String content) {
         return content.replaceAll("\\R", "\n").strip();
+    }
+
+    private static int countLeadingWhitespace(String st) {
+        int i = 0;
+        while (i < st.length()) {
+            char c = st.charAt(i);
+            if (c != ' ' && c != '\t') {
+                break;
+            }
+            i++;
+        }
+        return i;
     }
 }

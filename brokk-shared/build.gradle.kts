@@ -2,6 +2,7 @@ import net.ltgt.gradle.errorprone.errorprone
 
 plugins {
     `java-library`
+    `java-test-fixtures`
     alias(libs.plugins.errorprone)
     alias(libs.plugins.spotless)
 }
@@ -81,6 +82,11 @@ dependencies {
     testImplementation(libs.bundles.junit)
     testImplementation(libs.jupiter.iface)
     testRuntimeOnly(libs.bundles.junit.runtime)
+
+    // Test fixtures (shared between modules)
+    testFixturesImplementation(platform(libs.junit.bom))
+    testFixturesImplementation(libs.bundles.junit)
+    testFixturesImplementation(libs.jupiter.iface)
 }
 
 tasks.withType<JavaCompile> {
