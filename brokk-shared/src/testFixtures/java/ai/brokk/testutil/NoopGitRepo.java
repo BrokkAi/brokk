@@ -21,4 +21,3 @@ public final class NoopGitRepo implements IGitRepo {
     @Override
     public void remove(ProjectFile file) throws GitAPIException {}
 }
-
