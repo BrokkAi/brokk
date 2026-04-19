@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
@@ -73,7 +73,7 @@ class MultiAnalyzerGetTestModulesTest {
         }
 
         @Override
-        public IProject getProject() {
+        public ICoreProject getProject() {
             throw new UnsupportedOperationException();
         }
 

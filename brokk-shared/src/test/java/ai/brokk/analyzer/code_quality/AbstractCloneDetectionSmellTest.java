@@ -2,7 +2,7 @@ package ai.brokk.analyzer.code_quality;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.InlineCoreProject;
 import java.util.List;
 
 abstract class AbstractCloneDetectionSmellTest {
@@ -13,11 +13,10 @@ abstract class AbstractCloneDetectionSmellTest {
 
     protected List<IAnalyzer.CloneSmell> analyze(
             String pathA, String sourceA, String pathB, String sourceB, IAnalyzer.CloneSmellWeights weights) {
-        try (var testProject = InlineTestProjectCreator.code(sourceA, pathA)
-                .addFileContents(sourceB, pathB)
-                .build()) {
-            IAnalyzer analyzer = testProject.getAnalyzer();
-            ProjectFile file = new ProjectFile(testProject.getRoot(), pathA);
+        try (var built =
+                InlineCoreProject.code(sourceA, pathA).addFile(pathB, sourceB).build()) {
+            IAnalyzer analyzer = built.analyzer();
+            ProjectFile file = new ProjectFile(built.root(), pathA);
             return analyzer.findStructuralCloneSmells(file, weights);
         }
     }
