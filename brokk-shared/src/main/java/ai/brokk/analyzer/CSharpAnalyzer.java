@@ -741,13 +741,22 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         if (nodeType(CSharpNodeType.MEMBER_ACCESS_EXPRESSION).equals(functionNode.getType())) {
             TSNode nameNode = functionNode.getChildByFieldName(FIELD_NAME);
             if (nameNode != null) {
-                return sourceContent.substringFrom(nameNode).strip().toLowerCase(Locale.ROOT);
+                return invocationMethodName(nameNode, sourceContent);
             }
-            return lastDotSegment(
-                    sourceContent.substringFrom(functionNode).strip().toLowerCase(Locale.ROOT));
+            return "";
         }
-        if (nodeType(CSharpNodeType.IDENTIFIER).equals(functionNode.getType())
-                || nodeType(CSharpNodeType.GENERIC_NAME).equals(functionNode.getType())) {
+        if (nodeType(CSharpNodeType.GENERIC_NAME).equals(functionNode.getType())) {
+            TSNode nameNode = functionNode.getChildByFieldName(FIELD_NAME);
+            if (nameNode != null) {
+                return invocationMethodName(nameNode, sourceContent);
+            }
+            TSNode identifierNode = firstNamedChildOfType(functionNode, nodeType(CSharpNodeType.IDENTIFIER));
+            if (identifierNode != null) {
+                return invocationMethodName(identifierNode, sourceContent);
+            }
+            return "";
+        }
+        if (nodeType(CSharpNodeType.IDENTIFIER).equals(functionNode.getType())) {
             return sourceContent.substringFrom(functionNode).strip().toLowerCase(Locale.ROOT);
         }
         TSNode expression = functionNode.getChildByFieldName(FIELD_EXPRESSION);

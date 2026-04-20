@@ -153,6 +153,26 @@ public class CSharpTestAssertionSmellTest extends AbstractBrittleTestSuite {
         assertTrue(tuned.isEmpty(), "Zeroed smell weights should suppress the same finding");
     }
 
+    @Test
+    void genericAssertThrowsCountsAsAssertionEquivalent() {
+        String code =
+                """
+                using System;
+                using Xunit;
+
+                namespace Example;
+
+                public class SampleTest {
+                    [Fact]
+                    public void ThrowsGeneric() {
+                        Assert.Throws<InvalidOperationException>(() => throw new InvalidOperationException());
+                    }
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(findings.isEmpty(), "Assert.Throws<T> should prevent no-assertions findings");
+    }
+
     @Override
     protected String defaultTestPath() {
         return "com/example/SampleTest.cs";
