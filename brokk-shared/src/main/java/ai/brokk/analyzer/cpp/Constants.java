@@ -19,8 +19,19 @@ public final class Constants {
     }
 
     public static final String TEST_MARKER_CAPTURE = "test.marker";
-    public static final Set<String> TEST_MARKER_NAMES =
-            Set.of("TEST", "TEST_F", "TEST_P", "TYPED_TEST", "TYPED_TEST_P", "TEST_CASE");
+    public static final Set<String> TEST_MARKER_NAMES = Set.of(
+            "TEST",
+            "TEST_F",
+            "TEST_P",
+            "TYPED_TEST",
+            "TYPED_TEST_P",
+            "TEST_CASE",
+            "SCENARIO",
+            "BOOST_AUTO_TEST_CASE",
+            "BOOST_FIXTURE_TEST_CASE",
+            "BOOST_DATA_TEST_CASE",
+            "TEST_CLASS",
+            "TEST_METHOD");
     public static final String ARGUMENT_LIST = nodeType(CppNodeType.ARGUMENT_LIST);
     public static final String CALL_EXPRESSION = nodeType(CppNodeType.CALL_EXPRESSION);
     public static final String DECLARATION_LIST = nodeType(CppNodeType.DECLARATION_LIST);

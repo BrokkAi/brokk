@@ -1980,14 +1980,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         return withSource(file, source -> detectCppTestAssertionSmells(file, source, resolvedWeights), List.of());
     }
 
-    @Override
-    public boolean containsTests(ProjectFile file) {
-        if (super.containsTests(file)) {
-            return true;
-        }
-        return isCppTestLikePath(file);
-    }
-
     private List<TestAssertionSmell> detectCppTestAssertionSmells(
             ProjectFile file, SourceContent sourceContent, TestAssertionWeights weights) {
         var candidates = new ArrayList<TestSmellCandidate>();
@@ -2001,18 +1993,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 return List.of();
             }
             List<CppTestBlock> testBlocks = collectTestBlocks(rootNode, sourceContent);
-            if (testBlocks.isEmpty() && isCppTestLikePath(file)) {
-                addTestSmellCandidate(
-                        file,
-                        file.toString(),
-                        TEST_ASSERTION_KIND_NO_ASSERTIONS,
-                        weights.noAssertionWeight(),
-                        0,
-                        List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
-                        sourceContent.text(),
-                        0,
-                        candidates);
-            }
             for (CppTestBlock testBlock : testBlocks) {
                 String enclosing = file.toString();
                 analyzeCppTestBlock(file, enclosing, testBlock, sourceContent, weights, candidates);
@@ -2022,11 +2002,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
                 .map(TestSmellCandidate::smell)
                 .toList();
-    }
-
-    private static boolean isCppTestLikePath(ProjectFile file) {
-        String relPath = file.getRelPath().toString().toLowerCase(Locale.ROOT).replace('\\', '/');
-        return relPath.endsWith("_test.cpp") || relPath.endsWith("_test.cc") || relPath.endsWith("_test.cxx");
     }
 
     private List<CppTestBlock> collectTestBlocks(TSNode rootNode, SourceContent sourceContent) {
@@ -2124,59 +2099,28 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return true;
         }
 
-        TSNode current = markerNode;
-        while (current != null) {
-            TSNode currentParent = current.getParent();
-            if (currentParent == null) {
-                return false;
-            }
-            if (hasArgumentListAfter(currentParent, current)) {
+        int markerStartByte = markerNode.getStartByte();
+        TSNode scope = markerNode;
+        while (scope != null && !TRANSLATION_UNIT.equals(scope.getType())) {
+            if (hasNearbyArgumentList(scope, markerStartByte)) {
                 return true;
             }
-            current = currentParent;
+            scope = scope.getParent();
         }
         return false;
     }
 
-    private static boolean hasArgumentListAfter(TSNode parent, TSNode nodeOrDescendant) {
-        boolean pastNode = false;
-        for (int i = 0; i < parent.getNamedChildCount(); i++) {
-            TSNode child = parent.getNamedChild(i);
-            if (child == null) {
-                continue;
-            }
-            if (!pastNode) {
-                if (child.equals(nodeOrDescendant)) {
-                    pastNode = true;
-                    continue;
-                }
-                if (containsNode(child, nodeOrDescendant)) {
-                    if (hasArgumentListDescendantAfter(child, nodeOrDescendant.getStartByte())) {
-                        return true;
-                    }
-                    pastNode = true;
-                }
-                continue;
-            }
-            if (ARGUMENT_LIST.equals(child.getType())) {
-                return true;
-            }
-            if (hasArgumentListDescendantAfter(child, nodeOrDescendant.getStartByte())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean hasArgumentListDescendantAfter(TSNode node, int startByte) {
+    private static boolean hasNearbyArgumentList(TSNode node, int markerStartByte) {
         var stack = new ArrayDeque<TSNode>();
         stack.push(node);
         while (!stack.isEmpty()) {
             TSNode current = stack.pop();
             if (!current.equals(node)
-                    && ARGUMENT_LIST.equals(current.getType())
-                    && current.getStartByte() > startByte) {
-                return true;
+                    && (ARGUMENT_LIST.equals(current.getType()) || PARAMETER_LIST.equals(current.getType()))) {
+                int delta = current.getStartByte() - markerStartByte;
+                if (delta > 0 && delta <= 64) {
+                    return true;
+                }
             }
             for (int i = 0; i < current.getNamedChildCount(); i++) {
                 TSNode child = current.getNamedChild(i);
@@ -2205,12 +2149,16 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (containsNode(current, bodyNode)) {
                 TSNode parent = current.getParent();
                 if (parent == null) {
-                    return false;
+                    return TRANSLATION_UNIT.equals(current.getType());
                 }
                 String parentType = parent.getType();
                 return TRANSLATION_UNIT.equals(parentType)
                         || DECLARATION_LIST.equals(parentType)
-                        || NAMESPACE_DEFINITION.equals(parentType);
+                        || NAMESPACE_DEFINITION.equals(parentType)
+                        || FIELD_DECLARATION_LIST.equals(parentType)
+                        || CLASS_SPECIFIER.equals(parentType)
+                        || STRUCT_SPECIFIER.equals(parentType)
+                        || UNION_SPECIFIER.equals(parentType);
             }
             current = current.getParent();
         }
@@ -2222,7 +2170,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         while (current != null) {
             TSNode bodyNode = current.getChildByFieldName(FIELD_BODY);
             if (bodyNode != null
-                    && COMPOUND_STATEMENT.equals(bodyNode.getType())
+                    && (COMPOUND_STATEMENT.equals(bodyNode.getType())
+                            || FIELD_DECLARATION_LIST.equals(bodyNode.getType()))
                     && bodyNode.getStartByte() >= markerNode.getStartByte()) {
                 return bodyNode;
             }
