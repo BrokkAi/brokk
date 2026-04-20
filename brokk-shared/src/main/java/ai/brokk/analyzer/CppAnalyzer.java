@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.analyzer.cpp.Constants.*;
 import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
@@ -312,7 +313,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     private Optional<ExceptionHandlingSmell> analyzeCatchClause(
             ProjectFile file, TSNode catchNode, SourceContent sourceContent, ExceptionSmellWeights weights) {
-        TSNode bodyNode = catchNode.getChildByFieldName("body");
+        TSNode bodyNode = catchNode.getChildByFieldName(FIELD_BODY);
         if (bodyNode == null) {
             bodyNode = catchNode.getNamedChildren().stream()
                     .filter(child -> COMPOUND_STATEMENT.equals(child.getType()))
@@ -538,7 +539,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             current = parent;
 
             if (NAMESPACE_DEFINITION.equals(current.getType())) {
-                var nameNode = current.getChildByFieldName("name");
+                var nameNode = current.getChildByFieldName(FIELD_NAME);
                 if (nameNode != null) {
                     String name = sourceContent.substringFrom(nameNode).strip();
                     if (!name.isEmpty()) {
@@ -615,7 +616,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
-        final TSNode typeNode = fieldDecl.getChildByFieldName("type");
+        final TSNode typeNode = fieldDecl.getChildByFieldName(FIELD_TYPE);
         if (typeNode == null) {
             return super.formatFieldSignature(
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
@@ -632,7 +633,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         int fieldDeclChildCount = fieldDecl.getChildCount();
         for (int i = 0; i < fieldDeclChildCount; i++) {
             TSNode child = fieldDecl.getChild(i);
-            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
+            if (!FIELD_DECLARATOR.equals(fieldDecl.getFieldNameForChild(i))) {
                 continue;
             }
             if (child != null && POINTER_DECLARATOR.equals(child.getType())) {
@@ -659,7 +660,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         for (int i = 0; i < fieldDeclChildCount; i++) {
             TSNode child = fieldDecl.getChild(i);
-            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
+            if (!FIELD_DECLARATOR.equals(fieldDecl.getFieldNameForChild(i))) {
                 continue;
             }
 
@@ -686,7 +687,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         for (int i = matchedDeclaratorIndex + 1; i < fieldDeclChildCount; i++) {
             TSNode next = fieldDecl.getChild(i);
             if (next == null) continue;
-            if ("declarator".equals(fieldDecl.getFieldNameForChild(i))) {
+            if (FIELD_DECLARATOR.equals(fieldDecl.getFieldNameForChild(i))) {
                 nextDeclaratorStartByte = next.getStartByte();
                 break;
             }
@@ -698,7 +699,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         TSNode initializerNode = null;
         for (int i = matchedDeclaratorIndex + 1; i < fieldDeclChildCount; i++) {
             TSNode candidate = fieldDecl.getChild(i);
-            if (!"default_value".equals(fieldDecl.getFieldNameForChild(i))) {
+            if (!FIELD_DEFAULT_VALUE.equals(fieldDecl.getFieldNameForChild(i))) {
                 continue;
             }
             if (candidate == null) continue;
@@ -809,18 +810,18 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         var returnType = returnTypeText.isEmpty() ? "" : returnTypeText + " ";
 
         String actualParamsText = "";
-        TSNode declaratorNode = funcNode.getChildByFieldName("declarator");
+        TSNode declaratorNode = funcNode.getChildByFieldName(FIELD_DECLARATOR);
         if (declaratorNode != null && FUNCTION_DECLARATOR.equals(declaratorNode.getType())) {
-            TSNode paramsNode = declaratorNode.getChildByFieldName("parameters");
+            TSNode paramsNode = declaratorNode.getChildByFieldName(FIELD_PARAMETERS);
             if (paramsNode != null) {
                 actualParamsText = sourceContent.substringFrom(paramsNode);
             }
         }
 
         if (functionName.isBlank()) {
-            TSNode fallbackDeclaratorNode = funcNode.getChildByFieldName("declarator");
+            TSNode fallbackDeclaratorNode = funcNode.getChildByFieldName(FIELD_DECLARATOR);
             if (fallbackDeclaratorNode != null && FUNCTION_DECLARATOR.equals(fallbackDeclaratorNode.getType())) {
-                TSNode innerDeclaratorNode = fallbackDeclaratorNode.getChildByFieldName("declarator");
+                TSNode innerDeclaratorNode = fallbackDeclaratorNode.getChildByFieldName(FIELD_DECLARATOR);
                 if (innerDeclaratorNode != null) {
                     String extractedName = sourceContent.substringFrom(innerDeclaratorNode);
                     if (!extractedName.isBlank()) {
@@ -1136,13 +1137,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         if (funcOrDeclNode == null) return "";
 
         // Find the function_declarator (descend if necessary)
-        TSNode decl = funcOrDeclNode.getChildByFieldName("declarator");
+        TSNode decl = funcOrDeclNode.getChildByFieldName(FIELD_DECLARATOR);
         if (decl == null || !FUNCTION_DECLARATOR.equals(decl.getType())) {
             decl = findFunctionDeclaratorRecursive(funcOrDeclNode);
             if (decl == null) return "";
         }
 
-        TSNode paramsNode = decl.getChildByFieldName("parameters");
+        TSNode paramsNode = decl.getChildByFieldName(FIELD_PARAMETERS);
         if (paramsNode == null) return "";
 
         var paramTypes = new ArrayList<String>();
@@ -1161,13 +1162,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (eqIdx >= 0) raw = raw.substring(0, eqIdx).strip();
 
             // Try to remove parameter name using AST-extracted name nodes
-            TSNode nameNode = paramNode.getChildByFieldName("name");
+            TSNode nameNode = paramNode.getChildByFieldName(FIELD_NAME);
             if (nameNode == null) {
                 // parameter names are sometimes inside a declarator child
-                TSNode declChild = paramNode.getChildByFieldName("declarator");
+                TSNode declChild = paramNode.getChildByFieldName(FIELD_DECLARATOR);
                 if (declChild != null) {
-                    TSNode innerName = declChild.getChildByFieldName("declarator");
-                    if (innerName == null) innerName = declChild.getChildByFieldName("name");
+                    TSNode innerName = declChild.getChildByFieldName(FIELD_DECLARATOR);
+                    if (innerName == null) innerName = declChild.getChildByFieldName(FIELD_NAME);
                     if (innerName != null) nameNode = innerName;
                 }
             }
@@ -1181,7 +1182,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 }
             } else {
                 // For anonymous parameters, try to extract the type directly from the AST
-                TSNode typeNode = paramNode.getChildByFieldName("type");
+                TSNode typeNode = paramNode.getChildByFieldName(FIELD_TYPE);
                 if (typeNode != null) {
                     raw = sourceContent.substringFrom(typeNode).strip();
                 } else {
@@ -1264,7 +1265,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         if (NAMESPACE_DEFINITION.equals(decl.getType())) {
-            TSNode nameNode = decl.getChildByFieldName("name");
+            TSNode nameNode = decl.getChildByFieldName(FIELD_NAME);
             if (nameNode == null) {
                 return Optional.of("(anonymous)");
             }
@@ -1277,7 +1278,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 || CLASS_SPECIFIER.equals(decl.getType())
                 || UNION_SPECIFIER.equals(decl.getType())
                 || ENUM_SPECIFIER.equals(decl.getType())) {
-            TSNode nameNode = decl.getChildByFieldName("name");
+            TSNode nameNode = decl.getChildByFieldName(FIELD_NAME);
             if (nameNode == null) {
                 // Anonymous struct/class/union/enum (e.g., anonymous struct in union)
                 return Optional.of("(anonymous)");
@@ -1291,9 +1292,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
 
         if (FUNCTION_DEFINITION.equals(decl.getType())) {
-            TSNode declaratorNode = decl.getChildByFieldName("declarator");
+            TSNode declaratorNode = decl.getChildByFieldName(FIELD_DECLARATOR);
             if (declaratorNode != null && FUNCTION_DECLARATOR.equals(declaratorNode.getType())) {
-                TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
+                TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName(FIELD_DECLARATOR);
                 if (innerDeclaratorNode != null) {
                     String name = sourceContent.substringFrom(innerDeclaratorNode);
                     if (!name.isBlank()) {
@@ -1313,7 +1314,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             // In C++, we need to check all children because there can be multiple declarators.
             int childCount = decl.getChildCount();
             for (int i = 0; i < childCount; i++) {
-                if ("declarator".equals(decl.getFieldNameForChild(i))) {
+                if (FIELD_DECLARATOR.equals(decl.getFieldNameForChild(i))) {
                     TSNode child = decl.getChild(i);
                     TSNode idNode = findFieldIdentifier(child);
                     if (idNode != null) {
@@ -1332,6 +1333,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     @Override
     protected boolean isBlankNameAllowed(
             String captureName, String simpleName, @Nullable String nodeType, String file) {
+        if (TEST_MARKER_CAPTURE.equals(captureName)) {
+            return true;
+        }
         // C++ allows blank names for complex declaration structures where the parser
         // produces empty identifier nodes (common in flexed/generated C code, function pointers,
         // template specializations, macro expansions)
@@ -1341,6 +1345,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     @Override
     protected boolean isNullNameAllowed(
             String identifierFieldName, @Nullable String nodeType, int lineNumber, String file) {
+        if (TEST_MARKER_CAPTURE.equals(identifierFieldName)) {
+            return true;
+        }
         // C++ allows NULL names for complex declaration structures like function pointers,
         // template specializations, and macro declarations
         return isComplexDeclarationStructure(nodeType);
@@ -1348,6 +1355,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     @Override
     protected boolean isNullNameExpectedForExtraction(@Nullable String nodeType) {
+        if (CALL_EXPRESSION.equals(nodeType)) {
+            return true;
+        }
         // Suppress logging for common C++ patterns where null names are expected
         return isComplexDeclarationStructure(nodeType);
     }
@@ -1358,27 +1368,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 || FUNCTION_DEFINITION.equals(nodeType)
                 || FIELD_DECLARATION.equals(nodeType)
                 || PARAMETER_DECLARATION.equals(nodeType);
-    }
-
-    @Override
-    protected String enhanceFqName(
-            String fqName, String captureName, TSNode definitionNode, SourceContent sourceContent) {
-        var skeletonType = getSkeletonTypeForCapture(captureName);
-
-        // For functions, apply name normalization (e.g., destructor tilde) but do NOT append signature
-        // Signature is now extracted separately via extractSignature()
-        if (skeletonType == SkeletonType.FUNCTION_LIKE) {
-            // Special-case: ensure destructors have a leading '~' in the symbol name.
-            // Tree-sitter may expose the underlying identifier without the tilde; normalize here.
-            if (CaptureNames.DESTRUCTOR_DEFINITION.equals(captureName) && !fqName.startsWith("~")) {
-                fqName = "~" + fqName;
-            }
-            // Return clean fqName without parameters/qualifiers
-            return fqName;
-        }
-
-        // For non-function types (classes, fields, modules), return unchanged
-        return fqName;
     }
 
     /**
@@ -1443,7 +1432,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 // Check if this class is inside a template_declaration
                 TSNode parent = current.getParent();
                 if (parent != null && TEMPLATE_DECLARATION.equals(parent.getType())) {
-                    TSNode paramsNode = parent.getChildByFieldName("parameters");
+                    TSNode paramsNode = parent.getChildByFieldName(FIELD_PARAMETERS);
                     if (paramsNode != null) {
                         String templateText =
                                 sourceContent.substringFrom(paramsNode).strip();
@@ -1478,7 +1467,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             }
         }
 
-        TSNode paramsNode = templateDecl.getChildByFieldName("parameters");
+        TSNode paramsNode = templateDecl.getChildByFieldName(FIELD_PARAMETERS);
         if (paramsNode == null) {
             return null;
         }
@@ -1504,7 +1493,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         if (funcOrDeclNode == null) return "";
 
         // Find the function_declarator if present
-        TSNode decl = funcOrDeclNode.getChildByFieldName("declarator");
+        TSNode decl = funcOrDeclNode.getChildByFieldName(FIELD_DECLARATOR);
         if (decl == null || !FUNCTION_DECLARATOR.equals(decl.getType())) {
             decl = findFunctionDeclaratorRecursive(funcOrDeclNode);
             if (decl == null) return "";
@@ -1515,12 +1504,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         // but OUTSIDE the function_declarator node. So we must scan from params end up to the start of the body (if
         // any),
         // or to the end of the outer node when there is no body.
-        TSNode paramsNode = decl.getChildByFieldName("parameters");
+        TSNode paramsNode = decl.getChildByFieldName(FIELD_PARAMETERS);
         int tailStart = (paramsNode != null) ? paramsNode.getEndByte() : decl.getStartByte();
 
         // Determine an outer end bound to include qualifiers that may be outside the declarator
         int outerTailEnd;
-        TSNode bodyNode = funcOrDeclNode.getChildByFieldName("body");
+        TSNode bodyNode = funcOrDeclNode.getChildByFieldName(FIELD_BODY);
         if (bodyNode != null) {
             outerTailEnd = bodyNode.getStartByte();
         } else {
@@ -1934,7 +1923,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         var rootNode = tree.getRootNode();
-        if (rootNode == null) return false;
+        if (rootNode == null) {
+            return false;
+        }
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
@@ -1943,15 +1934,572 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
                             for (TSQueryCapture capture : match.getCaptures()) {
-                                // Use literal name or ensure TEST_MARKER is available in CppTreeSitterNodeTypes
-                                if ("test.marker".equals(query.getCaptureNameForId(capture.getIndex()))) {
+                                if (!TEST_MARKER_CAPTURE.equals(query.getCaptureNameForId(capture.getIndex()))) {
+                                    continue;
+                                }
+                                TSNode markerNode = capture.getNode();
+                                if (markerNode != null && isStructuredTestMarker(markerNode)) {
                                     return true;
                                 }
                             }
                         }
                     }
-                    return false;
+                    return hasStructuredMarkerByName(rootNode, sourceContent);
                 },
                 false);
     }
+
+    @Override
+    protected String enhanceFqName(
+            String fqName, String captureName, TSNode definitionNode, SourceContent sourceContent) {
+        var skeletonType = getSkeletonTypeForCapture(captureName);
+
+        // For functions, apply name normalization (e.g., destructor tilde) but do NOT append signature
+        // Signature is now extracted separately via extractSignature()
+        if (skeletonType == SkeletonType.FUNCTION_LIKE) {
+            // Special-case: ensure destructors have a leading '~' in the symbol name.
+            // Tree-sitter may expose the underlying identifier without the tilde; normalize here.
+            if (CaptureNames.DESTRUCTOR_DEFINITION.equals(captureName) && !fqName.startsWith("~")) {
+                fqName = "~" + fqName;
+            }
+            // Return clean fqName without parameters/qualifiers
+            return fqName;
+        }
+
+        // For non-function types (classes, fields, modules), return unchanged
+        return fqName;
+    }
+
+    @Override
+    public List<TestAssertionSmell> findTestAssertionSmells(ProjectFile file, TestAssertionWeights weights) {
+        checkStale("findTestAssertionSmells");
+        if (!containsTests(file)) {
+            return List.of();
+        }
+        TestAssertionWeights resolvedWeights = weights != null ? weights : TestAssertionWeights.defaults();
+        return withSource(file, source -> detectCppTestAssertionSmells(file, source, resolvedWeights), List.of());
+    }
+
+    @Override
+    public boolean containsTests(ProjectFile file) {
+        if (super.containsTests(file)) {
+            return true;
+        }
+        return isCppTestLikePath(file);
+    }
+
+    private List<TestAssertionSmell> detectCppTestAssertionSmells(
+            ProjectFile file, SourceContent sourceContent, TestAssertionWeights weights) {
+        var candidates = new ArrayList<TestSmellCandidate>();
+        TSParser parser = getTSParser();
+        try (TSTree tree = parser.parseString(null, sourceContent.text())) {
+            if (tree == null) {
+                return List.of();
+            }
+            TSNode rootNode = tree.getRootNode();
+            if (rootNode == null) {
+                return List.of();
+            }
+            List<CppTestBlock> testBlocks = collectTestBlocks(rootNode, sourceContent);
+            if (testBlocks.isEmpty() && isCppTestLikePath(file)) {
+                addTestSmellCandidate(
+                        file,
+                        file.toString(),
+                        TEST_ASSERTION_KIND_NO_ASSERTIONS,
+                        weights.noAssertionWeight(),
+                        0,
+                        List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
+                        sourceContent.text(),
+                        0,
+                        candidates);
+            }
+            for (CppTestBlock testBlock : testBlocks) {
+                String enclosing = file.toString();
+                analyzeCppTestBlock(file, enclosing, testBlock, sourceContent, weights, candidates);
+            }
+        }
+        return candidates.stream()
+                .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
+                .map(TestSmellCandidate::smell)
+                .toList();
+    }
+
+    private static boolean isCppTestLikePath(ProjectFile file) {
+        String relPath = file.getRelPath().toString().toLowerCase(Locale.ROOT).replace('\\', '/');
+        return relPath.endsWith("_test.cpp") || relPath.endsWith("_test.cc") || relPath.endsWith("_test.cxx");
+    }
+
+    private List<CppTestBlock> collectTestBlocks(TSNode rootNode, SourceContent sourceContent) {
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    var blocks = new ArrayList<CppTestBlock>();
+                    var seenBodyStarts = new HashSet<Integer>();
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, rootNode, sourceContent.text());
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                if (!TEST_MARKER_CAPTURE.equals(query.getCaptureNameForId(capture.getIndex()))) {
+                                    continue;
+                                }
+                                TSNode markerNode = capture.getNode();
+                                if (markerNode == null) {
+                                    continue;
+                                }
+                                if (!isStructuredTestMarker(markerNode)) {
+                                    continue;
+                                }
+                                TSNode bodyNode = testBodyForMarker(markerNode);
+                                if (bodyNode == null) {
+                                    continue;
+                                }
+                                int bodyStart = bodyNode.getStartByte();
+                                if (seenBodyStarts.add(bodyStart)) {
+                                    blocks.add(new CppTestBlock(bodyNode, markerNode.getStartByte()));
+                                }
+                            }
+                        }
+                    }
+                    collectStructuredMarkerBlocks(rootNode, sourceContent, seenBodyStarts, blocks);
+                    return blocks;
+                },
+                List.of());
+    }
+
+    private static boolean hasStructuredMarkerByName(TSNode rootNode, SourceContent sourceContent) {
+        var identifiers = new ArrayList<TSNode>();
+        collectNodesByType(rootNode, Set.of(IDENTIFIER), identifiers);
+        for (TSNode identifierNode : identifiers) {
+            String markerName = sourceContent.substringFrom(identifierNode).strip();
+            if (!TEST_MARKER_NAMES.contains(markerName)) {
+                continue;
+            }
+            if (isStructuredTestMarker(identifierNode)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void collectStructuredMarkerBlocks(
+            TSNode rootNode, SourceContent sourceContent, Set<Integer> seenBodyStarts, List<CppTestBlock> blocks) {
+        var identifiers = new ArrayList<TSNode>();
+        collectNodesByType(rootNode, Set.of(IDENTIFIER), identifiers);
+        for (TSNode identifierNode : identifiers) {
+            String markerName = sourceContent.substringFrom(identifierNode).strip();
+            if (!TEST_MARKER_NAMES.contains(markerName)) {
+                continue;
+            }
+            if (!isStructuredTestMarker(identifierNode)) {
+                continue;
+            }
+            TSNode bodyNode = testBodyForMarker(identifierNode);
+            if (bodyNode == null) {
+                continue;
+            }
+            int bodyStart = bodyNode.getStartByte();
+            if (seenBodyStarts.add(bodyStart)) {
+                blocks.add(new CppTestBlock(bodyNode, identifierNode.getStartByte()));
+            }
+        }
+    }
+
+    private static boolean isStructuredTestMarker(TSNode markerNode) {
+        if (hasAncestorOfType(markerNode, COMPOUND_STATEMENT)) {
+            return false;
+        }
+        TSNode bodyNode = testBodyForMarker(markerNode);
+        if (bodyNode == null || !hasInvocationArguments(markerNode)) {
+            return false;
+        }
+        return hasTopLevelLikeOwner(markerNode, bodyNode);
+    }
+
+    private static boolean hasInvocationArguments(TSNode markerNode) {
+        TSNode parent = markerNode.getParent();
+        if (parent != null
+                && CALL_EXPRESSION.equals(parent.getType())
+                && parent.getChildByFieldName(FIELD_ARGUMENTS) != null) {
+            return true;
+        }
+
+        TSNode current = markerNode;
+        while (current != null) {
+            TSNode currentParent = current.getParent();
+            if (currentParent == null) {
+                return false;
+            }
+            if (hasArgumentListAfter(currentParent, current)) {
+                return true;
+            }
+            current = currentParent;
+        }
+        return false;
+    }
+
+    private static boolean hasArgumentListAfter(TSNode parent, TSNode nodeOrDescendant) {
+        boolean pastNode = false;
+        for (int i = 0; i < parent.getNamedChildCount(); i++) {
+            TSNode child = parent.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (!pastNode) {
+                if (child.equals(nodeOrDescendant)) {
+                    pastNode = true;
+                    continue;
+                }
+                if (containsNode(child, nodeOrDescendant)) {
+                    if (hasArgumentListDescendantAfter(child, nodeOrDescendant.getStartByte())) {
+                        return true;
+                    }
+                    pastNode = true;
+                }
+                continue;
+            }
+            if (ARGUMENT_LIST.equals(child.getType())) {
+                return true;
+            }
+            if (hasArgumentListDescendantAfter(child, nodeOrDescendant.getStartByte())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasArgumentListDescendantAfter(TSNode node, int startByte) {
+        var stack = new ArrayDeque<TSNode>();
+        stack.push(node);
+        while (!stack.isEmpty()) {
+            TSNode current = stack.pop();
+            if (!current.equals(node)
+                    && ARGUMENT_LIST.equals(current.getType())
+                    && current.getStartByte() > startByte) {
+                return true;
+            }
+            for (int i = 0; i < current.getNamedChildCount(); i++) {
+                TSNode child = current.getNamedChild(i);
+                if (child != null) {
+                    stack.push(child);
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasAncestorOfType(TSNode node, String type) {
+        TSNode current = node.getParent();
+        while (current != null) {
+            if (type.equals(current.getType())) {
+                return true;
+            }
+            current = current.getParent();
+        }
+        return false;
+    }
+
+    private static boolean hasTopLevelLikeOwner(TSNode markerNode, TSNode bodyNode) {
+        TSNode current = markerNode;
+        while (current != null) {
+            if (containsNode(current, bodyNode)) {
+                TSNode parent = current.getParent();
+                if (parent == null) {
+                    return false;
+                }
+                String parentType = parent.getType();
+                return TRANSLATION_UNIT.equals(parentType)
+                        || DECLARATION_LIST.equals(parentType)
+                        || NAMESPACE_DEFINITION.equals(parentType);
+            }
+            current = current.getParent();
+        }
+        return false;
+    }
+
+    private static @Nullable TSNode testBodyForMarker(TSNode markerNode) {
+        TSNode current = markerNode;
+        while (current != null) {
+            TSNode bodyNode = current.getChildByFieldName(FIELD_BODY);
+            if (bodyNode != null
+                    && COMPOUND_STATEMENT.equals(bodyNode.getType())
+                    && bodyNode.getStartByte() >= markerNode.getStartByte()) {
+                return bodyNode;
+            }
+            current = current.getParent();
+        }
+
+        current = markerNode;
+        while (current != null) {
+            TSNode parent = current.getParent();
+            if (parent == null) {
+                return null;
+            }
+            TSNode siblingBody = firstNamedCompoundAfter(parent, current);
+            if (siblingBody != null) {
+                return siblingBody;
+            }
+            current = parent;
+        }
+        return null;
+    }
+
+    private static @Nullable TSNode firstNamedCompoundAfter(TSNode parent, TSNode nodeOrDescendant) {
+        boolean pastNode = false;
+        for (int i = 0; i < parent.getNamedChildCount(); i++) {
+            TSNode child = parent.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (!pastNode) {
+                if (child.equals(nodeOrDescendant)) {
+                    pastNode = true;
+                    continue;
+                }
+                if (containsNode(child, nodeOrDescendant)) {
+                    TSNode nestedAfter = firstCompoundDescendantAfter(child, nodeOrDescendant.getStartByte());
+                    if (nestedAfter != null) {
+                        return nestedAfter;
+                    }
+                    pastNode = true;
+                }
+                continue;
+            }
+            if (COMPOUND_STATEMENT.equals(child.getType())) {
+                return child;
+            }
+            TSNode nested = firstCompoundDescendant(child);
+            if (nested != null) {
+                return nested;
+            }
+        }
+        return null;
+    }
+
+    private static @Nullable TSNode firstCompoundDescendantAfter(TSNode node, int startByte) {
+        TSNode best = null;
+        var stack = new ArrayDeque<TSNode>();
+        stack.push(node);
+        while (!stack.isEmpty()) {
+            TSNode current = stack.pop();
+            if (!current.equals(node)
+                    && COMPOUND_STATEMENT.equals(current.getType())
+                    && current.getStartByte() > startByte) {
+                if (best == null || current.getStartByte() < best.getStartByte()) {
+                    best = current;
+                }
+            }
+            for (int i = 0; i < current.getNamedChildCount(); i++) {
+                TSNode child = current.getNamedChild(i);
+                if (child != null) {
+                    stack.push(child);
+                }
+            }
+        }
+        return best;
+    }
+
+    private static boolean containsNode(TSNode candidateAncestor, TSNode node) {
+        return candidateAncestor.getStartByte() <= node.getStartByte()
+                && candidateAncestor.getEndByte() >= node.getEndByte();
+    }
+
+    private static @Nullable TSNode firstCompoundDescendant(TSNode node) {
+        if (COMPOUND_STATEMENT.equals(node.getType())) {
+            return node;
+        }
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            TSNode nested = firstCompoundDescendant(child);
+            if (nested != null) {
+                return nested;
+            }
+        }
+        return null;
+    }
+
+    private void analyzeCppTestBlock(
+            ProjectFile file,
+            String enclosing,
+            CppTestBlock testBlock,
+            SourceContent sourceContent,
+            TestAssertionWeights weights,
+            List<TestSmellCandidate> out) {
+        String testText = sourceContent.substringFrom(testBlock.bodyNode());
+        int testStartByte = testBlock.startByte();
+        var calls = extractAssertionCalls(testBlock.bodyNode(), sourceContent);
+        int assertionCount = calls.size();
+        int shallowAssertionCount = 0;
+        int meaningfulAssertionCount = 0;
+        if (assertionCount == 0) {
+            addTestSmellCandidate(
+                    file,
+                    enclosing,
+                    TEST_ASSERTION_KIND_NO_ASSERTIONS,
+                    weights.noAssertionWeight(),
+                    0,
+                    List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
+                    testText,
+                    testStartByte,
+                    out);
+            return;
+        }
+
+        for (AssertionCall call : calls) {
+            String upperName = call.name().toUpperCase(Locale.ROOT);
+            boolean shallow = false;
+            boolean meaningful = true;
+            if ((upperName.endsWith("_TRUE") || upperName.endsWith("_FALSE"))
+                    && call.args().size() >= 1) {
+                String arg = call.args().getFirst();
+                boolean trueConst = upperName.endsWith("_TRUE") && "true".equalsIgnoreCase(arg);
+                boolean falseConst = upperName.endsWith("_FALSE") && "false".equalsIgnoreCase(arg);
+                if (trueConst || falseConst) {
+                    addTestSmellCandidate(
+                            file,
+                            enclosing,
+                            TEST_ASSERTION_KIND_CONSTANT_TRUTH,
+                            weights.constantTruthWeight(),
+                            assertionCount,
+                            List.of(TEST_ASSERTION_KIND_CONSTANT_TRUTH),
+                            call.rawText(),
+                            call.startByte(),
+                            out);
+                    meaningful = false;
+                }
+            }
+
+            if ((upperName.endsWith("_EQ") || upperName.endsWith("_NE") || upperName.endsWith("_STREQ"))
+                    && call.args().size() >= 2) {
+                String left = call.args().get(0);
+                String right = call.args().get(1);
+                if (isCppConstantExpression(left) && isCppConstantExpression(right)) {
+                    addTestSmellCandidate(
+                            file,
+                            enclosing,
+                            TEST_ASSERTION_KIND_CONSTANT_EQUALITY,
+                            weights.constantEqualityWeight(),
+                            assertionCount,
+                            List.of(TEST_ASSERTION_KIND_CONSTANT_EQUALITY),
+                            call.rawText(),
+                            call.startByte(),
+                            out);
+                    meaningful = false;
+                    continue;
+                }
+                if (left.equals(right)) {
+                    addTestSmellCandidate(
+                            file,
+                            enclosing,
+                            TEST_ASSERTION_KIND_SELF_COMPARISON,
+                            weights.tautologicalAssertionWeight(),
+                            assertionCount,
+                            List.of(TEST_ASSERTION_KIND_SELF_COMPARISON),
+                            call.rawText(),
+                            call.startByte(),
+                            out);
+                    meaningful = false;
+                } else if (isCppNullLiteral(left) || isCppNullLiteral(right)) {
+                    addTestSmellCandidate(
+                            file,
+                            enclosing,
+                            TEST_ASSERTION_KIND_NULLNESS_ONLY,
+                            weights.nullnessOnlyWeight(),
+                            assertionCount,
+                            List.of(TEST_ASSERTION_KIND_NULLNESS_ONLY),
+                            call.rawText(),
+                            call.startByte(),
+                            out);
+                    shallow = true;
+                    meaningful = false;
+                }
+            } else if (upperName.endsWith("_NULL") || upperName.endsWith("_NOTNULL")) {
+                addTestSmellCandidate(
+                        file,
+                        enclosing,
+                        TEST_ASSERTION_KIND_NULLNESS_ONLY,
+                        weights.nullnessOnlyWeight(),
+                        assertionCount,
+                        List.of(TEST_ASSERTION_KIND_NULLNESS_ONLY),
+                        call.rawText(),
+                        call.startByte(),
+                        out);
+                shallow = true;
+                meaningful = false;
+            }
+
+            if (shallow) {
+                shallowAssertionCount++;
+            }
+            if (meaningful) {
+                meaningfulAssertionCount++;
+            }
+        }
+
+        if (shallowAssertionCount == assertionCount) {
+            int score = weights.shallowAssertionOnlyWeight()
+                    - Math.max(0, weights.meaningfulAssertionCredit())
+                            * Math.min(meaningfulAssertionCount, Math.max(0, weights.meaningfulAssertionCreditCap()));
+            addTestSmellCandidate(
+                    file,
+                    enclosing,
+                    TEST_ASSERTION_KIND_SHALLOW_ONLY,
+                    score,
+                    assertionCount,
+                    List.of(TEST_ASSERTION_KIND_SHALLOW_ONLY),
+                    testText,
+                    testStartByte,
+                    out);
+        }
+    }
+
+    private static boolean isCppConstantExpression(String expr) {
+        return CPP_CONSTANT_PATTERN.matcher(expr.trim()).matches();
+    }
+
+    private static boolean isCppNullLiteral(String expr) {
+        String normalized = expr.trim();
+        return "nullptr".equals(normalized) || "NULL".equals(normalized);
+    }
+
+    private static List<AssertionCall> extractAssertionCalls(TSNode scopeNode, SourceContent sourceContent) {
+        var callNodes = new ArrayList<TSNode>();
+        collectNodesByType(scopeNode, Set.of(CALL_EXPRESSION), callNodes);
+        callNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+
+        var assertionCalls = new ArrayList<AssertionCall>();
+        for (TSNode callNode : callNodes) {
+            TSNode function = callNode.getChildByFieldName(FIELD_FUNCTION);
+            if (function == null && callNode.getNamedChildCount() > 0) {
+                function = callNode.getNamedChild(0);
+            }
+            if (function == null) {
+                continue;
+            }
+            String name = sourceContent.substringFrom(function).strip();
+            if (!name.startsWith("ASSERT_") && !name.startsWith("EXPECT_")) {
+                continue;
+            }
+            TSNode arguments = callNode.getChildByFieldName(FIELD_ARGUMENTS);
+            var args = new ArrayList<String>();
+            if (arguments != null) {
+                for (int i = 0; i < arguments.getNamedChildCount(); i++) {
+                    TSNode arg = arguments.getNamedChild(i);
+                    if (arg != null) {
+                        args.add(sourceContent.substringFrom(arg).trim());
+                    }
+                }
+            }
+            assertionCalls.add(new AssertionCall(
+                    name, List.copyOf(args), sourceContent.substringFrom(callNode), callNode.getStartByte()));
+        }
+        return assertionCalls;
+    }
+
+    private record AssertionCall(String name, List<String> args, String rawText, int startByte) {}
+
+    private record CppTestBlock(TSNode bodyNode, int startByte) {}
 }
