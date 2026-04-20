@@ -10,7 +10,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 public class CppTestAssertionSmellTest extends AbstractBrittleTestSuite {
-    private static final String TEST_PATH = "test/sample_test.cpp";
+    private static final String TEST_PATH = "src/sample.cpp";
 
     @Test
     void flagsConstantTruthAndConstantEqualityInGTest() {
@@ -41,6 +41,82 @@ public class CppTestAssertionSmellTest extends AbstractBrittleTestSuite {
                 """;
         var findings = analyze(code);
         assertTrue(hasReason(findings, "no-assertions"), findings.toString());
+    }
+
+    @Test
+    void acceptsMarkerWhenCommentSeparatesNameAndParen() {
+        String code =
+                """
+                #include <gtest/gtest.h>
+
+                TEST /* comment */ (SampleTest, NoAssertions) {
+                    int value = 42;
+                    value++;
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(hasReason(findings, "no-assertions"), findings.toString());
+    }
+
+    @Test
+    void flagsNoAssertionsForCatch2StyleTestCase() {
+        String code =
+                """
+                TEST_CASE("NoAssertions") {
+                    int value = 42;
+                    value++;
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(hasReason(findings, "no-assertions"), findings.toString());
+    }
+
+    @Test
+    void flagsNoAssertionsForCatch2Scenario() {
+        String code =
+                """
+                SCENARIO("NoAssertions") {
+                    int value = 42;
+                    value++;
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(hasReason(findings, "no-assertions"), findings.toString());
+    }
+
+    @Test
+    void flagsNoAssertionsForBoostTestCase() {
+        String code =
+                """
+                BOOST_AUTO_TEST_CASE(NoAssertions) {
+                    int value = 42;
+                    value++;
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(hasReason(findings, "no-assertions"), findings.toString());
+    }
+
+    @Test
+    void flagsNoAssertionsForMsTestMethodInsideTestClass() {
+        String code =
+                """
+                TEST_CLASS(SampleTests) {
+                public:
+                    TEST_METHOD(NoAssertions) {
+                        int value = 42;
+                        value++;
+                    }
+                };
+                """;
+        try (var testProject = InlineCoreProject.code(code, TEST_PATH).build()) {
+            IAnalyzer analyzer = testProject.getAnalyzer();
+            ProjectFile file = new ProjectFile(testProject.getRoot(), TEST_PATH);
+            boolean containsTests = analyzer.containsTests(file);
+            var findings = analyzer.findTestAssertionSmells(file, null);
+            assertTrue(containsTests, "containsTests=false findings=" + findings);
+            assertTrue(hasReason(findings, "no-assertions"), findings.toString());
+        }
     }
 
     @Test

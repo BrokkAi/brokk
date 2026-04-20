@@ -1938,7 +1938,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                                     continue;
                                 }
                                 TSNode markerNode = capture.getNode();
-                                if (markerNode != null && isStructuredTestMarker(markerNode)) {
+                                if (markerNode == null) {
+                                    continue;
+                                }
+                                String markerName =
+                                        sourceContent.substringFrom(markerNode).strip();
+                                if (isStructuredTestMarker(markerNode, markerName, sourceContent)) {
                                     return true;
                                 }
                             }
@@ -1980,14 +1985,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         return withSource(file, source -> detectCppTestAssertionSmells(file, source, resolvedWeights), List.of());
     }
 
-    @Override
-    public boolean containsTests(ProjectFile file) {
-        if (super.containsTests(file)) {
-            return true;
-        }
-        return isCppTestLikePath(file);
-    }
-
     private List<TestAssertionSmell> detectCppTestAssertionSmells(
             ProjectFile file, SourceContent sourceContent, TestAssertionWeights weights) {
         var candidates = new ArrayList<TestSmellCandidate>();
@@ -2001,18 +1998,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 return List.of();
             }
             List<CppTestBlock> testBlocks = collectTestBlocks(rootNode, sourceContent);
-            if (testBlocks.isEmpty() && isCppTestLikePath(file)) {
-                addTestSmellCandidate(
-                        file,
-                        file.toString(),
-                        TEST_ASSERTION_KIND_NO_ASSERTIONS,
-                        weights.noAssertionWeight(),
-                        0,
-                        List.of(TEST_ASSERTION_KIND_NO_ASSERTIONS),
-                        sourceContent.text(),
-                        0,
-                        candidates);
-            }
             for (CppTestBlock testBlock : testBlocks) {
                 String enclosing = file.toString();
                 analyzeCppTestBlock(file, enclosing, testBlock, sourceContent, weights, candidates);
@@ -2022,11 +2007,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
                 .map(TestSmellCandidate::smell)
                 .toList();
-    }
-
-    private static boolean isCppTestLikePath(ProjectFile file) {
-        String relPath = file.getRelPath().toString().toLowerCase(Locale.ROOT).replace('\\', '/');
-        return relPath.endsWith("_test.cpp") || relPath.endsWith("_test.cc") || relPath.endsWith("_test.cxx");
     }
 
     private List<CppTestBlock> collectTestBlocks(TSNode rootNode, SourceContent sourceContent) {
@@ -2047,7 +2027,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                                 if (markerNode == null) {
                                     continue;
                                 }
-                                if (!isStructuredTestMarker(markerNode)) {
+                                String markerName =
+                                        sourceContent.substringFrom(markerNode).strip();
+                                if (!isStructuredTestMarker(markerNode, markerName, sourceContent)) {
                                     continue;
                                 }
                                 TSNode bodyNode = testBodyForMarker(markerNode);
@@ -2075,7 +2057,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (!TEST_MARKER_NAMES.contains(markerName)) {
                 continue;
             }
-            if (isStructuredTestMarker(identifierNode)) {
+            if (isStructuredTestMarker(identifierNode, markerName, sourceContent)) {
                 return true;
             }
         }
@@ -2091,7 +2073,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (!TEST_MARKER_NAMES.contains(markerName)) {
                 continue;
             }
-            if (!isStructuredTestMarker(identifierNode)) {
+            if (!isStructuredTestMarker(identifierNode, markerName, sourceContent)) {
                 continue;
             }
             TSNode bodyNode = testBodyForMarker(identifierNode);
@@ -2105,85 +2087,122 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
     }
 
-    private static boolean isStructuredTestMarker(TSNode markerNode) {
+    private static boolean isStructuredTestMarker(TSNode markerNode, String markerName, SourceContent sourceContent) {
         if (hasAncestorOfType(markerNode, COMPOUND_STATEMENT)) {
             return false;
         }
         TSNode bodyNode = testBodyForMarker(markerNode);
-        if (bodyNode == null || !hasInvocationArguments(markerNode)) {
+        if (bodyNode == null) {
+            return false;
+        }
+        if ("TEST_METHOD".equals(markerName)) {
+            // MS CppUnitTestFramework is macro-driven and Tree-sitter cannot see macro expansion.
+            // In practice the unexpanded token stream can parse with ERROR nodes and without a reliable
+            // argument-list structure we can traverse. We therefore accept TEST_METHOD only when it appears
+            // in a class-like context (field_declaration_list) and when the next non-trivia token is '('.
+            if (!hasAncestorOfType(markerNode, FIELD_DECLARATION_LIST)) {
+                return false;
+            }
+            if (!hasImmediateInvocationParen(markerNode, sourceContent)) {
+                return false;
+            }
+        } else if (!hasInvocationArgumentsByTree(markerNode, bodyNode)) {
             return false;
         }
         return hasTopLevelLikeOwner(markerNode, bodyNode);
     }
 
-    private static boolean hasInvocationArguments(TSNode markerNode) {
-        TSNode parent = markerNode.getParent();
-        if (parent != null
-                && CALL_EXPRESSION.equals(parent.getType())
-                && parent.getChildByFieldName(FIELD_ARGUMENTS) != null) {
-            return true;
-        }
-
+    private static boolean hasInvocationArgumentsByTree(TSNode markerNode, TSNode bodyNode) {
         TSNode current = markerNode;
         while (current != null) {
-            TSNode currentParent = current.getParent();
-            if (currentParent == null) {
-                return false;
+            TSNode parent = current.getParent();
+            if (parent == null) {
+                break;
             }
-            if (hasArgumentListAfter(currentParent, current)) {
+            if (CALL_EXPRESSION.equals(parent.getType()) && parent.getChildByFieldName(FIELD_ARGUMENTS) != null) {
                 return true;
             }
-            current = currentParent;
+            current = parent;
         }
-        return false;
-    }
 
-    private static boolean hasArgumentListAfter(TSNode parent, TSNode nodeOrDescendant) {
-        boolean pastNode = false;
-        for (int i = 0; i < parent.getNamedChildCount(); i++) {
-            TSNode child = parent.getNamedChild(i);
-            if (child == null) {
-                continue;
+        TSNode functionDef = markerNode;
+        while (functionDef != null) {
+            if (FUNCTION_DEFINITION.equals(functionDef.getType()) && containsNode(functionDef, bodyNode)) {
+                break;
             }
-            if (!pastNode) {
-                if (child.equals(nodeOrDescendant)) {
-                    pastNode = true;
-                    continue;
-                }
-                if (containsNode(child, nodeOrDescendant)) {
-                    if (hasArgumentListDescendantAfter(child, nodeOrDescendant.getStartByte())) {
-                        return true;
-                    }
-                    pastNode = true;
-                }
-                continue;
-            }
-            if (ARGUMENT_LIST.equals(child.getType())) {
-                return true;
-            }
-            if (hasArgumentListDescendantAfter(child, nodeOrDescendant.getStartByte())) {
-                return true;
-            }
+            functionDef = functionDef.getParent();
         }
-        return false;
-    }
+        if (functionDef == null) {
+            return false;
+        }
 
-    private static boolean hasArgumentListDescendantAfter(TSNode node, int startByte) {
+        if (functionDef.getChildByFieldName(FIELD_TYPE) != null) {
+            return false;
+        }
+
+        int markerEnd = markerNode.getEndByte();
+        int bodyStart = bodyNode.getStartByte();
         var stack = new ArrayDeque<TSNode>();
-        stack.push(node);
+        stack.push(functionDef);
         while (!stack.isEmpty()) {
-            TSNode current = stack.pop();
-            if (!current.equals(node)
-                    && ARGUMENT_LIST.equals(current.getType())
-                    && current.getStartByte() > startByte) {
-                return true;
+            TSNode node = stack.pop();
+            if (!node.equals(bodyNode) && containsNode(bodyNode, node)) {
+                continue;
             }
-            for (int i = 0; i < current.getNamedChildCount(); i++) {
-                TSNode child = current.getNamedChild(i);
+            if (PARAMETER_LIST.equals(node.getType())) {
+                int start = node.getStartByte();
+                if (start >= markerEnd && start < bodyStart) {
+                    return true;
+                }
+            }
+            for (int i = 0; i < node.getNamedChildCount(); i++) {
+                TSNode child = node.getNamedChild(i);
                 if (child != null) {
                     stack.push(child);
                 }
             }
+        }
+        return false;
+    }
+
+    private static boolean hasImmediateInvocationParen(TSNode markerNode, SourceContent sourceContent) {
+        byte[] bytes = sourceContent.utf8Bytes();
+        int i = markerNode.getEndByte();
+        while (i >= 0 && i < bytes.length) {
+            byte b = bytes[i];
+            if (b == ' ' || b == '\t' || b == '\n' || b == '\r') {
+                i++;
+                continue;
+            }
+            if (b == '/') {
+                if (i + 1 >= bytes.length) {
+                    return false;
+                }
+                byte next = bytes[i + 1];
+                if (next == '/') {
+                    i += 2;
+                    while (i < bytes.length) {
+                        byte c = bytes[i];
+                        if (c == '\n' || c == '\r') {
+                            break;
+                        }
+                        i++;
+                    }
+                    continue;
+                }
+                if (next == '*') {
+                    i += 2;
+                    while (i + 1 < bytes.length) {
+                        if (bytes[i] == '*' && bytes[i + 1] == '/') {
+                            i += 2;
+                            break;
+                        }
+                        i++;
+                    }
+                    continue;
+                }
+            }
+            return b == '(';
         }
         return false;
     }
@@ -2205,12 +2224,16 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (containsNode(current, bodyNode)) {
                 TSNode parent = current.getParent();
                 if (parent == null) {
-                    return false;
+                    return TRANSLATION_UNIT.equals(current.getType());
                 }
                 String parentType = parent.getType();
                 return TRANSLATION_UNIT.equals(parentType)
                         || DECLARATION_LIST.equals(parentType)
-                        || NAMESPACE_DEFINITION.equals(parentType);
+                        || NAMESPACE_DEFINITION.equals(parentType)
+                        || FIELD_DECLARATION_LIST.equals(parentType)
+                        || CLASS_SPECIFIER.equals(parentType)
+                        || STRUCT_SPECIFIER.equals(parentType)
+                        || UNION_SPECIFIER.equals(parentType);
             }
             current = current.getParent();
         }
@@ -2222,7 +2245,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         while (current != null) {
             TSNode bodyNode = current.getChildByFieldName(FIELD_BODY);
             if (bodyNode != null
-                    && COMPOUND_STATEMENT.equals(bodyNode.getType())
+                    && (COMPOUND_STATEMENT.equals(bodyNode.getType())
+                            || FIELD_DECLARATION_LIST.equals(bodyNode.getType()))
                     && bodyNode.getStartByte() >= markerNode.getStartByte()) {
                 return bodyNode;
             }
