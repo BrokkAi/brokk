@@ -5,10 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestConsoleIO;
-import ai.brokk.testutil.TestContextManager;
-import ai.brokk.tools.CodeQualityTools;
+import ai.brokk.testutil.InlineCoreProject;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -26,7 +23,7 @@ public class CppTestAssertionSmellTest extends AbstractBrittleTestSuite {
                     ASSERT_EQ(1, 1);
                 }
                 """;
-        var findings = analyze(code, TEST_PATH);
+        var findings = analyze(code);
         assertTrue(hasReason(findings, "constant-truth"), findings.toString());
         assertTrue(hasReason(findings, "constant-equality"), findings.toString());
     }
@@ -42,12 +39,12 @@ public class CppTestAssertionSmellTest extends AbstractBrittleTestSuite {
                     value++;
                 }
                 """;
-        var findings = analyze(code, TEST_PATH);
+        var findings = analyze(code);
         assertTrue(hasReason(findings, "no-assertions"), findings.toString());
     }
 
     @Test
-    void toolReturnsNoFindingsMessageForMeaningfulAssertion() {
+    void meaningfulAssertionIsNotFlaggedWithDefaultWeights() {
         String code =
                 """
                 #include <gtest/gtest.h>
@@ -61,24 +58,8 @@ public class CppTestAssertionSmellTest extends AbstractBrittleTestSuite {
                     return 42;
                 }
                 """;
-        String report = toolReport(code, 4);
-        assertTrue(report.startsWith("No test assertion smells met minScore"), report);
-    }
-
-    @Test
-    void toolProducesMarkdownTableForSmellyCppTest() {
-        String code =
-                """
-                #include <gtest/gtest.h>
-
-                TEST(SampleTest, Smelly) {
-                    EXPECT_TRUE(true);
-                }
-                """;
-        String report = toolReport(code, 1);
-        assertTrue(report.contains("## Test assertion smells"), report);
-        assertTrue(report.contains("| Score | Kind | Assertions | Symbol | File | Reasons | Excerpt |"), report);
-        assertTrue(report.contains("constant-truth"), report);
+        var findings = analyze(code);
+        assertTrue(findings.isEmpty());
     }
 
     @Test
@@ -97,7 +78,7 @@ public class CppTestAssertionSmellTest extends AbstractBrittleTestSuite {
                     EXPECT_NE(result, nullptr);
                 }
                 """;
-        var findings = analyze(code, TEST_PATH);
+        var findings = analyze(code);
         assertTrue(hasReason(findings, "nullness-only"), findings.toString());
         assertTrue(hasReason(findings, "shallow-assertions-only"), findings.toString());
     }
@@ -123,26 +104,20 @@ public class CppTestAssertionSmellTest extends AbstractBrittleTestSuite {
                     EXPECT_EQ(42, compute());
                 }
                 """;
-        var findings = analyze(code, TEST_PATH);
+        var findings = analyze(code);
         assertTrue(hasReason(findings, "nullness-only"), findings.toString());
         assertFalse(hasReason(findings, "shallow-assertions-only"), findings.toString());
     }
 
-    private String toolReport(String source, int minScore) {
-        String path = TEST_PATH;
-        try (var testProject = InlineTestProjectCreator.code(source, path).build()) {
-            IAnalyzer analyzer = testProject.getAnalyzer();
-            var cm = new TestContextManager(testProject, new TestConsoleIO(), java.util.Set.of(), analyzer);
-            var tools = new CodeQualityTools(cm);
-            return tools.reportTestAssertionSmells(
-                    List.of(path), minScore, 80, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
-        }
+    @Override
+    protected String defaultTestPath() {
+        return TEST_PATH;
     }
 
     @Override
     protected List<IAnalyzer.TestAssertionSmell> analyze(
             String source, String path, IAnalyzer.TestAssertionWeights weights) {
-        try (var testProject = InlineTestProjectCreator.code(source, path).build()) {
+        try (var testProject = InlineCoreProject.code(source, path).build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();
             ProjectFile file = new ProjectFile(testProject.getRoot(), path);
             return analyzer.findTestAssertionSmells(file, weights);
