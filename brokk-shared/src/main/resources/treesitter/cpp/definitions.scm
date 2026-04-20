@@ -91,14 +91,6 @@
 (access_specifier) @access.specifier
 
 ; Test markers (GoogleTest/Catch2 style test macro invocations)
-(function_definition
-  declarator: (function_declarator
-    declarator: [
-                  (identifier) @test.marker
-                  (field_identifier) @test.marker
-                  ])
-  (#match? @test.marker "^(TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE|SCENARIO|BOOST_AUTO_TEST_CASE|BOOST_FIXTURE_TEST_CASE|BOOST_DATA_TEST_CASE|TEST_CLASS|TEST_METHOD)$"))
-
 (call_expression
   function: (identifier) @test.marker
   (#match? @test.marker "^(TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE|SCENARIO|BOOST_AUTO_TEST_CASE|BOOST_FIXTURE_TEST_CASE|BOOST_DATA_TEST_CASE|TEST_CLASS|TEST_METHOD)$"))

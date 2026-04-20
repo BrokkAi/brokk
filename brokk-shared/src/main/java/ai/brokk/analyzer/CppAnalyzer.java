@@ -1938,7 +1938,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                                     continue;
                                 }
                                 TSNode markerNode = capture.getNode();
-                                if (markerNode != null && isStructuredTestMarker(markerNode)) {
+                                if (markerNode == null) {
+                                    continue;
+                                }
+                                String markerName =
+                                        sourceContent.substringFrom(markerNode).strip();
+                                if (isStructuredTestMarker(markerNode, markerName, sourceContent)) {
                                     return true;
                                 }
                             }
@@ -2022,7 +2027,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                                 if (markerNode == null) {
                                     continue;
                                 }
-                                if (!isStructuredTestMarker(markerNode)) {
+                                String markerName =
+                                        sourceContent.substringFrom(markerNode).strip();
+                                if (!isStructuredTestMarker(markerNode, markerName, sourceContent)) {
                                     continue;
                                 }
                                 TSNode bodyNode = testBodyForMarker(markerNode);
@@ -2050,7 +2057,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (!TEST_MARKER_NAMES.contains(markerName)) {
                 continue;
             }
-            if (isStructuredTestMarker(identifierNode)) {
+            if (isStructuredTestMarker(identifierNode, markerName, sourceContent)) {
                 return true;
             }
         }
@@ -2066,7 +2073,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (!TEST_MARKER_NAMES.contains(markerName)) {
                 continue;
             }
-            if (!isStructuredTestMarker(identifierNode)) {
+            if (!isStructuredTestMarker(identifierNode, markerName, sourceContent)) {
                 continue;
             }
             TSNode bodyNode = testBodyForMarker(identifierNode);
@@ -2080,54 +2087,30 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
     }
 
-    private static boolean isStructuredTestMarker(TSNode markerNode) {
+    private static boolean isStructuredTestMarker(TSNode markerNode, String markerName, SourceContent sourceContent) {
         if (hasAncestorOfType(markerNode, COMPOUND_STATEMENT)) {
             return false;
         }
         TSNode bodyNode = testBodyForMarker(markerNode);
-        if (bodyNode == null || !hasInvocationArguments(markerNode)) {
+        if (bodyNode == null || !hasImmediateInvocationParen(markerNode, sourceContent)) {
+            return false;
+        }
+        if ("TEST_METHOD".equals(markerName) && !hasAncestorOfType(markerNode, FIELD_DECLARATION_LIST)) {
             return false;
         }
         return hasTopLevelLikeOwner(markerNode, bodyNode);
     }
 
-    private static boolean hasInvocationArguments(TSNode markerNode) {
-        TSNode parent = markerNode.getParent();
-        if (parent != null
-                && CALL_EXPRESSION.equals(parent.getType())
-                && parent.getChildByFieldName(FIELD_ARGUMENTS) != null) {
-            return true;
-        }
-
-        int markerStartByte = markerNode.getStartByte();
-        TSNode scope = markerNode;
-        while (scope != null && !TRANSLATION_UNIT.equals(scope.getType())) {
-            if (hasNearbyArgumentList(scope, markerStartByte)) {
-                return true;
+    private static boolean hasImmediateInvocationParen(TSNode markerNode, SourceContent sourceContent) {
+        byte[] bytes = sourceContent.utf8Bytes();
+        int i = markerNode.getEndByte();
+        while (i >= 0 && i < bytes.length) {
+            byte b = bytes[i];
+            if (b == ' ' || b == '\t' || b == '\n' || b == '\r') {
+                i++;
+                continue;
             }
-            scope = scope.getParent();
-        }
-        return false;
-    }
-
-    private static boolean hasNearbyArgumentList(TSNode node, int markerStartByte) {
-        var stack = new ArrayDeque<TSNode>();
-        stack.push(node);
-        while (!stack.isEmpty()) {
-            TSNode current = stack.pop();
-            if (!current.equals(node)
-                    && (ARGUMENT_LIST.equals(current.getType()) || PARAMETER_LIST.equals(current.getType()))) {
-                int delta = current.getStartByte() - markerStartByte;
-                if (delta > 0 && delta <= 64) {
-                    return true;
-                }
-            }
-            for (int i = 0; i < current.getNamedChildCount(); i++) {
-                TSNode child = current.getNamedChild(i);
-                if (child != null) {
-                    stack.push(child);
-                }
-            }
+            return b == '(';
         }
         return false;
     }
