@@ -48,6 +48,10 @@ public final class CoreTestProject implements ICoreProject {
         return new CoreTestProject(TestResourcePaths.resourceDirectory(resourceDirName), Set.of(language));
     }
 
+    public static CoreTestProject fromResourceDir(String resourceDirName, Set<Language> languages) {
+        return new CoreTestProject(TestResourcePaths.resourceDirectory(resourceDirName), languages);
+    }
+
     @Override
     public Path getRoot() {
         return root;
