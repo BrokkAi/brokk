@@ -21,38 +21,31 @@ public final class ModelProperties {
     // Model name constants
     public static final String GPT_5 = "gpt-5";
     private static final String GEMINI_3_1_PRO = "gemini-3-1-pro-preview";
-    private static final String FLASH_2_0 = "gemini-2.0-flash";
     private static final String FLASH_3 = "gemini-3-flash-preview";
-    private static final String GPT_5_NANO = "gpt-5-nano";
+    private static final String GPT_54_NANO = "gpt-5.4-nano";
     private static final String GCF_1 = "grok-code-fast-1";
-    private static final String HAIKU_3 = "claude-haiku-3";
-    private static final String FLASH_2_0_LITE = "gemini-2.0-flash-lite";
     private static final String GEMINI_3_1_FLASH_LITE = "gemini-3.1-flash-lite-preview";
     private static final String OPUS_4_6 = "claude-opus-4-6";
     private static final String SONNET_4_6 = "claude-sonnet-4-6";
     private static final String HAIKU_4_5 = "claude-haiku-4-5";
-    private static final String GPT_5_MINI = "gpt-5-mini";
     public static final String GPT_5_3_CODEX = "gpt-5.3-codex";
 
     public static final String GPT_5_1_CODEX_MINI_OAUTH = "gpt-5.1-codex-mini-oauth";
     public static final String GPT_5_3_CODEX_OAUTH = "gpt-5.3-codex-oauth";
 
     // Common configurations. Note that we override thinking levels in some cases for speed.
-    private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
-    private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.LOW);
+    private static final ModelConfig gpt5_4NanoLow = new ModelConfig(GPT_54_NANO, ReasoningLevel.LOW);
+    private static final ModelConfig gpt5_4NanoHigh = new ModelConfig(GPT_54_NANO, ReasoningLevel.HIGH);
     private static final ModelConfig codex5_3 = new ModelConfig(GPT_5_3_CODEX, ReasoningLevel.DISABLE);
 
     private static final ModelConfig gpt5_1CodexMiniOauth =
             new ModelConfig(GPT_5_1_CODEX_MINI_OAUTH, ReasoningLevel.LOW);
     private static final ModelConfig gpt5_3CodexOauth = new ModelConfig(GPT_5_3_CODEX_OAUTH, ReasoningLevel.DISABLE);
 
-    private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
     private static final ModelConfig haiku4_5 = new ModelConfig(HAIKU_4_5);
     private static final ModelConfig sonnet4_6 = new ModelConfig(SONNET_4_6, ReasoningLevel.DISABLE);
     private static final ModelConfig opus4_6 = new ModelConfig(OPUS_4_6, ReasoningLevel.DISABLE);
 
-    private static final ModelConfig flash2Lite = new ModelConfig(FLASH_2_0_LITE);
-    private static final ModelConfig flash2 = new ModelConfig(FLASH_2_0);
     private static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
     private static final ModelConfig flash3Low = new ModelConfig(FLASH_3, ReasoningLevel.LOW);
     private static final ModelConfig g31p = new ModelConfig(GEMINI_3_1_PRO, ReasoningLevel.DISABLE);
@@ -62,7 +55,7 @@ public final class ModelProperties {
     private static final ModelConfig gcf1 = new ModelConfig(GCF_1);
 
     // these models are defined for low-latency use cases that don't require high intelligence
-    public static final Set<String> SYSTEM_ONLY_MODELS = Set.of(FLASH_2_0_LITE, GPT_5_NANO, HAIKU_3);
+    public static final Set<String> SYSTEM_ONLY_MODELS = Set.of(GPT_54_NANO);
 
     // Json stuff
     public static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
@@ -99,15 +92,15 @@ public final class ModelProperties {
 
         // indirectly selectable via vendor preference
         SUMMARIZE("quickConfig", flash31liteLow, gcf1),
-        // GCF1 is cheap enough for usages, but we don't get enough concurrent requests, so free tier gets flash2
-        USAGES("usagesConfig", flash31liteHigh, flash2),
+        // GCF1 is cheap enough for usages, but we don't get enough concurrent requests, so free tier gets Nano
+        USAGES("usagesConfig", flash31liteHigh, gpt5_4NanoLow),
         QUICK_EDIT("quickEditConfig", flash3, gcf1),
-        QUICKEST("quickestConfig", flash2Lite),
+        QUICKEST("quickestConfig", gpt5_4NanoLow),
         COMMIT_MESSAGE("commitMessageConfig", flash3, gcf1),
         REFERENCES("referencesConfig", flash3Low, gcf1),
         SCAN("scanConfig", flash3, gcf1),
         SEARCH("searchConfig", flash3, gcf1),
-        BUILD_PROCESSOR("buildProcessorConfig", flash31liteHigh, gpt5Nano);
+        BUILD_PROCESSOR("buildProcessorConfig", flash31liteHigh, gpt5_4NanoLow);
 
         public final String propertyKey;
         private final ModelConfig defaultConfig;
@@ -142,11 +135,11 @@ public final class ModelProperties {
             map.put(
                     "Anthropic",
                     Map.of(
-                            ModelType.SUMMARIZE, haiku3,
-                            ModelType.USAGES, haiku3,
+                            ModelType.SUMMARIZE, haiku4_5,
+                            ModelType.USAGES, haiku4_5,
                             ModelType.QUICK_EDIT, haiku4_5,
-                            ModelType.QUICKEST, haiku3,
-                            ModelType.COMMIT_MESSAGE, haiku3,
+                            ModelType.QUICKEST, haiku4_5,
+                            ModelType.COMMIT_MESSAGE, haiku4_5,
                             ModelType.REFERENCES, haiku4_5,
                             ModelType.SCAN, haiku4_5,
                             ModelType.SEARCH, haiku4_5,
@@ -157,7 +150,7 @@ public final class ModelProperties {
                             ModelType.SUMMARIZE, flash3,
                             ModelType.USAGES, flash3,
                             ModelType.QUICK_EDIT, flash3,
-                            ModelType.QUICKEST, flash2Lite,
+                            ModelType.QUICKEST, flash31liteLow,
                             ModelType.COMMIT_MESSAGE, flash3,
                             ModelType.REFERENCES, flash3Low,
                             ModelType.SCAN, flash3,
@@ -166,15 +159,15 @@ public final class ModelProperties {
             map.put(
                     "OpenAI",
                     Map.of(
-                            ModelType.SUMMARIZE, gpt5Mini,
-                            ModelType.USAGES, gpt5Mini,
-                            ModelType.QUICK_EDIT, gpt5Mini,
-                            ModelType.QUICKEST, gpt5Nano,
-                            ModelType.COMMIT_MESSAGE, gpt5Mini,
+                            ModelType.SUMMARIZE, gpt5_4NanoLow,
+                            ModelType.USAGES, gpt5_4NanoLow,
+                            ModelType.QUICK_EDIT, gpt5_4NanoLow,
+                            ModelType.QUICKEST, gpt5_4NanoLow,
+                            ModelType.COMMIT_MESSAGE, gpt5_4NanoLow,
                             ModelType.REFERENCES, codex5_3,
                             ModelType.SCAN, codex5_3,
                             ModelType.SEARCH, codex5_3,
-                            ModelType.BUILD_PROCESSOR, gpt5Mini));
+                            ModelType.BUILD_PROCESSOR, gpt5_4NanoHigh));
             map.put(
                     "OpenAI - Codex",
                     Map.of(
