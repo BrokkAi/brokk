@@ -151,12 +151,14 @@ public class CodeQualityTools {
             ProjectFile file = contextManager.toFile(path);
             if (!file.exists()) {
                 lines.add("- Missing file (skipped): `" + path + "`");
+                filesShown++;
                 continue;
             }
             if (!"java".equals(file.extension())) {
                 lines.add("### `" + path + "`");
                 lines.add("(not a Java file; skipped)");
                 lines.add("");
+                filesShown++;
                 continue;
             }
             List<CommentDensityStats> stats = analyzer.commentDensityByTopLevel(file);
@@ -327,7 +329,8 @@ public class CodeQualityTools {
             String left = finding.file() + "#" + finding.enclosingFqName();
             String right = finding.peerFile() + "#" + finding.peerEnclosingFqName();
             String key = left.compareTo(right) <= 0 ? left + "||" + right : right + "||" + left;
-            deduped.putIfAbsent(key, finding);
+            deduped.merge(
+                    key, finding, (existing, incoming) -> incoming.score() > existing.score() ? incoming : existing);
         }
         var filtered = deduped.values().stream()
                 .filter(f -> f.score() >= threshold)

@@ -236,6 +236,37 @@ public class MultiAnalyzer
     }
 
     @Override
+    public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
+        return delegateFor(file)
+                .map(delegate -> delegate.findExceptionHandlingSmells(file, weights))
+                .orElse(List.of());
+    }
+
+    @Override
+    public List<CloneSmell> findStructuralCloneSmells(ProjectFile file, CloneSmellWeights weights) {
+        return delegateFor(file)
+                .map(delegate -> delegate.findStructuralCloneSmells(file, weights))
+                .orElse(List.of());
+    }
+
+    @Override
+    public List<CloneSmell> findStructuralCloneSmells(List<ProjectFile> files, CloneSmellWeights weights) {
+        return files.stream()
+                .collect(Collectors.groupingBy(
+                        file -> Languages.fromExtension(file.extension()), LinkedHashMap::new, Collectors.toList()))
+                .entrySet()
+                .stream()
+                .flatMap(entry -> {
+                    var delegate = delegates.get(entry.getKey());
+                    if (delegate == null) {
+                        return Stream.<CloneSmell>empty();
+                    }
+                    return delegate.findStructuralCloneSmells(entry.getValue(), weights).stream();
+                })
+                .toList();
+    }
+
+    @Override
     public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
         return delegateFor(codeUnit).flatMap(analyzer -> analyzer.getSource(codeUnit, includeComments));
     }
