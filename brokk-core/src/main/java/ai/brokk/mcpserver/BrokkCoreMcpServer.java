@@ -28,8 +28,10 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Standalone MCP server providing pure code intelligence tools.
@@ -38,29 +40,54 @@ import org.apache.logging.log4j.Logger;
 public class BrokkCoreMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkCoreMcpServer.class);
     private static final String VERSION = "0.1.0";
+    private static final String LOG_MCP_HISTORY_FLAG = "--log-mcp-history";
 
     private final ReentrantReadWriteLock workspaceLock = new ReentrantReadWriteLock(true);
+    private final boolean logMcpHistory;
     private CoreProject project;
     private ICodeIntelligence intelligence;
     private SearchTools searchTools;
     private Path activeWorkspaceRoot;
+    private @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
 
     public BrokkCoreMcpServer(CoreProject project, ICodeIntelligence intelligence, SearchTools searchTools) {
+        this(project, intelligence, searchTools, false);
+    }
+
+    public BrokkCoreMcpServer(
+            CoreProject project, ICodeIntelligence intelligence, SearchTools searchTools, boolean logMcpHistory) {
         this.project = project;
         this.intelligence = intelligence;
         this.searchTools = searchTools;
+        this.logMcpHistory = logMcpHistory;
         this.activeWorkspaceRoot = project.getRoot();
+        this.mcpToolCallHistoryWriter = logMcpHistory ? createMcpToolCallHistoryWriter(this.activeWorkspaceRoot) : null;
+    }
+
+    private static @Nullable McpToolCallHistoryWriter createMcpToolCallHistoryWriter(Path projectRoot) {
+        try {
+            return new McpToolCallHistoryWriter(projectRoot.resolve(".brokk").resolve("mcp-history"));
+        } catch (IOException e) {
+            logger.warn("Failed to initialize MCP tool call history logging", e);
+            return null;
+        }
     }
 
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
+        boolean logMcpHistory = false;
 
         for (String arg : args) {
             if ("--help".equals(arg) || "-h".equals(arg)) {
                 System.out.println("Brokk Core MCP Server v" + VERSION);
                 System.out.println("Provides code intelligence tools via Model Context Protocol.");
                 System.out.println("No LLM dependencies - pure tree-sitter analysis.");
+                System.out.println("Options:");
+                System.out.println(
+                        "  " + LOG_MCP_HISTORY_FLAG + "  Write MCP request/response logs under .brokk/mcp-history.");
                 System.exit(0);
+            } else if (LOG_MCP_HISTORY_FLAG.equals(arg)) {
+                logMcpHistory = true;
             }
         }
 
@@ -95,7 +122,7 @@ public class BrokkCoreMcpServer {
 
             var coreIntelligence = new StandaloneCodeIntelligence(coreProject, analyzer);
             var coreSearchTools = new SearchTools(coreIntelligence);
-            var server = new BrokkCoreMcpServer(coreProject, coreIntelligence, coreSearchTools);
+            var server = new BrokkCoreMcpServer(coreProject, coreIntelligence, coreSearchTools, logMcpHistory);
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
@@ -208,6 +235,7 @@ public class BrokkCoreMcpServer {
             this.intelligence = new StandaloneCodeIntelligence(newProject, newAnalyzer);
             this.searchTools = new SearchTools(this.intelligence);
             this.activeWorkspaceRoot = newRoot;
+            this.mcpToolCallHistoryWriter = logMcpHistory ? createMcpToolCallHistoryWriter(newRoot) : null;
             logger.info("Workspace switched to {}", newRoot);
         } finally {
             workspaceLock.writeLock().unlock();
@@ -532,7 +560,7 @@ public class BrokkCoreMcpServer {
                 throws Exception;
     }
 
-    private static McpServerFeatures.SyncToolSpecification tool(
+    private McpServerFeatures.SyncToolSpecification tool(
             String name, String description, McpSchema.JsonSchema inputSchema, ToolHandler handler) {
         var mcpTool = McpSchema.Tool.builder()
                 .name(name)
@@ -542,17 +570,53 @@ public class BrokkCoreMcpServer {
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(mcpTool)
                 .callHandler((exchange, request) -> {
+                    var historyWriter = mcpToolCallHistoryWriter;
+                    var logFile =
+                            historyWriter != null ? historyWriter.writeRequest(name, serializeRequest(request)) : null;
                     try {
-                        return handler.handle(exchange, request);
+                        if (historyWriter != null && logFile != null) {
+                            historyWriter.appendProgress(logFile, 0.0, "Starting " + name);
+                        }
+                        var result = handler.handle(exchange, request);
+                        appendLoggedResult(historyWriter, logFile, result);
+                        return result;
                     } catch (Exception e) {
                         logger.error("Error executing tool {}", name, e);
-                        return McpSchema.CallToolResult.builder()
+                        var errorResult = McpSchema.CallToolResult.builder()
                                 .addTextContent("Error: " + e.getMessage())
                                 .isError(true)
                                 .build();
+                        appendLoggedResult(historyWriter, logFile, errorResult);
+                        return errorResult;
                     }
                 })
                 .build();
+    }
+
+    private static String serializeRequest(McpSchema.CallToolRequest request) {
+        try {
+            return McpJsonDefaults.getMapper().writeValueAsString(request);
+        } catch (IOException e) {
+            return "{}";
+        }
+    }
+
+    private static void appendLoggedResult(
+            @Nullable McpToolCallHistoryWriter historyWriter, @Nullable Path logFile, McpSchema.CallToolResult result) {
+        if (historyWriter == null || logFile == null) {
+            return;
+        }
+        String status = result.isError() != null && result.isError() ? "ERROR" : "SUCCESS";
+        historyWriter.appendProgress(logFile, 1.0, "Completed");
+        historyWriter.appendResult(logFile, status, renderTextContent(result));
+    }
+
+    private static String renderTextContent(McpSchema.CallToolResult result) {
+        return result.content().stream()
+                .filter(McpSchema.TextContent.class::isInstance)
+                .map(McpSchema.TextContent.class::cast)
+                .map(McpSchema.TextContent::text)
+                .collect(Collectors.joining("\n"));
     }
 
     private static McpSchema.JsonSchema schema(Map<String, Object> properties, List<String> required) {

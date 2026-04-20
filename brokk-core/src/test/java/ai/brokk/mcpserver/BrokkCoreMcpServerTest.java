@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -157,5 +158,53 @@ class BrokkCoreMcpServerTest {
 
         assertNotNull(result);
         assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void toolCallsDoNotLogToMcpHistoryByDefault() {
+        var specs = server.toolSpecifications();
+        var activeTool = specs.stream()
+                .filter(s -> "getActiveWorkspace".equals(s.tool().name()))
+                .findFirst()
+                .orElseThrow();
+
+        var request = new io.modelcontextprotocol.spec.McpSchema.CallToolRequest("getActiveWorkspace", Map.of());
+        var result = activeTool.callHandler().apply(null, request);
+
+        assertNotNull(result);
+        assertFalse(Files.exists(projectRoot.resolve(".brokk").resolve("mcp-history")));
+    }
+
+    @Test
+    void toolCallsAreLoggedToMcpHistoryWhenEnabled() throws Exception {
+        var analyzer = new DisabledAnalyzer(project);
+        var intel = new StandaloneCodeIntelligence(project, analyzer);
+        var searchTools = new SearchTools(intel);
+        server = new BrokkCoreMcpServer(project, intel, searchTools, true);
+
+        var specs = server.toolSpecifications();
+        var activeTool = specs.stream()
+                .filter(s -> "getActiveWorkspace".equals(s.tool().name()))
+                .findFirst()
+                .orElseThrow();
+
+        var request = new io.modelcontextprotocol.spec.McpSchema.CallToolRequest("getActiveWorkspace", Map.of());
+        var result = activeTool.callHandler().apply(null, request);
+
+        assertNotNull(result);
+
+        Path historyRoot = projectRoot.resolve(".brokk").resolve("mcp-history");
+        assertTrue(Files.isDirectory(historyRoot), "Expected mcp-history directory to exist");
+
+        Path logFile;
+        try (Stream<Path> files = Files.walk(historyRoot)) {
+            logFile = files.filter(Files::isRegularFile).findFirst().orElseThrow();
+        }
+
+        String logText = Files.readString(logFile);
+        assertTrue(logText.contains("# Request"), "Expected request section in history log");
+        assertTrue(logText.contains("# Response"), "Expected response section in history log");
+        assertTrue(logText.contains("getActiveWorkspace"), "Expected tool name in history log");
+        assertTrue(logText.contains(projectRoot.toString()), "Expected workspace path in history log response");
     }
 }
