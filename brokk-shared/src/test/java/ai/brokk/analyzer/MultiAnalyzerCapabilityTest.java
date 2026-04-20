@@ -1,13 +1,17 @@
 package ai.brokk.analyzer;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.project.ICoreProject;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class MultiAnalyzerCapabilityTest {
 
@@ -52,6 +56,75 @@ public class MultiAnalyzerCapabilityTest {
         assertTrue(
                 provider.isPresent(), "MultiAnalyzer should return a provider for TypeAlias when delegate supports it");
         assertTrue(provider.get() == multi, "MultiAnalyzer should return itself as the provider");
+    }
+
+    @Test
+    void findExceptionHandlingSmells_DelegatesToFileLanguageAnalyzer(@TempDir Path root) {
+        var javaFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/App.java");
+        var pythonFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/app.py");
+        var javaFinding = new IAnalyzer.ExceptionHandlingSmell(
+                javaFile, "App.run", "Exception", 5, 0, List.of("empty catch body"), "catch (Exception e) {}");
+        var pythonFinding = new IAnalyzer.ExceptionHandlingSmell(
+                pythonFile, "app.run", "Exception", 5, 0, List.of("empty except body"), "except Exception:");
+        var javaAnalyzer = new QualitySmellAnalyzer(List.of(javaFinding), List.of());
+        var pythonAnalyzer = new QualitySmellAnalyzer(List.of(pythonFinding), List.of());
+        var multi = new MultiAnalyzer(Map.of(Languages.JAVA, javaAnalyzer, Languages.PYTHON, pythonAnalyzer));
+
+        var findings = multi.findExceptionHandlingSmells(javaFile, IAnalyzer.ExceptionSmellWeights.defaults());
+
+        assertEquals(List.of(javaFinding), findings);
+        assertEquals(List.of(javaFile), javaAnalyzer.exceptionFiles);
+        assertTrue(pythonAnalyzer.exceptionFiles.isEmpty());
+    }
+
+    @Test
+    void findStructuralCloneSmells_DelegatesSingleFileToFileLanguageAnalyzer(@TempDir Path root) {
+        var javaFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/App.java");
+        var peerFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/Peer.java");
+        var pythonFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/app.py");
+        var javaFinding = new IAnalyzer.CloneSmell(
+                javaFile, "App.run", peerFile, "Peer.run", 90, 20, List.of("shared structure"), "run();", "run();");
+        var pythonFinding = new IAnalyzer.CloneSmell(
+                pythonFile, "app.run", pythonFile, "app.other", 90, 20, List.of("shared structure"), "run()", "run()");
+        var javaAnalyzer = new QualitySmellAnalyzer(List.of(), List.of(javaFinding));
+        var pythonAnalyzer = new QualitySmellAnalyzer(List.of(), List.of(pythonFinding));
+        var multi = new MultiAnalyzer(Map.of(Languages.JAVA, javaAnalyzer, Languages.PYTHON, pythonAnalyzer));
+
+        var findings = multi.findStructuralCloneSmells(javaFile, IAnalyzer.CloneSmellWeights.defaults());
+
+        assertEquals(List.of(javaFinding), findings);
+        assertEquals(List.of(List.of(javaFile)), javaAnalyzer.cloneFileGroups);
+        assertTrue(pythonAnalyzer.cloneFileGroups.isEmpty());
+    }
+
+    @Test
+    void findStructuralCloneSmells_DelegatesFileGroupsByLanguage(@TempDir Path root) {
+        var javaFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/App.java");
+        var javaPeerFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/Peer.java");
+        var pythonFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/app.py");
+        var pythonPeerFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/peer.py");
+        var javaFinding = new IAnalyzer.CloneSmell(
+                javaFile, "App.run", javaPeerFile, "Peer.run", 90, 20, List.of("shared structure"), "run();", "run();");
+        var pythonFinding = new IAnalyzer.CloneSmell(
+                pythonFile,
+                "app.run",
+                pythonPeerFile,
+                "peer.run",
+                88,
+                18,
+                List.of("shared structure"),
+                "run()",
+                "run()");
+        var javaAnalyzer = new QualitySmellAnalyzer(List.of(), List.of(javaFinding));
+        var pythonAnalyzer = new QualitySmellAnalyzer(List.of(), List.of(pythonFinding));
+        var multi = new MultiAnalyzer(Map.of(Languages.JAVA, javaAnalyzer, Languages.PYTHON, pythonAnalyzer));
+
+        var findings = multi.findStructuralCloneSmells(
+                List.of(javaFile, pythonFile, javaPeerFile, pythonPeerFile), IAnalyzer.CloneSmellWeights.defaults());
+
+        assertEquals(List.of(javaFinding, pythonFinding), findings);
+        assertEquals(List.of(List.of(javaFile, javaPeerFile)), javaAnalyzer.cloneFileGroups);
+        assertEquals(List.of(List.of(pythonFile, pythonPeerFile)), pythonAnalyzer.cloneFileGroups);
     }
 
     private abstract static class BaseStubAnalyzer implements IAnalyzer {
@@ -174,6 +247,48 @@ public class MultiAnalyzerCapabilityTest {
         @Override
         public boolean isTypeAlias(CodeUnit cu) {
             return false;
+        }
+    }
+
+    private static final class QualitySmellAnalyzer extends BaseStubAnalyzer {
+        final List<ProjectFile> exceptionFiles = new ArrayList<>();
+        final List<List<ProjectFile>> cloneFileGroups = new ArrayList<>();
+
+        private final List<IAnalyzer.ExceptionHandlingSmell> exceptionFindings;
+        private final List<IAnalyzer.CloneSmell> cloneFindings;
+
+        QualitySmellAnalyzer(
+                List<IAnalyzer.ExceptionHandlingSmell> exceptionFindings, List<IAnalyzer.CloneSmell> cloneFindings) {
+            this.exceptionFindings = exceptionFindings;
+            this.cloneFindings = cloneFindings;
+        }
+
+        @Override
+        public List<IAnalyzer.ExceptionHandlingSmell> findExceptionHandlingSmells(
+                ProjectFile file, IAnalyzer.ExceptionSmellWeights weights) {
+            exceptionFiles.add(file);
+            return exceptionFindings.stream()
+                    .filter(finding -> finding.file().equals(file))
+                    .toList();
+        }
+
+        @Override
+        public List<IAnalyzer.CloneSmell> findStructuralCloneSmells(
+                ProjectFile file, IAnalyzer.CloneSmellWeights weights) {
+            cloneFileGroups.add(List.of(file));
+            return cloneFindings.stream()
+                    .filter(finding ->
+                            finding.file().equals(file) || finding.peerFile().equals(file))
+                    .toList();
+        }
+
+        @Override
+        public List<IAnalyzer.CloneSmell> findStructuralCloneSmells(
+                List<ProjectFile> files, IAnalyzer.CloneSmellWeights weights) {
+            cloneFileGroups.add(List.copyOf(files));
+            return cloneFindings.stream()
+                    .filter(finding -> files.contains(finding.file()) && files.contains(finding.peerFile()))
+                    .toList();
         }
     }
 }
