@@ -5,10 +5,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.update.UpdateTestUtil;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.testutil.UpdateTestProjectUtil;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -984,8 +984,8 @@ class EditBlockTest {
 
     @Test
     void testBrkFunctionReplacement_UniqueMethod_JavaAnalyzer() throws Exception {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(
+        var rootDir = UpdateTestProjectUtil.newTempDir();
+        UpdateTestProjectUtil.writeFile(
                 rootDir,
                 "A.java",
                 """
@@ -994,7 +994,7 @@ class EditBlockTest {
                 }
                 """);
 
-        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var project = UpdateTestProjectUtil.newTestProject(rootDir, Languages.JAVA);
         var analyzer = new JavaAnalyzer(project);
 
         var editable = Set.of(new ProjectFile(rootDir, "A.java"));
@@ -1024,8 +1024,8 @@ class EditBlockTest {
 
     @Test
     void testBrkFunctionReplacement_OverloadedMethod_Ambiguous() throws Exception {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(
+        var rootDir = UpdateTestProjectUtil.newTempDir();
+        UpdateTestProjectUtil.writeFile(
                 rootDir,
                 "B.java",
                 """
@@ -1035,7 +1035,7 @@ class EditBlockTest {
                 }
                 """);
 
-        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var project = UpdateTestProjectUtil.newTestProject(rootDir, Languages.JAVA);
         var analyzer = new JavaAnalyzer(project);
 
         var editable = Set.of(new ProjectFile(rootDir, "B.java"));
@@ -1074,8 +1074,8 @@ class EditBlockTest {
 
     @Test
     void testBrkClassReplacement_JavaAnalyzer() throws Exception {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(
+        var rootDir = UpdateTestProjectUtil.newTempDir();
+        UpdateTestProjectUtil.writeFile(
                 rootDir,
                 "C.java",
                 """
@@ -1084,7 +1084,7 @@ class EditBlockTest {
                 }
                 """);
 
-        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var project = UpdateTestProjectUtil.newTestProject(rootDir, Languages.JAVA);
         var analyzer = new JavaAnalyzer(project);
 
         var editable = Set.of(new ProjectFile(rootDir, "C.java"));
@@ -1144,8 +1144,8 @@ class EditBlockTest {
 
     @Test
     void testBrkClass_NotFound_ProducesNoMatchWithCommentary() throws Exception {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(
+        var rootDir = UpdateTestProjectUtil.newTempDir();
+        UpdateTestProjectUtil.writeFile(
                 rootDir,
                 "A.java",
                 """
@@ -1154,7 +1154,7 @@ class EditBlockTest {
                 }
                 """);
 
-        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var project = UpdateTestProjectUtil.newTestProject(rootDir, Languages.JAVA);
         var analyzer = new JavaAnalyzer(project);
 
         var editable = Set.of(new ProjectFile(rootDir, "A.java"));
@@ -1187,8 +1187,8 @@ class EditBlockTest {
 
     @Test
     void testBrkFunction_NotFound_ProducesNoMatchWithCommentary() throws Exception {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(
+        var rootDir = UpdateTestProjectUtil.newTempDir();
+        UpdateTestProjectUtil.writeFile(
                 rootDir,
                 "A.java",
                 """
@@ -1197,7 +1197,7 @@ class EditBlockTest {
                 }
                 """);
 
-        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var project = UpdateTestProjectUtil.newTestProject(rootDir, Languages.JAVA);
         var analyzer = new JavaAnalyzer(project);
 
         var editable = Set.of(new ProjectFile(rootDir, "A.java"));
