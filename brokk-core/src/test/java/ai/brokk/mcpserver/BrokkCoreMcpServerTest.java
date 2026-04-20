@@ -85,7 +85,12 @@ class BrokkCoreMcpServerTest {
                 "skimFiles",
                 "jq",
                 "xmlSkim",
-                "xmlSelect");
+                "xmlSelect",
+                "computeCyclomaticComplexity",
+                "reportCommentDensityForCodeUnit",
+                "reportCommentDensityForFiles",
+                "reportExceptionHandlingSmells",
+                "reportStructuralCloneSmells");
 
         for (var expected : expectedTools) {
             assertTrue(toolNames.contains(expected), "Missing tool: " + expected);
@@ -156,6 +161,67 @@ class BrokkCoreMcpServerTest {
         var result = activeTool.callHandler().apply(null, request);
 
         assertNotNull(result);
+        assertFalse(result.content().isEmpty());
+    }
+
+    // -- Code quality tool execution tests --
+
+    private io.modelcontextprotocol.spec.McpSchema.CallToolResult callTool(String name, Map<String, Object> args) {
+        var specs = server.toolSpecifications();
+        var tool = specs.stream()
+                .filter(s -> name.equals(s.tool().name()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Tool not found: " + name));
+        var request = new io.modelcontextprotocol.spec.McpSchema.CallToolRequest(name, args);
+        return tool.callHandler().apply(null, request);
+    }
+
+    @Test
+    void computeCyclomaticComplexityRunsWithoutError() {
+        var result = callTool("computeCyclomaticComplexity", Map.of(
+                "filePaths", java.util.List.of("README.md"),
+                "threshold", 10));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportCommentDensityForCodeUnitRunsWithoutError() {
+        var result = callTool("reportCommentDensityForCodeUnit", Map.of(
+                "fqName", "com.example.NonExistent",
+                "maxLines", 120));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportCommentDensityForFilesRunsWithoutError() {
+        var result = callTool("reportCommentDensityForFiles", Map.of(
+                "filePaths", java.util.List.of("README.md"),
+                "maxTopLevelRows", 60,
+                "maxFiles", 25));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportExceptionHandlingSmellsRunsWithoutError() {
+        var result = callTool("reportExceptionHandlingSmells", Map.of(
+                "filePaths", java.util.List.of("README.md")));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportStructuralCloneSmellsRunsWithoutError() {
+        var result = callTool("reportStructuralCloneSmells", Map.of(
+                "filePaths", java.util.List.of("README.md")));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
     }
 }

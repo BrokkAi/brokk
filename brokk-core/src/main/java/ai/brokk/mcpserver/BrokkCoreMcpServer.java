@@ -7,6 +7,7 @@ import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.project.CoreProject;
+import ai.brokk.tools.CodeQualityToolsMcp;
 import ai.brokk.tools.SearchTools;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
@@ -22,6 +23,8 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import static java.util.Map.entry;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,12 +46,14 @@ public class BrokkCoreMcpServer {
     private CoreProject project;
     private ICodeIntelligence intelligence;
     private SearchTools searchTools;
+    private CodeQualityToolsMcp codeQualityTools;
     private Path activeWorkspaceRoot;
 
     public BrokkCoreMcpServer(CoreProject project, ICodeIntelligence intelligence, SearchTools searchTools) {
         this.project = project;
         this.intelligence = intelligence;
         this.searchTools = searchTools;
+        this.codeQualityTools = new CodeQualityToolsMcp(intelligence);
         this.activeWorkspaceRoot = project.getRoot();
     }
 
@@ -207,6 +212,7 @@ public class BrokkCoreMcpServer {
             this.project = newProject;
             this.intelligence = new StandaloneCodeIntelligence(newProject, newAnalyzer);
             this.searchTools = new SearchTools(this.intelligence);
+            this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
             this.activeWorkspaceRoot = newRoot;
             logger.info("Workspace switched to {}", newRoot);
         } finally {
@@ -491,6 +497,125 @@ public class BrokkCoreMcpServer {
                     return textResult(
                             searchTools.xmlSelect(filepath, xpath, output, attrName, maxFiles, matchesPerFile));
                 })));
+
+        // -- Code quality analysis tools --
+
+        specs.add(tool(
+                "computeCyclomaticComplexity",
+                "Computes heuristic cyclomatic complexity for methods in the given files. "
+                        + "Flags methods above the threshold (typical default 10) for review or refactor. "
+                        + "Returns a markdown-friendly report of flagged methods.",
+                schema(
+                        Map.of(
+                                "filePaths", arrayProp("File paths relative to the project root."),
+                                "threshold", intProp("Complexity threshold; methods above this are flagged. Use 0 or negative for default (10).")),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    var threshold = intArg(request, "threshold", 0);
+                    return textResult(codeQualityTools.computeCyclomaticComplexity(filePaths, threshold));
+                })));
+
+        specs.add(tool(
+                "reportCommentDensityForCodeUnit",
+                "Java comment density for one symbol identified by fully qualified name. "
+                        + "Reports header vs inline comment line counts, declaration span lines, and rolled-up totals for class-like units.",
+                schema(
+                        Map.of(
+                                "fqName", stringProp("Fully qualified name (e.g. com.example.MyClass or com.example.MyClass.method)."),
+                                "maxLines", intProp("Maximum output lines; values <= 0 default to 120.")),
+                        List.of("fqName")),
+                (exchange, request) -> withReadLock(() -> {
+                    var fqName = stringArg(request, "fqName");
+                    var maxLines = intArg(request, "maxLines", 0);
+                    return textResult(codeQualityTools.reportCommentDensityForCodeUnit(fqName, maxLines));
+                })));
+
+        specs.add(tool(
+                "reportCommentDensityForFiles",
+                "Java comment density tables for the given source files: one section per file and one row per top-level declaration. "
+                        + "Includes own and rolled-up header/inline line counts.",
+                schema(
+                        Map.of(
+                                "filePaths", arrayProp("File paths relative to the project root."),
+                                "maxTopLevelRows", intProp("Maximum declaration rows across all files; values <= 0 default to 60."),
+                                "maxFiles", intProp("Maximum files to include; values <= 0 default to 25.")),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    var maxTopLevelRows = intArg(request, "maxTopLevelRows", 0);
+                    var maxFiles = intArg(request, "maxFiles", 0);
+                    return textResult(codeQualityTools.reportCommentDensityForFiles(filePaths, maxTopLevelRows, maxFiles));
+                })));
+
+        specs.add(tool(
+                "reportExceptionHandlingSmells",
+                "Detects suspicious exception handlers using weighted heuristics designed for high-recall triage. "
+                        + "Scores generic catches and tiny/empty handlers, then subtracts credit for richer handling bodies. "
+                        + "Use minScore, maxFindings, and weight parameters to tune precision/recall.",
+                schema(
+                        Map.ofEntries(
+                                entry("filePaths", arrayProp("File paths relative to the project root.")),
+                                entry("minScore", intProp("Minimum score to include a finding; values <= 0 default to 4.")),
+                                entry("maxFindings", intProp("Maximum findings to emit; values <= 0 default to 80.")),
+                                entry("genericThrowableWeight", intProp("Weight for catching Throwable; values < 0 use default.")),
+                                entry("genericExceptionWeight", intProp("Weight for catching Exception; values < 0 use default.")),
+                                entry("genericRuntimeExceptionWeight", intProp("Weight for catching RuntimeException; values < 0 use default.")),
+                                entry("emptyBodyWeight", intProp("Weight for empty catch bodies; values < 0 use default.")),
+                                entry("commentOnlyBodyWeight", intProp("Weight for comment-only catch bodies; values < 0 use default.")),
+                                entry("smallBodyWeight", intProp("Weight for small catch bodies; values < 0 use default.")),
+                                entry("logOnlyBodyWeight", intProp("Weight for log-only catch bodies; values < 0 use default.")),
+                                entry("meaningfulBodyCreditPerStatement", intProp("Score credit subtracted per catch statement in the body; values < 0 use default.")),
+                                entry("meaningfulBodyStatementThreshold", intProp("Maximum statements that earn meaningful-body credit; values < 0 use default.")),
+                                entry("smallBodyMaxStatements", intProp("Maximum statement count considered a small body; values < 0 use default."))),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    return textResult(codeQualityTools.reportExceptionHandlingSmells(
+                            filePaths,
+                            intArg(request, "minScore", -1),
+                            intArg(request, "maxFindings", -1),
+                            intArg(request, "genericThrowableWeight", -1),
+                            intArg(request, "genericExceptionWeight", -1),
+                            intArg(request, "genericRuntimeExceptionWeight", -1),
+                            intArg(request, "emptyBodyWeight", -1),
+                            intArg(request, "commentOnlyBodyWeight", -1),
+                            intArg(request, "smallBodyWeight", -1),
+                            intArg(request, "logOnlyBodyWeight", -1),
+                            intArg(request, "meaningfulBodyCreditPerStatement", -1),
+                            intArg(request, "meaningfulBodyStatementThreshold", -1),
+                            intArg(request, "smallBodyMaxStatements", -1)));
+                })));
+
+        specs.add(tool(
+                "reportStructuralCloneSmells",
+                "Detects duplicated implementation patterns across functions using normalized token similarity. "
+                        + "Uses analyzer-provided structural clone smells (with AST refinement) for high-recall triage. "
+                        + "Tune similarity and size thresholds to reduce noise.",
+                schema(
+                        Map.of(
+                                "filePaths", arrayProp("File paths relative to the project root."),
+                                "minScore", intProp("Minimum similarity score (0-100) to include; values <= 0 default to 60."),
+                                "minNormalizedTokens", intProp("Minimum normalized token count; values <= 0 default to 12."),
+                                "shingleSize", intProp("Shingle size used for token overlap; values <= 0 default to 2."),
+                                "minSharedShingles", intProp("Minimum shared shingles before scoring; values <= 0 default to 3."),
+                                "astSimilarityPercent", intProp("AST refinement threshold (0-100); values <= 0 default to 70."),
+                                "maxFindings", intProp("Maximum findings to emit; values <= 0 default to 80.")),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    return textResult(codeQualityTools.reportStructuralCloneSmells(
+                            filePaths,
+                            intArg(request, "minScore", -1),
+                            intArg(request, "minNormalizedTokens", -1),
+                            intArg(request, "shingleSize", -1),
+                            intArg(request, "minSharedShingles", -1),
+                            intArg(request, "astSimilarityPercent", -1),
+                            intArg(request, "maxFindings", -1)));
+                })));
+
+        // NOTE: analyzeGitHotspots is not exposed here because GitHotspotAnalyzer
+        // lives in the app module with dependencies not available in brokk-core.
 
         return specs;
     }
