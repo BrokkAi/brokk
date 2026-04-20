@@ -434,7 +434,9 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         boolean shallow = CSHARP_SHALLOW_ASSERTION_METHOD_NAMES.contains(methodName);
         boolean meaningful = !shallow;
         String kind = TEST_ASSERTION_KIND_CSHARP;
-        if (("true".equals(methodName) || "false".equals(methodName) || "istrue".equals(methodName)
+        if (("true".equals(methodName)
+                        || "false".equals(methodName)
+                        || "istrue".equals(methodName)
                         || "isfalse".equals(methodName))
                 && !args.isEmpty()) {
             TSNode arg = args.getFirst();
@@ -741,7 +743,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             if (nameNode != null) {
                 return sourceContent.substringFrom(nameNode).strip().toLowerCase(Locale.ROOT);
             }
-            return lastDotSegment(sourceContent.substringFrom(functionNode).strip().toLowerCase(Locale.ROOT));
+            return lastDotSegment(
+                    sourceContent.substringFrom(functionNode).strip().toLowerCase(Locale.ROOT));
         }
         if (nodeType(CSharpNodeType.IDENTIFIER).equals(functionNode.getType())
                 || nodeType(CSharpNodeType.GENERIC_NAME).equals(functionNode.getType())) {
