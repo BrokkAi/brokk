@@ -23,6 +23,7 @@ public final class Constants {
             Set.of("TEST", "TEST_F", "TEST_P", "TYPED_TEST", "TYPED_TEST_P", "TEST_CASE");
     public static final String ARGUMENT_LIST = nodeType(CppNodeType.ARGUMENT_LIST);
     public static final String CALL_EXPRESSION = nodeType(CppNodeType.CALL_EXPRESSION);
+    public static final String DECLARATION_LIST = nodeType(CppNodeType.DECLARATION_LIST);
     public static final String FIELD_ARGUMENTS = fieldName(CppNodeField.ARGUMENTS);
     public static final String FIELD_BODY = fieldName(CppNodeField.BODY);
     public static final String FIELD_DECLARATOR = fieldName(CppNodeField.DECLARATOR);
@@ -31,6 +32,7 @@ public final class Constants {
     public static final String FIELD_NAME = fieldName(CppNodeField.NAME);
     public static final String FIELD_PARAMETERS = fieldName(CppNodeField.PARAMETERS);
     public static final String FIELD_TYPE = fieldName(CppNodeField.TYPE);
+    public static final String TRANSLATION_UNIT = nodeType(CppNodeType.TRANSLATION_UNIT);
 
     public static final Pattern CPP_CONSTANT_PATTERN =
             Pattern.compile("^(?:true|false|nullptr|[-+]?\\d+(?:\\.\\d+)?|'.*'|\".*\")$");

@@ -1985,12 +1985,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         if (super.containsTests(file)) {
             return true;
         }
-        String relPath = file.getRelPath().toString().toLowerCase(Locale.ROOT).replace('\\', '/');
-        return relPath.endsWith("_test.cpp")
-                || relPath.endsWith("_test.cc")
-                || relPath.endsWith("_test.cxx")
-                || relPath.contains("/test/")
-                || relPath.contains("/tests/");
+        return isCppTestLikePath(file);
     }
 
     private List<TestAssertionSmell> detectCppTestAssertionSmells(
@@ -2006,7 +2001,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 return List.of();
             }
             List<CppTestBlock> testBlocks = collectTestBlocks(rootNode, sourceContent);
-            if (testBlocks.isEmpty()) {
+            if (testBlocks.isEmpty() && isCppTestLikePath(file)) {
                 addTestSmellCandidate(
                         file,
                         file.toString(),
@@ -2027,6 +2022,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 .sorted(TEST_SMELL_CANDIDATE_COMPARATOR)
                 .map(TestSmellCandidate::smell)
                 .toList();
+    }
+
+    private static boolean isCppTestLikePath(ProjectFile file) {
+        String relPath = file.getRelPath().toString().toLowerCase(Locale.ROOT).replace('\\', '/');
+        return relPath.endsWith("_test.cpp") || relPath.endsWith("_test.cc") || relPath.endsWith("_test.cxx");
     }
 
     private List<CppTestBlock> collectTestBlocks(TSNode rootNode, SourceContent sourceContent) {
@@ -2106,7 +2106,14 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     private static boolean isStructuredTestMarker(TSNode markerNode) {
-        return hasInvocationArguments(markerNode) && testBodyForMarker(markerNode) != null;
+        if (hasAncestorOfType(markerNode, COMPOUND_STATEMENT)) {
+            return false;
+        }
+        TSNode bodyNode = testBodyForMarker(markerNode);
+        if (bodyNode == null || !hasInvocationArguments(markerNode)) {
+            return false;
+        }
+        return hasTopLevelLikeOwner(markerNode, bodyNode);
     }
 
     private static boolean hasInvocationArguments(TSNode markerNode) {
@@ -2177,6 +2184,35 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                     stack.push(child);
                 }
             }
+        }
+        return false;
+    }
+
+    private static boolean hasAncestorOfType(TSNode node, String type) {
+        TSNode current = node.getParent();
+        while (current != null) {
+            if (type.equals(current.getType())) {
+                return true;
+            }
+            current = current.getParent();
+        }
+        return false;
+    }
+
+    private static boolean hasTopLevelLikeOwner(TSNode markerNode, TSNode bodyNode) {
+        TSNode current = markerNode;
+        while (current != null) {
+            if (containsNode(current, bodyNode)) {
+                TSNode parent = current.getParent();
+                if (parent == null) {
+                    return false;
+                }
+                String parentType = parent.getType();
+                return TRANSLATION_UNIT.equals(parentType)
+                        || DECLARATION_LIST.equals(parentType)
+                        || NAMESPACE_DEFINITION.equals(parentType);
+            }
+            current = current.getParent();
         }
         return false;
     }
