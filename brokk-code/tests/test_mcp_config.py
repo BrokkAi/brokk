@@ -82,7 +82,7 @@ def test_configure_claude_code_mcp_settings_appends_to_claude_md(tmp_path, monke
     assert "searchSymbols" not in content
     assert "scanUsages" not in content
     assert "scan" not in content
-    assert "getMethodSources" not in content
+    assert "getMethodSources" in content
     assert "getClassSources" not in content
     assert "callCodeAgent" in content
     assert "activateWorkspace" not in content
@@ -123,7 +123,7 @@ def test_configure_codex_mcp_settings_appends_to_codex_agents(tmp_path, monkeypa
     assert "searchSymbols" not in content
     assert "scanUsages" not in content
     assert "scan" not in content
-    assert "getMethodSources" not in content
+    assert "getMethodSources" in content
     assert "getClassSources" not in content
     assert "callCodeAgent" in content
     assert "getActiveWorkspace" not in content

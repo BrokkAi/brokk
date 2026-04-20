@@ -798,10 +798,11 @@ public class SearchTools {
 
     @Tool(
             """
-                    Understand the API surface of classes or files without reading full implementations.
+                    Understand the API surface and nearby structure of classes or files without reading full implementations.
                     Accepts fully qualified class names, workspace-relative file paths, and file globs in one call.
                     File targets for supported framework template DSLs may return structured template summaries.
-                    Use this to inspect fields, signatures, and structure before deciding which classes or methods need full source.
+                    Use this to inspect fields, signatures, neighboring types, and package-level structure before deciding which classes or methods need full source.
+                    Do not use it for concrete method-body behavior, control flow, or line-level evidence; switch to getMethodSources or getFileContents for that.
 
                     Example output:
                     public class BillingService {
