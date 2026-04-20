@@ -1,5 +1,6 @@
 package ai.brokk.mcpserver;
 
+import static java.util.Map.entry;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ICodeIntelligence;
@@ -23,8 +24,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import static java.util.Map.entry;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -508,7 +507,9 @@ public class BrokkCoreMcpServer {
                 schema(
                         Map.of(
                                 "filePaths", arrayProp("File paths relative to the project root."),
-                                "threshold", intProp("Complexity threshold; methods above this are flagged. Use 0 or negative for default (10).")),
+                                "threshold",
+                                        intProp(
+                                                "Complexity threshold; methods above this are flagged. Use 0 or negative for default (10).")),
                         List.of("filePaths")),
                 (exchange, request) -> withReadLock(() -> {
                     var filePaths = stringListArg(request, "filePaths");
@@ -522,7 +523,9 @@ public class BrokkCoreMcpServer {
                         + "Reports header vs inline comment line counts, declaration span lines, and rolled-up totals for class-like units.",
                 schema(
                         Map.of(
-                                "fqName", stringProp("Fully qualified name (e.g. com.example.MyClass or com.example.MyClass.method)."),
+                                "fqName",
+                                        stringProp(
+                                                "Fully qualified name (e.g. com.example.MyClass or com.example.MyClass.method)."),
                                 "maxLines", intProp("Maximum output lines; values <= 0 default to 120.")),
                         List.of("fqName")),
                 (exchange, request) -> withReadLock(() -> {
@@ -538,14 +541,17 @@ public class BrokkCoreMcpServer {
                 schema(
                         Map.of(
                                 "filePaths", arrayProp("File paths relative to the project root."),
-                                "maxTopLevelRows", intProp("Maximum declaration rows across all files; values <= 0 default to 60."),
+                                "maxTopLevelRows",
+                                        intProp(
+                                                "Maximum declaration rows across all files; values <= 0 default to 60."),
                                 "maxFiles", intProp("Maximum files to include; values <= 0 default to 25.")),
                         List.of("filePaths")),
                 (exchange, request) -> withReadLock(() -> {
                     var filePaths = stringListArg(request, "filePaths");
                     var maxTopLevelRows = intArg(request, "maxTopLevelRows", 0);
                     var maxFiles = intArg(request, "maxFiles", 0);
-                    return textResult(codeQualityTools.reportCommentDensityForFiles(filePaths, maxTopLevelRows, maxFiles));
+                    return textResult(
+                            codeQualityTools.reportCommentDensityForFiles(filePaths, maxTopLevelRows, maxFiles));
                 })));
 
         specs.add(tool(
@@ -556,18 +562,43 @@ public class BrokkCoreMcpServer {
                 schema(
                         Map.ofEntries(
                                 entry("filePaths", arrayProp("File paths relative to the project root.")),
-                                entry("minScore", intProp("Minimum score to include a finding; values <= 0 default to 4.")),
+                                entry(
+                                        "minScore",
+                                        intProp("Minimum score to include a finding; values <= 0 default to 4.")),
                                 entry("maxFindings", intProp("Maximum findings to emit; values <= 0 default to 80.")),
-                                entry("genericThrowableWeight", intProp("Weight for catching Throwable; values < 0 use default.")),
-                                entry("genericExceptionWeight", intProp("Weight for catching Exception; values < 0 use default.")),
-                                entry("genericRuntimeExceptionWeight", intProp("Weight for catching RuntimeException; values < 0 use default.")),
-                                entry("emptyBodyWeight", intProp("Weight for empty catch bodies; values < 0 use default.")),
-                                entry("commentOnlyBodyWeight", intProp("Weight for comment-only catch bodies; values < 0 use default.")),
-                                entry("smallBodyWeight", intProp("Weight for small catch bodies; values < 0 use default.")),
-                                entry("logOnlyBodyWeight", intProp("Weight for log-only catch bodies; values < 0 use default.")),
-                                entry("meaningfulBodyCreditPerStatement", intProp("Score credit subtracted per catch statement in the body; values < 0 use default.")),
-                                entry("meaningfulBodyStatementThreshold", intProp("Maximum statements that earn meaningful-body credit; values < 0 use default.")),
-                                entry("smallBodyMaxStatements", intProp("Maximum statement count considered a small body; values < 0 use default."))),
+                                entry(
+                                        "genericThrowableWeight",
+                                        intProp("Weight for catching Throwable; values < 0 use default.")),
+                                entry(
+                                        "genericExceptionWeight",
+                                        intProp("Weight for catching Exception; values < 0 use default.")),
+                                entry(
+                                        "genericRuntimeExceptionWeight",
+                                        intProp("Weight for catching RuntimeException; values < 0 use default.")),
+                                entry(
+                                        "emptyBodyWeight",
+                                        intProp("Weight for empty catch bodies; values < 0 use default.")),
+                                entry(
+                                        "commentOnlyBodyWeight",
+                                        intProp("Weight for comment-only catch bodies; values < 0 use default.")),
+                                entry(
+                                        "smallBodyWeight",
+                                        intProp("Weight for small catch bodies; values < 0 use default.")),
+                                entry(
+                                        "logOnlyBodyWeight",
+                                        intProp("Weight for log-only catch bodies; values < 0 use default.")),
+                                entry(
+                                        "meaningfulBodyCreditPerStatement",
+                                        intProp(
+                                                "Score credit subtracted per catch statement in the body; values < 0 use default.")),
+                                entry(
+                                        "meaningfulBodyStatementThreshold",
+                                        intProp(
+                                                "Maximum statements that earn meaningful-body credit; values < 0 use default.")),
+                                entry(
+                                        "smallBodyMaxStatements",
+                                        intProp(
+                                                "Maximum statement count considered a small body; values < 0 use default."))),
                         List.of("filePaths")),
                 (exchange, request) -> withReadLock(() -> {
                     var filePaths = stringListArg(request, "filePaths");
@@ -595,11 +626,17 @@ public class BrokkCoreMcpServer {
                 schema(
                         Map.of(
                                 "filePaths", arrayProp("File paths relative to the project root."),
-                                "minScore", intProp("Minimum similarity score (0-100) to include; values <= 0 default to 60."),
-                                "minNormalizedTokens", intProp("Minimum normalized token count; values <= 0 default to 12."),
-                                "shingleSize", intProp("Shingle size used for token overlap; values <= 0 default to 2."),
-                                "minSharedShingles", intProp("Minimum shared shingles before scoring; values <= 0 default to 3."),
-                                "astSimilarityPercent", intProp("AST refinement threshold (0-100); values <= 0 default to 70."),
+                                "minScore",
+                                        intProp(
+                                                "Minimum similarity score (0-100) to include; values <= 0 default to 60."),
+                                "minNormalizedTokens",
+                                        intProp("Minimum normalized token count; values <= 0 default to 12."),
+                                "shingleSize",
+                                        intProp("Shingle size used for token overlap; values <= 0 default to 2."),
+                                "minSharedShingles",
+                                        intProp("Minimum shared shingles before scoring; values <= 0 default to 3."),
+                                "astSimilarityPercent",
+                                        intProp("AST refinement threshold (0-100); values <= 0 default to 70."),
                                 "maxFindings", intProp("Maximum findings to emit; values <= 0 default to 80.")),
                         List.of("filePaths")),
                 (exchange, request) -> withReadLock(() -> {

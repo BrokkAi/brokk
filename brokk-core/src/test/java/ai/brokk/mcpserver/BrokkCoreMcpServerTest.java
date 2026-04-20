@@ -8,8 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.project.CoreProject;
 import ai.brokk.tools.SearchTools;
+import io.modelcontextprotocol.spec.McpSchema;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -157,7 +159,7 @@ class BrokkCoreMcpServerTest {
                 .findFirst()
                 .orElseThrow();
 
-        var request = new io.modelcontextprotocol.spec.McpSchema.CallToolRequest("getActiveWorkspace", Map.of());
+        var request = new McpSchema.CallToolRequest("getActiveWorkspace", Map.of());
         var result = activeTool.callHandler().apply(null, request);
 
         assertNotNull(result);
@@ -166,21 +168,20 @@ class BrokkCoreMcpServerTest {
 
     // -- Code quality tool execution tests --
 
-    private io.modelcontextprotocol.spec.McpSchema.CallToolResult callTool(String name, Map<String, Object> args) {
+    private McpSchema.CallToolResult callTool(String name, Map<String, Object> args) {
         var specs = server.toolSpecifications();
         var tool = specs.stream()
                 .filter(s -> name.equals(s.tool().name()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Tool not found: " + name));
-        var request = new io.modelcontextprotocol.spec.McpSchema.CallToolRequest(name, args);
+        var request = new McpSchema.CallToolRequest(name, args);
         return tool.callHandler().apply(null, request);
     }
 
     @Test
     void computeCyclomaticComplexityRunsWithoutError() {
-        var result = callTool("computeCyclomaticComplexity", Map.of(
-                "filePaths", java.util.List.of("README.md"),
-                "threshold", 10));
+        var result =
+                callTool("computeCyclomaticComplexity", Map.of("filePaths", List.of("README.md"), "threshold", 10));
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
@@ -188,9 +189,8 @@ class BrokkCoreMcpServerTest {
 
     @Test
     void reportCommentDensityForCodeUnitRunsWithoutError() {
-        var result = callTool("reportCommentDensityForCodeUnit", Map.of(
-                "fqName", "com.example.NonExistent",
-                "maxLines", 120));
+        var result = callTool(
+                "reportCommentDensityForCodeUnit", Map.of("fqName", "com.example.NonExistent", "maxLines", 120));
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
@@ -198,10 +198,12 @@ class BrokkCoreMcpServerTest {
 
     @Test
     void reportCommentDensityForFilesRunsWithoutError() {
-        var result = callTool("reportCommentDensityForFiles", Map.of(
-                "filePaths", java.util.List.of("README.md"),
-                "maxTopLevelRows", 60,
-                "maxFiles", 25));
+        var result = callTool(
+                "reportCommentDensityForFiles",
+                Map.of(
+                        "filePaths", List.of("README.md"),
+                        "maxTopLevelRows", 60,
+                        "maxFiles", 25));
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
@@ -209,8 +211,7 @@ class BrokkCoreMcpServerTest {
 
     @Test
     void reportExceptionHandlingSmellsRunsWithoutError() {
-        var result = callTool("reportExceptionHandlingSmells", Map.of(
-                "filePaths", java.util.List.of("README.md")));
+        var result = callTool("reportExceptionHandlingSmells", Map.of("filePaths", List.of("README.md")));
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
@@ -218,8 +219,7 @@ class BrokkCoreMcpServerTest {
 
     @Test
     void reportStructuralCloneSmellsRunsWithoutError() {
-        var result = callTool("reportStructuralCloneSmells", Map.of(
-                "filePaths", java.util.List.of("README.md")));
+        var result = callTool("reportStructuralCloneSmells", Map.of("filePaths", List.of("README.md")));
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
