@@ -89,3 +89,12 @@
 
 ; Access specifiers
 (access_specifier) @access.specifier
+
+; Test markers (GoogleTest/Catch2 style test macro invocations)
+(call_expression
+  function: (identifier) @test.marker
+  (#match? @test.marker "^(TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE)$"))
+
+; Fallback capture: some macro invocations are exposed as bare identifiers
+((identifier) @test.marker
+  (#match? @test.marker "^(TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE)$"))
