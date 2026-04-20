@@ -2092,13 +2092,77 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return false;
         }
         TSNode bodyNode = testBodyForMarker(markerNode);
-        if (bodyNode == null || !hasImmediateInvocationParen(markerNode, sourceContent)) {
+        if (bodyNode == null) {
             return false;
         }
-        if ("TEST_METHOD".equals(markerName) && !hasAncestorOfType(markerNode, FIELD_DECLARATION_LIST)) {
+        if ("TEST_METHOD".equals(markerName)) {
+            // MS CppUnitTestFramework is macro-driven and Tree-sitter cannot see macro expansion.
+            // In practice the unexpanded token stream can parse with ERROR nodes and without a reliable
+            // argument-list structure we can traverse. We therefore accept TEST_METHOD only when it appears
+            // in a class-like context (field_declaration_list) and when the next non-trivia token is '('.
+            if (!hasAncestorOfType(markerNode, FIELD_DECLARATION_LIST)) {
+                return false;
+            }
+            if (!hasImmediateInvocationParen(markerNode, sourceContent)) {
+                return false;
+            }
+        } else if (!hasInvocationArgumentsByTree(markerNode, bodyNode)) {
             return false;
         }
         return hasTopLevelLikeOwner(markerNode, bodyNode);
+    }
+
+    private static boolean hasInvocationArgumentsByTree(TSNode markerNode, TSNode bodyNode) {
+        TSNode current = markerNode;
+        while (current != null) {
+            TSNode parent = current.getParent();
+            if (parent == null) {
+                break;
+            }
+            if (CALL_EXPRESSION.equals(parent.getType()) && parent.getChildByFieldName(FIELD_ARGUMENTS) != null) {
+                return true;
+            }
+            current = parent;
+        }
+
+        TSNode functionDef = markerNode;
+        while (functionDef != null) {
+            if (FUNCTION_DEFINITION.equals(functionDef.getType()) && containsNode(functionDef, bodyNode)) {
+                break;
+            }
+            functionDef = functionDef.getParent();
+        }
+        if (functionDef == null) {
+            return false;
+        }
+
+        if (functionDef.getChildByFieldName(FIELD_TYPE) != null) {
+            return false;
+        }
+
+        int markerEnd = markerNode.getEndByte();
+        int bodyStart = bodyNode.getStartByte();
+        var stack = new ArrayDeque<TSNode>();
+        stack.push(functionDef);
+        while (!stack.isEmpty()) {
+            TSNode node = stack.pop();
+            if (!node.equals(bodyNode) && containsNode(bodyNode, node)) {
+                continue;
+            }
+            if (PARAMETER_LIST.equals(node.getType())) {
+                int start = node.getStartByte();
+                if (start >= markerEnd && start < bodyStart) {
+                    return true;
+                }
+            }
+            for (int i = 0; i < node.getNamedChildCount(); i++) {
+                TSNode child = node.getNamedChild(i);
+                if (child != null) {
+                    stack.push(child);
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean hasImmediateInvocationParen(TSNode markerNode, SourceContent sourceContent) {
@@ -2109,6 +2173,34 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (b == ' ' || b == '\t' || b == '\n' || b == '\r') {
                 i++;
                 continue;
+            }
+            if (b == '/') {
+                if (i + 1 >= bytes.length) {
+                    return false;
+                }
+                byte next = bytes[i + 1];
+                if (next == '/') {
+                    i += 2;
+                    while (i < bytes.length) {
+                        byte c = bytes[i];
+                        if (c == '\n' || c == '\r') {
+                            break;
+                        }
+                        i++;
+                    }
+                    continue;
+                }
+                if (next == '*') {
+                    i += 2;
+                    while (i + 1 < bytes.length) {
+                        if (bytes[i] == '*' && bytes[i + 1] == '/') {
+                            i += 2;
+                            break;
+                        }
+                        i++;
+                    }
+                    continue;
+                }
             }
             return b == '(';
         }

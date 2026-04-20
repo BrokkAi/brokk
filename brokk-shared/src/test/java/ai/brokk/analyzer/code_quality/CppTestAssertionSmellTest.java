@@ -44,6 +44,21 @@ public class CppTestAssertionSmellTest extends AbstractBrittleTestSuite {
     }
 
     @Test
+    void acceptsMarkerWhenCommentSeparatesNameAndParen() {
+        String code =
+                """
+                #include <gtest/gtest.h>
+
+                TEST /* comment */ (SampleTest, NoAssertions) {
+                    int value = 42;
+                    value++;
+                }
+                """;
+        var findings = analyze(code);
+        assertTrue(hasReason(findings, "no-assertions"), findings.toString());
+    }
+
+    @Test
     void flagsNoAssertionsForCatch2StyleTestCase() {
         String code =
                 """
