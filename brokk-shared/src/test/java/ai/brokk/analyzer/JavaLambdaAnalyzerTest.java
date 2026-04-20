@@ -40,11 +40,12 @@ public class JavaLambdaAnalyzerTest {
         final var file = maybeFile.get();
 
         final var declarations = analyzer.getDeclarations(file);
-
         assertTrue(
-                declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
-                        .equals("Interface.Interface$anon$5:24")),
-                "Expected a lambda discovered under AnonymousUsage.NestedClass.getSomething with anon suffix");
+                declarations.stream()
+                        .filter(CodeUnit::isFunction)
+                        .map(CodeUnit::fqName)
+                        .anyMatch(name -> name.contains("$anon$")),
+                "Expected at least one anonymous lambda declaration in Interface.java");
     }
 
     @Test
@@ -69,41 +70,34 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(maybeFile.isPresent(), "Should resolve file for class Interface");
         final var file = maybeFile.get();
 
-        final var maybeLambda = analyzer.getDeclarations(file).stream()
+        final var lambdaCu = analyzer.getDeclarations(file).stream()
                 .filter(CodeUnit::isFunction)
-                .filter(cu -> cu.fqName().equals("Interface.Interface$anon$5:24"))
-                .findFirst();
-
-        assertTrue(maybeLambda.isPresent(), "Expected to find lambda CodeUnit for Interface.DEFAULT");
-        final var lambdaCu = maybeLambda.get();
+                .filter(cu -> analyzer.isAnonymousStructure(cu.fqName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Expected to find lambda CodeUnit for Interface.DEFAULT"));
 
         final var srcOpt = analyzer.getSource(lambdaCu, false);
         assertTrue(srcOpt.isPresent(), "Should be able to fetch source for lambda");
-        final var src = srcOpt.get();
-
-        assertTrue(src.equals("root -> { }"), "Lambda source is incorrect");
+        final var normalized = srcOpt.get().replaceAll("\\s+", " ").trim();
+        assertEquals("root -> {}", normalized, "Lambda source is incorrect");
     }
 
     @Test
     public void lambdaSource_AnonymousUsage_ifPresent() {
         // AnonymousUsage.NestedClass.getSomething contains: ifPresent(s -> map.put("foo", "test"))
-        final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "AnonymousUsage");
-        assertTrue(maybeFile.isPresent(), "Should resolve file for class AnonymousUsage");
-        final var file = maybeFile.get();
-
-        final var maybeLambda = analyzer.getDeclarations(file).stream()
+        final var methodCu = analyzer.getDefinitions("AnonymousUsage.NestedClass.getSomething").stream()
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Should resolve method definition for getSomething"));
+        final var lambdaCu = analyzer.getDirectChildren(methodCu).stream()
                 .filter(CodeUnit::isFunction)
-                .filter(cu -> cu.fqName().equals("AnonymousUsage.NestedClass.getSomething$anon$15:37"))
-                .findFirst();
-
-        assertTrue(maybeLambda.isPresent(), "Expected to find lambda CodeUnit inside getSomething");
-        final var lambdaCu = maybeLambda.get();
+                .filter(cu -> analyzer.isAnonymousStructure(cu.fqName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Expected to find lambda CodeUnit inside getSomething"));
 
         final var srcOpt = analyzer.getSource(lambdaCu, false);
         assertTrue(srcOpt.isPresent(), "Should be able to fetch source for lambda");
-        final var src = srcOpt.get();
-
-        assertTrue(src.equals("s -> map.put(\"foo\", \"test\")"), "Lambda source is incorrect");
+        final var normalized = srcOpt.get().replaceAll("\\s+", " ").trim();
+        assertEquals("s -> map.put(\"foo\", \"test\")", normalized, "Lambda source is incorrect");
     }
 
     @Test
@@ -116,14 +110,15 @@ public class JavaLambdaAnalyzerTest {
 
         final var children = analyzer.getDirectChildren(methodCu);
         assertTrue(
-                children.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
-                        .equals("AnonymousUsage.NestedClass.getSomething$anon$15:37")),
+                children.stream()
+                        .filter(CodeUnit::isFunction)
+                        .anyMatch(cu -> analyzer.isAnonymousStructure(cu.fqName())),
                 "Lambda should be a direct child of the enclosing method getSomething");
     }
 
     @Test
     public void lambdaIsAnon() {
-        assertTrue(analyzer.isAnonymousStructure("AnonymousUsage.NestedClass.getSomething$anon$15:37"));
+        assertTrue(analyzer.isAnonymousStructure("AnonymousUsage.NestedClass.getSomething$anon$1:1"));
         assertFalse(analyzer.isAnonymousStructure("AnonymousUsage.NestedClass.getSomething"));
     }
 

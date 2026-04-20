@@ -1,10 +1,11 @@
 package ai.brokk.analyzer.update;
 
 import ai.brokk.analyzer.Language;
-import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.CoreTestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 import org.junit.jupiter.api.Assertions;
 
 /** Small helpers shared by update-tests to create temp projects and edit files. */
@@ -24,8 +25,8 @@ public final class UpdateTestUtil {
         Files.writeString(p, contents);
     }
 
-    public static TestProject newTestProject(Path root, Language lang) {
+    public static CoreTestProject newTestProject(Path root, Language lang) {
         Assertions.assertTrue(Files.exists(root));
-        return new TestProject(root, lang);
+        return new CoreTestProject(root, Set.of(lang));
     }
 }
