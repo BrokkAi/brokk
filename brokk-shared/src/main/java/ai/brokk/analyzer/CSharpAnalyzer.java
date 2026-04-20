@@ -458,7 +458,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 && args.size() >= 2) {
             TSNode expected = args.get(0);
             TSNode actual = args.get(1);
-            if (isConstantExpression(expected, sourceContent) && isConstantExpression(actual, sourceContent)) {
+            if (isConstantExpression(expected) && isConstantExpression(actual)) {
                 score += weights.constantEqualityWeight();
                 reasons.add(TEST_ASSERTION_KIND_CONSTANT_EQUALITY);
                 kind = TEST_ASSERTION_KIND_CONSTANT_EQUALITY;
@@ -790,7 +790,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 .equals(sourceContent.substringFrom(right).strip());
     }
 
-    private static boolean isConstantExpression(TSNode node, SourceContent sourceContent) {
+    private static boolean isConstantExpression(TSNode node) {
         String type = node.getType();
         if (nodeType(CSharpNodeType.STRING_LITERAL).equals(type)
                 || nodeType(CSharpNodeType.CHARACTER_LITERAL).equals(type)
@@ -800,13 +800,12 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 || nodeType(CSharpNodeType.BOOLEAN_LITERAL).equals(type)) {
             return true;
         }
-        String text = sourceContent.substringFrom(node).strip();
-        return text.matches("-?\\d+(\\.\\d+)?")
-                || text.equals("true")
-                || text.equals("false")
-                || text.equals("null")
-                || (text.length() >= 2 && text.startsWith("\"") && text.endsWith("\""))
-                || (text.length() >= 3 && text.startsWith("'") && text.endsWith("'"));
+        // Some C# literals are wrapped by expression nodes (for example, literal_expression).
+        if (node.getNamedChildCount() == 1) {
+            TSNode onlyNamedChild = node.getNamedChild(0);
+            return onlyNamedChild != null && isConstantExpression(onlyNamedChild);
+        }
+        return false;
     }
 
     private static boolean isBooleanTrueLiteral(TSNode node, SourceContent sourceContent) {
