@@ -1,8 +1,8 @@
 package ai.brokk.gui.util;
 
 import ai.brokk.ContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
@@ -34,7 +34,7 @@ public final class FileDropHandlerFactory {
     private FileDropHandlerFactory() {}
 
     /* Package-private test seam to allow tests to override the ContextSizeGuard check behavior.
-     * Default delegates to production implementation. Generalized to accept IContextManager and IConsoleIO
+     * Default delegates to production implementation. Generalized to accept IAppContextManager and IConsoleIO
      * so tests can exercise the logic without constructing a real Chrome.
      *
      * Note: the default implementation requires a Chrome to perform UI dialogs and to query model limits.
@@ -45,7 +45,7 @@ public final class FileDropHandlerFactory {
     interface ContextSizeChecker {
         void check(
                 Collection<? extends BrokkFile> files,
-                IContextManager contextManager,
+                IAppContextManager contextManager,
                 IConsoleIO io,
                 Consumer<ContextSizeGuard.Decision> onDecision);
     }
@@ -55,7 +55,7 @@ public final class FileDropHandlerFactory {
             ContextSizeGuard.checkAndConfirm(files, chrome, onDecision);
         } else {
             throw new IllegalStateException(
-                    "ContextSizeChecker default requires io to be a Chrome; override contextSizeChecker when using the IContextManager overload with a non-Chrome IConsoleIO.");
+                    "ContextSizeChecker default requires io to be a Chrome; override contextSizeChecker when using the IAppContextManager overload with a non-Chrome IConsoleIO.");
         }
     };
 
@@ -65,7 +65,7 @@ public final class FileDropHandlerFactory {
                 ContextSizeGuard.checkAndConfirm(files, chrome, onDecision);
             } else {
                 throw new IllegalStateException(
-                        "ContextSizeChecker default requires io to be a Chrome; override contextSizeChecker when using the IContextManager overload with a non-Chrome IConsoleIO.");
+                        "ContextSizeChecker default requires io to be a Chrome; override contextSizeChecker when using the IAppContextManager overload with a non-Chrome IConsoleIO.");
             }
         };
     }
@@ -74,7 +74,7 @@ public final class FileDropHandlerFactory {
      * Creates a {@link TransferHandler} for the given {@link Chrome} that accepts file drops into the workspace.
      *
      * <p>This overload is the production entrypoint used by the GUI. It delegates to the
-     * overload that operates on {@link IContextManager} and {@link IConsoleIO} so that tests
+     * overload that operates on {@link IAppContextManager} and {@link IConsoleIO} so that tests
      * can exercise the same logic without constructing a full Chrome.
      */
     public static TransferHandler createFileDropHandler(Chrome chrome) {
@@ -82,7 +82,7 @@ public final class FileDropHandlerFactory {
     }
 
     /**
-     * Core implementation of the drag-and-drop handler. Accepts an {@link IContextManager} and
+     * Core implementation of the drag-and-drop handler. Accepts an {@link IAppContextManager} and
      * {@link IConsoleIO} so tests can provide lightweight fakes instead of constructing a full Chrome.
      *
      * <p>The handler:
@@ -93,7 +93,7 @@ public final class FileDropHandlerFactory {
      *   <li>Adds external files as {@code ExternalPathFragment}s via {@link ContextFragment#toPathFragment}.</li>
      * </ul>
      */
-    public static TransferHandler createFileDropHandler(IContextManager contextManager, IConsoleIO io) {
+    public static TransferHandler createFileDropHandler(IAppContextManager contextManager, IConsoleIO io) {
         var cm = contextManager;
         return new TransferHandler() {
             @Override

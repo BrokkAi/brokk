@@ -95,8 +95,13 @@ public class FragmentDtos {
         }
     }
 
-    /** DTO for TaskFragment - represents a session's chat messages. */
-    public record TaskFragmentDto(String id, List<ChatMessageDto> messages, @Nullable String taskDescription)
+    /** DTO for TaskFragment - represents task output (legacy: messages; new: pre-rendered markdown). */
+    public record TaskFragmentDto(
+            String id,
+            List<ChatMessageDto> messages,
+            @Nullable String taskDescription,
+            @Nullable String markdownContentId,
+            @Nullable Boolean escapeHtml)
             implements VirtualFragmentDto { // id changed to String
         public TaskFragmentDto {
             messages = List.copyOf(messages);
@@ -345,6 +350,7 @@ public class FragmentDtos {
     /** Compact DTO for TaskEntry, referring to its log fragments by ID. Used within CompactContextDto. */
     public record TaskEntryRefDto(
             int sequence,
+            @Nullable String description,
             @Nullable String logId,
             @Nullable String llmLogId,
             @Nullable String summaryContentId,

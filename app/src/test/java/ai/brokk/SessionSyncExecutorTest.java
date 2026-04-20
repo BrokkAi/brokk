@@ -191,7 +191,7 @@ class SessionSyncExecutorTest {
         sessionManager.getSessionsCache().put(id, localInfo);
 
         TestContextManager cm = new TestContextManager(projectStub, id);
-        Map<UUID, IContextManager> contextManagers = Map.of(id, cm);
+        Map<UUID, IAppContextManager> contextManagers = Map.of(id, cm);
 
         SyncAction action = new SyncAction(id, ActionType.DELETE_LOCAL, localInfo, null);
 
@@ -416,7 +416,7 @@ class SessionSyncExecutorTest {
         }
     }
 
-    private static class TestContextManager implements IContextManager {
+    private static class TestContextManager implements IAppContextManager {
         boolean reloadCalled = false;
         boolean createSessionCalled = false;
         private final IProject project;
@@ -430,6 +430,11 @@ class SessionSyncExecutorTest {
         @Override
         public IProject getProject() {
             return project;
+        }
+
+        @Override
+        public ai.brokk.analyzer.IAnalyzer getAnalyzerUninterrupted() {
+            throw new UnsupportedOperationException();
         }
 
         @Override

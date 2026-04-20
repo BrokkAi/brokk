@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tasks.TaskList;
@@ -16,6 +16,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.tools.ToolRegistry;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -96,8 +97,8 @@ class ArchitectAgentTest {
         StreamingChatModel model = new StubModel();
 
         var initialMsg = UserMessage.from("initial");
-        var entry = new TaskEntry(
-                0, new ContextFragments.TaskFragment(List.of(initialMsg), "initial-desc"), null, null, null);
+        var md = Messages.format(List.of(initialMsg));
+        var entry = new TaskEntry(0, "initial-desc", md, md, null, null);
         var ctx = new Context(cm).withHistory(List.of(entry));
 
         var agent = new ArchitectAgent(cm, model, model, "goal", null, ctx, consoleIO);
@@ -118,13 +119,15 @@ class ArchitectAgentTest {
             updatedContext = tr.context().withHistory(newHistory);
         } else {
             updatedContext = tr.context()
-                    .addHistoryEntry(new ContextFragments.TaskFragment(finalMessages, "Architect: goal"), null);
+                    .addHistoryEntry(
+                            new ContextOutputFragments.TaskOutputFragment(
+                                    "Architect: goal", Messages.format(finalMessages)),
+                            null);
         }
 
         assertEquals(1, updatedContext.getTaskHistory().size());
-        assertEquals(
-                List.of(initialMsg, finalMessages.getFirst()),
-                updatedContext.getTaskHistory().getLast().mopLog().messages());
+        assertTrue(updatedContext.getTaskHistory().getLast().mopMarkdown().contains("initial"));
+        assertTrue(updatedContext.getTaskHistory().getLast().mopMarkdown().contains("final-status"));
     }
 
     @Test

@@ -2,7 +2,7 @@ package ai.brokk.context;
 
 import static java.lang.Math.min;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.concurrent.ComputedValue;
@@ -149,7 +149,7 @@ public record ContextDelta(
     /**
      * Returns a human-readable description of the changes in this delta.
      */
-    public ComputedValue<String> description(IContextManager icm) {
+    public ComputedValue<String> description(IAppContextManager icm) {
         if (sessionReset) {
             return ComputedValue.completed(DROPPED_ALL_CONTEXT);
         }
@@ -163,7 +163,7 @@ public record ContextDelta(
     }
 
     @Blocking
-    private String descriptionInternal(IContextManager icm) throws InterruptedException {
+    private String descriptionInternal(IAppContextManager icm) throws InterruptedException {
         // Prioritize task history (user/AI turn)
         if (!addedTasks.isEmpty()) {
             // If it's just a single CONTEXT task, we ignore it and build description normally.
@@ -215,10 +215,10 @@ public record ContextDelta(
     }
 
     @Blocking
-    private String buildTaskDescription(TaskEntry entry, IContextManager icm) throws InterruptedException {
+    private String buildTaskDescription(TaskEntry entry, IAppContextManager icm) throws InterruptedException {
         String prefix = (entry.meta() == null) ? "" : entry.meta().type().displayName() + ": ";
 
-        String taskText = entry.description();
+        String taskText = entry.isCompressed() && entry.summary() != null ? entry.summary() : entry.description();
         String cacheKey = "action_" + StringDiskCache.sha1Hex(taskText);
         var actionText = taskText.split("\\s+").length <= 7
                 ? taskText

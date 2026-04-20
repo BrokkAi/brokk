@@ -1,6 +1,5 @@
 package ai.brokk.analyzer.types;
 
-import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,9 +10,8 @@ import ai.brokk.analyzer.SourceContent;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.util.List;
@@ -28,7 +26,7 @@ public class JavaTypeHierarchyTest {
     private static class TrackingJavaAnalyzer extends JavaAnalyzer {
         final AtomicInteger extractionCount = new AtomicInteger(0);
 
-        TrackingJavaAnalyzer(IProject project) {
+        TrackingJavaAnalyzer(ICoreProject project) {
             super(project);
         }
 
@@ -49,7 +47,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "BaseAndX.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeX = analyzer.getDefinitions("XExtendsY").stream().findFirst();
             assertTrue(maybeX.isPresent(), "Definition for XExtendsY should be present");
@@ -66,7 +64,7 @@ public class JavaTypeHierarchyTest {
             assertEquals(List.of("BaseClass"), transitive, "XExtendsY should have BaseClass as its only ancestor");
 
             // Summary fragment should include a clearly delineated direct ancestors section
-            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var cm = new TestContextManager(testProject, analyzer);
             var frag = new ContextFragments.SummaryFragment(
                     cm, "XExtendsY", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text().join();
@@ -104,7 +102,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "Service.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeImpl = analyzer.getDefinitions("ServiceImpl").stream().findFirst();
             assertTrue(maybeImpl.isPresent(), "Definition for ServiceImpl should be present");
@@ -122,7 +120,7 @@ public class JavaTypeHierarchyTest {
             assertEquals(List.of("ServiceInterface"), transitive, "No transitive ancestors beyond the interface");
 
             // Summary fragment should include a clearly delineated direct ancestors section
-            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var cm = new TestContextManager(testProject, analyzer);
             var frag = new ContextFragments.SummaryFragment(
                     cm, "ServiceImpl", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text().join();
@@ -162,7 +160,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "AllInOne.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeCls =
                     analyzer.getDefinitions("ExtendsAndImplements").stream().findFirst();
@@ -187,7 +185,7 @@ public class JavaTypeHierarchyTest {
                     "Transitive ancestors should maintain discovery order");
 
             // Summary fragment should include direct ancestors
-            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var cm = new TestContextManager(testProject, analyzer);
             var frag = new ContextFragments.SummaryFragment(
                     cm, "ExtendsAndImplements", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text().join();
@@ -215,7 +213,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "Plain.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybePlain = analyzer.getDefinitions("Plain").stream().findFirst();
             assertTrue(maybePlain.isPresent(), "Definition for Plain should be present");
@@ -235,7 +233,7 @@ public class JavaTypeHierarchyTest {
                     "Plain should have no transitive ancestors");
 
             // Summary fragment should NOT include a direct ancestors section
-            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var cm = new TestContextManager(testProject, analyzer);
             var frag = new ContextFragments.SummaryFragment(cm, "Plain", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text().join();
             assertCodeEquals(
@@ -267,7 +265,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "GrandChild.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeGrand = analyzer.getDefinitions("GrandChild").stream().findFirst();
             assertTrue(maybeGrand.isPresent(), "Definition for GrandChild should be present");
@@ -303,7 +301,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "B.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeB = analyzer.getDefinitions("p2.B").stream().findFirst();
             assertTrue(maybeB.isPresent(), "Definition for p2.B should be present");
@@ -337,7 +335,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "C.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeC = analyzer.getDefinitions("p3.C").stream().findFirst();
             assertTrue(maybeC.isPresent(), "Definition for p3.C should be present");
@@ -387,7 +385,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "D_E.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             // Verify B's hierarchy
             var maybeB = analyzer.getDefinitions("p2.B").stream().findFirst();
@@ -453,7 +451,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "D.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeD = analyzer.getDefinitions("p2.D").stream().findFirst();
             assertTrue(maybeD.isPresent(), "Definition for p2.D should be present");
@@ -482,7 +480,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "E.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeE = analyzer.getDefinitions("p3.E").stream().findFirst();
             assertTrue(maybeE.isPresent(), "Definition for p3.E should be present");
@@ -513,7 +511,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "F.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeF = analyzer.getDefinitions("p2.F").stream().findFirst();
             assertTrue(maybeF.isPresent(), "Definition for p2.F should be present");
@@ -546,7 +544,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "Impl.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeImpl = analyzer.getDefinitions("p2.Impl").stream().findFirst();
             assertTrue(maybeImpl.isPresent(), "Definition for p2.Impl should be present");
@@ -578,7 +576,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "B.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeA = analyzer.getDefinitions("p.A").stream().findFirst();
             assertTrue(maybeA.isPresent(), "Definition for p.A should be present");
@@ -636,7 +634,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "Child.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            var analyzer = testProject.getAnalyzer();
 
             var maybeChild = analyzer.getDefinitions("p3.Child").stream().findFirst();
             assertTrue(maybeChild.isPresent(), "Definition for p3.Child should be present");
@@ -664,7 +662,7 @@ public class JavaTypeHierarchyTest {
                         "Hierarchy.java")
                 .build()) {
             // update() is required to populate the subtype index in post-processing
-            var analyzer = createTreeSitterAnalyzer(testProject).update();
+            var analyzer = testProject.getAnalyzer().update();
 
             var a = analyzer.getDefinitions("A").iterator().next();
             var b = analyzer.getDefinitions("B").iterator().next();
@@ -689,7 +687,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "Interfaces.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject).update();
+            var analyzer = testProject.getAnalyzer().update();
 
             var i = analyzer.getDefinitions("I").iterator().next();
             var a = analyzer.getDefinitions("A").iterator().next();
@@ -712,7 +710,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "Leaf.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject).update();
+            var analyzer = testProject.getAnalyzer().update();
 
             var leaf = analyzer.getDefinitions("Leaf").iterator().next();
 
@@ -731,7 +729,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "Cache.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject).update();
+            var analyzer = testProject.getAnalyzer().update();
 
             var parent = analyzer.getDefinitions("Parent").iterator().next();
             var child = analyzer.getDefinitions("Child").iterator().next();
@@ -761,7 +759,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "Child.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject).update();
+            var analyzer = testProject.getAnalyzer().update();
 
             var base = analyzer.getDefinitions("p1.Base").iterator().next();
             var child = analyzer.getDefinitions("p2.Child").iterator().next();
@@ -811,7 +809,7 @@ public class JavaTypeHierarchyTest {
                                 """,
                         "YetAnotherClass.java")
                 .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject).update();
+            var analyzer = testProject.getAnalyzer().update();
 
             var unrelatedBase =
                     analyzer.getDefinitions("p1.UnrelatedBase").iterator().next();

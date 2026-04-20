@@ -3,7 +3,6 @@ package ai.brokk.context;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IContextManager;
-import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
@@ -15,7 +14,6 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.*;
-import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -234,10 +232,6 @@ public interface ContextFragment {
      * Syntax highlight style.
      */
     ComputedValue<String> syntaxStyle();
-
-    default List<TaskEntry> entries() {
-        return List.of();
-    }
 
     /**
      * If false, the classes returned by sources() will be pruned from AutoContext suggestions. (Corollary: if sources()

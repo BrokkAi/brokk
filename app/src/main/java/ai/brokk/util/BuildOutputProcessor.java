@@ -1,6 +1,6 @@
 package ai.brokk.util;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -45,7 +45,7 @@ public class BuildOutputProcessor {
      * @param contextManager The context manager to access project root
      * @return Sanitized output with relative paths, or original output if sanitization fails
      */
-    public static String sanitizeOnly(String rawBuildOutput, IContextManager contextManager) {
+    public static String sanitizeOnly(String rawBuildOutput, IAppContextManager contextManager) {
         try {
             return sanitizeBuildOutput(rawBuildOutput, contextManager);
         } catch (Exception e) {
@@ -61,7 +61,7 @@ public class BuildOutputProcessor {
      * @param contextManager The context manager to access project root and LLM
      * @return Processed output with extracted errors, or original output if processing fails
      */
-    public static String processForLlm(String rawBuildOutput, IContextManager contextManager)
+    public static String processForLlm(String rawBuildOutput, IAppContextManager contextManager)
             throws InterruptedException {
 
         logger.debug("Processing build output. Original length: {} chars", rawBuildOutput.length());
@@ -86,7 +86,7 @@ public class BuildOutputProcessor {
      * @return Preprocessed output containing only relevant errors, or original output if preprocessing is not needed or
      *     fails. Never returns null - empty input returns empty string.
      */
-    public static String maybePreprocessOutput(String buildOutput, IContextManager cm) throws InterruptedException {
+    public static String maybePreprocessOutput(String buildOutput, IAppContextManager cm) throws InterruptedException {
         List<String> lines = Splitter.on('\n').splitToList(buildOutput);
         logger.debug("Build output has {} lines, preprocessing threshold is {}", lines.size(), THRESHOLD_LINES);
         if (lines.size() <= THRESHOLD_LINES) {
@@ -100,7 +100,7 @@ public class BuildOutputProcessor {
         return preprocessOutput(truncatedOutput, cm, llm);
     }
 
-    private static String preprocessOutput(String truncatedOutput, IContextManager contextManager, Llm llm)
+    private static String preprocessOutput(String truncatedOutput, IAppContextManager contextManager, Llm llm)
             throws InterruptedException {
 
         var systemMessage = new SystemMessage(
@@ -209,7 +209,7 @@ public class BuildOutputProcessor {
      * @return Truncated output that should fit within token constraints
      */
     @SuppressWarnings("UnusedVariable")
-    private static String truncateToTokenLimit(String buildOutput, StreamingChatModel model, IContextManager cm) {
+    private static String truncateToTokenLimit(String buildOutput, StreamingChatModel model, IAppContextManager cm) {
         int targetTokens = cm.getService().getMaxInputTokens(model) / 10;
         logger.debug("Using conservative target of {} tokens for build output", targetTokens);
 
@@ -233,7 +233,7 @@ public class BuildOutputProcessor {
         return buildOutput;
     }
 
-    private static void logPreprocessingError(@Nullable Throwable error, IContextManager contextManager) {
+    private static void logPreprocessingError(@Nullable Throwable error, IAppContextManager contextManager) {
         if (error == null) {
             logger.warn("Build output preprocessing failed with null error. Using original output.");
             return;
@@ -253,7 +253,7 @@ public class BuildOutputProcessor {
      * Converts absolute paths to relative paths for LLM consumption. Handles Windows/Unix paths and prevents accidental
      * partial matches.
      */
-    private static String sanitizeBuildOutput(String text, IContextManager contextManager) {
+    private static String sanitizeBuildOutput(String text, IAppContextManager contextManager) {
         var root = contextManager.getProject().getRoot().toAbsolutePath().normalize();
         var rootAbs = root.toString();
 

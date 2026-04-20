@@ -1,7 +1,7 @@
 package ai.brokk.gui.mop;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.analyzer.ClassNameExtractor;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -141,7 +141,7 @@ public class SymbolLookupService {
      */
     public static void lookupSymbols(
             Set<String> symbolNames,
-            @Nullable IContextManager contextManager,
+            @Nullable IAppContextManager contextManager,
             BiConsumer<String, SymbolLookupResult> resultCallback,
             @Nullable Runnable completionCallback) {
 

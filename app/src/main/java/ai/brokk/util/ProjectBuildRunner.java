@@ -1,7 +1,7 @@
 package ai.brokk.util;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO.NotificationRole;
-import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.ProjectFile;
@@ -45,7 +45,7 @@ public class ProjectBuildRunner {
         }
     }
 
-    public CompletableFuture<Void> triggerStartupWarmupBuild(IContextManager cm) {
+    public CompletableFuture<Void> triggerStartupWarmupBuild(IAppContextManager cm) {
         CompletableFuture<Void> managedFuture = new CompletableFuture<>();
         if (!warmupBuildFutureRef.compareAndSet(null, managedFuture)) {
             throw new IllegalStateException(
@@ -60,6 +60,7 @@ public class ProjectBuildRunner {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
+                return null;
             });
         } catch (RuntimeException e) {
             warmupBuildFutureRef.compareAndSet(managedFuture, null);
@@ -82,7 +83,7 @@ public class ProjectBuildRunner {
         return managedFuture;
     }
 
-    private void performStartupWarmupBuild(IContextManager cm) throws InterruptedException {
+    private void performStartupWarmupBuild(IAppContextManager cm) throws InterruptedException {
         // loadBuildDetails is the only way to check "do we know how to build" without possibly blocking on BuildAgent
         Optional<BuildDetails> detailsOpt = project.loadBuildDetails();
         if (detailsOpt.isEmpty()) return;
@@ -103,12 +104,12 @@ public class ProjectBuildRunner {
     }
 
     @Blocking
-    public String runVerification(IContextManager cm) throws InterruptedException {
+    public String runVerification(IAppContextManager cm) throws InterruptedException {
         return runVerification(cm, null);
     }
 
     @Blocking
-    public String runVerification(IContextManager cm, @Nullable BuildDetails override) throws InterruptedException {
+    public String runVerification(IAppContextManager cm, @Nullable BuildDetails override) throws InterruptedException {
         AtomicReference<InterruptedException> interrupted = new AtomicReference<>();
         Context updated = cm.pushContext(ctx -> {
             try {
@@ -204,7 +205,7 @@ public class ProjectBuildRunner {
 
     private Context runBuildAndUpdateFragmentInternal(
             Context ctx, String verificationCommand, @Nullable BuildDetails override) throws InterruptedException {
-        IContextManager cm = ctx.getContextManager();
+        IAppContextManager cm = ctx.getContextManager();
         var io = cm.getIo();
         BuildDetails details = override != null ? override : project.awaitBuildDetails();
         @Nullable String testRetriesEnv = System.getenv("BRK_TEST_RETRIES");
@@ -245,7 +246,7 @@ public class ProjectBuildRunner {
 
     private Context runBuildWithTestRetries(
             Context ctx, String verificationCommand, BuildDetails details, int maxRetries) throws InterruptedException {
-        IContextManager cm = ctx.getContextManager();
+        IAppContextManager cm = ctx.getContextManager();
         var io = cm.getIo();
         String lintCommand = details.buildLintCommand();
         String testCommand = verificationCommand.equals(lintCommand) ? "" : verificationCommand;
@@ -266,7 +267,7 @@ public class ProjectBuildRunner {
 
     private Context runExplicitBuildAndUpdateFragmentInternal(
             Context ctx, String command, @Nullable BuildDetails override) throws InterruptedException {
-        IContextManager cm = ctx.getContextManager();
+        IAppContextManager cm = ctx.getContextManager();
         var io = cm.getIo();
         io.commandStart("Post-Task", command);
         var output = io.supportsCommandResult() ? new StringBuilder() : null;

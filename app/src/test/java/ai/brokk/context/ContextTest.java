@@ -2,7 +2,7 @@ package ai.brokk.context;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
@@ -27,7 +27,7 @@ class ContextTest {
     @TempDir
     Path tempDir;
 
-    private IContextManager contextManager;
+    private IAppContextManager contextManager;
     private TestAnalyzer analyzer;
 
     private static CodeUnit createTestCodeUnit(String fqName, ProjectFile pf) {
@@ -272,17 +272,19 @@ class ContextTest {
 
         // Add a history entry
         var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
-        var log = new ContextFragments.TaskFragment(msgs, "Log");
-        var entry = new TaskEntry(1, log, null);
+        var md = ai.brokk.util.Messages.format(msgs);
+        var entry = new TaskEntry(1, "Log", md, md, null, null);
         ctx = ctx.addHistoryEntryInternal(entry);
 
         var all = ctx.getAllFragmentsInDisplayOrder();
         assertFalse(all.isEmpty());
-        assertTrue(all.getFirst() instanceof ContextFragments.HistoryFragment, "History should be first when present");
+        assertTrue(
+                all.getFirst() instanceof ContextOutputFragments.HistoryOutputFragment,
+                "History should be first when present");
 
         // Then path and virtuals follow; exact order beyond first isn't asserted here
         long historyCount = all.stream()
-                .filter(f -> f instanceof ContextFragments.HistoryFragment)
+                .filter(f -> f instanceof ContextOutputFragments.HistoryOutputFragment)
                 .count();
         assertEquals(1L, historyCount, "Exactly one history fragment should be present");
     }
@@ -502,7 +504,7 @@ class ContextTest {
     void testIsFileContentEmpty_withTaskFragment() {
         var ctx = new Context(contextManager);
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(msgs, "task");
+        var taskFrag = new ContextOutputFragments.TaskOutputFragment("task", ai.brokk.util.Messages.format(msgs));
         ctx = ctx.addFragments(taskFrag);
         assertTrue(ctx.isFileContentEmpty(), "Context with only TASK fragments should report no file content");
     }

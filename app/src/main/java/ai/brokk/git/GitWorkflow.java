@@ -2,8 +2,8 @@ package ai.brokk.git;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ReviewScope;
@@ -46,7 +46,7 @@ public final class GitWorkflow {
 
     public record PrSuggestion(String title, String description, boolean usedCommitMessages) {}
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final GitRepo repo;
 
     // Fields for tool calling results
@@ -56,7 +56,7 @@ public final class GitWorkflow {
     @Nullable
     private String prDescription;
 
-    public GitWorkflow(IContextManager contextManager) {
+    public GitWorkflow(IAppContextManager contextManager) {
         this.cm = contextManager;
         this.repo = (GitRepo) contextManager.getProject().getRepo();
     }

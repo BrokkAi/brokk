@@ -1,6 +1,6 @@
 package ai.brokk.tools;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.util.Environment;
 import ai.brokk.util.SandboxPolicy;
 import dev.langchain4j.agent.tool.P;
@@ -17,9 +17,9 @@ public class ShellTools {
     private static final int MAX_OUTPUT_LINES = 200;
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(2);
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
 
-    public ShellTools(IContextManager cm) {
+    public ShellTools(IAppContextManager cm) {
         this.cm = cm;
     }
 

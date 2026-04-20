@@ -12,7 +12,6 @@ import ai.brokk.gui.mop.FilePathLookupService;
 import ai.brokk.gui.mop.SymbolLookupService;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
-import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -232,15 +231,8 @@ public final class MOPBridge {
         var taskFragment = entry.mopLog();
 
         if (taskFragment != null) {
-            var msgs = taskFragment.messages();
-            for (var message : msgs) {
-                var text = Messages.getText(message);
-                messages.add(new BrokkEvent.HistoryTask.Message(
-                        text,
-                        message.type(),
-                        Messages.isReasoningMessage(message),
-                        Messages.isTerminalMessage(message)));
-            }
+            var text = taskFragment.text().join();
+            messages.add(new BrokkEvent.HistoryTask.Message(text, ChatMessageType.USER, false, true));
         }
 
         // Build event: compressed flag is true when summary is present (AI uses summary)

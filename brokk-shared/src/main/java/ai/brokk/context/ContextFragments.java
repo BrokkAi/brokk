@@ -1,12 +1,9 @@
 package ai.brokk.context;
 
 import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
-import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
@@ -17,33 +14,34 @@ import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
-import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
-import ai.brokk.git.GitRepo;
-import ai.brokk.usages.UsageFinder;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.util.FragmentUtils;
-import ai.brokk.util.ImageUtil;
+import ai.brokk.util.ImageBytesUtil;
 import ai.brokk.util.Lines;
-import ai.brokk.util.Messages;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
 import com.github.difflib.unifieddiff.UnifiedDiffParserException;
 import com.github.difflib.unifieddiff.UnifiedDiffReader;
-import dev.langchain4j.data.message.ChatMessage;
-import java.awt.*;
+import java.awt.EventQueue;
+import java.awt.Image;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -57,18 +55,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 import javax.imageio.ImageIO;
-import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
@@ -77,6 +70,13 @@ public class ContextFragments {
     public static final Logger logger = LogManager.getLogger(ContextFragments.class);
 
     public static final LoggingExecutorService FRAGMENT_EXECUTOR = createFragmentExecutor();
+
+    // Keep syntax styles as stable strings so the UI (which may use RSyntaxTextArea) can keep comparing by value.
+    // We intentionally do not depend on RSyntaxTextArea from brokk-shared.
+    public static final String SYNTAX_STYLE_NONE = "text/plain";
+    public static final String SYNTAX_STYLE_MARKDOWN = "text/markdown";
+    public static final String SYNTAX_STYLE_JSON = "application/json";
+    public static final String SYNTAX_STYLE_JAVA = "text/java";
 
     /**
      * Resolves supporting fragments for the given code units, including direct ancestors
@@ -227,17 +227,26 @@ public class ContextFragments {
         return ExecutorsUtil.newVirtualThreadExecutor("brokk-cf-", 1_000);
     }
 
+    private static String guessContentType(BrokkFile file) {
+        // Prefer OS-level sniffing, then filename-based guessing, and finally fall back to a safe default.
+        try {
+            if (file instanceof ProjectFile pf) {
+                var detected = Files.probeContentType(pf.absPath());
+                if (detected != null) {
+                    return detected;
+                }
+            }
+        } catch (IOException e) {
+            logger.debug("Failed probing content type for {}", file, e);
+        }
+
+        var guessed = URLConnection.guessContentTypeFromName(file.toString());
+        return guessed != null ? guessed : "application/octet-stream";
+    }
+
     public sealed interface PathFragment extends ContextFragment
             permits ProjectPathFragment, GitFileFragment, ExternalPathFragment, ImageFileFragment {
         BrokkFile file();
-    }
-
-    public interface OutputFragment {
-        List<TaskEntry> entries();
-
-        default boolean isEscapeHtml() {
-            return true;
-        }
     }
 
     record ContentSnapshot(
@@ -543,7 +552,7 @@ public class ContextFragments {
                     contextManager,
                     computeDescription(file),
                     file.getFileName(),
-                    FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                    guessContentType(file),
                     snapshotText == null
                             ? null
                             : decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
@@ -612,7 +621,7 @@ public class ContextFragments {
                             FragmentType.GIT_FILE,
                             String.format("%s @%s", file.getFileName(), revision),
                             content,
-                            FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                            guessContentType(file),
                             GitFileFragment.class.getName()));
         }
 
@@ -625,7 +634,7 @@ public class ContextFragments {
                     id,
                     computeDescription(file, revision),
                     "%s @%s".formatted(file.getFileName(), revision),
-                    FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                    guessContentType(file),
                     ContentSnapshot.textSnapshot(content, Set.of(), Set.of(file)));
             if (file.getRelPath().normalize().getFileName() == null) {
                 throw new IllegalArgumentException("ProjectPathFragment relPath must not be empty");
@@ -644,7 +653,7 @@ public class ContextFragments {
          * Create a GitFileFragment representing the content of the given file at the given revision.
          * This reads the file content via the provided GitRepo.
          */
-        public static GitFileFragment fromCommit(ProjectFile file, String revision, GitRepo repo)
+        public static GitFileFragment fromCommit(ProjectFile file, String revision, IGitRepo repo)
                 throws GitAPIException {
             var content = repo.getFileContent(revision, file);
             return new GitFileFragment(file, revision, content);
@@ -714,7 +723,7 @@ public class ContextFragments {
                     contextManager,
                     file.toString(),
                     file.toString(),
-                    FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                    guessContentType(file),
                     snapshotText == null ? null : decodeFrozen(snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file) : null);
             assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
@@ -756,7 +765,7 @@ public class ContextFragments {
                     contextManager,
                     computeDescription(file),
                     file.getFileName(),
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    SYNTAX_STYLE_NONE,
                     null,
                     () -> computeSnapshotFor(file));
             assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
@@ -820,7 +829,7 @@ public class ContextFragments {
                         try {
                             Image img = ImageIO.read(imageFile);
                             if (img != null) {
-                                bytes = ImageUtil.imageToBytes(img);
+                                bytes = ImageBytesUtil.imageToPngBytes(img);
                                 if (bytes != null && bytes.length == 0) {
                                     bytes = null;
                                 }
@@ -835,7 +844,7 @@ public class ContextFragments {
                         try (var bis = new BufferedInputStream(Files.newInputStream(path))) {
                             Image img = ImageIO.read(bis);
                             if (img != null) {
-                                bytes = ImageUtil.imageToBytes(img);
+                                bytes = ImageBytesUtil.imageToPngBytes(img);
                             }
                         } catch (Exception e) {
                             logger.warn(
@@ -1050,7 +1059,7 @@ public class ContextFragments {
                             FragmentType.PASTE_TEXT,
                             "(Pasting text)",
                             text,
-                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                            SYNTAX_STYLE_MARKDOWN,
                             PasteTextFragment.class.getName()),
                     contextManager,
                     text,
@@ -1133,7 +1142,7 @@ public class ContextFragments {
                             null,
                             imageToBytes(image),
                             false,
-                            SyntaxConstants.SYNTAX_STYLE_NONE,
+                            SYNTAX_STYLE_NONE,
                             Set.of(),
                             AnonymousImageFragment.class.getName(),
                             Map.of()),
@@ -1149,7 +1158,7 @@ public class ContextFragments {
                     contextManager,
                     new ComputedValue<>("desc-" + id, descriptionFuture),
                     new ComputedValue<>("short-" + id, descriptionFuture),
-                    ComputedValue.completed(SyntaxConstants.SYNTAX_STYLE_NONE),
+                    ComputedValue.completed(SYNTAX_STYLE_NONE),
                     null,
                     () -> computeSnapshotFor(image));
             this.descriptionFuture = descriptionFuture;
@@ -1158,7 +1167,7 @@ public class ContextFragments {
         @Nullable
         private static byte[] imageToBytes(@Nullable Image image) {
             try {
-                return ImageUtil.imageToBytes(image);
+                return ImageBytesUtil.imageToPngBytes(image);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -1208,7 +1217,7 @@ public class ContextFragments {
                             "stacktrace of " + exception,
                             original + "\n\nStacktrace methods in this project:\n\n" + code,
                             sources.isEmpty()
-                                    ? SyntaxConstants.SYNTAX_STYLE_NONE
+                                    ? SYNTAX_STYLE_NONE
                                     : sources.iterator().next().source().getSyntaxStyle(),
                             StacktraceFragment.class.getName()),
                     contextManager,
@@ -1230,7 +1239,7 @@ public class ContextFragments {
                     "stacktrace of " + exception,
                     "stacktrace of " + exception,
                     sources.isEmpty()
-                            ? SyntaxConstants.SYNTAX_STYLE_NONE
+                            ? SYNTAX_STYLE_NONE
                             : sources.iterator().next().source().getSyntaxStyle(),
                     ContentSnapshot.textSnapshot(
                             original + "\n\nStacktrace methods in this project:\n\n" + code,
@@ -1264,22 +1273,33 @@ public class ContextFragments {
         SAMPLE // Show shortest calling method per overload, capped at 50
     }
 
+    /** Shared, dependency-light usage fragment (text search fallback; no LLM). */
     public static class UsageFragment extends AbstractComputedFragment {
+        private static final Pattern FROZEN_FILE_ATTR_PATTERN = Pattern.compile("file\\s*=\\s*\"([^\"]+)\"");
+        private static final Pattern FROZEN_CLASS_ATTR_PATTERN = Pattern.compile("class\\s*=\\s*\"([^\"]+)\"");
+        private static final Pattern FROZEN_CALLSITE_ITEM_PATTERN = Pattern.compile("-\\s+`([^`]+)`\\s*\\(([^)]+)\\)");
+
         private final String targetIdentifier;
         private final boolean includeTestFiles;
         private final UsageMode mode;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
-            this(contextManager, targetIdentifier, true, null, UsageMode.FULL);
+            this(contextManager, targetIdentifier, true);
         }
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
-            this(contextManager, targetIdentifier, includeTestFiles, null, UsageMode.FULL);
+            this(
+                    UUID.randomUUID().toString(),
+                    contextManager,
+                    targetIdentifier,
+                    includeTestFiles,
+                    null,
+                    UsageMode.FULL);
         }
 
         public UsageFragment(
                 IContextManager contextManager, String targetIdentifier, boolean includeTestFiles, UsageMode mode) {
-            this(contextManager, targetIdentifier, includeTestFiles, null, mode);
+            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, null, mode);
         }
 
         public UsageFragment(
@@ -1293,7 +1313,7 @@ public class ContextFragments {
                     targetIdentifier,
                     includeTestFiles,
                     snapshotText,
-                    snapshotText == null ? UsageMode.FULL : inferUsageModeFromFrozenText(snapshotText));
+                    snapshotText == null ? UsageMode.FULL : inferModeFromFrozen(snapshotText));
         }
 
         public UsageFragment(
@@ -1317,7 +1337,7 @@ public class ContextFragments {
                     targetIdentifier,
                     includeTestFiles,
                     snapshotText,
-                    snapshotText == null ? UsageMode.FULL : inferUsageModeFromFrozenText(snapshotText));
+                    snapshotText == null ? UsageMode.FULL : inferModeFromFrozen(snapshotText));
         }
 
         public UsageFragment(
@@ -1332,10 +1352,8 @@ public class ContextFragments {
                     contextManager,
                     "Uses of " + targetIdentifier,
                     "Uses of " + targetIdentifier,
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    snapshotText == null
-                            ? null
-                            : decodeFrozen(contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
+                    SYNTAX_STYLE_NONE,
+                    snapshotText == null ? null : decodeFrozen(snapshotText, targetIdentifier, contextManager),
                     snapshotText == null
                             ? () -> computeSnapshotFor(targetIdentifier, includeTestFiles, mode, contextManager)
                             : null);
@@ -1344,80 +1362,9 @@ public class ContextFragments {
             this.mode = mode;
         }
 
-        private static UsageMode inferUsageModeFromFrozenText(String snapshotText) {
-            return snapshotText.contains("\nExamples:\n") ? UsageMode.SAMPLE : UsageMode.FULL;
-        }
-
-        private static ContentSnapshot decodeFrozen(IContextManager contextManager, byte[] bytes) {
-            var analyzer = contextManager.getAnalyzerUninterrupted();
-            String text = new String(bytes, StandardCharsets.UTF_8);
-
-            Set<ProjectFile> files = new LinkedHashSet<>();
-            Set<CodeUnit> units = new LinkedHashSet<>();
-
-            // SAMPLE-mode frozen text also contains a call-site list. Rebuild sources/files from that list as well.
-            var callSiteMatcher = Pattern.compile("(?m)^-\\s*`([^`]+)`(?:\\s*\\(([^)]*)\\))?\\s*$")
-                    .matcher(text);
-            while (callSiteMatcher.find()) {
-                String fqName = callSiteMatcher.group(1).trim();
-                if (fqName.isEmpty()) {
-                    continue;
-                }
-
-                try {
-                    units.addAll(analyzer.getDefinitions(fqName));
-                } catch (Exception e) {
-                    logger.warn("Unable to resolve call site CodeUnit for '{}'", fqName, e);
-                }
-
-                String meta = callSiteMatcher.group(2);
-                if (meta != null) {
-                    String metaTrimmed = meta.trim();
-
-                    String pathCandidate = null;
-                    if (metaTrimmed.startsWith("path=")) {
-                        int comma = metaTrimmed.indexOf(',');
-                        pathCandidate = (comma >= 0
-                                ? metaTrimmed.substring("path=".length(), comma)
-                                : metaTrimmed.substring("path=".length()));
-                    } else {
-                        int lastColon = metaTrimmed.lastIndexOf(':');
-                        if (lastColon > 0) {
-                            pathCandidate = metaTrimmed.substring(0, lastColon);
-                        }
-                    }
-
-                    if (pathCandidate != null) {
-                        String normalized = pathCandidate.trim().replace('\\', '/');
-                        if (normalized.contains("/")) {
-                            try {
-                                files.add(contextManager.toFile(normalized));
-                            } catch (Exception t) {
-                                logger.warn("Unable to resolve ProjectFile for call site path '{}'", normalized, t);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Derive files from resolved units (call-site lines may not carry file paths).
-            files.addAll(units.stream().map(CodeUnit::source).collect(Collectors.toCollection(LinkedHashSet::new)));
-
-            return ContentSnapshot.textSnapshot(text, units, files);
-        }
-
         @Override
         public FragmentType getType() {
             return FragmentType.USAGE;
-        }
-
-        @Override
-        public String repr() {
-            if (mode == UsageMode.FULL) {
-                return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles);
-            }
-            return "SymbolUsages('%s', includeTestFiles=%s, mode=%s)"
-                    .formatted(targetIdentifier, includeTestFiles, mode);
         }
 
         public String targetIdentifier() {
@@ -1432,144 +1379,207 @@ public class ContextFragments {
             return mode;
         }
 
+        private static UsageMode inferModeFromFrozen(String frozen) {
+            return frozen.contains("\nExamples:") ? UsageMode.SAMPLE : UsageMode.FULL;
+        }
+
+        private static ContentSnapshot decodeFrozen(
+                String frozen, String targetIdentifier, IContextManager contextManager) {
+            var root = contextManager.getProject().getRoot();
+            var project = contextManager.getProject();
+
+            var files = new HashSet<ProjectFile>();
+            var sources = new HashSet<CodeUnit>();
+
+            var fileMatcher = FROZEN_FILE_ATTR_PATTERN.matcher(frozen);
+            while (fileMatcher.find()) {
+                String relPath = fileMatcher.group(1);
+                if (!relPath.isEmpty()) {
+                    files.add(new ProjectFile(root, relPath));
+                }
+            }
+
+            var classMatcher = FROZEN_CLASS_ATTR_PATTERN.matcher(frozen);
+            while (classMatcher.find()) {
+                String fq = classMatcher.group(1);
+                if (!fq.isEmpty()) {
+                    ProjectFile file = files.stream().findFirst().orElse(new ProjectFile(root, "_unknown_"));
+                    sources.add(codeUnitForFqName(fq, file));
+                }
+            }
+
+            var callsiteMatcher = FROZEN_CALLSITE_ITEM_PATTERN.matcher(frozen);
+            while (callsiteMatcher.find()) {
+                String fq = callsiteMatcher.group(1);
+                String location = callsiteMatcher.group(2);
+                ProjectFile file = fileFromLocation(root, project, location);
+                if (!file.getRelPath().toString().equals("_unknown_") && file.exists()) {
+                    files.add(file);
+                }
+                if (!fq.isEmpty() && file.exists()) {
+                    sources.add(codeUnitForFqName(fq, file));
+                }
+            }
+
+            // Ensure the target identifier itself appears as a source, if we can construct it.
+            if (!targetIdentifier.isEmpty()) {
+                ProjectFile file = files.stream().findFirst().orElse(new ProjectFile(root, "_unknown_"));
+                sources.add(codeUnitForFqName(targetIdentifier, file));
+            }
+
+            // Attempt to resolve more precise CodeUnits if possible, but never fail decoding.
+            try {
+                var analyzer = contextManager.getAnalyzerUninterrupted();
+                for (var pf : files) {
+                    sources.addAll(analyzer.getDeclarations(pf));
+                }
+            } catch (Throwable ignored) {
+                // best-effort
+            }
+
+            return new ContentSnapshot(frozen, sources, files, (List<Byte>) null, true);
+        }
+
+        private static ProjectFile fileFromLocation(Path root, ai.brokk.project.ICoreProject project, String location) {
+            // Expected formats:
+            // - "src/main/java/p1/A.java:1"
+            // - "A.java:1" (no rel path)
+            int colon = location.lastIndexOf(':');
+            String pathPart = colon > 0 ? location.substring(0, colon) : location;
+            if (pathPart.isEmpty()) {
+                return new ProjectFile(root, "_unknown_");
+            }
+            if (!pathPart.contains("/") && !pathPart.contains("\\")) {
+                // Try to resolve by basename when only a filename is provided.
+                String basename = pathPart;
+                return project.getAllFiles().stream()
+                        .filter(pf -> pf.getFileName().equals(basename))
+                        .findFirst()
+                        .orElse(new ProjectFile(root, "_unknown_"));
+            }
+            return new ProjectFile(root, pathPart);
+        }
+
+        private static CodeUnit codeUnitForFqName(String fqName, ProjectFile file) {
+            var parts = fqName.split("\\.");
+            if (parts.length <= 1) {
+                return new CodeUnit(file, CodeUnitType.CLASS, "", fqName);
+            }
+            if (parts.length == 2) {
+                return new CodeUnit(file, CodeUnitType.CLASS, parts[0], parts[1]);
+            }
+            String pkg = String.join(".", Arrays.copyOf(parts, parts.length - 2));
+            String shortName = parts[parts.length - 2] + "." + parts[parts.length - 1];
+            return new CodeUnit(file, CodeUnitType.FUNCTION, pkg, shortName);
+        }
+
+        @Override
+        public String repr() {
+            if (mode == UsageMode.FULL) {
+                return "Usage('%s', includeTests=%s)".formatted(targetIdentifier, includeTestFiles);
+            }
+            return "Usage('%s', includeTests=%s, mode=%s)".formatted(targetIdentifier, includeTestFiles, mode);
+        }
+
         private static ContentSnapshot computeSnapshotFor(
-                String targetIdentifier, boolean includeTestFiles, UsageMode mode, IContextManager contextManager)
-                throws InterruptedException {
-            IAnalyzer analyzer = contextManager.getAnalyzer();
-            Predicate<ProjectFile> fileFilter =
-                    includeTestFiles ? null : file -> !ContextManager.isTestFile(file, analyzer);
+                String targetIdentifier, boolean includeTestFiles, UsageMode mode, IContextManager contextManager) {
+            var project = contextManager.getProject();
+            var analyzer = contextManager.getAnalyzerUninterrupted();
 
-            // UsageFinder is the new name for the unified usage discovery service
-            FuzzyResult usageResult =
-                    UsageFinder.create(contextManager, fileFilter).findUsages(targetIdentifier);
-            var either = usageResult.toEither();
+            var candidates = project.getAllFiles().stream()
+                    .filter(pf -> includeTestFiles || !ai.brokk.analyzer.TestFileHeuristics.isTestFile(pf, analyzer))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
 
-            var definitions = analyzer.getDefinitions(targetIdentifier);
-            boolean valid = !definitions.isEmpty();
-            Optional<CodeUnit> definingOwner = definitions.stream().findFirst().map(def -> analyzer.parentOf(def)
-                    .orElse(def));
-
-            if (either.hasErrorMessage()) {
-                return new ContentSnapshot(either.getErrorMessage(), Set.of(), Set.of(), (List<Byte>) null, valid);
+            boolean supportsJava;
+            try {
+                supportsJava = analyzer.languages().contains(ai.brokk.analyzer.Languages.JAVA);
+            } catch (UnsupportedOperationException e) {
+                supportsJava = false;
             }
 
-            List<UsageHit> externalHits = externalUsages(analyzer, definingOwner, either.getUsages());
+            if (!supportsJava) {
+                return new ContentSnapshot(
+                        "No relevant usages found for symbol: " + targetIdentifier,
+                        Set.of(),
+                        Set.of(),
+                        (List<Byte>) null,
+                        false);
+            }
+            var usageAnalyzer = new ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy(project);
 
+            List<CodeUnit> overloads = analyzer.getDefinitions(targetIdentifier).stream()
+                    .filter(CodeUnit::isFunction)
+                    .toList();
+            if (overloads.isEmpty()) {
+                overloads = analyzer.searchDefinitions(targetIdentifier).stream()
+                        .filter(CodeUnit::isFunction)
+                        .limit(5)
+                        .toList();
+            }
+
+            if (overloads.isEmpty()) {
+                return new ContentSnapshot(
+                        "No relevant usages found for symbol: " + targetIdentifier,
+                        Set.of(),
+                        Set.of(),
+                        (List<Byte>) null,
+                        false);
+            }
+
+            CodeUnit definingOwner = analyzer.parentOf(overloads.getFirst()).orElse(overloads.getFirst());
+
+            FuzzyResult result;
+            result = usageAnalyzer.findUsages(overloads, candidates, 500);
+
+            var either = result.toEither();
+            if (!either.hasUsages()) {
+                return new ContentSnapshot(either.getErrorMessage(), Set.of(), Set.of(), (List<Byte>) null, false);
+            }
+
+            var hits = either.getUsages().stream()
+                    .filter(hit -> {
+                        var owner = analyzer.parentOf(hit.enclosing()).orElse(hit.enclosing());
+                        return !owner.equals(definingOwner);
+                    })
+                    .sorted(Comparator.comparing((ai.brokk.analyzer.usages.UsageHit h) ->
+                                    h.enclosing().fqName())
+                            .thenComparing(h -> h.file().toString())
+                            .thenComparingInt(ai.brokk.analyzer.usages.UsageHit::line))
+                    .toList();
+
+            StringBuilder sb =
+                    new StringBuilder("# Usages of ").append(targetIdentifier).append("\n\n");
+            sb.append("Call sites (").append(hits.size()).append("):\n");
+            for (var hit : hits) {
+                sb.append("- `")
+                        .append(hit.enclosing().fqName())
+                        .append("` (")
+                        .append(hit.file().getRelPath())
+                        .append(":")
+                        .append(hit.line())
+                        .append(")\n");
+            }
+
+            List<AnalyzerUtil.CodeWithSource> sources;
             if (mode == UsageMode.SAMPLE) {
-                return computeSampleSnapshot(targetIdentifier, analyzer, externalHits, valid);
-            }
-
-            return computeFullSnapshot(targetIdentifier, analyzer, externalHits, valid);
-        }
-
-        private static List<UsageHit> externalUsages(
-                IAnalyzer analyzer, Optional<CodeUnit> definingOwner, Collection<UsageHit> hits) {
-            Comparator<UsageHit> stableOrder = Comparator.comparing(
-                            (UsageHit h) -> h.file().toString())
-                    .thenComparingInt(UsageHit::line)
-                    .thenComparingInt(UsageHit::startOffset);
-
-            return hits.stream()
-                    .filter(hit -> isExternalUsage(analyzer, definingOwner, hit))
-                    .sorted(stableOrder)
-                    .toList();
-        }
-
-        private static boolean isExternalUsage(IAnalyzer analyzer, Optional<CodeUnit> definingOwner, UsageHit hit) {
-            if (definingOwner.isEmpty()) {
-                return true;
-            }
-
-            CodeUnit hitOwner = analyzer.parentOf(hit.enclosing()).orElse(hit.enclosing());
-            return !hitOwner.equals(definingOwner.get());
-        }
-
-        private static ContentSnapshot computeFullSnapshot(
-                String targetIdentifier, IAnalyzer analyzer, List<UsageHit> externalHits, boolean valid) {
-            if (externalHits.isEmpty()) {
-                return new ContentSnapshot(
-                        "No relevant usages found for symbol: " + targetIdentifier,
-                        Set.of(),
-                        Set.of(),
-                        (List<Byte>) null,
-                        valid);
-            }
-
-            List<CodeUnit> enclosingMethods =
-                    externalHits.stream().map(UsageHit::enclosing).distinct().toList();
-
-            List<AnalyzerUtil.CodeWithSource> parts = enclosingMethods.stream()
-                    .map(cu -> analyzer.getSource(cu, true).map(src -> new AnalyzerUtil.CodeWithSource(src, cu)))
-                    .flatMap(Optional::stream)
-                    .toList();
-
-            StringBuilder sb =
-                    new StringBuilder("# Usages of ").append(targetIdentifier).append("\n\n");
-            sb.append("Call sites (").append(externalHits.size()).append("):\n");
-            externalHits.forEach(hit -> sb.append("- `")
-                    .append(hit.enclosing().fqName())
-                    .append("` (")
-                    .append(hit.file().getFileName())
-                    .append(":")
-                    .append(hit.line())
-                    .append(")\n"));
-            sb.append("\n");
-
-            String body = AnalyzerUtil.CodeWithSource.text(analyzer, parts);
-            String text = (sb + body).trim();
-
-            Set<CodeUnit> sources = new LinkedHashSet<>(enclosingMethods);
-            Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-            return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
-        }
-
-        private static ContentSnapshot computeSampleSnapshot(
-                String targetIdentifier, IAnalyzer analyzer, List<UsageHit> externalHits, boolean valid) {
-            if (externalHits.isEmpty()) {
-                return new ContentSnapshot(
-                        "No relevant usages found for symbol: " + targetIdentifier,
-                        Set.of(),
-                        Set.of(),
-                        (List<Byte>) null,
-                        valid);
-            }
-
-            List<UsageHit> hitsLimited = externalHits.stream().limit(50).toList();
-
-            StringBuilder sb =
-                    new StringBuilder("# Usages of ").append(targetIdentifier).append("\n\n");
-
-            sb.append("Call sites (")
-                    .append(externalHits.size())
-                    .append(externalHits.size() > 50 ? ", showing first 50" : "")
-                    .append("):\n");
-
-            hitsLimited.forEach(hit -> sb.append("- `")
-                    .append(hit.enclosing().fqName())
-                    .append("` (")
-                    .append(hit.file().getFileName())
-                    .append(":")
-                    .append(hit.line())
-                    .append(")\n"));
-
-            sb.append("\nExamples:\n\n");
-
-            List<AnalyzerUtil.CodeWithSource> sampledExamples = AnalyzerUtil.sampleUsages(analyzer, externalHits);
-
-            if (sampledExamples.isEmpty()) {
-                sb.append("(source unavailable)\n");
+                sb.append("\nExamples:\n\n");
+                sources = AnalyzerUtil.sampleUsages(analyzer, hits);
             } else {
-                sb.append(AnalyzerUtil.CodeWithSource.text(analyzer, sampledExamples))
-                        .append("\n");
+                sources = AnalyzerUtil.processUsages(
+                        analyzer,
+                        hits.stream()
+                                .map(ai.brokk.analyzer.usages.UsageHit::enclosing)
+                                .distinct()
+                                .toList());
             }
 
-            String text = sb.toString().trim();
+            for (var src : sources) {
+                sb.append(src.code()).append("\n\n");
+            }
 
-            Set<CodeUnit> allSources =
-                    hitsLimited.stream().map(UsageHit::enclosing).collect(Collectors.toCollection(LinkedHashSet::new));
-            sampledExamples.stream().map(AnalyzerUtil.CodeWithSource::source).forEach(allSources::add);
-            Set<ProjectFile> files = allSources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-            return new ContentSnapshot(text, allSources, files, (List<Byte>) null, valid);
+            var files =
+                    hits.stream().map(ai.brokk.analyzer.usages.UsageHit::file).collect(Collectors.toSet());
+            return new ContentSnapshot(sb.toString().trim(), Set.of(), files, (List<Byte>) null, true);
         }
 
         @Override
@@ -1649,7 +1659,7 @@ public class ContextFragments {
             return contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
                     .findFirst()
                     .map(cu -> new CodeUnitMetadata(cu.shortName(), cu.source().getSyntaxStyle()))
-                    .orElseGet(() -> new CodeUnitMetadata(fqName, SyntaxConstants.SYNTAX_STYLE_NONE));
+                    .orElseGet(() -> new CodeUnitMetadata(fqName, SYNTAX_STYLE_NONE));
         }
 
         private static ContentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
@@ -1771,7 +1781,7 @@ public class ContextFragments {
                     contextManager,
                     computeDescription(file, startLine, endLine),
                     computeShortDescription(file, startLine, endLine),
-                    FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                    guessContentType(file),
                     snapshotText == null ? null : ContentSnapshot.textSnapshot(snapshotText, Set.of(), Set.of(file)),
                     snapshotText == null ? () -> computeSnapshotFor(file, startLine, endLine) : null);
             if (startLine < 1) {
@@ -2000,7 +2010,7 @@ public class ContextFragments {
                     contextManager,
                     ComputedValue.completed("desc-" + id, computeDescription(targetIdentifier)),
                     shortDescriptionCv,
-                    ComputedValue.completed("syntax-" + id, SyntaxConstants.SYNTAX_STYLE_JAVA),
+                    ComputedValue.completed("syntax-" + id, SYNTAX_STYLE_JAVA),
                     initialSnapshot,
                     computeTask);
             this.targetIdentifier = targetIdentifier;
@@ -2129,7 +2139,7 @@ public class ContextFragments {
                 return "";
             }
 
-            if (SwingUtilities.isEventDispatchThread()) {
+            if (EventQueue.isDispatchThread()) {
                 logger.error("combinedText is a blocking function and should not be called on the EDT!");
             }
 
@@ -2229,113 +2239,5 @@ public class ContextFragments {
         }
     }
 
-    public static class HistoryFragment extends AbstractStaticFragment implements OutputFragment {
-        private final List<TaskEntry> history;
-
-        public HistoryFragment(IContextManager contextManager, List<TaskEntry> history) {
-            this(
-                    FragmentUtils.calculateContentHash(
-                            FragmentType.HISTORY,
-                            "Task History (" + history.size() + " task" + (history.size() > 1 ? "s" : "") + ")",
-                            Messages.format(history.stream()
-                                    .flatMap(e -> e.mopMessages().stream())
-                                    .toList()),
-                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                            HistoryFragment.class.getName()),
-                    contextManager,
-                    history);
-        }
-
-        public HistoryFragment(String id, IContextManager contextManager, List<TaskEntry> history) {
-            super(
-                    id,
-                    "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
-                    "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
-                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    ContentSnapshot.textSnapshot(Messages.format(history.stream()
-                            .flatMap(e -> e.isCompressed()
-                                    ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                    : castNonNull(e.mopLog()).messages().stream())
-                            .toList())));
-            this.history = List.copyOf(history);
-        }
-
-        @Override
-        public FragmentType getType() {
-            return FragmentType.HISTORY;
-        }
-
-        @Override
-        public List<TaskEntry> entries() {
-            return history;
-        }
-
-        @Override
-        public String toString() {
-            return "ConversationFragment(" + history.size() + " tasks)";
-        }
-    }
-
-    public static class TaskFragment extends AbstractStaticFragment implements OutputFragment {
-        private final List<ChatMessage> messages;
-        private final boolean escapeHtml; // TODO wire this up or delete it, currently used by GitIssuesTab
-
-        /**
-         * @param description the user instructions or action goal
-         */
-        public TaskFragment(List<ChatMessage> messages, String description) {
-            this(messages, description, true);
-        }
-
-        public TaskFragment(List<ChatMessage> messages, String description, boolean escapeHtml) {
-            this(
-                    FragmentUtils.calculateContentHash(
-                            FragmentType.TASK,
-                            description,
-                            Messages.format(messages),
-                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                            TaskFragment.class.getName()),
-                    messages,
-                    description,
-                    escapeHtml);
-        }
-
-        public TaskFragment(String id, List<ChatMessage> messages, String description) {
-            this(id, messages, description, true);
-        }
-
-        public TaskFragment(IContextManager contextManager, String description) {
-            this(contextManager.getIo().getLlmRawMessages(), description, true);
-        }
-
-        public TaskFragment(String id, List<ChatMessage> messages, String description, boolean escapeHtml) {
-            super(
-                    id,
-                    description,
-                    description,
-                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    ContentSnapshot.textSnapshot(Messages.format(messages)));
-            this.messages = List.copyOf(messages);
-            this.escapeHtml = escapeHtml;
-        }
-
-        @Override
-        public FragmentType getType() {
-            return FragmentType.TASK;
-        }
-
-        @Override
-        public boolean isEscapeHtml() {
-            return escapeHtml;
-        }
-
-        public List<ChatMessage> messages() {
-            return messages;
-        }
-
-        @Override
-        public List<TaskEntry> entries() {
-            return List.of(new TaskEntry(-1, this, null));
-        }
-    }
+    // Output-related fragments (task history / streaming logs) are app-owned and live in :app.
 }

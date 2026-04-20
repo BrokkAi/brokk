@@ -2,7 +2,7 @@ package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.SpecialTextType;
@@ -37,7 +37,7 @@ class ReviewScopeTest {
         repo.add(pf);
         repo.commitCommand().setMessage("Add line2").call();
 
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         // Create a ReviewScope using fromBaseline
         var originalScope = ReviewScope.fromBaseline(cm, initialCommit, "HEAD");
@@ -94,7 +94,7 @@ class ReviewScopeTest {
         var commit = repo.commitCommand().setMessage("Single change").call();
         String commitId = commit.getId().getName();
 
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         // This is the scenario that was failing: selecting a single commit (not WORKING)
         // fromRef should be commit^, toRef should be commit
@@ -114,7 +114,7 @@ class ReviewScopeTest {
                 .addCommit("test.txt", "test.txt")
                 .build();
 
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
         var context = cm.liveContext(); // No special fragments
 
         assertThrows(ReviewScope.ReviewLoadContextException.class, () -> {
@@ -127,7 +127,7 @@ class ReviewScopeTest {
     @Test
     void testExtractSessionContext_emptySessionIds_returnsEmptyContext() throws IOException {
         var project = InlineTestProjectCreator.code("test\n", "test.txt").build();
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         var results = ReviewScope.extractSessionContext(cm, List.of(), Set.of());
 
@@ -141,7 +141,7 @@ class ReviewScopeTest {
         try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
             var repo = new GitRepo(tempDir);
             var project = new TestProject(tempDir, Languages.JAVA).withRepo(repo);
-            IContextManager cm = new TestContextManager(project);
+            IAppContextManager cm = new TestContextManager(project);
 
             // On an empty repo (no commits), HEAD cannot be resolved
             var ex = assertThrows(RuntimeException.class, () -> ReviewScope.fromBaseline(cm, "HEAD", "WORKING"));

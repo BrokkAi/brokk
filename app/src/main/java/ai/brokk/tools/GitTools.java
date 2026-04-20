@@ -1,6 +1,6 @@
 package ai.brokk.tools;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.git.GitRepo;
@@ -28,9 +28,9 @@ public class GitTools {
     // A ConcurrentHashMap could be used for in-memory caching across runs for a single session
     // but DiskLruCache is preferred for persistence across sessions/restarts
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
 
-    public GitTools(IContextManager cm) {
+    public GitTools(IAppContextManager cm) {
         this.cm = cm;
     }
 
@@ -50,7 +50,7 @@ public class GitTools {
      * If {@code detailed} is false, a concise summary is generated using SummarizerPrompts.collectMessages (100 words).
      * Handles ContextTooLargeException by halving lines-per-file and retrying.
      */
-    public static String explainCommitCached(IContextManager cm, String revision, boolean detailed)
+    public static String explainCommitCached(IAppContextManager cm, String revision, boolean detailed)
             throws InterruptedException {
         if (!cm.getProject().hasGit()) {
             return "Git history is not available for this project";

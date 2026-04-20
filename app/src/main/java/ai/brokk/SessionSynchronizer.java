@@ -42,7 +42,7 @@ class SessionSynchronizer {
     private static final Object SYNC_INFO_LOCK = new Object();
 
     private final SessionManager sessionManager;
-    private final IContextManager contextManager;
+    private final IAppContextManager contextManager;
     private final IProject project;
     private final Path sessionsDir;
     private final SyncCallbacks syncCallbacks;
@@ -96,11 +96,11 @@ class SessionSynchronizer {
         }
     }
 
-    SessionSynchronizer(IContextManager contextManager) {
+    SessionSynchronizer(IAppContextManager contextManager) {
         this(contextManager, new DefaultSyncCallbacks());
     }
 
-    SessionSynchronizer(IContextManager contextManager, SyncCallbacks syncCallbacks) {
+    SessionSynchronizer(IAppContextManager contextManager, SyncCallbacks syncCallbacks) {
         this.contextManager = contextManager;
         this.project = contextManager.getProject();
         this.syncCallbacks = syncCallbacks;
@@ -213,7 +213,7 @@ class SessionSynchronizer {
         SyncResult execute(
                 List<SyncAction> actions,
                 SyncCallbacks callbacks,
-                Map<UUID, IContextManager> openContextManagers,
+                Map<UUID, IAppContextManager> openContextManagers,
                 String remoteProject)
                 throws InterruptedException {
             SyncResult result = new SyncResult();
@@ -280,7 +280,7 @@ class SessionSynchronizer {
         }
 
         private void handleDeleteLocal(
-                SyncAction action, Map<UUID, IContextManager> openContextManagers, SyncResult result)
+                SyncAction action, Map<UUID, IAppContextManager> openContextManagers, SyncResult result)
                 throws ExecutionException, InterruptedException {
             UUID id = action.sessionId();
             sessionManager
@@ -288,7 +288,7 @@ class SessionSynchronizer {
                     .submit(id.toString(), (Callable<Void>) () -> {
                         if (isLocalModified(action, result)) return null;
 
-                        IContextManager cm = openContextManagers.get(id);
+                        IAppContextManager cm = openContextManagers.get(id);
                         deleteLocalSession(id);
                         if (cm != null) {
                             cm.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
@@ -303,7 +303,7 @@ class SessionSynchronizer {
         private void handleDownload(
                 SyncAction action,
                 SyncCallbacks callbacks,
-                Map<UUID, IContextManager> openContextManagers,
+                Map<UUID, IAppContextManager> openContextManagers,
                 SyncResult result)
                 throws IOException, ExecutionException, InterruptedException {
             UUID id = action.sessionId();
@@ -342,7 +342,7 @@ class SessionSynchronizer {
                 SyncAction action,
                 SyncCallbacks callbacks,
                 String remoteProject,
-                Map<UUID, IContextManager> openContextManagers,
+                Map<UUID, IAppContextManager> openContextManagers,
                 SyncResult result)
                 throws IOException, ExecutionException, InterruptedException {
             UUID id = action.sessionId();
@@ -471,7 +471,7 @@ class SessionSynchronizer {
                 }
             }
 
-            Map<UUID, IContextManager> openContextManagers = getOpenContextManagers();
+            Map<UUID, IAppContextManager> openContextManagers = getOpenContextManagers();
             SyncInfo syncInfo = readSyncInfo();
 
             // Plan
@@ -487,10 +487,10 @@ class SessionSynchronizer {
         } while (!result.skipped().isEmpty());
     }
 
-    protected Map<UUID, IContextManager> getOpenContextManagers() {
+    protected Map<UUID, IAppContextManager> getOpenContextManagers() {
         return Brokk.getProjectAndWorktreeChromes(project).stream()
-                .map(c -> (IContextManager) c.getContextManager())
-                .collect(Collectors.toMap(IContextManager::getCurrentSessionId, Function.identity(), (a, b) -> a));
+                .map(c -> (IAppContextManager) c.getContextManager())
+                .collect(Collectors.toMap(IAppContextManager::getCurrentSessionId, Function.identity(), (a, b) -> a));
     }
 
     private void deleteLocalSession(UUID id) {
@@ -522,7 +522,7 @@ class SessionSynchronizer {
             SessionInfo localInfo,
             RemoteSessionMeta remoteMeta,
             boolean localIsNewer,
-            @Nullable IContextManager openContextManager)
+            @Nullable IAppContextManager openContextManager)
             throws IOException {
 
         Path tmpDir = sessionsDir.resolve(TMP_DIR);

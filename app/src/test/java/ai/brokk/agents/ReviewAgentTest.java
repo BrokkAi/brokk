@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
@@ -108,7 +108,7 @@ class ReviewAgentTest {
                 .withMockGit()
                 .addCommit("file.txt", "file.txt")
                 .build();
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         // Smoke test: should handle "HEAD" ref without crashing
         var ctx = ReviewScope.fromBaseline(cm, "HEAD");
@@ -123,7 +123,7 @@ class ReviewAgentTest {
         Files.writeString(tempDir.resolve("file1.java"), "content1");
         Files.writeString(tempDir.resolve("file2.java"), "content2");
         TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
         ProjectFile f2 = new ProjectFile(tempDir, "file2.java");
@@ -176,7 +176,7 @@ class ReviewAgentTest {
     @Test
     void testRetryInStages_exhaustsRetries() throws InterruptedException, ReviewGenerationException {
         TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
         var changes = new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of());
         ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
@@ -219,7 +219,7 @@ class ReviewAgentTest {
     void testRetryInStages_limitsTotalAttempts() throws InterruptedException, IOException, ReviewGenerationException {
         Files.writeString(tempDir.resolve("file1.java"), "content1");
         TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
         var d1 = new FileDiff(f1, f1, "content1", "content1", false);
@@ -250,7 +250,7 @@ class ReviewAgentTest {
     void testRetryInStages_integrationScenarios() throws InterruptedException, IOException, ReviewGenerationException {
         Files.writeString(tempDir.resolve("file.java"), "line1\nline2\nline3\nline4");
         TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         ProjectFile f = new ProjectFile(tempDir, "file.java");
         var diff = new FileDiff(f, f, "line1\nline2\nline3\nline4", "line1\nline2-new\nline3\nline4", false);
@@ -316,7 +316,7 @@ class ReviewAgentTest {
         Files.writeString(tempDir.resolve("good.java"), "public class Good {}");
         Files.writeString(tempDir.resolve("fixed.java"), "public class Fixed {}");
         TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         ProjectFile f1 = new ProjectFile(tempDir, "good.java");
         ProjectFile f2 = new ProjectFile(tempDir, "fixed.java");
@@ -368,7 +368,7 @@ class ReviewAgentTest {
         Files.writeString(tempDir.resolve("file1.java"), "content1");
         Files.writeString(tempDir.resolve("file2.java"), "content2");
         TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
         ProjectFile f2 = new ProjectFile(tempDir, "file2.java");
@@ -428,7 +428,7 @@ class ReviewAgentTest {
         // Test that when there are no validation errors, we go straight to excerpt resolution
         Files.writeString(tempDir.resolve("file.java"), "line1\nline2");
         TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         ProjectFile f = new ProjectFile(tempDir, "file.java");
         var diff = new FileDiff(f, f, "line1\nline2", "line1\nline2", false);
@@ -462,7 +462,7 @@ class ReviewAgentTest {
         // Test that Stage 1 (file path) and Stage 2 (content matching) work in sequence
         Files.writeString(tempDir.resolve("file.java"), "line1\nline2\nline3");
         TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         ProjectFile f = new ProjectFile(tempDir, "file.java");
         var diff = new FileDiff(f, f, "line1\nline2\nline3", "line1\nline2\nline3", false);
@@ -507,7 +507,7 @@ class ReviewAgentTest {
         Files.writeString(tempDir.resolve("file1.java"), "content1");
         Files.writeString(tempDir.resolve("file2.java"), "content2");
         TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
 
         ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
         ProjectFile f2 = new ProjectFile(tempDir, "file2.java");
@@ -574,7 +574,7 @@ class ReviewAgentTest {
     @Test
     void testRetryInStages_ignoresErroredCorrectionResponses() throws InterruptedException, ReviewGenerationException {
         TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
+        IAppContextManager cm = new TestContextManager(project);
         var changes = new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of());
         ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 

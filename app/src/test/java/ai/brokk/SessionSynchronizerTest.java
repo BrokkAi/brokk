@@ -68,7 +68,7 @@ class SessionSynchronizerTest {
     }
 
     /** Simple stub for ContextManager to verify interactions during sync. */
-    private static class TestContextManager implements IContextManager {
+    private static class TestContextManager implements IAppContextManager {
         boolean reloadCalled = false;
         boolean createSessionCalled = false;
         private final IProject project;
@@ -82,6 +82,11 @@ class SessionSynchronizerTest {
         @Override
         public IProject getProject() {
             return project;
+        }
+
+        @Override
+        public ai.brokk.analyzer.IAnalyzer getAnalyzerUninterrupted() {
+            throw new UnsupportedOperationException();
         }
 
         @Override
@@ -101,7 +106,7 @@ class SessionSynchronizerTest {
         }
     }
 
-    private Map<UUID, IContextManager> openContexts = new HashMap<>();
+    private Map<UUID, IAppContextManager> openContexts = new HashMap<>();
 
     @BeforeEach
     void setup() throws IOException {
@@ -117,7 +122,7 @@ class SessionSynchronizerTest {
         TestContextManager cm = new TestContextManager(project, UUID.randomUUID());
         synchronizer = new SessionSynchronizer(cm, syncCallbacks) {
             @Override
-            protected Map<UUID, IContextManager> getOpenContextManagers() {
+            protected Map<UUID, IAppContextManager> getOpenContextManagers() {
                 return openContexts;
             }
         };

@@ -7,8 +7,8 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.AbstractService;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
@@ -89,7 +89,7 @@ import org.jetbrains.annotations.Nullable;
  * action buttons. It also includes the system messages and command result areas. All initialization and action code
  * related to these components has been moved here.
  */
-public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
+public class InstructionsPanel extends JPanel implements IAppContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
     private static final String POWER_RANKING_TITLE = "Brokk Power Ranking";
     public static final String ACTION_CODE = "Code";
@@ -1787,7 +1787,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Executes the core logic for the "Ask" command. This runs inside the Runnable passed to
      * contextManager.submitAction.
      */
-    public static TaskResult executeAskCommand(IContextManager cm, StreamingChatModel model, String question) {
+    public static TaskResult executeAskCommand(IAppContextManager cm, StreamingChatModel model, String question) {
         var svc = cm.getService();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
@@ -1800,7 +1800,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public static TaskResult executeAskCommand(
-            Llm llm, List<ChatMessage> messages, IContextManager cm, String question, TaskResult.TaskMeta meta) {
+            Llm llm, List<ChatMessage> messages, IAppContextManager cm, String question, TaskResult.TaskMeta meta) {
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;

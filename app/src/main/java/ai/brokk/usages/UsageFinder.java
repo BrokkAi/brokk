@@ -1,7 +1,7 @@
 package ai.brokk.usages;
 
 import ai.brokk.AbstractService;
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.Llm;
 import ai.brokk.OfflineService;
 import ai.brokk.TaskResult;
@@ -44,11 +44,11 @@ public final class UsageFinder {
 
     private record Configuration(CandidateFileProvider candidateProvider, UsageAnalyzer usageAnalyzer) {}
 
-    public static UsageFinder create(IContextManager cm) {
+    public static UsageFinder create(IAppContextManager cm) {
         return create(cm, null);
     }
 
-    public static UsageFinder create(IContextManager cm, @Nullable Predicate<ProjectFile> fileFilter) {
+    public static UsageFinder create(IAppContextManager cm, @Nullable Predicate<ProjectFile> fileFilter) {
         var service = cm.getService();
         var model = service.getModel(ModelProperties.ModelType.USAGES);
         var llm = model instanceof AbstractService.OfflineStreamingModel

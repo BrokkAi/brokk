@@ -5,17 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-/** Unit tests for {@link ContextManager#TEST_FILE_PATTERN}. */
+/** Unit tests for {@link ai.brokk.analyzer.TestFileHeuristics}. */
 class ContextManagerTest {
     @Test
     void shouldMatchTestFilenames() {
@@ -68,11 +69,11 @@ class ContextManagerTest {
                 "__tests__/Component.test.js",
                 "packages/core/__tests__/util.ts");
 
-        var pattern = ContextManager.TEST_FILE_PATTERN;
         var mismatches = new ArrayList<String>();
+        Path root = Path.of("/tmp");
 
         positives.forEach(path -> {
-            if (!pattern.matcher(path).matches()) {
+            if (!ContextManager.isTestFile(new ProjectFile(root, path), null)) {
                 mismatches.add(path);
             }
         });
@@ -94,11 +95,11 @@ class ContextManagerTest {
                 "src/respect.ts",
                 "aspect-ratio.ts");
 
-        var pattern = ContextManager.TEST_FILE_PATTERN;
         var unexpectedMatches = new ArrayList<String>();
+        Path root = Path.of("/tmp");
 
         negatives.forEach(path -> {
-            if (pattern.matcher(path).matches()) {
+            if (ContextManager.isTestFile(new ProjectFile(root, path), null)) {
                 unexpectedMatches.add(path);
             }
         });
@@ -135,11 +136,10 @@ class ContextManagerTest {
         List<ChatMessage> msgs1 = List.of(UserMessage.from("first"));
         List<ChatMessage> msgs2 = List.of(UserMessage.from("second"));
 
-        var tf1 = new ContextFragments.TaskFragment(msgs1, "First Task");
-        var tf2 = new ContextFragments.TaskFragment(msgs2, "Second Task");
-
-        var entry1 = new TaskEntry(101, tf1, null);
-        var entry2 = new TaskEntry(202, tf2, null);
+        var md1 = Messages.format(msgs1);
+        var md2 = Messages.format(msgs2);
+        var entry1 = new TaskEntry(101, "First Task", md1, md1, null, null);
+        var entry2 = new TaskEntry(202, "Second Task", md2, md2, null, null);
 
         // Seed initial history with both entries
         cm.pushContext(ctx -> ctx.withHistory(List.of(entry1, entry2)));

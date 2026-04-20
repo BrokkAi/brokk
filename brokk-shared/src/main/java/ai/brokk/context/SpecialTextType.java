@@ -8,7 +8,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -25,8 +24,8 @@ import org.jetbrains.annotations.Nullable;
 public enum SpecialTextType {
     BUILD_RESULTS(
             "Latest Build Results",
-            SyntaxConstants.SYNTAX_STYLE_NONE,
-            SyntaxConstants.SYNTAX_STYLE_NONE,
+            ContextFragments.SYNTAX_STYLE_NONE,
+            ContextFragments.SYNTAX_STYLE_NONE,
             true // droppable
             ) {
         @Override
@@ -37,8 +36,8 @@ public enum SpecialTextType {
 
     SEARCH_NOTES(
             "Code Notes",
-            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+            ContextFragments.SYNTAX_STYLE_MARKDOWN,
+            ContextFragments.SYNTAX_STYLE_MARKDOWN,
             true // droppable
             ) {
         @Override
@@ -49,8 +48,8 @@ public enum SpecialTextType {
 
     DISCARDED_CONTEXT(
             "Discarded Context",
-            SyntaxConstants.SYNTAX_STYLE_JSON,
-            SyntaxConstants.SYNTAX_STYLE_JSON,
+            ContextFragments.SYNTAX_STYLE_JSON,
+            ContextFragments.SYNTAX_STYLE_JSON,
             false // non-droppable; protects audit log
             ) {
         @Override
@@ -61,8 +60,8 @@ public enum SpecialTextType {
 
     TASK_LIST(
             "Task List",
-            SyntaxConstants.SYNTAX_STYLE_JSON, // internal storage is JSON
-            SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // preview as Markdown
+            ContextFragments.SYNTAX_STYLE_JSON, // internal storage is JSON
+            ContextFragments.SYNTAX_STYLE_MARKDOWN, // preview as Markdown
             false // non-droppable
             ) {
         @Override
@@ -148,8 +147,8 @@ public enum SpecialTextType {
 
     REVIEW_METADATA(
             "Guided Review Metadata",
-            SyntaxConstants.SYNTAX_STYLE_JSON,
-            SyntaxConstants.SYNTAX_STYLE_JSON,
+            ContextFragments.SYNTAX_STYLE_JSON,
+            ContextFragments.SYNTAX_STYLE_JSON,
             true // droppable
             ) {
         @Override
@@ -159,7 +158,7 @@ public enum SpecialTextType {
     },
 
     REVIEW_DIFF(
-            "Patch to Review", SyntaxConstants.SYNTAX_STYLE_NONE, SyntaxConstants.SYNTAX_STYLE_NONE, true // droppable
+            "Patch to Review", ContextFragments.SYNTAX_STYLE_NONE, ContextFragments.SYNTAX_STYLE_NONE, true // droppable
             ) {
         @Override
         public String renderPreview(String rawContent) {
@@ -169,8 +168,8 @@ public enum SpecialTextType {
 
     CODE_AGENT_CHANGES(
             "Last Code Agent Changes",
-            SyntaxConstants.SYNTAX_STYLE_NONE,
-            SyntaxConstants.SYNTAX_STYLE_NONE,
+            ContextFragments.SYNTAX_STYLE_NONE,
+            ContextFragments.SYNTAX_STYLE_NONE,
             true // droppable
             ) {
         @Override

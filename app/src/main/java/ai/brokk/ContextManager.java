@@ -11,10 +11,8 @@ import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.Languages;
-import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.TestDetectionProvider;
+import ai.brokk.analyzer.TestFileHeuristics;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
@@ -27,11 +25,13 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextFragments.PathFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
+import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.executor.agents.AgentStore;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
@@ -40,6 +40,7 @@ import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.*;
 import ai.brokk.util.*;
+import ai.brokk.util.Messages;
 import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.FileWatcherHelper;
 import ai.brokk.watchservice.NoopWatchService;
@@ -57,8 +58,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.swing.*;
@@ -76,7 +77,7 @@ import org.jetbrains.annotations.TestOnly;
  * Directly call into Chrome’s UI methods from background tasks (via invokeLater), - Provide separate async methods for
  * “Go”, “Ask”, “Search”, context additions, etc.
  */
-public class ContextManager implements IContextManager, AutoCloseable {
+public class ContextManager implements IAppContextManager, AutoCloseable {
     private static final Logger logger = LogManager.getLogger(ContextManager.class);
 
     private IConsoleIO io; // for UI feedback - Initialized in createGui
@@ -88,19 +89,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Only one of these can run at a time
     private final UserActionManager userActions;
 
-    // Regex to identify test files. Matches the word "test"/"tests" (case-insensitive)
-    // when it appears as its own path segment or at a camel-case boundary, as well as
-    // common JS/TS conventions: *.spec.<ext>, *.test.<ext>, and files under __tests__/.
-    static final Pattern TEST_FILE_PATTERN = Pattern.compile(".*"
-            + "(?:"
-            + "(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z])|(?<=[A-Z]))"
-            + "(?i:tests?)"
-            + "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)"
-            + "|"
-            + "(?i:\\.(?:spec|test)\\.[^/\\\\.]+$)"
-            + ")"
-            + ".*");
-
     public static final String DEFAULT_SESSION_NAME = "New Session";
     // Cutoff: sessions modified on or after this UTC instant will NOT be migrated
     private static final long TASKLIST_MIGRATION_CUTOFF_MS =
@@ -111,22 +99,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * otherwise falls back to filename-based heuristics.
      */
     public static boolean isTestFile(ProjectFile file, @Nullable IAnalyzer analyzer) {
-        // 1. Determine if there is an authoritative semantic analyzer for this specific file
-        if (analyzer != null && !analyzer.isEmpty()) {
-            IAnalyzer effectiveAnalyzer = analyzer;
-            if (analyzer instanceof MultiAnalyzer multi) {
-                var lang = Languages.fromExtension(file.extension());
-                effectiveAnalyzer = multi.getDelegates().get(lang);
-            }
-
-            if (effectiveAnalyzer != null
-                    && effectiveAnalyzer.as(TestDetectionProvider.class).isPresent()) {
-                return effectiveAnalyzer.containsTests(file);
-            }
-        }
-
-        // 2. Filename/path heuristics as fallback for when analyzer is null or doesn't support detection for this file
-        return TEST_FILE_PATTERN.matcher(file.toString()).matches();
+        return TestFileHeuristics.isTestFile(file, analyzer);
     }
 
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
@@ -178,8 +151,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Context history for undo/redo functionality (stores frozen contexts)
     private volatile ContextHistory contextHistory;
-    private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
-    private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
+    private final List<IAppContextManager.ContextListener> contextListeners = new CopyOnWriteArrayList<>();
+    private final List<IAppContextManager.AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
     // Listeners that want to be notified when the Service (models/stt) is reinitialized.
     private final List<Runnable> serviceReloadListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
@@ -216,22 +189,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-    public void addContextListener(ContextListener listener) {
+    public void addContextListener(IAppContextManager.ContextListener listener) {
         contextListeners.add(listener);
     }
 
     @Override
-    public void removeContextListener(ContextListener listener) {
+    public void removeContextListener(IAppContextManager.ContextListener listener) {
         contextListeners.remove(listener);
     }
 
     @Override
-    public void addAnalyzerCallback(AnalyzerCallback callback) {
+    public void addAnalyzerCallback(IAppContextManager.AnalyzerCallback callback) {
         analyzerCallbacks.add(callback);
     }
 
     @Override
-    public void removeAnalyzerCallback(AnalyzerCallback callback) {
+    public void removeAnalyzerCallback(IAppContextManager.AnalyzerCallback callback) {
         analyzerCallbacks.remove(callback);
     }
 
@@ -374,6 +347,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             "Session Quarantined",
                             JOptionPane.WARNING_MESSAGE));
                 }
+
+                return null;
             });
         }
         return CompletableFuture.completedFuture(null);
@@ -730,6 +705,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
+    public IGitRepo getRepo() {
+        return project.getRepo();
+    }
+
+    @Override
     public boolean isAutoCommit() {
         return autoCommit;
     }
@@ -744,8 +724,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-    public IAnalyzer getAnalyzer() throws InterruptedException {
-        return requireNonNull(analyzerWrapper).get();
+    public IAnalyzer getAnalyzer() {
+        return getAnalyzerUninterrupted();
     }
 
     @Override
@@ -755,6 +735,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
         }
+    }
+
+    @Override
+    public Llm getLlm(StreamingChatModel model, String taskDescription, TaskResult.Type type) {
+        return getLlm(new Llm.Options(model, taskDescription, type));
+    }
+
+    @Override
+    public Llm getLlm(Llm.Options options) {
+        // Llm.Options holds optional toggles (partial responses, echo, forceReasoningEcho).
+        // Llm.create has access to those fields and preserves them.
+        return Llm.create(options, this, false);
     }
 
     /**
@@ -829,6 +821,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void addFiles(Collection<ProjectFile> files) {
         addPathFragments(toPathFragments(files));
+    }
+
+    @Override
+    public List<ContextFragments.ProjectPathFragment> toPathFragments(Collection<ProjectFile> files) {
+        return files.stream()
+                .distinct()
+                .map(file -> new ContextFragments.ProjectPathFragment(file, this))
+                .toList();
+    }
+
+    @Override
+    public void addFragments(ContextFragment fragment) {
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
+    }
+
+    public void addFragments(List<? extends ContextFragment> fragments) {
+        if (fragments.isEmpty()) {
+            return;
+        }
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragments));
+    }
+
+    @Override
+    public void addFragments(Collection<? extends ContextFragment> fragments) {
+        addFragments(List.copyOf(fragments));
     }
 
     /** Add the given files to editable. */
@@ -1038,11 +1055,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         return submitExclusiveAction(() -> {
             // Separate history fragments from other fragments
-            List<ContextFragments.HistoryFragment> historyFragments = new ArrayList<>();
+            List<ContextOutputFragments.HistoryOutputFragment> historyFragments = new ArrayList<>();
             List<ContextFragment> otherFragments = new ArrayList<>();
 
             for (var fragment : fragments) {
-                if (fragment instanceof ContextFragments.HistoryFragment historyFragment) {
+                if (fragment instanceof ContextOutputFragments.HistoryOutputFragment historyFragment) {
                     historyFragments.add(historyFragment);
                 } else {
                     otherFragments.add(fragment);
@@ -1056,7 +1073,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 Set<TaskEntry> existingEntries = new HashSet<>(currentHistory);
 
                 for (var historyFragment : historyFragments) {
-                    for (TaskEntry entry : historyFragment.entries()) {
+                    for (String entryMarkdown : historyFragment.entryMarkdowns()) {
+                        TaskEntry entry = TaskEntry.fromCompressedStable(entryMarkdown);
                         if (existingEntries.add(entry)) {
                             currentHistory.add(entry);
                         }
@@ -1226,7 +1244,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     IConsoleIO.NotificationRole.INFO, "No callers found for " + methodName + " (pre-check).");
             return;
         }
-        var fragment = new ContextFragments.UsageFragment(this, methodName);
+        var fragment = new ContextFragments.UsageFragment(this, methodName, true);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Add usages for callers of " + methodName);
     }
@@ -1238,7 +1256,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     IConsoleIO.NotificationRole.INFO, "No callees found for " + methodName + " (pre-check).");
             return;
         }
-        var fragment = new ContextFragments.UsageFragment(this, methodName);
+        var fragment = new ContextFragments.UsageFragment(this, methodName, true);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Add usages for methods called by " + methodName);
     }
@@ -1601,8 +1619,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
                 } else {
                     // add the post-task terminal output to the history
-                    var log = new ContextFragments.TaskFragment(
-                            getIo().getLlmRawMessages(), "Post-task verification output");
+                    var log = new ContextOutputFragments.TaskOutputFragment(
+                            "Post-task verification output", Messages.format(getIo().getLlmRawMessages()));
                     var context2 = context.addHistoryEntry(log, null);
                     pushContext(ctx -> context2);
                 }
@@ -1612,6 +1630,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         listener.onBatchFinished(completed);
     }
 
+    @Override
     public TaskResult executeTask(
             TaskList.TaskItem task, StreamingChatModel planningModel, StreamingChatModel codeModel)
             throws InterruptedException {
@@ -1623,7 +1642,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var compressedTaskHistory = compressedResult.compressedTaskHistory().join();
             return compressedResult
                     .taskResult()
-                    .withContext(IContextManager.mergeCompressedHistory(
+                    .withContext(IAppContextManager.mergeCompressedHistory(
                             compressedResult.taskResult().context(), compressedTaskHistory));
         } catch (CompletionException e) {
             logger.warn("Task history compression failed while finalizing task result", e);
@@ -1668,6 +1687,36 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private record CompressedResult(TaskResult taskResult, CompletableFuture<List<TaskEntry>> compressedTaskHistory) {}
+
+    @Blocking
+    private Context compressHistory(Context ctx) throws InterruptedException {
+        var compressedTaskEntries =
+                new ArrayList<TaskEntry>(ctx.getTaskHistory().size());
+        for (var entry : ctx.getTaskHistory()) {
+            compressedTaskEntries.add(compressHistory(entry));
+        }
+        return ctx.withHistory(List.copyOf(compressedTaskEntries));
+    }
+
+    @Blocking
+    private void compressGlobalHistory() throws InterruptedException {
+        var ch = contextHistory;
+        var interrupted = new AtomicReference<InterruptedException>();
+        Context finalCtx = ch.replaceTop(ctx -> {
+            try {
+                return compressHistory(ctx);
+            } catch (InterruptedException e) {
+                interrupted.set(e);
+                Thread.currentThread().interrupt();
+                return ctx;
+            }
+        });
+        if (interrupted.get() != null) {
+            throw interrupted.get();
+        }
+        captureGitState(ch, finalCtx);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressed history");
+    }
 
     /** Replace the given task with its 'done=true' variant. */
     private Context markTaskDone(Context context, TaskList.TaskItem task) {
@@ -2295,8 +2344,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
-        var taskFragment = new ContextFragments.TaskFragment(messages, input);
-        io.setLlmAndHistoryOutput(history, new TaskEntry(-1, taskFragment, null));
+        var markdown = Messages.format(messages);
+        io.setLlmAndHistoryOutput(history, new TaskEntry(-1, input, markdown, null, null, null));
 
         // rename the session if needed
         var sessionManager = project.getSessionManager();
@@ -2315,6 +2364,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         return new TaskScope(group, taskDescription);
+    }
+
+    @Override
+    public TaskScope beginTaskUngrouped(String input) {
+        return beginTask(input, false, null);
     }
 
     /**

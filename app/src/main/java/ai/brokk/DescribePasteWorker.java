@@ -19,7 +19,7 @@ import org.jetbrains.annotations.Nullable;
 public class DescribePasteWorker {
     private static final Logger logger = LogManager.getLogger(DescribePasteWorker.class);
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final String content;
 
     @Nullable
@@ -30,7 +30,7 @@ public class DescribePasteWorker {
 
     public record PasteInfo(String description, String syntaxStyle) {}
 
-    public DescribePasteWorker(IContextManager cm, String content) {
+    public DescribePasteWorker(IAppContextManager cm, String content) {
         this.cm = cm;
         this.content = content;
     }

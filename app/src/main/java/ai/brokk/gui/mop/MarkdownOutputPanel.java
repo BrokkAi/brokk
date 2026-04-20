@@ -4,7 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
@@ -34,7 +34,7 @@ import org.jetbrains.annotations.Nullable;
  * A Swing JPanel that uses a JavaFX WebView to display structured conversations. This is a modern, web-based
  * alternative to the pure-Swing MarkdownOutputPanel.
  */
-public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollable, IContextManager.AnalyzerCallback {
+public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollable, IAppContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
 
     private final MOPWebViewHost webHost;

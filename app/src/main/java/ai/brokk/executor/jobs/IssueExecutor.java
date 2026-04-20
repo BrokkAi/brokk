@@ -2,8 +2,8 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.LutzAgent;
@@ -83,7 +83,7 @@ public final class IssueExecutor {
      */
     @Blocking
     public static String runBuildAndPushContext(
-            IContextManager cm, String command, @Nullable BuildAgent.BuildDetails override)
+            IAppContextManager cm, String command, @Nullable BuildAgent.BuildDetails override)
             throws InterruptedException {
         var interrupted = new AtomicReference<InterruptedException>(null);
         var updated = cm.pushContext(ctx -> {

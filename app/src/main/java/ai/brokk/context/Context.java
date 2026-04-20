@@ -3,6 +3,7 @@ package ai.brokk.context;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AbstractService;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -11,9 +12,10 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
-import ai.brokk.context.ContextFragments.HistoryFragment;
+import ai.brokk.context.ContextOutputFragments.HistoryOutputFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
+import ai.brokk.project.IProject;
 import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
@@ -45,13 +47,25 @@ public class Context {
     private static final Logger logger = LogManager.getLogger(Context.class);
 
     private final UUID id;
-    public static final Context EMPTY = new Context(new IContextManager() {});
+    private static final IAppContextManager EMPTY_CONTEXT_MANAGER = new IAppContextManager() {
+        @Override
+        public IProject getProject() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public IAnalyzer getAnalyzerUninterrupted() {
+            throw new UnsupportedOperationException();
+        }
+    };
+
+    public static final Context EMPTY = new Context(EMPTY_CONTEXT_MANAGER);
 
     private static final String WELCOME_ACTION = "Session Start";
     public static final String SUMMARIZING = "(Summarizing)";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
-    private final transient IContextManager contextManager;
+    private final transient IAppContextManager contextManager;
 
     // Unified list for all fragments (paths and virtuals)
     final List<ContextFragment> fragments;
@@ -67,20 +81,24 @@ public class Context {
     /**
      * Constructor for initial empty context
      */
-    public Context(IContextManager contextManager) {
+    public Context(IAppContextManager contextManager) {
         this(newContextId(), contextManager, List.of(), List.of(), Set.of(), Set.of());
+    }
+
+    public Context(IContextManager contextManager) {
+        this(adapt(contextManager));
     }
 
     private Context(
             UUID id,
-            IContextManager contextManager,
+            IAppContextManager contextManager,
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
             Set<ContextFragment> markedReadonlyFragments,
             Set<ContextFragment> pinnedFragments) {
         for (var cf : fragments) {
             // TODO make a sealed interface for `fragments`
-            assert !(cf instanceof HistoryFragment);
+            assert !(cf instanceof HistoryOutputFragment);
         }
         for (var cf : markedReadonlyFragments) {
             assert fragments.contains(cf);
@@ -97,8 +115,34 @@ public class Context {
         this.pinnedFragments = Set.copyOf(pinnedFragments);
     }
 
-    public Context(IContextManager contextManager, List<ContextFragment> fragments, List<TaskEntry> taskHistory) {
+    public Context(IAppContextManager contextManager, List<ContextFragment> fragments, List<TaskEntry> taskHistory) {
         this(newContextId(), contextManager, fragments, taskHistory, Set.of(), Set.of());
+    }
+
+    public Context(IContextManager contextManager, List<ContextFragment> fragments, List<TaskEntry> taskHistory) {
+        this(adapt(contextManager), fragments, taskHistory);
+    }
+
+    private static IAppContextManager adapt(IContextManager contextManager) {
+        if (contextManager instanceof IAppContextManager app) {
+            return app;
+        }
+        return new IAppContextManager() {
+            @Override
+            public IProject getProject() {
+                var project = contextManager.getProject();
+                if (project instanceof IProject ip) {
+                    return ip;
+                }
+                throw new UnsupportedOperationException(
+                        "Context requires IProject, got: " + project.getClass().getName());
+            }
+
+            @Override
+            public IAnalyzer getAnalyzerUninterrupted() {
+                return contextManager.getAnalyzerUninterrupted();
+            }
+        };
     }
 
     /**
@@ -149,9 +193,16 @@ public class Context {
                         return entry.summary();
                     }
                     if (entry.mopLog() != null) {
-                        var messages = entry.mopLog().messages();
-                        if (!messages.isEmpty()) {
-                            return "User: " + Messages.getText(messages.getFirst());
+                        var markdown = entry.mopLog().text().join();
+                        if (!markdown.isBlank()) {
+                            // best-effort: first non-empty line
+                            String firstLine = markdown.lines()
+                                    .filter(l -> !l.isBlank())
+                                    .findFirst()
+                                    .orElse("");
+                            if (!firstLine.isBlank()) {
+                                return firstLine;
+                            }
                         }
                     }
                     return "";
@@ -572,7 +623,7 @@ public class Context {
         });
     }
 
-    public IContextManager getContextManager() {
+    public IAppContextManager getContextManager() {
         return contextManager;
     }
 
@@ -587,7 +638,10 @@ public class Context {
         var result = new ArrayList<ContextFragment>();
 
         if (!taskHistory.isEmpty()) {
-            result.add(new HistoryFragment(contextManager, taskHistory));
+            var entryMarkdowns = taskHistory.stream()
+                    .map(te -> te.isCompressed() ? castNonNull(te.summary()) : castNonNull(te.mopMarkdown()))
+                    .toList();
+            result.add(new ContextOutputFragments.HistoryOutputFragment(entryMarkdowns));
         }
 
         // 2. Pinned fragments
@@ -614,7 +668,7 @@ public class Context {
      */
     public static Context createWithId(
             UUID id,
-            IContextManager cm,
+            IAppContextManager cm,
             List<ContextFragment> fragments,
             List<TaskEntry> history,
             Set<ContextFragment> readOnlyFragments,
@@ -954,7 +1008,8 @@ public class Context {
     }
 
     public Context addHistoryEntry(TaskEntry te) {
-        var renumbered = new TaskEntry(getTaskHistory().size(), te.mopLog(), te.llmLog(), te.summary(), te.meta());
+        var renumbered = new TaskEntry(
+                getTaskHistory().size(), te.description(), te.mopMarkdown(), te.llmMarkdown(), te.summary(), te.meta());
         return addHistoryEntryInternal(renumbered);
     }
 
@@ -965,10 +1020,13 @@ public class Context {
             StreamingChatModel model,
             String instructions) {
         var mc = AbstractService.ModelConfig.from(model, contextManager.getService());
+        var mopMarkdown = Messages.format(mopMessages);
+        var llmMarkdown = Messages.format(llmMessages);
         return addHistoryEntryInternal(new TaskEntry(
                 getTaskHistory().size(),
-                new ContextFragments.TaskFragment(mopMessages, instructions),
-                new ContextFragments.TaskFragment(llmMessages, instructions),
+                instructions,
+                mopMarkdown,
+                llmMarkdown,
                 null,
                 new TaskResult.TaskMeta(type, mc)));
     }
@@ -978,8 +1036,14 @@ public class Context {
         return addHistoryEntry(messages, messages, type, model, instructions);
     }
 
-    public Context addHistoryEntry(ContextFragments.TaskFragment log, @Nullable TaskResult.TaskMeta meta) {
-        return addHistoryEntryInternal(new TaskEntry(getTaskHistory().size(), log, log, null, meta));
+    public Context addHistoryEntry(ContextOutputFragments.TaskOutputFragment log, @Nullable TaskResult.TaskMeta meta) {
+        return addHistoryEntryInternal(new TaskEntry(
+                getTaskHistory().size(),
+                log.description().join(),
+                log.text().join(),
+                log.text().join(),
+                null,
+                meta));
     }
 
     @Blocking
