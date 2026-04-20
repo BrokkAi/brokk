@@ -109,6 +109,54 @@ public class CppTestAssertionSmellTest extends AbstractBrittleTestSuite {
         assertFalse(hasReason(findings, "shallow-assertions-only"), findings.toString());
     }
 
+    @Test
+    void ignoresStandaloneMacroLikeIdentifierInNonTestCode() {
+        String code =
+                """
+                int TEST = 0;
+
+                void helper() {
+                    if (TEST > 0) {
+                        TEST++;
+                    }
+                }
+                """;
+        var findings = analyze(code, "src/sample.cpp");
+        assertTrue(findings.isEmpty(), findings.toString());
+    }
+
+    @Test
+    void bindsMarkerToItsOwnBodyWhenNearbyBlocksExist() {
+        String code =
+                """
+                #include <gtest/gtest.h>
+
+                void before() {
+                    int x = 0;
+                    (void)x;
+                }
+
+                TEST(SampleTest, BodyAssociation) {
+                    if (true) {
+                        int y = 1;
+                        (void)y;
+                    }
+                    EXPECT_TRUE(true);
+                }
+
+                void after() {
+                    int z = 2;
+                    (void)z;
+                }
+                """;
+        var findings = analyze(code);
+        long constantTruthCount = findings.stream()
+                .filter(f -> f.reasons().contains("constant-truth"))
+                .count();
+        assertTrue(constantTruthCount == 1, findings.toString());
+        assertFalse(hasReason(findings, "no-assertions"), findings.toString());
+    }
+
     @Override
     protected String defaultTestPath() {
         return TEST_PATH;

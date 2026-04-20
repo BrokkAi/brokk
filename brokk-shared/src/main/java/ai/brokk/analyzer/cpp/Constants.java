@@ -2,6 +2,7 @@ package ai.brokk.analyzer.cpp;
 
 import static java.util.Objects.requireNonNull;
 
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.treesitter.CppNodeField;
 import org.treesitter.CppNodeType;
@@ -18,6 +19,9 @@ public final class Constants {
     }
 
     public static final String TEST_MARKER_CAPTURE = "test.marker";
+    public static final Set<String> TEST_MARKER_NAMES =
+            Set.of("TEST", "TEST_F", "TEST_P", "TYPED_TEST", "TYPED_TEST_P", "TEST_CASE");
+    public static final String ARGUMENT_LIST = nodeType(CppNodeType.ARGUMENT_LIST);
     public static final String CALL_EXPRESSION = nodeType(CppNodeType.CALL_EXPRESSION);
     public static final String FIELD_ARGUMENTS = fieldName(CppNodeField.ARGUMENTS);
     public static final String FIELD_BODY = fieldName(CppNodeField.BODY);

@@ -95,6 +95,8 @@
   function: (identifier) @test.marker
   (#match? @test.marker "^(TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE)$"))
 
-; Fallback capture: some macro invocations are exposed as bare identifiers
+; Fallback capture: require invocation structure, not a bare identifier.
+; Some parser shapes expose macro names as bare identifiers. Structure is validated
+; in CppAnalyzer before accepting a marker (must map to invocation/body context).
 ((identifier) @test.marker
   (#match? @test.marker "^(TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE)$"))
