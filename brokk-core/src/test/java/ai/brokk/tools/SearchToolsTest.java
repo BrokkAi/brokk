@@ -43,7 +43,7 @@ class SearchToolsTest {
     }
 
     @Test
-    void findFilenames_AppendsRelatedContent() throws Exception {
+    void findFilenames_DoesNotAppendRelatedContent() throws Exception {
         Path projectRoot = initRepo();
         commitTrackedFiles(
                 projectRoot,
@@ -55,11 +55,9 @@ class SearchToolsTest {
         SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, new DisabledAnalyzer(project)));
 
         String result = tools.findFilenames(List.of("A\\.java"), 10);
-        String relatedSection = relatedContentSection(result);
 
-        assertTrue(result.contains("## Related Content"), "Should include related content header");
-        assertTrue(relatedSection.contains("B.java"), "Should include a related file");
-        assertFalse(relatedSection.contains("A.java"), "Should not echo the seed file");
+        assertTrue(result.contains("A.java"), "Should still include the matching filename");
+        assertFalse(result.contains("## Related Content"), "Should not include related content for non-search tools");
     }
 
     @Test
@@ -151,7 +149,7 @@ class SearchToolsTest {
     }
 
     @Test
-    void findFilenames_TracksResearchTokensIncludingRelatedContent() throws Exception {
+    void searchSymbols_TracksResearchTokensIncludingRelatedContent() throws Exception {
         Path projectRoot = initRepo();
         commitTrackedFiles(
                 projectRoot,
@@ -160,11 +158,19 @@ class SearchToolsTest {
                 "Add A and B together");
 
         project = new CoreProject(projectRoot);
-        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, new DisabledAnalyzer(project)));
+        ProjectFile aFile = new ProjectFile(projectRoot, "A.java");
+        CodeUnit aClass = CodeUnit.cls(aFile, "", "A");
+        IAnalyzer analyzer = new DisabledAnalyzer(project) {
+            @Override
+            public Set<CodeUnit> searchDefinitions(String pattern) {
+                return "A".equals(pattern) ? Set.of(aClass) : Set.of();
+            }
+        };
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
 
         assertEquals(0L, tools.getAndClearResearchTokens(), "Counter should start empty");
 
-        String result = tools.findFilenames(List.of("A\\.java"), 10);
+        String result = tools.searchSymbols(List.of("A"), false, 10);
         long countedTokens = tools.getAndClearResearchTokens();
 
         assertTrue(result.contains("## Related Content"), "Should include related content header");

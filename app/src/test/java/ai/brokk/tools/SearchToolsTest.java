@@ -304,7 +304,7 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testFindFilenames_AppendsRelatedContent() throws Exception {
+    void testFindFilenames_DoesNotAppendRelatedContent() throws Exception {
         commitTrackedFiles(
                 Map.of("A.java", "class A {}", "B.java", "class B {}"),
                 Instant.parse("2025-01-01T00:00:00Z"),
@@ -312,11 +312,9 @@ public class SearchToolsTest {
         recreateSearchTools();
 
         String result = searchTools.findFilenames(List.of("A\\.java"), 10);
-        String relatedSection = relatedContentSection(result);
 
-        assertTrue(result.contains("## Related Content"), "Should include related content header");
-        assertTrue(relatedSection.contains("B.java"), "Should include a Git-related file");
-        assertFalse(relatedSection.contains("A.java"), "Should not echo the result file in related content");
+        assertTrue(result.contains("A.java"), "Should still include matching filenames");
+        assertFalse(result.contains("## Related Content"), "Should not include related content for non-search tools");
     }
 
     @Test
