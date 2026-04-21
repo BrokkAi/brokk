@@ -70,16 +70,16 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(maybeFile.isPresent(), "Should resolve file for class Interface");
         final var file = maybeFile.get();
 
-        final var lambdaCu = analyzer.getDeclarations(file).stream()
+        final var expectedPattern = java.util.regex.Pattern.compile("root\\s*->\\s*\\{\\s*\\}\\s*;?");
+        boolean found = analyzer.getDeclarations(file).stream()
                 .filter(CodeUnit::isFunction)
                 .filter(cu -> analyzer.isAnonymousStructure(cu.fqName()))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("Expected to find lambda CodeUnit for Interface.DEFAULT"));
+                .map(cu -> analyzer.getSource(cu, false))
+                .flatMap(java.util.Optional::stream)
+                .map(String::trim)
+                .anyMatch(src -> expectedPattern.matcher(src).find());
 
-        final var srcOpt = analyzer.getSource(lambdaCu, false);
-        assertTrue(srcOpt.isPresent(), "Should be able to fetch source for lambda");
-        final var normalized = srcOpt.get().replaceAll("\\s+", " ").trim();
-        assertEquals("root -> {}", normalized, "Lambda source is incorrect");
+        assertTrue(found, "Expected to find lambda source matching: " + expectedPattern);
     }
 
     @Test

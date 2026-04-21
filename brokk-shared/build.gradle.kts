@@ -83,6 +83,7 @@ dependencies {
     testImplementation(libs.jupiter.iface)
     testRuntimeOnly(libs.bundles.junit.runtime)
     testImplementation(testFixtures(project(":brokk-shared")))
+    testImplementation(project(":brokk-core"))
 
     // Test fixtures (shared between modules)
     testFixturesImplementation(platform(libs.junit.bom))

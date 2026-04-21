@@ -209,11 +209,11 @@ public class MultiAnalyzerTest {
         // BUT: We check a file whose language (Python) has no delegate (or a delegate without the capability)
         var pythonTestFile = new ProjectFile(tempDir, "test_script.py");
 
-        // WHEN: Calling ContextManager.isTestFile
+        // WHEN: Calling TestFileHeuristics.isTestFile
         // THEN: It should return true because "test_script.py" matches TEST_FILE_PATTERN,
         // even though MultiAnalyzer.as(TestDetectionProvider.class) is present.
         assertTrue(
-                ai.brokk.ContextManager.isTestFile(pythonTestFile, multiAnalyzer),
+                TestFileHeuristics.isTestFile(pythonTestFile, multiAnalyzer),
                 "Should fall back to pattern matching when specific language delegate lacks capability");
     }
 }
