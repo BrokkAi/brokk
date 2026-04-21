@@ -1080,7 +1080,6 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
                         }
                     }
                 }
-                currentHistory.sort(Comparator.comparingInt(TaskEntry::sequence));
                 newHistory = List.copyOf(currentHistory);
             }
 

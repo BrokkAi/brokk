@@ -85,4 +85,23 @@ class TaskEntryTest {
         assertNull(updated.mopLog());
         assertEquals("compressed", updated.summary());
     }
+
+    @Test
+    void description_compressed_returnsSummaryForDisplay() {
+        var entry = TaskEntry.fromCompressed(3, "compressed summary");
+        assertEquals("compressed summary", entry.description());
+    }
+
+    @Test
+    void mopMessages_markdownBacked_returnsSystemMessageWithMarkdown() {
+        var md = "# Log\n\nhello";
+        var entry = new TaskEntry(7, "desc", md, md, null, null);
+        assertEquals(List.of(Messages.customSystem(md)), entry.mopMessages());
+    }
+
+    @Test
+    void mopMessages_compressed_returnsSystemMessageWithSummary() {
+        var entry = TaskEntry.fromCompressed(3, "compressed summary");
+        assertEquals(List.of(Messages.customSystem("compressed summary")), entry.mopMessages());
+    }
 }

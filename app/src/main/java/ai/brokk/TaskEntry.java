@@ -173,7 +173,7 @@ public final class TaskEntry {
 
     @Blocking
     public String description() {
-        return description;
+        return (mopMarkdown == null && summary != null) ? castNonNull(summary) : description;
     }
 
     public @Nullable String llmMarkdown() {
@@ -262,7 +262,10 @@ public final class TaskEntry {
 
     public Collection<ChatMessage> mopMessages() {
         // Keep for call sites that still need ChatMessage collections (app-side only).
-        return mopMarkdown == null ? List.of(Messages.customSystem(castNonNull(summary))) : List.of();
+        if (mopMarkdown != null) {
+            return List.of(Messages.customSystem(mopMarkdown));
+        }
+        return List.of(Messages.customSystem(castNonNull(summary)));
     }
 
     private static String computeTaskLogId(String description, String markdown) {

@@ -3,7 +3,7 @@ package ai.brokk;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.ICoreProject;
-import java.io.File;
+import java.nio.file.Path;
 import org.jetbrains.annotations.Blocking;
 
 /**
@@ -39,21 +39,62 @@ public interface IContextManager {
         var trimmed = relName.trim();
         var project = getProject();
 
-        // If an absolute-like path is provided (leading '/' or '\'), attempt to interpret it as a
-        // project-relative path by stripping the leading slash. If that file exists, return it.
-        if (trimmed.startsWith(File.separator)) {
-            var candidateRel = trimmed.substring(File.separator.length()).trim();
-            var candidate = new ProjectFile(project.getRoot(), candidateRel);
-            if (candidate.exists()) {
-                return candidate;
-            }
-            // The path looked absolute (or root-anchored) but does not exist relative to the project.
-            // Treat this as invalid to avoid resolving to a location outside the project root.
-            throw new IllegalArgumentException(
-                    "Filename '%s' is absolute-like and does not exist relative to the project root"
-                            .formatted(relName));
+        // Treat leading '/' or '\' as "absolute-like" regardless of OS. Users often paste paths from other platforms.
+        // We attempt to interpret these as project-relative by stripping the leading separator.
+        if (trimmed.startsWith("/") || trimmed.startsWith("\\")) {
+            return toFileFromAbsoluteLike(project.getRoot(), relName, stripLeadingSlashOrBackslash(trimmed));
         }
 
-        return new ProjectFile(project.getRoot(), trimmed);
+        // Handle Windows drive-letter absolute paths (C:\foo\bar or C:/foo/bar) by stripping the drive prefix and
+        // attempting to interpret the remainder as project-relative (only if it exists).
+        if (isWindowsDriveAbsolute(trimmed)) {
+            return toFileFromAbsoluteLike(
+                    project.getRoot(), relName, stripLeadingSlashOrBackslash(trimmed.substring(2)));
+        }
+
+        ProjectFile pf = new ProjectFile(project.getRoot(), trimmed);
+        assertWithinProjectRoot(project.getRoot(), pf, relName);
+        return pf;
+    }
+
+    private static boolean isWindowsDriveAbsolute(String path) {
+        if (path.length() < 3) {
+            return false;
+        }
+        char drive = path.charAt(0);
+        if (!((drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z'))) {
+            return false;
+        }
+        if (path.charAt(1) != ':') {
+            return false;
+        }
+        char sep = path.charAt(2);
+        return sep == '\\' || sep == '/';
+    }
+
+    private static String stripLeadingSlashOrBackslash(String path) {
+        String p = path.trim();
+        while (!p.isEmpty() && (p.startsWith("/") || p.startsWith("\\"))) {
+            p = p.substring(1).trim();
+        }
+        return p;
+    }
+
+    private static ProjectFile toFileFromAbsoluteLike(Path projectRoot, String original, String candidateRel) {
+        String normalizedRel = candidateRel.replace('\\', '/').trim();
+        ProjectFile candidate = new ProjectFile(projectRoot, normalizedRel);
+        assertWithinProjectRoot(projectRoot, candidate, original);
+        if (candidate.exists()) {
+            return candidate;
+        }
+        throw new IllegalArgumentException(
+                "Filename '%s' is absolute-like and does not exist relative to the project root".formatted(original));
+    }
+
+    private static void assertWithinProjectRoot(Path projectRoot, ProjectFile file, String original) {
+        Path abs = file.absPath().normalize();
+        if (!abs.startsWith(projectRoot)) {
+            throw new IllegalArgumentException("Filename '%s' resolves outside the project root".formatted(original));
+        }
     }
 }

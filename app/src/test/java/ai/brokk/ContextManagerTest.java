@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
@@ -207,5 +208,28 @@ class ContextManagerTest {
 
         var afterSize = cm.getContextHistoryList().size();
         assertEquals(beforeSize + 1, afterSize, "Adding a file should push a new context");
+    }
+
+    @Test
+    void copyFragmentsToCurrentContextAsync_historyPreservesEntryOrder_notSequenceSort() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-history-order");
+        var project = new MainProject(tempDir);
+        var cm = new ContextManager(project);
+        cm.createHeadless();
+
+        try {
+            var historyFragment = new ContextOutputFragments.HistoryOutputFragment(List.of("b", "a"));
+
+            cm.copyFragmentsToCurrentContextAsync(List.of(historyFragment)).get();
+
+            assertEquals(
+                    List.of("b", "a"),
+                    cm.liveContext().getTaskHistory().stream()
+                            .map(TaskEntry::summary)
+                            .toList(),
+                    "History copy should preserve fragment-provided order");
+        } finally {
+            project.close();
+        }
     }
 }
