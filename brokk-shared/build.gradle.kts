@@ -128,7 +128,8 @@ tasks.configureEach {
     if (name.contains("discoverDuplicationFor") ||
         name.contains("explodeByteCodeSource") ||
         name.contains("artifactsReport") ||
-        name.contains("synthesizeProjectView")) {
+        name.contains("synthesizeProjectView") ||
+        name.contains("serviceLoader")) {
         dependsOn(":brokk-core:shadowJar")
     }
 }
