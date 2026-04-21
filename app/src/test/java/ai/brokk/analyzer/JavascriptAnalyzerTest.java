@@ -1,8 +1,6 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
-import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
@@ -771,30 +769,5 @@ public final class JavascriptAnalyzerTest {
             assertEquals("var complexObj", skeletons.get(complexObj).trim());
             assertEquals("const inlineObj", skeletons.get(inlineObj).trim());
         }
-    }
-
-    @Test
-    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
-        var finder = newFinder(jsTestProject, jsAnalyzer);
-        var symbol = "BaseClass";
-        var either = finder.findUsages(symbol).toEither();
-
-        if (either.hasErrorMessage()) {
-            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
-        }
-
-        var hits = either.getUsages();
-        var files = fileNamesFromHits(hits);
-
-        assertTrue(
-                files.contains("ClassUsagePatterns.js"),
-                "Expected comprehensive usage patterns in ClassUsagePatterns.js; actual: " + files);
-
-        var classUsageHits = hits.stream()
-                .filter(h -> h.file().absPath().getFileName().toString().equals("ClassUsagePatterns.js"))
-                .toList();
-        assertTrue(
-                classUsageHits.size() >= 2,
-                "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
     }
 }

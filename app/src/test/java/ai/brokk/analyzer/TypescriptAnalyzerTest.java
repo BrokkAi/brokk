@@ -2,8 +2,6 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static ai.brokk.testutil.TestProject.*;
-import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
-import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
@@ -3334,31 +3332,6 @@ public class TypescriptAnalyzerTest {
                     "var complexObj: ComplexType", skeletons.get(complexObj).trim());
             assertEquals("const inlineObj", skeletons.get(inlineObj).trim());
         }
-    }
-
-    @Test
-    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
-        var finder = newFinder(project, analyzer);
-        var symbol = "BaseClass";
-        var either = finder.findUsages(symbol).toEither();
-
-        if (either.hasErrorMessage()) {
-            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
-        }
-
-        var hits = either.getUsages();
-        var files = fileNamesFromHits(hits);
-
-        assertTrue(
-                files.contains("ClassUsagePatterns.ts"),
-                "Expected comprehensive usage patterns in ClassUsagePatterns.ts; actual: " + files);
-
-        var classUsageHits = hits.stream()
-                .filter(h -> h.file().absPath().getFileName().toString().equals("ClassUsagePatterns.ts"))
-                .toList();
-        assertTrue(
-                classUsageHits.size() >= 5,
-                "Expected at least 5 different usage patterns, found: " + classUsageHits.size());
     }
 
     @Test

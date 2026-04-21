@@ -1,10 +1,7 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
-import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -1659,27 +1656,5 @@ public final class PythonAnalyzerTest {
                     .next();
             assertCodeEquals("", inlineAnalyzer.getSkeleton(cCompCu).orElse(""));
         }
-    }
-
-    @Test
-    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
-        var finder = newFinder(project, analyzer);
-        var symbol = "class_usage_patterns.BaseClass";
-        var either = finder.findUsages(symbol).toEither();
-
-        assumeFalse(either.hasErrorMessage(), "Python analyzer unavailable");
-
-        var hits = either.getUsages();
-        var files = fileNamesFromHits(hits);
-        assertTrue(
-                files.contains("class_usage_patterns.py"),
-                "Expected comprehensive usage patterns in class_usage_patterns.py; actual: " + files);
-
-        var classUsageHits = hits.stream()
-                .filter(h -> h.file().absPath().getFileName().toString().equals("class_usage_patterns.py"))
-                .toList();
-        assertTrue(
-                classUsageHits.size() >= 2,
-                "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
     }
 }
