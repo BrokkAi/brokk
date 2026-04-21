@@ -1,7 +1,7 @@
 {
   "name": "brokk",
   "description": "Semantic code intelligence -- symbol navigation, cross-reference analysis, and structural code understanding powered by tree-sitter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "Brokk AI"
   },
