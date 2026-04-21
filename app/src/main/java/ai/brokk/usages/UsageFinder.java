@@ -11,17 +11,15 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.CandidateFileProvider;
+import ai.brokk.analyzer.usages.CoreUsageFinder;
 import ai.brokk.analyzer.usages.FuzzyResult;
-import ai.brokk.analyzer.usages.ImportGraphCandidateProvider;
 import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
 import ai.brokk.analyzer.usages.UsageAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,8 +31,8 @@ public final class UsageFinder {
 
     private static final Logger log = LoggerFactory.getLogger(UsageFinder.class);
     private static final boolean FUZZY_USAGES_ONLY = System.getenv("BRK_FUZZY_USAGES_ONLY") != null;
-    public static final int DEFAULT_MAX_FILES = 1000;
-    public static final int DEFAULT_MAX_USAGES = 1000;
+    public static final int DEFAULT_MAX_FILES = CoreUsageFinder.DEFAULT_MAX_FILES;
+    public static final int DEFAULT_MAX_USAGES = CoreUsageFinder.DEFAULT_MAX_USAGES;
 
     private final IProject project;
     private final IAnalyzer analyzer;
@@ -79,18 +77,12 @@ public final class UsageFinder {
     }
 
     public static CandidateFileProvider createDefaultProvider() {
-        return createFallbackProvider(new ImportGraphCandidateProvider(), new TextSearchCandidateProvider());
+        return CoreUsageFinder.createDefaultProvider();
     }
 
     public static CandidateFileProvider createFallbackProvider(
             CandidateFileProvider graphProvider, CandidateFileProvider textProvider) {
-        return (target, analyzer) -> {
-            var candidates = graphProvider.findCandidates(target, analyzer);
-            if (candidates.isEmpty() && !analyzer.isEmpty()) {
-                return textProvider.findCandidates(target, analyzer);
-            }
-            return candidates;
-        };
+        return CoreUsageFinder.createFallbackProvider(graphProvider, textProvider);
     }
 
     public UsageFinder(
@@ -113,19 +105,13 @@ public final class UsageFinder {
         var target = overloads.getFirst();
 
         Configuration config = getConfiguration(target);
-        Set<ProjectFile> candidateFiles = config.candidateProvider().findCandidates(target, analyzer);
+        var coreFinder =
+                new CoreUsageFinder(project, analyzer, config.candidateProvider(), config.usageAnalyzer(), fileFilter);
+        var query = coreFinder.query(overloads, maxFiles, maxUsages);
 
-        if (fileFilter != null) {
-            candidateFiles = candidateFiles.stream().filter(fileFilter).collect(Collectors.toSet());
-        }
+        var candidateFiles = query.candidateFiles();
+        var result = query.result();
 
-        if (maxFiles < candidateFiles.size()) {
-            return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
-        }
-
-        FuzzyResult result = config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
-
-        // Fallback if primary analysis fails or returns suspiciously empty results
         boolean suspiciouslyEmpty =
                 result instanceof FuzzyResult.Success success && success.hits().isEmpty() && !candidateFiles.isEmpty();
 
@@ -135,16 +121,9 @@ public final class UsageFinder {
                     "Primary usage analysis {} for {}, falling back to fuzzy analyzer",
                     suspiciouslyEmpty ? "returned no hits" : "failed",
                     target.fqName());
-            config = new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer);
-            candidateFiles = config.candidateProvider().findCandidates(target, analyzer);
-            if (fileFilter != null) {
-                candidateFiles = candidateFiles.stream().filter(fileFilter).collect(Collectors.toSet());
-            }
-
-            if (maxFiles < candidateFiles.size()) {
-                return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
-            }
-            return config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
+            var fallbackFinder = new CoreUsageFinder(
+                    project, analyzer, fallbackCandidateProvider, fallbackUsageAnalyzer, fileFilter);
+            return fallbackFinder.findUsages(overloads, maxFiles, maxUsages);
         }
 
         return result;

@@ -16,11 +16,11 @@ public final class FileUtil {
     private static final Logger logger = LogManager.getLogger(FileUtil.class);
 
     private FileUtil() {
-        /* utility class – no instances */
+        /* utility class - no instances */
     }
 
     /**
-     * Deletes {@code path} and everything beneath it. Does **not** follow symlinks; logs but ignores individual delete
+     * Deletes {@code path} and everything beneath it. Does not follow symlinks; logs but ignores individual delete
      * failures.
      */
     public static boolean deleteRecursively(Path path) {
@@ -105,9 +105,9 @@ public final class FileUtil {
     }
 
     /**
-     * Abbreviates a path for display. If the path has more than 4 components,
-     * shows first + "..." + last three components (e.g., "/Users/.../jdk-21/Contents/Home").
-     * Paths with 4 or fewer components or under maxLength are returned unchanged.
+     * Abbreviates a path for display. If the path has more than 4 components, shows first + "..." + last three
+     * components (e.g., "/Users/.../jdk-21/Contents/Home"). Paths with 4 or fewer components or under maxLength are
+     * returned unchanged.
      */
     public static String abbreviatePath(String path) {
         int maxLength = 35;
@@ -119,7 +119,6 @@ public final class FileUtil {
         try {
             pathObj = Path.of(path);
         } catch (InvalidPathException e) {
-            // Not a valid path on this OS; return original (possibly truncated if extremely long)
             return path.length() > maxLength ? path.substring(0, maxLength - 3) + "..." : path;
         }
 
@@ -132,11 +131,9 @@ public final class FileUtil {
         var root = pathObj.getRoot();
         String rootStr = root != null ? root.toString() : "";
 
-        // Build the middle part: root + first name + "..."
         String first = pathObj.getName(0).toString();
         String prefix = rootStr + first + sep + "...";
 
-        // Collect the last three components
         List<String> lastParts = new ArrayList<>();
         for (int i = nameCount - 3; i < nameCount; i++) {
             lastParts.add(pathObj.getName(i).toString());
