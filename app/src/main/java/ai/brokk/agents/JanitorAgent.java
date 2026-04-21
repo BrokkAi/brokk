@@ -2,8 +2,8 @@ package ai.brokk.agents;
 
 import static ai.brokk.tools.WorkspaceTools.DROP_EXPLANATION_GUIDANCE;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
@@ -81,13 +81,13 @@ public class JanitorAgent {
         }
     }
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final String goal;
     private final IConsoleIO io;
     private final Llm llm;
     private Context context;
 
-    public JanitorAgent(IContextManager cm, IConsoleIO io, String goal, Context initialContext) {
+    public JanitorAgent(IAppContextManager cm, IConsoleIO io, String goal, Context initialContext) {
         this.cm = cm;
         this.io = io;
         this.goal = goal;

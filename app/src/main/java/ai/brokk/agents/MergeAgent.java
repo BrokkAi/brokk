@@ -4,8 +4,8 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
@@ -66,7 +66,7 @@ public class MergeAgent {
     // NonTextType is defined at package scope (io.github.jbellis.brokk.agents.NonTextType);
     // use the top-level enum to avoid type conflicts with other classes in the package.
 
-    protected final IContextManager cm;
+    protected final IAppContextManager cm;
     protected final GitRepo repo;
     protected MergeConflict conflict;
 
@@ -89,7 +89,7 @@ public class MergeAgent {
     private final ConcurrentHashMap<ProjectFile, String> codeAgentFailures = new ConcurrentHashMap<>();
 
     public MergeAgent(
-            IContextManager cm,
+            IAppContextManager cm,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
             MergeConflict conflict,

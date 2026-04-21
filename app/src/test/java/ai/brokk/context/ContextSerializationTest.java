@@ -2,7 +2,7 @@ package ai.brokk.context;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -45,7 +45,7 @@ public class ContextSerializationTest {
     @TempDir
     Path tempDir;
 
-    private IContextManager mockContextManager;
+    private IAppContextManager mockContextManager;
 
     @BeforeEach
     void setup() throws IOException {
@@ -141,8 +141,8 @@ public class ContextSerializationTest {
         var context2 = new Context(mockContextManager).addFragments(pasteImageFragment1);
 
         List<ChatMessage> taskMessages = List.of(UserMessage.from("User query"), AiMessage.from("AI response"));
-        var taskFragment = new ContextFragments.TaskFragment(taskMessages, "Test Task");
-        context2 = context2.addHistoryEntryInternal(new TaskEntry(1, taskFragment, null));
+        var md = Messages.format(taskMessages);
+        context2 = context2.addHistoryEntryInternal(new TaskEntry(1, "Test Task", md, md, null, null));
 
         originalHistory.pushContext(context2);
 
@@ -294,9 +294,7 @@ public class ContextSerializationTest {
             assertEquals(
                     expected.mopLog().description().join(),
                     actual.mopLog().description().join());
-            assertEquals(
-                    expected.mopLog().messages().size(),
-                    actual.mopLog().messages().size());
+            assertEquals(expected.mopMarkdown(), actual.mopMarkdown());
         } else {
             assertNull(actual.mopLog());
         }
@@ -307,9 +305,7 @@ public class ContextSerializationTest {
             assertEquals(
                     expected.llmLog().description().join(),
                     actual.llmLog().description().join());
-            assertEquals(
-                    expected.llmLog().messages().size(),
-                    actual.llmLog().messages().size());
+            assertEquals(expected.llmMarkdown(), actual.llmMarkdown());
         } else {
             assertNull(actual.llmLog());
         }
@@ -489,8 +485,8 @@ public class ContextSerializationTest {
 
         // 2. Action: Task entry
         var messages = List.<ChatMessage>of(UserMessage.from("Hello"), AiMessage.from("World"));
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Task 1");
-        var taskEntry = new TaskEntry(1, taskFragment, "Summary 1");
+        var md = Messages.format(messages);
+        var taskEntry = new TaskEntry(1, "Task 1", md, md, "Summary 1", null);
         var context3 = context2.addHistoryEntryInternal(taskEntry);
         history.pushContext(context3);
 
@@ -615,12 +611,13 @@ public class ContextSerializationTest {
 
         /* ---------- shared TaskFragment via TaskEntry ---------- */
         var taskMessages = List.of(UserMessage.from("User"), AiMessage.from("AI"));
+        var md = Messages.format(taskMessages);
         var sharedTaskFragment =
-                new ContextFragments.TaskFragment(taskMessages, "Shared Task Log"); // Content-hashed ID
+                new ContextOutputFragments.TaskOutputFragment("Shared Task Log", md); // Content-hashed ID
         String sharedTaskFragmentId = sharedTaskFragment.id();
 
         var ctxWithTask1 = new Context(mockContextManager);
-        var taskEntry = new TaskEntry(1, sharedTaskFragment, null);
+        var taskEntry = new TaskEntry(1, "Shared Task Log", md, md, null, null);
 
         var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntryInternal(taskEntry);
         var origHistoryWithTask = new ContextHistory(updatedCtxWithTask1);
@@ -767,7 +764,7 @@ public class ContextSerializationTest {
 
     @Test
     void testRoundTripUsageFragment() throws Exception {
-        var fragment = new ContextFragments.UsageFragment(mockContextManager, "com.example.MyClass.myMethod");
+        var fragment = new ContextFragments.UsageFragment(mockContextManager, "com.example.MyClass.myMethod", true);
 
         var context = new Context(mockContextManager).addFragments(fragment);
         ContextHistory originalHistory = new ContextHistory(context);
@@ -1134,12 +1131,12 @@ public class ContextSerializationTest {
     @Test
     void testTaskEntryMetaRoundTrip() throws Exception {
         var messages = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Test Task");
+        var md = Messages.format(messages);
 
         TaskResult.TaskMeta meta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE,
                 new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
-        var taskEntry = new TaskEntry(42, taskFragment, null, null, meta);
+        var taskEntry = new TaskEntry(42, "Test Task", md, md, null, meta);
 
         var ctx = new Context(mockContextManager).addHistoryEntryInternal(taskEntry);
         ContextHistory ch = new ContextHistory(ctx);
@@ -1349,23 +1346,22 @@ public class ContextSerializationTest {
 
     @Test
     void testTaskFragmentWithAiMessageReasoningRoundTrip() throws Exception {
-        // Integration test: round-trip a TaskFragment containing AiMessages with reasoning
+        // Integration test: round-trip ChatMessage DTOs containing AiMessages with reasoning
         var messages = List.of(
                 UserMessage.from("What is 2 + 2?"),
                 new AiMessage("The answer is 4", "Let me think: 2 + 2 equals 4"),
                 UserMessage.from("Verify your work"),
                 new AiMessage("Verified", "2 + 2 = 4 by basic arithmetic"));
 
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Math Task");
-
         var contentWriter = new HistoryIo.ContentWriter();
-        var taskDto = DtoMapper.toTaskFragmentDto(taskFragment, contentWriter);
+        var messageDtos = messages.stream()
+                .map(m -> DtoMapper.toChatMessageDto(m, contentWriter))
+                .toList();
 
         var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
         contentReader.setContentMetadata(contentWriter.getContentMetadata());
 
-        // Rebuild the task fragment from DTO
-        var rebuiltMessages = taskDto.messages().stream()
+        var rebuiltMessages = messageDtos.stream()
                 .map(msgDto -> DtoMapper.fromChatMessageDto(msgDto, contentReader))
                 .toList();
 
@@ -1400,10 +1396,10 @@ public class ContextSerializationTest {
     void testTaskEntryHelperMethods() {
         // Test all three scenarios: log-only, summary-only, and both
         var messages = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Task");
+        var md = Messages.format(messages);
 
         // Log only
-        var logOnly = new TaskEntry(1, taskFragment, null);
+        var logOnly = new TaskEntry(1, "Task", md, md, null, null);
         assertTrue(logOnly.hasLog());
         assertFalse(logOnly.isCompressed());
 
@@ -1413,7 +1409,7 @@ public class ContextSerializationTest {
         assertTrue(summaryOnly.isCompressed());
 
         // Both
-        var both = new TaskEntry(3, taskFragment, "Summary text");
+        var both = new TaskEntry(3, "Task", md, md, "Summary text", null);
         assertTrue(both.hasLog());
         assertTrue(both.isCompressed());
     }
@@ -1423,11 +1419,11 @@ public class ContextSerializationTest {
         // Verify toString shows summary (not full messages) for AI consumption
         // Per design: "the AI sees the summary, but the UI prefers to render the full log messages"
         var messages = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Task");
+        var md = Messages.format(messages);
         var summary = "Compressed summary";
 
         // When both log and summary exist, toString should show the summary for the AI
-        var both = new TaskEntry(1, taskFragment, summary);
+        var both = new TaskEntry(1, "Task", md, md, summary, null);
         String str = both.toString();
 
         assertTrue(str.contains("summarized=true"), "toString should indicate summarized");
@@ -1436,7 +1432,7 @@ public class ContextSerializationTest {
         assertFalse(str.contains("<message type="), "toString should not include message tags when summarized");
 
         // When only log exists (no summary), toString should show the full messages
-        var logOnly = new TaskEntry(2, taskFragment, null);
+        var logOnly = new TaskEntry(2, "Task", md, md, null, null);
         String str2 = logOnly.toString();
         assertFalse(str2.contains("summarized=true"), "log-only should not indicate summarized");
         assertTrue(str2.contains("<message type=user>"), "log-only should include user message");
@@ -1451,12 +1447,8 @@ public class ContextSerializationTest {
 
     @Test
     void testBackwardCompatibilityTaskEntryConstruction() {
-        // Verify the old 3-arg constructor still works
-        List<ChatMessage> messages = List.of(UserMessage.from("User"));
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Task");
-
-        // Old way: 3 args (no meta)
-        var entry = new TaskEntry(1, taskFragment, null);
+        // Verify the old 3-arg constructor still works (sequence, mopMarkdown, summary)
+        var entry = new TaskEntry(1, "User", null);
         assertNotNull(entry);
         assertNull(entry.meta());
         assertTrue(entry.hasLog());
@@ -1581,14 +1573,14 @@ public class ContextSerializationTest {
 
         // Entry 1: Log only
         var msg1 = List.<ChatMessage>of(UserMessage.from("Query 1"), AiMessage.from("Response 1"));
-        var tf1 = new ContextFragments.TaskFragment(msg1, "Task 1");
-        var entry1 = new TaskEntry(1, tf1, null);
+        var md1 = Messages.format(msg1);
+        var entry1 = new TaskEntry(1, "Task 1", md1, md1, null, null);
         ctx = ctx.addHistoryEntryInternal(entry1);
 
         // Entry 2: Both log and summary
         var msg2 = List.<ChatMessage>of(UserMessage.from("Query 2"), AiMessage.from("Response 2"));
-        var tf2 = new ContextFragments.TaskFragment(msg2, "Task 2");
-        var entry2 = new TaskEntry(2, tf2, "Summary of task 2");
+        var md2 = Messages.format(msg2);
+        var entry2 = new TaskEntry(2, "Task 2", md2, md2, "Summary of task 2", null);
         ctx = ctx.addHistoryEntryInternal(entry2);
 
         // Entry 3: Summary only (legacy compressed)
@@ -1609,7 +1601,7 @@ public class ContextSerializationTest {
         assertEquals(1, loaded1.sequence());
         assertTrue(loaded1.hasLog());
         assertFalse(loaded1.isCompressed());
-        assertEquals(2, loaded1.mopLog().messages().size());
+        assertEquals(md1, loaded1.mopMarkdown());
 
         // Verify Entry 2: Both log and summary
         TaskEntry loaded2 = loadedEntries.get(1);
@@ -1617,7 +1609,7 @@ public class ContextSerializationTest {
         assertTrue(loaded2.hasLog());
         assertTrue(loaded2.isCompressed());
         assertEquals("Summary of task 2", loaded2.summary());
-        assertEquals(2, loaded2.mopLog().messages().size());
+        assertEquals(md2, loaded2.mopMarkdown());
 
         // Verify Entry 3: Summary only
         TaskEntry loaded3 = loadedEntries.get(2);
@@ -2109,8 +2101,8 @@ public class ContextSerializationTest {
     void testRoundTripGroupingWithTaskHistory() throws Exception {
         // Create context with task history like TaskScope.append creates
         var messages = List.<ChatMessage>of(UserMessage.from("Test query"), AiMessage.from("Test response"));
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Test Task");
-        var taskEntry = new TaskEntry(1, taskFragment, null);
+        var md = Messages.format(messages);
+        var taskEntry = new TaskEntry(1, "Test Task", md, md, null, null);
 
         var ctx1 = new Context(mockContextManager);
         var ctx2 = ctx1.addHistoryEntryInternal(taskEntry);
@@ -2155,8 +2147,8 @@ public class ContextSerializationTest {
 
         // Context 3: Task history, Group B (different group)
         var messages = List.<ChatMessage>of(UserMessage.from("Query"), AiMessage.from("Response"));
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Task");
-        var taskEntry = new TaskEntry(1, taskFragment, null);
+        var md = Messages.format(messages);
+        var taskEntry = new TaskEntry(1, "Task", md, md, null, null);
         var ctx3 = new Context(mockContextManager).addHistoryEntryInternal(taskEntry);
 
         // Context 4: No group

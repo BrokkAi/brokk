@@ -4,7 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.SyntaxAwareConfig;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
@@ -94,7 +94,7 @@ public class CodePrompts {
                 .collect(Collectors.toSet());
         if (!hasMergeMarkers.isEmpty()) {
             flags.add(InstructionsFlags.MERGE_AGENT_MARKERS);
-            IContextManager.logger.debug("Files with merge markers: {}", hasMergeMarkers);
+            IAppContextManager.logger.debug("Files with merge markers: {}", hasMergeMarkers);
         }
 
         return flags;

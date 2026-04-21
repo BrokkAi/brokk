@@ -1,6 +1,6 @@
 package ai.brokk.gui.mop;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.gui.mop.FilePathResult.*;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
@@ -53,7 +53,7 @@ public class FilePathLookupService {
      */
     public static void lookupFilePaths(
             Set<String> filePaths,
-            @Nullable IContextManager contextManager,
+            @Nullable IAppContextManager contextManager,
             BiConsumer<String, FilePathLookupResult> resultCallback,
             @Nullable Runnable completionCallback) {
 

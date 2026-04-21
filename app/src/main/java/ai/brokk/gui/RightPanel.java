@@ -1,7 +1,7 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IContextManager.ContextListener;
+import ai.brokk.IAppContextManager.ContextListener;
 import ai.brokk.SessionManager;
 import ai.brokk.context.Context;
 import ai.brokk.gui.components.MaterialButton;

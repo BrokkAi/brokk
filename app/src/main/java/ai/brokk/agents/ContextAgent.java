@@ -5,6 +5,7 @@ import static java.lang.Math.min;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.*;
+import ai.brokk.IAppContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -88,7 +89,7 @@ public class ContextAgent {
         }
     }
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final String goal;
     private final IAnalyzer analyzer;
     private final StreamingChatModel model;
@@ -104,12 +105,12 @@ public class ContextAgent {
      */
     private final int filesPruningBudget;
 
-    public ContextAgent(IContextManager contextManager, StreamingChatModel model, String goal)
+    public ContextAgent(IAppContextManager contextManager, StreamingChatModel model, String goal)
             throws InterruptedException {
         this(contextManager, model, goal, contextManager.getIo());
     }
 
-    public ContextAgent(IContextManager contextManager, StreamingChatModel model, String goal, IConsoleIO io)
+    public ContextAgent(IAppContextManager contextManager, StreamingChatModel model, String goal, IConsoleIO io)
             throws InterruptedException {
         this.cm = contextManager;
         this.goal = goal;
@@ -691,7 +692,7 @@ public class ContextAgent {
 
     /** one SummaryFragment per code unit so ArchitectAgent can easily ask user which ones to include */
     private static List<ContextFragment> summaryPerCodeUnit(
-            IContextManager contextManager, Map<CodeUnit, String> relevantSummaries) {
+            IAppContextManager contextManager, Map<CodeUnit, String> relevantSummaries) {
         return relevantSummaries.keySet().stream()
                 .map(cu -> (ContextFragment) new ContextFragments.SummaryFragment(
                         contextManager, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
@@ -1165,7 +1166,7 @@ public class ContextAgent {
     static String renderFileForPrompt(ProjectFile file, Lines.HeadTail content) {
         // Normalize to forward slashes for consistent LLM prompts across platforms.
         // Safe on Windows: Java's Path.of() accepts '/' on all OSes, so paths returned
-        // by the LLM can be parsed back to ProjectFile via IContextManager.toFile().
+        // by the LLM can be parsed back to ProjectFile via IAppContextManager.toFile().
         String unixPath = file.toString().replace('\\', '/');
         if (!content.truncated()) {
             return "<file path='%s'>\n%s\n</file>".formatted(unixPath, content.promptText());

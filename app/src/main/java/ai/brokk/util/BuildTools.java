@@ -1,7 +1,7 @@
 package ai.brokk.util;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
@@ -109,7 +109,7 @@ public class BuildTools {
     }
 
     public static String getBuildLintSomeCommand(
-            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
+            IAppContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
             throws InterruptedException {
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles, null);
     }
@@ -120,7 +120,7 @@ public class BuildTools {
     }
 
     public static String getBuildLintSomeCommand(
-            IContextManager cm,
+            IAppContextManager cm,
             BuildDetails details,
             Collection<ProjectFile> workspaceTestFiles,
             @Nullable String pythonVersionOverride)
@@ -190,7 +190,7 @@ public class BuildTools {
     }
 
     private static String interpolateModuleCommand(
-            IContextManager cm,
+            IAppContextManager cm,
             String template,
             Collection<ProjectFile> testFiles,
             @Nullable String pythonVersionOverride)

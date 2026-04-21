@@ -2,7 +2,7 @@ package ai.brokk.github;
 
 import ai.brokk.ExceptionReporter;
 import ai.brokk.GitHubAuth;
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.MainProject;
 import java.util.concurrent.CompletableFuture;
@@ -42,7 +42,7 @@ public class BackgroundGitHubAuth {
     }
 
     public static void startBackgroundAuth(
-            DeviceFlowModels.DeviceCodeResponse deviceCodeResponse, IContextManager contextManager) {
+            DeviceFlowModels.DeviceCodeResponse deviceCodeResponse, IAppContextManager contextManager) {
         logger.info("Starting background GitHub authentication");
 
         synchronized (authLock) {

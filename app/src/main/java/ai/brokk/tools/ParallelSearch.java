@@ -1,7 +1,7 @@
 package ai.brokk.tools;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
@@ -36,7 +36,7 @@ public class ParallelSearch {
     private static final Logger logger = LogManager.getLogger(ParallelSearch.class);
     private static final String SEARCHAGENT_USES_PLANNER_ENV_VAR = "BRK_SEARCHAGENT_USES_PLANNER";
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final Context ctx;
     private final String goal;
     private final StreamingChatModel delegatedSearchModel;

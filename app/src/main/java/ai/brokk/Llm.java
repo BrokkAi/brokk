@@ -86,7 +86,7 @@ public class Llm {
     /** Base directory where LLM interaction history logs are stored. */
     public static final String HISTORY_DIR_NAME = "llm-history";
 
-    public static Llm create(Options options, IContextManager cm, boolean tagRetain) {
+    public static Llm create(Options options, IAppContextManager cm, boolean tagRetain) {
         return new Llm(
                 options.model,
                 options.task,
@@ -120,6 +120,18 @@ public class Llm {
             this.type = type;
         }
 
+        public StreamingChatModel model() {
+            return model;
+        }
+
+        public String taskDescription() {
+            return task;
+        }
+
+        public TaskResult.Type type() {
+            return type;
+        }
+
         public Options withPartialResponses() {
             this.allowPartialResponses = true;
             return this;
@@ -143,7 +155,7 @@ public class Llm {
     private final String baseTaskDirName;
     private @Nullable Path taskHistoryDir; // Directory for this specific LLM task's history files (created lazily)
     private final TaskResult.Type taskType;
-    final IContextManager contextManager;
+    final IAppContextManager contextManager;
     private static final int DEFAULT_MAX_ATTEMPTS = 8;
     private static final int MAX_TOOL_CONTRACT_RETRIES = 3;
     private final int MAX_ATTEMPTS;
@@ -160,7 +172,7 @@ public class Llm {
             StreamingChatModel model,
             String taskDescription,
             TaskResult.Type taskType,
-            IContextManager contextManager,
+            IAppContextManager contextManager,
             boolean allowPartialResponses,
             boolean forceReasoningEcho,
             boolean tagRetain,

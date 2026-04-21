@@ -1,7 +1,7 @@
 package ai.brokk.agents;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.tools.ShellTools;
@@ -43,12 +43,12 @@ public class ShellAgent {
             with a summary of what happened.
             """;
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final StreamingChatModel model;
     private final IConsoleIO io;
     private final String task;
 
-    public ShellAgent(IContextManager cm, StreamingChatModel model, String task) {
+    public ShellAgent(IAppContextManager cm, StreamingChatModel model, String task) {
         this.cm = cm;
         this.model = model;
         this.io = cm.getIo();

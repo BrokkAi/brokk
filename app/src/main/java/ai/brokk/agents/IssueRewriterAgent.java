@@ -1,6 +1,6 @@
 package ai.brokk.agents;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.PrReviewService;
 import ai.brokk.prompts.SearchPrompts;
@@ -19,7 +19,7 @@ public final class IssueRewriterAgent {
     static final int ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD = 100;
     private static final Logger logger = LogManager.getLogger(IssueRewriterAgent.class);
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final StreamingChatModel model;
     private final String userRequest;
     private final Context context;

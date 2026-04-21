@@ -3,8 +3,8 @@ package ai.brokk.agents;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
@@ -51,7 +51,7 @@ public final class MergeOneFile {
 
     public record Outcome(Status status, @Nullable String details) {}
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final StreamingChatModel planningModel;
     private final StreamingChatModel codeModel;
     private final MergeAgent.MergeMode type;
@@ -73,7 +73,7 @@ public final class MergeOneFile {
     private @Nullable String codeAgentInstructions = null;
 
     public MergeOneFile(
-            IContextManager cm,
+            IAppContextManager cm,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
             MergeAgent.MergeMode type,

@@ -1,7 +1,7 @@
 package ai.brokk.executor.agents;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
@@ -35,10 +35,10 @@ import org.jetbrains.annotations.Nullable;
 public class ParallelCustomAgent {
     private static final Logger logger = LogManager.getLogger(ParallelCustomAgent.class);
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final StreamingChatModel model;
 
-    public ParallelCustomAgent(IContextManager cm, StreamingChatModel model) {
+    public ParallelCustomAgent(IAppContextManager cm, StreamingChatModel model) {
         this.cm = cm;
         this.model = model;
     }

@@ -1,14 +1,15 @@
 package ai.brokk.testutil;
 
 import ai.brokk.IAnalyzerWrapper;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.SessionManager;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
@@ -19,6 +20,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -35,7 +37,7 @@ import org.jetbrains.annotations.Nullable;
  * triggering expensive analyzer build logic while satisfying callers (CodeAgent) that expect an AnalyzerWrapper to
  * exist and support pause()/resume()/get().
  */
-public final class TestContextManager implements IContextManager {
+public final class TestContextManager implements IAppContextManager {
     private final IProject project;
     private final AtomicReference<IAnalyzer> analyzerRef;
     private final IGitRepo repo;
@@ -130,6 +132,16 @@ public final class TestContextManager implements IContextManager {
     @Override
     public IGitRepo getRepo() {
         return repo;
+    }
+
+    @Override
+    public void reportException(Throwable th, Map<String, String> optionalFields) {
+        // Tests expect failures to surface via exceptions/assertions, not UI/reporting hooks.
+    }
+
+    @Override
+    public void addFragments(java.util.Collection<? extends ContextFragment> fragments) {
+        liveContext = liveContext.addFragments(List.copyOf(fragments));
     }
 
     public void addEditableFile(ProjectFile file) {

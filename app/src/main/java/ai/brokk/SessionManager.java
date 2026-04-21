@@ -575,7 +575,7 @@ public class SessionManager implements AutoCloseable {
      *
      * <p>This runs synchronously; intended to be invoked from a background task.
      */
-    public QuarantineReport quarantineUnreadableSessions(IContextManager contextManager) {
+    public QuarantineReport quarantineUnreadableSessions(IAppContextManager contextManager) {
         int moved = 0;
         var quarantinedIds = new HashSet<UUID>();
         var quarantinedNoUuid = new ArrayList<String>();
@@ -754,7 +754,8 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    private ContextHistory loadHistoryOrQuarantine(UUID sessionId, IContextManager contextManager) throws IOException {
+    private ContextHistory loadHistoryOrQuarantine(UUID sessionId, IAppContextManager contextManager)
+            throws IOException {
         Path zipPath = resolveSessionHistoryZipPath(sessionId);
 
         try {
@@ -920,7 +921,7 @@ public class SessionManager implements AutoCloseable {
 
     @Blocking
     @Nullable
-    public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
+    public ContextHistory loadHistory(UUID sessionId, IAppContextManager contextManager) {
         var future = sessionExecutorByKey.submit(
                 sessionId.toString(), () -> loadHistoryOrQuarantine(sessionId, contextManager));
 
@@ -985,7 +986,7 @@ public class SessionManager implements AutoCloseable {
 
     @Blocking
     @Nullable
-    public ContextHistory loadHistoryAndRefresh(UUID sessionId, IContextManager contextManager) {
+    public ContextHistory loadHistoryAndRefresh(UUID sessionId, IAppContextManager contextManager) {
         var ch = loadHistory(sessionId, contextManager);
         if (ch == null) {
             return null;

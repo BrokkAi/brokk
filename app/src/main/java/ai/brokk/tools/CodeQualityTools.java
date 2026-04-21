@@ -1,7 +1,7 @@
 package ai.brokk.tools;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CommentDensityStats;
 import ai.brokk.analyzer.IAnalyzer;
@@ -37,9 +37,9 @@ public class CodeQualityTools {
     private static final int DEFAULT_SECRET_MAX_FINDINGS = 100;
     private static final int DEFAULT_SECRET_MAX_COMMITS = 2000;
 
-    private final IContextManager contextManager;
+    private final IAppContextManager contextManager;
 
-    public CodeQualityTools(IContextManager contextManager) {
+    public CodeQualityTools(IAppContextManager contextManager) {
         this.contextManager = contextManager;
     }
 

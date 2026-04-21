@@ -206,6 +206,10 @@ public class Environment {
             Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("Timeout duration cannot be negative: " + timeout);
+        }
+
         logger.trace(
                 "Running internal `{}` in `{}` (sandbox={}, has-consumer={})",
                 command,
@@ -288,9 +292,7 @@ public class Environment {
         String combinedOutput;
         try {
             boolean finished;
-            if (timeout.isNegative()) {
-                throw new IllegalArgumentException("Timeout duration cannot be negative: " + timeout);
-            } else if (timeout.equals(UNLIMITED_TIMEOUT)) {
+            if (timeout.equals(UNLIMITED_TIMEOUT)) {
                 process.waitFor();
                 finished = true;
             } else {

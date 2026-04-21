@@ -5,8 +5,8 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
@@ -95,7 +95,7 @@ public class ArchitectAgent {
         record Terminal(TaskResult taskResult) implements PlanningTurnOutcome {}
     }
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final StreamingChatModel planningModel;
     private final StreamingChatModel codeModel;
     private final String goal;
@@ -149,7 +149,7 @@ public class ArchitectAgent {
      * @param goal      The initial user instruction or goal for the agent.
      */
     public ArchitectAgent(
-            IContextManager contextManager,
+            IAppContextManager contextManager,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
             String goal,
@@ -164,7 +164,7 @@ public class ArchitectAgent {
      * Use this when the caller has a more up-to-date context than liveContext().
      */
     public ArchitectAgent(
-            IContextManager contextManager,
+            IAppContextManager contextManager,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
             String goal,
@@ -174,7 +174,7 @@ public class ArchitectAgent {
     }
 
     public ArchitectAgent(
-            IContextManager contextManager,
+            IAppContextManager contextManager,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
             String goal,
@@ -196,7 +196,7 @@ public class ArchitectAgent {
      * Constructs a BrokkAgent with an explicit IConsoleIO.
      */
     public ArchitectAgent(
-            IContextManager contextManager,
+            IAppContextManager contextManager,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
             String goal,
@@ -207,7 +207,7 @@ public class ArchitectAgent {
     }
 
     public ArchitectAgent(
-            IContextManager contextManager,
+            IAppContextManager contextManager,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
             String goal,
@@ -648,7 +648,7 @@ public class ArchitectAgent {
         }
 
         if (compressedHistoryFuture != null) {
-            context = IContextManager.mergeCompressedHistory(context, compressedHistoryFuture.join());
+            context = IAppContextManager.mergeCompressedHistory(context, compressedHistoryFuture.join());
             compressedHistoryFuture = null;
         }
 

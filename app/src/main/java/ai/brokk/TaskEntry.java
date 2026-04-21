@@ -3,10 +3,12 @@ package ai.brokk;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextOutputFragments;
+import ai.brokk.util.FragmentUtils;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
@@ -22,30 +24,70 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class TaskEntry {
     private final int sequence;
-    private final ContextFragments.@Nullable TaskFragment mopLog;
-    private final ContextFragments.@Nullable TaskFragment llmLog;
+    private final String description;
+    private final @Nullable String mopMarkdown;
+    private final @Nullable String llmMarkdown;
     private final @Nullable String summary;
     private final TaskResult.@Nullable TaskMeta meta;
+    private final @Nullable String mopLogId;
+    private final @Nullable String llmLogId;
+
+    private transient @Nullable ContextOutputFragments.TaskOutputFragment cachedMopLog;
+    private transient @Nullable ContextOutputFragments.TaskOutputFragment cachedLlmLog;
 
     /** Enforce that at least one of log or summary is non-null */
     public TaskEntry(
             int sequence,
-            @Nullable ContextFragments.TaskFragment mopLog,
-            @Nullable ContextFragments.TaskFragment llmLog,
+            String description,
+            @Nullable String mopMarkdown,
+            @Nullable String llmMarkdown,
             @Nullable String summary,
             @Nullable TaskResult.TaskMeta meta) {
-        assert (mopLog != null) || (summary != null) : "At least one of mopLog or summary must be non-null";
+        assert (mopMarkdown != null) || (summary != null) : "At least one of mopMarkdown or summary must be non-null";
         assert summary == null || !summary.isEmpty() : "summary must not be empty when present";
+        assert !description.isEmpty();
         this.sequence = sequence;
-        this.mopLog = mopLog;
-        this.llmLog = llmLog;
+        this.description = description;
+        this.mopMarkdown = mopMarkdown;
+        this.llmMarkdown = llmMarkdown;
         this.summary = summary;
         this.meta = meta;
+
+        this.mopLogId = mopMarkdown == null ? null : computeTaskLogId(description, mopMarkdown);
+        this.llmLogId = llmMarkdown == null ? null : computeTaskLogId(description, llmMarkdown);
+    }
+
+    private TaskEntry(
+            int sequence,
+            String description,
+            @Nullable ContextOutputFragments.TaskOutputFragment mopLog,
+            @Nullable ContextOutputFragments.TaskOutputFragment llmLog,
+            @Nullable String summary,
+            @Nullable TaskResult.TaskMeta meta) {
+        this(
+                sequence,
+                description,
+                mopLog == null ? null : mopLog.text().join(),
+                llmLog == null ? null : llmLog.text().join(),
+                summary,
+                meta);
+        this.cachedMopLog = mopLog;
+        this.cachedLlmLog = llmLog;
+    }
+
+    public static TaskEntry fromFragments(
+            int sequence,
+            String description,
+            @Nullable ContextOutputFragments.TaskOutputFragment mopLog,
+            @Nullable ContextOutputFragments.TaskOutputFragment llmLog,
+            @Nullable String summary,
+            @Nullable TaskResult.TaskMeta meta) {
+        return new TaskEntry(sequence, description, mopLog, llmLog, summary, meta);
     }
 
     // Some call sites "forge" a TaskEntry where no task existed. This is a smell but for now we allow it.
-    public TaskEntry(int sequence, @Nullable ContextFragments.TaskFragment log, @Nullable String summary) {
-        this(sequence, log, null, summary, null);
+    public TaskEntry(int sequence, @Nullable String mopMarkdown, @Nullable String summary) {
+        this(sequence, "(log)", mopMarkdown, null, summary, null);
     }
 
     /**
@@ -62,7 +104,7 @@ public final class TaskEntry {
         if (summary != null && summary.equals(newSummary)) {
             return this;
         }
-        return new TaskEntry(sequence, mopLog, null, newSummary, meta);
+        return new TaskEntry(sequence, description, mopMarkdown, llmMarkdown, newSummary, meta);
     }
 
     /**
@@ -76,11 +118,10 @@ public final class TaskEntry {
      * <p>Preserves the existing mop log description.
      */
     public TaskEntry withAppendedMopMessages(List<? extends ChatMessage> additionalMessages) {
-        if (additionalMessages.isEmpty() || mopLog == null) {
+        if (additionalMessages.isEmpty() || mopMarkdown == null) {
             return this;
         }
-        return withAppendedMopMessages(
-                additionalMessages, mopLog.shortDescription().join());
+        return withAppendedMopMessages(additionalMessages, description());
     }
 
     /**
@@ -95,53 +136,23 @@ public final class TaskEntry {
      * <p>Always preserves sequence, meta, and summary.
      */
     public TaskEntry withAppendedMopMessages(List<? extends ChatMessage> additionalMessages, String description) {
-        if (additionalMessages.isEmpty() || mopLog == null) {
+        if (additionalMessages.isEmpty() || mopMarkdown == null) {
             return this;
         }
 
-        // Workaround: only add new messages; can be removed when we implement the TaskEntryBuilder
-        var existingMopMessages = mopLog.messages();
-        int existingSize = existingMopMessages.size();
-        int additionalSize = additionalMessages.size();
-
-        int maxK = Math.min(existingSize, additionalSize);
-        int overlap = 0;
-        for (int k = 1; k <= maxK; k++) {
-            if (existingMopMessages.subList(existingSize - k, existingSize).equals(additionalMessages.subList(0, k))) {
-                overlap = k;
-            }
-        }
-
-        var effectiveAdditional = additionalMessages.subList(overlap, additionalSize);
-        if (effectiveAdditional.isEmpty()) {
-            return this;
-        }
-
-        var combinedMop = new ArrayList<ChatMessage>(existingSize + effectiveAdditional.size());
-        combinedMop.addAll(existingMopMessages);
-        combinedMop.addAll(effectiveAdditional);
-
-        var newMopLog = new ContextFragments.TaskFragment(combinedMop, description, mopLog.isEscapeHtml());
-
-        final ContextFragments.@Nullable TaskFragment newLlmLog;
-        if (llmLog == null) {
-            newLlmLog = null;
-        } else {
-            var existingLlmMessages = llmLog.messages();
-            var combinedLlm = new ArrayList<ChatMessage>(existingLlmMessages.size() + effectiveAdditional.size());
-            combinedLlm.addAll(existingLlmMessages);
-            combinedLlm.addAll(effectiveAdditional);
-            newLlmLog = new ContextFragments.TaskFragment(combinedLlm, description, llmLog.isEscapeHtml());
-        }
-
-        return new TaskEntry(sequence, newMopLog, newLlmLog, summary, meta);
+        // Best-effort: append rendered messages to the existing rendered Markdown.
+        // This is not "diff aware" but preserves the log for users/serialization.
+        String appended = Messages.format(List.copyOf(additionalMessages));
+        String newMopMarkdown = mopMarkdown + "\n\n" + appended;
+        String newLlmMarkdown = llmMarkdown == null ? null : (llmMarkdown + "\n\n" + appended);
+        return new TaskEntry(sequence, description, newMopMarkdown, newLlmMarkdown, summary, meta);
     }
 
     /**
      * Returns true if this TaskEntry holds an original message log.
      */
     public boolean hasLog() {
-        return mopLog != null;
+        return mopMarkdown != null;
     }
 
     /**
@@ -152,17 +163,46 @@ public final class TaskEntry {
     }
 
     public static TaskEntry fromCompressed(
-            int sequence, String compressedLog) { // IContextManager not needed for compressed
-        return new TaskEntry(sequence, null, null, compressedLog, null);
+            int sequence, String compressedLog) { // IAppContextManager not needed for compressed
+        return new TaskEntry(sequence, "(compressed)", (String) null, (String) null, compressedLog, null);
+    }
+
+    public static TaskEntry fromCompressedStable(String compressedLog) {
+        return fromCompressed(compressedLog.hashCode(), compressedLog);
     }
 
     @Blocking
     public String description() {
-        return summary == null ? requireNonNull(mopLog).shortDescription().join() : summary;
+        return (mopMarkdown == null && summary != null) ? castNonNull(summary) : description;
     }
 
-    public @Nullable ContextFragments.TaskFragment llmLog() {
-        return llmLog == null ? mopLog : llmLog;
+    public @Nullable String llmMarkdown() {
+        return llmMarkdown == null ? mopMarkdown : llmMarkdown;
+    }
+
+    public @Nullable ContextOutputFragments.TaskOutputFragment mopLog() {
+        if (mopMarkdown == null) {
+            return null;
+        }
+        if (cachedMopLog != null) {
+            return cachedMopLog;
+        }
+        String id = requireNonNull(mopLogId);
+        cachedMopLog = new ContextOutputFragments.TaskOutputFragment(id, description, mopMarkdown, true);
+        return cachedMopLog;
+    }
+
+    public @Nullable ContextOutputFragments.TaskOutputFragment llmLog() {
+        var md = llmMarkdown();
+        if (md == null) {
+            return null;
+        }
+        if (cachedLlmLog != null) {
+            return cachedLlmLog;
+        }
+        String id = llmLogId != null ? llmLogId : computeTaskLogId(description, md);
+        cachedLlmLog = new ContextOutputFragments.TaskOutputFragment(id, description, md, true);
+        return cachedLlmLog;
     }
 
     /** Provides a string representation suitable for logging or context display. => what the AI sees */
@@ -177,7 +217,7 @@ public final class TaskEntry {
                     .formatted(sequence, castNonNull(summary).indent(2).stripTrailing());
         }
 
-        var logText = Messages.format(castNonNull(mopLog).messages());
+        var logText = castNonNull(mopMarkdown);
         return """
                 <task sequence=%s>
                 %s
@@ -190,8 +230,8 @@ public final class TaskEntry {
         return sequence;
     }
 
-    public ContextFragments.@Nullable TaskFragment mopLog() {
-        return mopLog;
+    public @Nullable String mopMarkdown() {
+        return mopMarkdown;
     }
 
     public @Nullable String summary() {
@@ -208,18 +248,32 @@ public final class TaskEntry {
         if (obj == null || obj.getClass() != this.getClass()) return false;
         var that = (TaskEntry) obj;
         return this.sequence == that.sequence
-                && Objects.equals(this.mopLog, that.mopLog)
-                && Objects.equals(this.llmLog, that.llmLog)
+                && Objects.equals(this.description, that.description)
+                && Objects.equals(this.mopMarkdown, that.mopMarkdown)
+                && Objects.equals(this.llmMarkdown, that.llmMarkdown)
                 && Objects.equals(this.summary, that.summary)
                 && Objects.equals(this.meta, that.meta);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(sequence, mopLog, llmLog, summary, meta);
+        return Objects.hash(sequence, description, mopMarkdown, llmMarkdown, summary, meta);
     }
 
     public Collection<ChatMessage> mopMessages() {
-        return mopLog == null ? List.of(Messages.customSystem(castNonNull(summary))) : mopLog.messages();
+        // Keep for call sites that still need ChatMessage collections (app-side only).
+        if (mopMarkdown != null) {
+            return List.of(Messages.customSystem(mopMarkdown));
+        }
+        return List.of(Messages.customSystem(castNonNull(summary)));
+    }
+
+    private static String computeTaskLogId(String description, String markdown) {
+        return FragmentUtils.calculateContentHash(
+                ContextFragment.FragmentType.TASK,
+                description,
+                markdown,
+                ContextFragments.SYNTAX_STYLE_MARKDOWN,
+                ContextOutputFragments.TaskOutputFragment.class.getName());
     }
 }

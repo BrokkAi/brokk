@@ -25,8 +25,8 @@ public class SourceCaptureUtil {
             try {
                 var analyzer = contextManager.getAnalyzer();
                 contextManager.sourceCodeForCodeUnit(analyzer, codeUnit);
-            } catch (InterruptedException e) {
-                logger.warn("Interrupted while capturing code unit", e);
+            } catch (Exception e) {
+                logger.warn("Failed while capturing code unit", e);
             }
         });
     }

@@ -3,7 +3,7 @@ package ai.brokk;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextOutputFragments;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.exception.OverthinkingException;
@@ -177,7 +177,7 @@ public record TaskResult(Context context, StopDetails stopDetails) {
         }
     }
 
-    public ContextFragments.TaskFragment output() {
+    public ContextOutputFragments.TaskOutputFragment output() {
         return requireNonNull(context.getTaskHistory().getLast().mopLog());
     }
 }

@@ -136,16 +136,16 @@ class ProjectEmptinessTest {
     }
 
     @Test
-    void isEmptyProject_interfaceDefaultReturnsFalse() {
+    void isEmptyProject_interfaceDefaultReturnsFalse(@TempDir Path tempDir) {
         IProject minimalProject = new IProject() {
             @Override
             public Path getRoot() {
-                return Path.of("/tmp");
+                return tempDir;
             }
 
             @Override
             public Path getMasterRootPathForConfig() {
-                return Path.of("/tmp");
+                return tempDir;
             }
         };
         assertFalse(

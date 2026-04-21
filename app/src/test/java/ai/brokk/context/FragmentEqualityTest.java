@@ -3,7 +3,6 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
-import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
@@ -11,6 +10,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment.ComputedFragment;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -416,7 +416,7 @@ class FragmentEqualityTest {
             // StringFragment vs different fragment type should not match
             var sf = new ContextFragments.StringFragment(
                     contextManager, "text", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var uf = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class"));
+            var uf = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class", true));
 
             assertFalse(sf.hasSameSource(uf));
         }
@@ -706,7 +706,7 @@ class FragmentEqualityTest {
     class UsageFragmentEqualityTest {
         @Test
         void testEqualsIdentity() {
-            var uf1 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class"));
+            var uf1 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class", true));
             var uf2 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class"));
 
             // Identity-based: different instances are NOT equal
@@ -783,8 +783,8 @@ class FragmentEqualityTest {
         @Test
         void testEqualsIdenticalMessages() {
             var messages = List.<ChatMessage>of(UserMessage.from("user"), AiMessage.from("ai"));
-            var tf1 = new ContextFragments.TaskFragment(messages, "session");
-            var tf2 = new ContextFragments.TaskFragment(messages, "session");
+            var tf1 = new ContextOutputFragments.TaskOutputFragment("session", Messages.format(messages));
+            var tf2 = new ContextOutputFragments.TaskOutputFragment("session", Messages.format(messages));
 
             assertTrue(tf1.hasSameSource(tf2));
             assertEquals(tf1, tf2);
@@ -794,8 +794,8 @@ class FragmentEqualityTest {
         void testEqualsDifferentMessages() {
             var messages1 = List.<ChatMessage>of(UserMessage.from("user1"));
             var messages2 = List.<ChatMessage>of(UserMessage.from("user2"));
-            var tf1 = new ContextFragments.TaskFragment(messages1, "session");
-            var tf2 = new ContextFragments.TaskFragment(messages2, "session");
+            var tf1 = new ContextOutputFragments.TaskOutputFragment("session", Messages.format(messages1));
+            var tf2 = new ContextOutputFragments.TaskOutputFragment("session", Messages.format(messages2));
 
             assertNotEquals(tf1, tf2);
         }
@@ -803,8 +803,8 @@ class FragmentEqualityTest {
         @Test
         void testEqualsDifferentSession() {
             var messages = List.<ChatMessage>of(UserMessage.from("user"));
-            var tf1 = new ContextFragments.TaskFragment(messages, "session1");
-            var tf2 = new ContextFragments.TaskFragment(messages, "session2");
+            var tf1 = new ContextOutputFragments.TaskOutputFragment("session1", Messages.format(messages));
+            var tf2 = new ContextOutputFragments.TaskOutputFragment("session2", Messages.format(messages));
 
             assertNotEquals(tf1, tf2);
         }
@@ -891,10 +891,9 @@ class FragmentEqualityTest {
         @Test
         void testEqualsIdenticalHistory() {
             var messages = List.<ChatMessage>of(UserMessage.from("user"));
-            var tf = new ContextFragments.TaskFragment(messages, "session");
-            var te = new TaskEntry(1, tf, null);
-            var hf1 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
-            var hf2 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
+            var md = Messages.format(messages);
+            var hf1 = new ContextOutputFragments.HistoryOutputFragment(List.of(md));
+            var hf2 = new ContextOutputFragments.HistoryOutputFragment(List.of(md));
 
             assertTrue(hf1.hasSameSource(hf2));
             assertEquals(hf1, hf2);
@@ -904,12 +903,8 @@ class FragmentEqualityTest {
         void testEqualsDifferentHistory() {
             var messages1 = List.<ChatMessage>of(UserMessage.from("user1"));
             var messages2 = List.<ChatMessage>of(UserMessage.from("user2"));
-            var tf1 = new ContextFragments.TaskFragment(messages1, "session");
-            var tf2 = new ContextFragments.TaskFragment(messages2, "session");
-            var te1 = new TaskEntry(1, tf1, null);
-            var te2 = new TaskEntry(1, tf2, null);
-            var hf1 = new ContextFragments.HistoryFragment(contextManager, List.of(te1));
-            var hf2 = new ContextFragments.HistoryFragment(contextManager, List.of(te2));
+            var hf1 = new ContextOutputFragments.HistoryOutputFragment(List.of(Messages.format(messages1)));
+            var hf2 = new ContextOutputFragments.HistoryOutputFragment(List.of(Messages.format(messages2)));
 
             assertNotEquals(hf1, hf2);
         }

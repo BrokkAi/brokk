@@ -3,7 +3,7 @@ package ai.brokk.context;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ExceptionReporter;
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.LoggingFuture;
@@ -50,7 +50,7 @@ public final class DiffService {
             Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).buildAsync();
 
     private final ContextHistory history;
-    private final IContextManager cm;
+    private final IAppContextManager cm;
 
     DiffService(ContextHistory history) {
         this.history = history;

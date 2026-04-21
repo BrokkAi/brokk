@@ -2,8 +2,8 @@ package ai.brokk.tools;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.DependencyCopyUtil;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -42,14 +42,14 @@ import org.jetbrains.annotations.Nullable;
 public class DependencyTools {
     private static final Logger logger = LogManager.getLogger(DependencyTools.class);
 
-    private final IContextManager contextManager;
+    private final IAppContextManager contextManager;
     private final @Nullable MavenArtifactFetcher fetcher;
 
-    public DependencyTools(IContextManager cm) {
+    public DependencyTools(IAppContextManager cm) {
         this(cm, null);
     }
 
-    public DependencyTools(IContextManager cm, @Nullable MavenArtifactFetcher fetcher) {
+    public DependencyTools(IAppContextManager cm, @Nullable MavenArtifactFetcher fetcher) {
         this.contextManager = cm;
         this.fetcher = fetcher;
     }

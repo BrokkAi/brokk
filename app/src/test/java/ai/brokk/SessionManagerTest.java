@@ -14,9 +14,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.HistoryIo;
-import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.data.message.ChatMessage;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
@@ -42,7 +40,7 @@ public class SessionManagerTest {
     @TempDir
     Path tempDir;
 
-    private IContextManager mockContextManager;
+    private IAppContextManager mockContextManager;
 
     @BeforeEach
     void setup() throws IOException {
@@ -265,15 +263,7 @@ public class SessionManagerTest {
             assertNotNull(expected.mopLog());
             assertNotNull(actual.mopLog());
             assertEquals(expected.mopLog().description(), actual.mopLog().description());
-            assertEquals(
-                    expected.mopLog().messages().size(),
-                    actual.mopLog().messages().size());
-            for (int i = 0; i < expected.mopLog().messages().size(); i++) {
-                ChatMessage expectedMsg = expected.mopLog().messages().get(i);
-                ChatMessage actualMsg = actual.mopLog().messages().get(i);
-                assertEquals(expectedMsg.type(), actualMsg.type());
-                assertEquals(Messages.getRepr(expectedMsg), Messages.getRepr(actualMsg));
-            }
+            assertEquals(expected.mopMarkdown(), actual.mopMarkdown());
         }
     }
 

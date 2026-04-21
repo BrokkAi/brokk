@@ -17,6 +17,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
@@ -1494,21 +1495,19 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 var files = fFilesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
 
-                var messages = parallelResult.output().messages();
-                assert messages.isEmpty() || messages.size() == 2 : messages.size(); // by construction
-                var effectiveOutputMode = messages.isEmpty() ? BlitzForge.ParallelOutputMode.NONE : fOutputMode;
+                String outputMarkdown = parallelResult.output().text().join();
+                var effectiveOutputMode = outputMarkdown.isBlank() ? BlitzForge.ParallelOutputMode.NONE : fOutputMode;
 
                 var parallelDetails =
                         switch (effectiveOutputMode) {
                             case NONE -> "The task was applied to the following files:\n```\n%s```".formatted(files);
                             case CHANGED -> {
-                                var output = Messages.getText(messages.getLast());
                                 yield "The parallel processing made changes to the following files:\n```\n%s```"
-                                        .formatted(output);
+                                        .formatted(outputMarkdown);
                             }
                             default -> { // "all"
-                                var output = Messages.getText(messages.getLast());
-                                yield "The output from the parallel processing was:\n```\n%s```".formatted(output);
+                                yield "The output from the parallel processing was:\n```\n%s```"
+                                        .formatted(outputMarkdown);
                             }
                         };
 
@@ -1655,11 +1654,18 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 // Run the task
                 if (engineAction == Action.ASK) {
-                    var fragment = new ContextFragments.TaskFragment(readOnlyMessages, instructions);
+                    var fragment = new ContextOutputFragments.TaskOutputFragment(
+                            instructions, Messages.format(readOnlyMessages));
                     var meta = new TaskResult.TaskMeta(
                             TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
                     var ctx = new Context(cm)
-                            .withHistory(List.of(new TaskEntry(-1, fragment, fragment, null, meta)))
+                            .withHistory(List.of(new TaskEntry(
+                                    -1,
+                                    instructions,
+                                    fragment.text().join(),
+                                    fragment.text().join(),
+                                    null,
+                                    meta)))
                             .addFragments(cm.toPathFragments(List.of(file)));
                     var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions, meta);
                     var options = new Llm.Options(model, "Ask", TaskResult.Type.ASK).withPartialResponses();

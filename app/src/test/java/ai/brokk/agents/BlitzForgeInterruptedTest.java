@@ -3,8 +3,8 @@ package ai.brokk.agents;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AbstractService;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
 @DisplayName("BlitzForge Interruption and Context Freezing Tests")
 class BlitzForgeInterruptedTest {
 
-    private IContextManager contextManager;
+    private IAppContextManager contextManager;
     private AbstractService service;
 
     @BeforeEach

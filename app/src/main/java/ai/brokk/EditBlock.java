@@ -138,7 +138,7 @@ public class EditBlock {
     @Blocking
     public static EditResult apply(Context ctx, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
             throws IOException, InterruptedException {
-        IContextManager contextManager = ctx.getContextManager();
+        IAppContextManager contextManager = ctx.getContextManager();
         // Track results for all blocks in order
         List<ApplyResult> blockResults = new ArrayList<>();
         // Track original file contents before any changes
@@ -321,7 +321,8 @@ public class EditBlock {
     }
 
     @TestOnly
-    public static EditResult apply(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
+    public static EditResult apply(
+            IAppContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
             throws IOException, InterruptedException {
         return apply(contextManager.liveContext(), io, blocks);
     }
@@ -424,7 +425,7 @@ public class EditBlock {
      */
     public static void replaceInFile(ProjectFile file, String beforeText, String afterText, Context ctx)
             throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException, InterruptedException {
-        IContextManager contextManager = ctx.getContextManager();
+        IAppContextManager contextManager = ctx.getContextManager();
         String original = file.exists() ? file.read().orElse("") : "";
         String updated = replaceMostSimilarChunk(original, beforeText, afterText);
 
@@ -927,7 +928,7 @@ public class EditBlock {
     @Blocking
     static ProjectFile resolveProjectFile(Context ctx, @Nullable String filename, boolean maybeNewFile)
             throws SymbolAmbiguousException, SymbolInvalidException {
-        IContextManager cm = ctx.getContextManager();
+        IAppContextManager cm = ctx.getContextManager();
         if (filename == null || filename.isBlank()) { // Handle null or blank rawFileName early
             throw new SymbolInvalidException("Filename cannot be null or blank.");
         }
