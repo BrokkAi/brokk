@@ -92,8 +92,9 @@ public interface IContextManager {
     }
 
     private static void assertWithinProjectRoot(Path projectRoot, ProjectFile file, String original) {
+        Path normalizedRoot = projectRoot.toAbsolutePath().normalize();
         Path abs = file.absPath().normalize();
-        if (!abs.startsWith(projectRoot)) {
+        if (!abs.startsWith(normalizedRoot)) {
             throw new IllegalArgumentException("Filename '%s' resolves outside the project root".formatted(original));
         }
     }
