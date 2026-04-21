@@ -16,8 +16,7 @@ public final class TextSearchCandidateProvider implements CandidateFileProvider 
             new ai.brokk.analyzer.usages.TextSearchCandidateProvider();
 
     @Override
-    public Set<ProjectFile> findCandidates(
-            CodeUnit target, IAnalyzer analyzer) throws InterruptedException {
+    public Set<ProjectFile> findCandidates(CodeUnit target, IAnalyzer analyzer) throws InterruptedException {
         return delegate.findCandidates(target, analyzer);
     }
 }

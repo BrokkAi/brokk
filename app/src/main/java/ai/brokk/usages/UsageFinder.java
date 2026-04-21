@@ -11,7 +11,6 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.CandidateFileProvider;
-import ai.brokk.analyzer.usages.CoreUsageFinder;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
 import ai.brokk.analyzer.usages.UsageAnalyzer;
@@ -31,8 +30,8 @@ public final class UsageFinder {
 
     private static final Logger log = LoggerFactory.getLogger(UsageFinder.class);
     private static final boolean FUZZY_USAGES_ONLY = System.getenv("BRK_FUZZY_USAGES_ONLY") != null;
-    public static final int DEFAULT_MAX_FILES = CoreUsageFinder.DEFAULT_MAX_FILES;
-    public static final int DEFAULT_MAX_USAGES = CoreUsageFinder.DEFAULT_MAX_USAGES;
+    public static final int DEFAULT_MAX_FILES = ai.brokk.analyzer.usages.UsageFinder.DEFAULT_MAX_FILES;
+    public static final int DEFAULT_MAX_USAGES = ai.brokk.analyzer.usages.UsageFinder.DEFAULT_MAX_USAGES;
 
     private final IProject project;
     private final IAnalyzer analyzer;
@@ -77,12 +76,12 @@ public final class UsageFinder {
     }
 
     public static CandidateFileProvider createDefaultProvider() {
-        return CoreUsageFinder.createDefaultProvider();
+        return ai.brokk.analyzer.usages.UsageFinder.createDefaultProvider();
     }
 
     public static CandidateFileProvider createFallbackProvider(
             CandidateFileProvider graphProvider, CandidateFileProvider textProvider) {
-        return CoreUsageFinder.createFallbackProvider(graphProvider, textProvider);
+        return ai.brokk.analyzer.usages.UsageFinder.createFallbackProvider(graphProvider, textProvider);
     }
 
     public UsageFinder(
@@ -105,8 +104,8 @@ public final class UsageFinder {
         var target = overloads.getFirst();
 
         Configuration config = getConfiguration(target);
-        var coreFinder =
-                new CoreUsageFinder(project, analyzer, config.candidateProvider(), config.usageAnalyzer(), fileFilter);
+        var coreFinder = new ai.brokk.analyzer.usages.UsageFinder(
+                project, analyzer, config.candidateProvider(), config.usageAnalyzer(), fileFilter);
         var query = coreFinder.query(overloads, maxFiles, maxUsages);
 
         var candidateFiles = query.candidateFiles();
@@ -121,7 +120,7 @@ public final class UsageFinder {
                     "Primary usage analysis {} for {}, falling back to fuzzy analyzer",
                     suspiciouslyEmpty ? "returned no hits" : "failed",
                     target.fqName());
-            var fallbackFinder = new CoreUsageFinder(
+            var fallbackFinder = new ai.brokk.analyzer.usages.UsageFinder(
                     project, analyzer, fallbackCandidateProvider, fallbackUsageAnalyzer, fileFilter);
             return fallbackFinder.findUsages(overloads, maxFiles, maxUsages);
         }

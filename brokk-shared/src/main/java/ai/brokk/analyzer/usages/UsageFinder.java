@@ -19,7 +19,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>App-layer wiring (LLM selection, model services, UI integrations) should wrap this class rather than duplicating
  * usage finding logic outside {@code :brokk-shared}.
  */
-public final class CoreUsageFinder {
+public final class UsageFinder {
     public static final int DEFAULT_MAX_FILES = 1000;
     public static final int DEFAULT_MAX_USAGES = 1000;
 
@@ -48,7 +48,7 @@ public final class CoreUsageFinder {
         };
     }
 
-    public CoreUsageFinder(
+    public UsageFinder(
             ICoreProject project,
             IAnalyzer analyzer,
             CandidateFileProvider candidateProvider,
@@ -61,7 +61,7 @@ public final class CoreUsageFinder {
         this.fileFilter = fileFilter;
     }
 
-    public CoreUsageFinder(ICoreProject project, IAnalyzer analyzer, UsageAnalyzer usageAnalyzer) {
+    public UsageFinder(ICoreProject project, IAnalyzer analyzer, UsageAnalyzer usageAnalyzer) {
         this(project, analyzer, createDefaultProvider(), usageAnalyzer, null);
     }
 
