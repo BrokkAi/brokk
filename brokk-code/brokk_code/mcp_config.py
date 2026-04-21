@@ -1002,15 +1002,16 @@ def _merge_codex_tool_approval(settings_path: Path | None = None, uvx_command: s
         mcp_servers = {}
         settings["mcp_servers"] = mcp_servers
 
-    server = mcp_servers.get(_SERVER_NAME)
-    if isinstance(server, dict) and server.get("default_tools_approval_mode") == "approve":
-        return
-
-    mcp_servers[_SERVER_NAME] = {
+    expected = {
         "command": uvx_command,
         "args": ["brokk", "mcp-core"],
         "default_tools_approval_mode": "approve",
     }
+    server = mcp_servers.get(_SERVER_NAME)
+    if isinstance(server, dict) and all(server.get(k) == v for k, v in expected.items()):
+        return
+
+    mcp_servers[_SERVER_NAME] = expected
     path.parent.mkdir(parents=True, exist_ok=True)
     toml_text = _serialize_toml(settings)
     _atomic_write_toml(path, toml_text)
