@@ -124,12 +124,11 @@ tasks.withType<Test> {
 tasks.withType<Test>().configureEach {
     dependsOn(":brokk-core:shadowJar")
 }
-tasks.matching {
-            name.contains("discoverDuplicationFor") ||
-            name.contains("explodeByteCodeSource") ||
-            name.contains("artifactsReport") ||
-            name.contains("synthesizeProjectView")
-        }
-        .configureEach {
-            dependsOn(":brokk-core:shadowJar")
-        }
+tasks.configureEach {
+    if (name.contains("discoverDuplicationFor") ||
+        name.contains("explodeByteCodeSource") ||
+        name.contains("artifactsReport") ||
+        name.contains("synthesizeProjectView")) {
+        dependsOn(":brokk-core:shadowJar")
+    }
+}
