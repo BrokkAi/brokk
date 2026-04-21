@@ -70,7 +70,8 @@ class ContextManagerTest {
                 "packages/core/__tests__/util.ts");
 
         var mismatches = new ArrayList<String>();
-        Path root = Path.of("/tmp");
+        Path root =
+                Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
 
         positives.forEach(path -> {
             if (!ContextManager.isTestFile(new ProjectFile(root, path), null)) {
@@ -96,7 +97,8 @@ class ContextManagerTest {
                 "aspect-ratio.ts");
 
         var unexpectedMatches = new ArrayList<String>();
-        Path root = Path.of("/tmp");
+        Path root =
+                Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
 
         negatives.forEach(path -> {
             if (ContextManager.isTestFile(new ProjectFile(root, path), null)) {
