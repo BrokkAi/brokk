@@ -6,6 +6,8 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.Environment;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -60,6 +62,14 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Supplier<String> tokenSupplier; // Supplier for GitHub token
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
     private @Nullable Set<Path> trackedPathsCache = null;
+    private final Cache<FileHistoryCacheKey, List<CommitInfo>> fileHistoriesCache =
+            Caffeine.newBuilder().maximumSize(4096).build();
+    private final Cache<CommitListCacheKey, List<CommitInfo>> commitListCache =
+            Caffeine.newBuilder().maximumSize(256).build();
+    private final Cache<String, List<ModifiedFile>> changedFilesByCommitCache =
+            Caffeine.newBuilder().maximumSize(4096).build();
+    private final Cache<CanonicalizerCacheKey, Canonicalizer> canonicalizerCache =
+            Caffeine.newBuilder().maximumSize(64).build();
 
     // New field holding remote-related helpers
     private final GitRepoRemote remote;
@@ -69,6 +79,12 @@ public class GitRepo implements Closeable, IGitRepo {
 
     // New field holding data/workers helper
     private final GitRepoData data;
+
+    private record FileHistoryCacheKey(String headCommitId, ProjectFile file, int maxResults) {}
+
+    private record CommitListCacheKey(String headCommitId, String branchName, int maxResults) {}
+
+    private record CanonicalizerCacheKey(String headCommitId, List<String> commitIds) {}
 
     public GitRepoRemote remote() {
         return remote;
@@ -493,6 +509,8 @@ public class GitRepo implements Closeable, IGitRepo {
         repository.getRefDatabase().refresh();
         trackedFilesCache = null;
         trackedPathsCache = null;
+        commitListCache.invalidateAll();
+        canonicalizerCache.invalidateAll();
     }
 
     /** Adds files to staging. */
@@ -1657,6 +1675,12 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** List commits with detailed information for a specific branch */
     public List<CommitInfo> listCommitsDetailed(String branchName, int maxResults) throws GitAPIException {
+        var cacheKey = new CommitListCacheKey(getCurrentCommitId(), branchName, maxResults);
+        var cached = commitListCache.getIfPresent(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
         var commits = new ArrayList<CommitInfo>();
         var logCommand = git.log();
 
@@ -1676,7 +1700,9 @@ public class GitRepo implements Closeable, IGitRepo {
         for (var commit : logCommand.call()) {
             commits.add(this.fromRevCommit(commit));
         }
-        return commits;
+        var result = List.copyOf(commits);
+        commitListCache.put(cacheKey, result);
+        return result;
     }
 
     public List<CommitInfo> listCommitsDetailed(String branchName) throws GitAPIException {
@@ -1687,7 +1713,18 @@ public class GitRepo implements Closeable, IGitRepo {
      * in that commit.
      */
     public List<ModifiedFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
-        return data.listFilesChangedInCommit(commitId);
+        if ("WORKING".equals(commitId)) {
+            return List.copyOf(data.listFilesChangedInCommit(commitId));
+        }
+
+        var cached = changedFilesByCommitCache.getIfPresent(commitId);
+        if (cached != null) {
+            return cached;
+        }
+
+        var result = List.copyOf(data.listFilesChangedInCommit(commitId));
+        changedFilesByCommitCache.put(commitId, result);
+        return result;
     }
 
     /** Lists files changed between two commit SHAs (from oldCommitId to newCommitId). */
@@ -2125,6 +2162,43 @@ public class GitRepo implements Closeable, IGitRepo {
     public List<CommitInfo> getFileHistories(Collection<ProjectFile> files, int maxResults) throws GitAPIException {
         if (files.isEmpty() || maxResults <= 0) return List.of();
 
+        var headCommitId = getCurrentCommitId();
+        var cachedResults = new LinkedHashMap<ProjectFile, List<CommitInfo>>();
+        var missingFiles = new LinkedHashSet<ProjectFile>();
+        for (var file : files) {
+            var cacheKey = new FileHistoryCacheKey(headCommitId, file, maxResults);
+            var cached = fileHistoriesCache.getIfPresent(cacheKey);
+            if (cached != null) {
+                cachedResults.put(file, cached);
+            } else {
+                missingFiles.add(file);
+            }
+        }
+
+        if (!missingFiles.isEmpty()) {
+            var computedResults = collectFileHistories(missingFiles, maxResults);
+            for (var entry : computedResults.entrySet()) {
+                var cachedValue = List.copyOf(entry.getValue());
+                fileHistoriesCache.put(new FileHistoryCacheKey(headCommitId, entry.getKey(), maxResults), cachedValue);
+                cachedResults.put(entry.getKey(), cachedValue);
+            }
+        }
+
+        return files.stream()
+                .map(cachedResults::get)
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .distinct()
+                .sorted((a, b) -> b.date().compareTo(a.date()))
+                .toList();
+    }
+
+    private Map<ProjectFile, List<CommitInfo>> collectFileHistories(Collection<ProjectFile> files, int maxResults)
+            throws GitAPIException {
+        if (files.isEmpty() || maxResults <= 0) {
+            return Map.of();
+        }
+
         final Map<ProjectFile, String> trackedPath = new LinkedHashMap<>();
         for (var f : files) trackedPath.put(f, toRepoRelativePath(f));
 
@@ -2189,11 +2263,12 @@ public class GitRepo implements Closeable, IGitRepo {
                 }
             }
 
-            return results.values().stream()
-                    .flatMap(List::stream)
-                    .distinct()
-                    .sorted((a, b) -> b.date().compareTo(a.date()))
-                    .toList();
+            return results.entrySet().stream()
+                    .collect(Collectors.toMap(
+                            Map.Entry::getKey,
+                            entry -> List.copyOf(entry.getValue()),
+                            (left, right) -> left,
+                            LinkedHashMap::new));
 
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
@@ -2829,6 +2904,13 @@ public class GitRepo implements Closeable, IGitRepo {
             return new Canonicalizer(Map.of(), new TreeMap<>());
         }
 
+        var cacheKey = new CanonicalizerCacheKey(
+                getCurrentCommitId(), commits.stream().map(CommitInfo::id).toList());
+        var cached = canonicalizerCache.getIfPresent(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
         var remaining = commits.stream().map(CommitInfo::id).collect(Collectors.toCollection(HashSet::new));
         var indexByCommit = new HashMap<String, Integer>();
         var renamesByIndex = new HashMap<Integer, List<Canonicalizer.RenameEdge>>();
@@ -2845,7 +2927,6 @@ public class GitRepo implements Closeable, IGitRepo {
             revWalk.markStart(head);
 
             int idx = -1;
-            boolean foundAllCommits = false;
             for (var commit : revWalk) {
                 if (Thread.interrupted()) {
                     throw new InterruptedException();
@@ -2888,11 +2969,10 @@ public class GitRepo implements Closeable, IGitRepo {
                     }
                 }
 
-                // Check if we've found all the required commits
+                // Older commits cannot affect canonicalization for the sampled window.
                 remaining.remove(commitId);
-                if (remaining.isEmpty() && !foundAllCommits) {
-                    foundAllCommits = true;
-                    // Continue walking to record any renames that occur after the sampled commits
+                if (remaining.isEmpty()) {
+                    break;
                 }
             }
         } catch (IOException e) {
@@ -2901,6 +2981,8 @@ public class GitRepo implements Closeable, IGitRepo {
 
         // Sort rename indices for efficient forward walking
         var sorted = new TreeMap<>(renamesByIndex);
-        return new Canonicalizer(indexByCommit, sorted);
+        var result = new Canonicalizer(indexByCommit, sorted);
+        canonicalizerCache.put(cacheKey, result);
+        return result;
     }
 }

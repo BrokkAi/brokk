@@ -14,13 +14,13 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
-import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -181,6 +181,12 @@ public class SearchTools {
 
     private final IContextManager contextManager; // Needed for file operations
     private final AtomicLong researchTokens = new AtomicLong(0);
+    private final Cache<FileRankingCacheKey, List<ProjectFile>> prioritizedFilesCache =
+            Caffeine.newBuilder().maximumSize(64).build();
+    private final Cache<GitCommitSearchCacheKey, GitRepo.SearchCommitsResult> searchCommitsCache =
+            Caffeine.newBuilder().maximumSize(128).build();
+    private final Cache<String, List<ProjectFile>> changedFilesByCommitCache =
+            Caffeine.newBuilder().maximumSize(2048).build();
 
     public SearchTools(IContextManager contextManager) {
         this.contextManager = contextManager;
@@ -199,32 +205,59 @@ public class SearchTools {
     }
 
     private String appendRelatedContent(String output, Collection<ProjectFile> resultFiles) {
-        var distinctFiles = new LinkedHashSet<>(resultFiles);
-        if (distinctFiles.isEmpty()) {
+        var relatedFiles = getMostRelevantFilesForResults(resultFiles, RELATED_CONTENT_LIMIT);
+        if (relatedFiles.isEmpty()) {
             return output;
         }
 
-        try {
-            var tempContext = new Context(contextManager)
-                    .addFragments(distinctFiles.stream()
-                            .map(file -> new ContextFragments.ProjectPathFragment(file, contextManager, ""))
-                            .toList());
-            var relatedFiles = tempContext.getMostRelevantFiles(RELATED_CONTENT_LIMIT);
-            if (relatedFiles.isEmpty()) {
-                return output;
+        String relatedSection = relatedFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
+        return output + "\n\n## Related Content\n" + relatedSection;
+    }
+
+    private List<ProjectFile> getMostRelevantFilesForResults(Collection<ProjectFile> resultFiles, int topK) {
+        if (topK <= 0) return List.of();
+
+        var ineligibleSources = new LinkedHashSet<>(resultFiles);
+        if (ineligibleSources.isEmpty()) {
+            return List.of();
+        }
+
+        Map<ProjectFile, Double> weightedSeeds = ineligibleSources.stream()
+                .collect(Collectors.toMap(file -> file, file -> 1.0d, Double::sum, HashMap::new));
+
+        Set<ProjectFile> relevantFiles = new LinkedHashSet<>();
+        var repoObj = contextManager.getRepo();
+
+        if (repoObj instanceof GitRepo gr) {
+            try {
+                var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK);
+                relevantFiles.addAll(filterResults(gitResults, ineligibleSources));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while computing Git-based related files for {}", ineligibleSources, e);
+                return List.of();
+            } catch (Exception e) {
+                logger.warn("Failed to compute Git-based related files; falling back to imports.", e);
             }
-
-            String relatedSection =
-                    relatedFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
-            return output + "\n\n## Related Content\n" + relatedSection;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("Interrupted while computing related content for {}", distinctFiles, e);
-            return output;
-        } catch (RuntimeException e) {
-            logger.debug("Failed to compute related content for {}", distinctFiles, e);
-            return output;
         }
+
+        if (relevantFiles.size() < topK) {
+            int remaining = topK - relevantFiles.size();
+            var importResults = ImportPageRanker.getRelatedFilesByImports(getAnalyzer(), weightedSeeds, topK, false);
+            filterResults(importResults, ineligibleSources).stream()
+                    .filter(file -> !relevantFiles.contains(file))
+                    .limit(remaining)
+                    .forEach(relevantFiles::add);
+        }
+
+        return List.copyOf(relevantFiles);
+    }
+
+    private List<ProjectFile> filterResults(List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
+        return results.stream()
+                .map(IAnalyzer.FileRelevance::file)
+                .filter(file -> !ineligibleSources.contains(file))
+                .toList();
     }
 
     // --- Sanitization Helper Methods
@@ -877,9 +910,7 @@ public class SearchTools {
         }
 
         return new SummaryTargets(
-                prioritizeFilesForSelection(fileTargets.stream().toList()),
-                List.copyOf(unmatchedFileTargets),
-                List.copyOf(classTargets));
+                List.copyOf(fileTargets), List.copyOf(unmatchedFileTargets), List.copyOf(classTargets));
     }
 
     private static boolean looksLikeFileTarget(String target, Set<String> knownExtensions) {
@@ -902,15 +933,40 @@ public class SearchTools {
     }
 
     private SummaryOutput summarizeFiles(List<ProjectFile> projectFiles) {
+        var analyzer = getAnalyzer();
+        record FileSummaries(ProjectFile file, Map<CodeUnit, String> skeletons) {}
+
+        List<CompletableFuture<FileSummaries>> futures = projectFiles.stream()
+                .map(file -> LoggingFuture.supplyVirtual(() -> new FileSummaries(file, analyzer.getSkeletons(file))))
+                .toList();
+
+        try {
+            LoggingFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+        } catch (InterruptedException e) {
+            futures.forEach(future -> future.cancel(true));
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while computing summaries", e);
+        } catch (ExecutionException e) {
+            futures.forEach(future -> future.cancel(true));
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) {
+                throw re;
+            }
+            if (cause instanceof Error er) {
+                throw er;
+            }
+            throw new RuntimeException("Error computing summaries", cause);
+        }
+
         List<String> allSkeletons = new ArrayList<>();
         Set<ProjectFile> filesWithSummaries = new LinkedHashSet<>();
-        for (var file : projectFiles) {
-            var skeletonsInFile = getAnalyzer().getSkeletons(file);
-            if (!skeletonsInFile.isEmpty()) {
-                allSkeletons.addAll(skeletonsInFile.values());
-                filesWithSummaries.add(file);
+        for (var future : futures) {
+            var fileSummaries = future.join();
+            if (!fileSummaries.skeletons().isEmpty()) {
+                allSkeletons.addAll(fileSummaries.skeletons().values());
+                filesWithSummaries.add(fileSummaries.file());
             } else {
-                logger.debug("No skeletons found in file: {}", file);
+                logger.debug("No skeletons found in file: {}", fileSummaries.file());
             }
         }
         return new SummaryOutput(List.copyOf(allSkeletons), filesWithSummaries);
@@ -1451,7 +1507,7 @@ public class SearchTools {
 
         GitRepo.SearchCommitsResult searchResult;
         try {
-            searchResult = gitRepo.searchCommits(pattern, effectiveLimit);
+            searchResult = getCachedCommitSearchResult(gitRepo, pattern, effectiveLimit);
         } catch (GitAPIException e) {
             logger.error("Error searching commit messages", e);
             return "Error searching commit messages: " + e.getMessage();
@@ -1492,9 +1548,7 @@ public class SearchTools {
                 try {
                     List<ProjectFile> changedFilesList;
                     try {
-                        changedFilesList = gitRepo.listFilesChangedInCommit(commit.id()).stream()
-                                .map(IGitRepo.ModifiedFile::file)
-                                .toList();
+                        changedFilesList = getCachedChangedFilesForCommit(gitRepo, commit.id());
                     } catch (GitAPIException e) {
                         logger.error("Error retrieving changed files for commit {}", commit.id(), e);
                         changedFilesList = List.of();
@@ -1597,10 +1651,35 @@ public class SearchTools {
 
     private record IndexedResult<T>(int index, @Nullable T value, @Nullable String error) {}
 
+    private record FileRankingCacheKey(String currentCommitId, List<ProjectFile> files) {}
+
+    private record GitCommitSearchCacheKey(String currentCommitId, String pattern, int limit) {}
+
     private List<ProjectFile> prioritizeFilesForSelection(Collection<ProjectFile> files) {
         var alphabeticalFiles = files.stream().sorted().toList();
+        var repo = contextManager.getRepo();
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return alphabeticalFiles;
+        }
         try {
-            return GitDistance.sortByImportance(alphabeticalFiles, contextManager.getRepo());
+            var cacheKey = new FileRankingCacheKey(gitRepo.getCurrentCommitId(), alphabeticalFiles);
+            var cached = prioritizedFilesCache.getIfPresent(cacheKey);
+            if (cached != null) {
+                return cached;
+            }
+
+            var rankedFiles = GitDistance.sortByImportance(alphabeticalFiles, gitRepo);
+            prioritizedFilesCache.put(cacheKey, rankedFiles);
+            return rankedFiles;
+        } catch (GitAPIException e) {
+            logger.debug("Failed to determine current commit for ranking; falling back to direct Git ranking", e);
+            try {
+                return GitDistance.sortByImportance(alphabeticalFiles, gitRepo);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while ranking files by Git importance; falling back to alphabetical order");
+                return alphabeticalFiles;
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             logger.warn("Interrupted while ranking files by Git importance; falling back to alphabetical order");
@@ -1612,7 +1691,40 @@ public class SearchTools {
     }
 
     private List<ProjectFile> selectFilesForDisplay(Collection<ProjectFile> files, int limit) {
-        return prioritizeFilesForSelection(files).stream().limit(limit).sorted().toList();
+        var alphabeticalFiles = files.stream().sorted().toList();
+        if (alphabeticalFiles.size() <= limit) {
+            return alphabeticalFiles;
+        }
+        return prioritizeFilesForSelection(alphabeticalFiles).stream()
+                .limit(limit)
+                .sorted()
+                .toList();
+    }
+
+    private GitRepo.SearchCommitsResult getCachedCommitSearchResult(GitRepo gitRepo, String pattern, int limit)
+            throws GitAPIException {
+        var cacheKey = new GitCommitSearchCacheKey(gitRepo.getCurrentCommitId(), pattern, limit);
+        var cached = searchCommitsCache.getIfPresent(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
+        var computed = gitRepo.searchCommits(pattern, limit);
+        searchCommitsCache.put(cacheKey, computed);
+        return computed;
+    }
+
+    private List<ProjectFile> getCachedChangedFilesForCommit(GitRepo gitRepo, String commitId) throws GitAPIException {
+        var cached = changedFilesByCommitCache.getIfPresent(commitId);
+        if (cached != null) {
+            return cached;
+        }
+
+        var changedFiles = gitRepo.listFilesChangedInCommit(commitId).stream()
+                .map(IGitRepo.ModifiedFile::file)
+                .toList();
+        changedFilesByCommitCache.put(commitId, changedFiles);
+        return changedFiles;
     }
 
     private <T> BatchResult<T> batchProcessFiles(
@@ -1623,10 +1735,8 @@ public class SearchTools {
         List<String> errors = new ArrayList<>();
         boolean truncated = false;
 
-        int batchSize = 2 * FILE_SEARCH_LIMIT;
-
         outer:
-        for (int start = 0; start < files.size(); start += batchSize) {
+        for (int start = 0; start < files.size(); ) {
             if (Thread.interrupted()) {
                 throw new InterruptedException("Interrupted during batch processing");
             }
@@ -1635,8 +1745,11 @@ public class SearchTools {
                 break;
             }
 
+            int remainingNeeded = maxFiles - results.size();
+            int batchSize = min(files.size() - start, max(SEARCH_TOOLS_PARALLELISM, remainingNeeded));
             var batch = files.subList(start, min(start + batchSize, files.size()));
             final int batchOffset = start;
+            start += batchSize;
 
             List<CompletableFuture<IndexedResult<T>>> batchFutures = IntStream.range(0, batch.size())
                     .mapToObj(idx ->
@@ -1784,44 +1897,117 @@ public class SearchTools {
         if (files.isEmpty()) {
             return "No text files found matching: " + filepath;
         }
-        files = prioritizeFilesForSelection(files);
 
         var analyzer = getAnalyzer();
         record FileHit(ProjectFile file, AlmostGrep.FileContentSearchResult block) {}
 
         String patternsLabel = String.join(", ", patterns);
-        BatchResult<FileHit> batchResult;
+        List<String> processingErrors = new ArrayList<>();
+        boolean truncatedByMaxFiles = false;
+        boolean truncatedByTotalMatches = false;
+        List<FileHit> selectedHits = new ArrayList<>();
+        int totalMatches = 0;
         try {
-            batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
-                try {
-                    var res = AlmostGrep.searchFileContentsInFile(
-                            file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
-                    if (res == null) return new IndexedResult<>(idx, null, null);
-                    return new IndexedResult<>(idx, new FileHit(file, res), null);
-                } catch (RegexMatchOverflowException e) {
-                    String message = "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
-                    logger.warn("Regex stack overflow while searching file contents in {}", file, e);
-                    return new IndexedResult<>(idx, null, message);
+            var probeResult = AlmostGrep.findFilesContainingPatterns(compiledPatterns, new LinkedHashSet<>(files));
+            processingErrors.addAll(probeResult.errors());
+            var matchedFiles = probeResult.matches();
+            if (matchedFiles.isEmpty()) {
+                return "No matches found for pattern(s) '%s' in files matching '%s' with searchType='%s'%s"
+                        .formatted(
+                                patternsLabel,
+                                filepath,
+                                effectiveSearchType.wireName(),
+                                processingErrors.isEmpty()
+                                        ? ""
+                                        : " (errors occurred in %d files; first: %s)"
+                                                .formatted(processingErrors.size(), processingErrors.getFirst()));
+            }
+
+            var rankedMatchedFiles = matchedFiles.size() <= effectiveMaxFiles
+                    ? matchedFiles.stream().sorted().toList()
+                    : prioritizeFilesForSelection(matchedFiles);
+
+            outer:
+            for (int start = 0; start < rankedMatchedFiles.size(); ) {
+                if (Thread.interrupted()) {
+                    throw new InterruptedException("Interrupted during searchFileContents processing");
                 }
-            });
+                if (selectedHits.size() >= effectiveMaxFiles) {
+                    truncatedByMaxFiles = true;
+                    break;
+                }
+                if (totalMatches >= FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
+                    truncatedByTotalMatches = true;
+                    break;
+                }
+
+                int remainingNeeded = effectiveMaxFiles - selectedHits.size();
+                int batchSize = min(rankedMatchedFiles.size() - start, max(SEARCH_TOOLS_PARALLELISM, remainingNeeded));
+                var batch = rankedMatchedFiles.subList(start, min(start + batchSize, rankedMatchedFiles.size()));
+                final int batchOffset = start;
+                start += batchSize;
+
+                List<CompletableFuture<IndexedResult<FileHit>>> batchFutures = IntStream.range(0, batch.size())
+                        .mapToObj(idx -> LoggingFuture.supplyVirtual(() -> {
+                            var file = batch.get(idx);
+                            try {
+                                var res = AlmostGrep.searchFileContentsInFile(
+                                        file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
+                                if (res == null) return new IndexedResult<FileHit>(batchOffset + idx, null, null);
+                                return new IndexedResult<>(batchOffset + idx, new FileHit(file, res), null);
+                            } catch (RegexMatchOverflowException e) {
+                                String message =
+                                        "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
+                                logger.warn("Regex stack overflow while searching file contents in {}", file, e);
+                                return new IndexedResult<FileHit>(batchOffset + idx, null, message);
+                            }
+                        }))
+                        .toList();
+                CompletableFuture<Void> batchDone = LoggingFuture.allOf(batchFutures.toArray(new CompletableFuture[0]));
+
+                try {
+                    batchDone.get();
+                } catch (InterruptedException e) {
+                    batchFutures.forEach(future -> future.cancel(true));
+                    throw e;
+                } catch (ExecutionException e) {
+                    batchFutures.forEach(future -> future.cancel(true));
+                    Throwable cause = e.getCause();
+                    if (cause instanceof RuntimeException re) {
+                        throw re;
+                    }
+                    if (cause instanceof Error er) {
+                        throw er;
+                    }
+                    throw new RuntimeException("Error executing searchFileContents batch", cause);
+                }
+
+                List<IndexedResult<FileHit>> batchResults =
+                        batchFutures.stream().map(CompletableFuture::join).toList();
+
+                for (var res : batchResults) {
+                    if (res.error() != null) {
+                        processingErrors.add(res.error());
+                    }
+                    if (res.value() == null) {
+                        continue;
+                    }
+                    if (selectedHits.size() >= effectiveMaxFiles) {
+                        truncatedByMaxFiles = true;
+                        break outer;
+                    }
+
+                    selectedHits.add(res.value());
+                    totalMatches += res.value().block().matches();
+                    if (totalMatches >= FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
+                        truncatedByTotalMatches = true;
+                        break outer;
+                    }
+                }
+            }
         } catch (RuntimeException e) {
             logger.error("Error searching file contents for '{}' in '{}'", patternsLabel, filepath, e);
             return "Error searching file contents: " + (e.getMessage() == null ? e.toString() : e.getMessage());
-        }
-
-        List<String> processingErrors = new ArrayList<>(batchResult.errors());
-        int totalMatches = 0;
-        boolean truncatedByTotalMatches = false;
-        List<FileHit> selectedHits = new ArrayList<>();
-
-        for (var hit : batchResult.results()) {
-            if (totalMatches >= FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
-                truncatedByTotalMatches = true;
-                break;
-            }
-
-            selectedHits.add(hit);
-            totalMatches += hit.block().matches();
         }
 
         List<String> fileBlocks = selectedHits.stream()
@@ -1848,7 +2034,7 @@ public class SearchTools {
             suffixLines.add(
                     "TRUNCATED: reached global limit of %d total matches".formatted(FILE_CONTENTS_TOTAL_MATCH_LIMIT));
         }
-        if (batchResult.truncatedByMaxFiles()) {
+        if (truncatedByMaxFiles) {
             suffixLines.add("TRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles));
         }
         if (!processingErrors.isEmpty()) {

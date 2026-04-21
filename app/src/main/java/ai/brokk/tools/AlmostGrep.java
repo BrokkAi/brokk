@@ -177,6 +177,9 @@ final class AlmostGrep {
                             lineStates[lineNo] = 2;
                             matchesTaken++;
                             retainedMatchLines.add(lineNo);
+                            if (matchesTaken >= SearchTools.FILE_CONTENTS_MATCHES_PER_FILE) {
+                                break;
+                            }
                         } else {
                             lineStates[lineNo] = 1;
                         }
@@ -191,64 +194,55 @@ final class AlmostGrep {
             return null;
         }
 
+        boolean analyzedFile = analyzer.getAnalyzedFiles().contains(file);
         SearchTools.FileContentSearchType effectiveSearchType =
-                analyzer.getAnalyzedFiles().contains(file) ? searchType : SearchTools.FileContentSearchType.ALL;
+                analyzedFile ? searchType : SearchTools.FileContentSearchType.ALL;
+        String[] lineTexts = analyzedFile ? content.split("\\R", -1) : null;
+        @Nullable
+        MatchBuckets buckets = analyzedFile
+                ? classifyMatchLines(file, Objects.requireNonNull(lineTexts), analyzer, retainedMatchLines)
+                : null;
 
         String output = effectiveSearchType == SearchTools.FileContentSearchType.ALL
-                ? renderAllMatches(file, content, lineRefs, contextLines, analyzer, retainedMatchLines, filePath)
+                ? renderAllMatches(content, lineRefs, contextLines, retainedMatchLines, filePath, buckets)
                 : renderFilteredMatches(
-                        file,
                         content,
                         lineRefs,
                         contextLines,
-                        analyzer,
-                        retainedMatchLines,
                         filePath,
-                        effectiveSearchType);
+                        effectiveSearchType,
+                        Objects.requireNonNull(buckets));
         if (output.isEmpty()) {
             return null;
         }
 
-        int visibleMatches = countVisibleMatches(file, content, analyzer, retainedMatchLines, effectiveSearchType);
+        int visibleMatches =
+                switch (effectiveSearchType) {
+                    case ALL -> retainedMatchLines.size();
+                    case DECLARATIONS ->
+                        Objects.requireNonNull(buckets).declarations().size();
+                    case USAGES ->
+                        Objects.requireNonNull(buckets).usageBlocksByLine().size();
+                };
         return visibleMatches == 0 ? null : new FileContentSearchResult(output, visibleMatches);
     }
 
-    private static int countVisibleMatches(
-            ProjectFile file,
-            String content,
-            IAnalyzer analyzer,
-            Set<Integer> retainedMatchLines,
-            SearchTools.FileContentSearchType searchType) {
-        if (!analyzer.getAnalyzedFiles().contains(file) || searchType == SearchTools.FileContentSearchType.ALL) {
-            return retainedMatchLines.size();
-        }
-
-        MatchBuckets buckets = classifyMatchLines(file, content, analyzer, retainedMatchLines);
-        return switch (searchType) {
-            case DECLARATIONS -> buckets.declarations().size();
-            case USAGES -> buckets.usages().size();
-            case ALL -> retainedMatchLines.size();
-        };
-    }
-
     private static String renderAllMatches(
-            ProjectFile file,
             String content,
             List<LineRef> lineRefs,
             int contextLines,
-            IAnalyzer analyzer,
             Set<Integer> retainedMatchLines,
-            String filePath) {
-        if (!analyzer.getAnalyzedFiles().contains(file)) {
+            String filePath,
+            @Nullable MatchBuckets buckets) {
+        if (buckets == null) {
             return renderFileBlock(
                     filePath,
                     lineRefs.size(),
                     renderSimpleSection("matches", retainedMatchLines, lineRefs, content, contextLines));
         }
 
-        MatchBuckets buckets = classifyMatchLines(file, content, analyzer, retainedMatchLines);
         String matchesSection = renderMatchesSection(
-                file, buckets.declarations(), buckets.usages(), lineRefs, content, contextLines, analyzer);
+                buckets.declarations(), buckets.usageBlocksByLine(), lineRefs, content, contextLines);
         String relatedSection = renderSimpleSection("related", buckets.related(), lineRefs, content, contextLines);
         if (matchesSection.isEmpty() && relatedSection.isEmpty()) {
             return "";
@@ -257,25 +251,15 @@ final class AlmostGrep {
     }
 
     private static String renderFilteredMatches(
-            ProjectFile file,
             String content,
             List<LineRef> lineRefs,
             int contextLines,
-            IAnalyzer analyzer,
-            Set<Integer> retainedMatchLines,
             String filePath,
-            SearchTools.FileContentSearchType searchType) {
-        if (!analyzer.getAnalyzedFiles().contains(file)) {
-            return renderFileBlock(
-                    filePath,
-                    lineRefs.size(),
-                    renderSimpleSection("matches", retainedMatchLines, lineRefs, content, contextLines));
-        }
-
-        MatchBuckets buckets = classifyMatchLines(file, content, analyzer, retainedMatchLines);
+            SearchTools.FileContentSearchType searchType,
+            MatchBuckets buckets) {
         Set<Integer> visibleLines = searchType == SearchTools.FileContentSearchType.DECLARATIONS
                 ? buckets.declarations()
-                : buckets.usages();
+                : buckets.usageBlocksByLine().keySet();
         if (visibleLines.isEmpty()) {
             return "";
         }
@@ -283,12 +267,13 @@ final class AlmostGrep {
         String heading = searchType == SearchTools.FileContentSearchType.DECLARATIONS ? "[DECLARATIONS]" : "[USAGES]";
         String section = searchType == SearchTools.FileContentSearchType.DECLARATIONS
                 ? renderSimpleSection("matches", visibleLines, lineRefs, content, contextLines, heading)
-                : renderUsageSection("matches", file, visibleLines, lineRefs, content, contextLines, analyzer, heading);
+                : renderUsageSection(
+                        "matches", buckets.usageBlocksByLine(), visibleLines, lineRefs, content, contextLines, heading);
         return renderFileBlock(filePath, lineRefs.size(), section);
     }
 
     private static MatchBuckets classifyMatchLines(
-            ProjectFile file, String content, IAnalyzer analyzer, Set<Integer> retainedMatchLines) {
+            ProjectFile file, String[] lineTexts, IAnalyzer analyzer, Set<Integer> retainedMatchLines) {
         Set<Integer> declarationLines = analyzer.getDeclarations(file).stream()
                 .flatMap(cu -> analyzer.rangesOf(cu).stream())
                 .map(range -> range.startLine() + 1)
@@ -299,7 +284,7 @@ final class AlmostGrep {
                 .collect(Collectors.toSet());
 
         Set<Integer> declarations = new LinkedHashSet<>();
-        Set<Integer> usages = new LinkedHashSet<>();
+        Map<Integer, EnclosingUsageBlock> usageBlocksByLine = new LinkedHashMap<>();
         Set<Integer> related = new LinkedHashSet<>();
 
         retainedMatchLines.stream().sorted().forEach(lineNo -> {
@@ -308,28 +293,27 @@ final class AlmostGrep {
                 return;
             }
 
-            String lineText = lineText(content, lineNo);
+            String lineText = lineText(lineTexts, lineNo);
             if (importLines.contains(lineText.strip()) || isLikelyImportLine(lineText)) {
                 related.add(lineNo);
                 return;
             }
 
             if (analyzer.enclosingCodeUnit(file, lineNo - 1, lineNo - 1).isPresent()) {
-                usages.add(lineNo);
+                usageBlocksByLine.put(lineNo, resolveEnclosingUsageBlock(file, analyzer, lineNo));
             } else {
                 related.add(lineNo);
             }
         });
 
-        return new MatchBuckets(declarations, usages, related);
+        return new MatchBuckets(declarations, usageBlocksByLine, related);
     }
 
-    private static String lineText(String content, int lineNo) {
-        String[] lines = content.split("\\R", -1);
-        if (lineNo < 1 || lineNo > lines.length) {
+    private static String lineText(String[] lineTexts, int lineNo) {
+        if (lineNo < 1 || lineNo > lineTexts.length) {
             return "";
         }
-        return lines[lineNo - 1];
+        return lineTexts[lineNo - 1];
     }
 
     private static boolean isLikelyImportLine(String lineText) {
@@ -364,19 +348,17 @@ final class AlmostGrep {
     }
 
     private static String renderMatchesSection(
-            ProjectFile file,
             Set<Integer> declarationLines,
-            Set<Integer> usageLines,
+            Map<Integer, EnclosingUsageBlock> usageBlocksByLine,
             List<LineRef> lineRefs,
             String content,
-            int contextLines,
-            IAnalyzer analyzer) {
+            int contextLines) {
         List<String> parts = new ArrayList<>(2);
         if (!declarationLines.isEmpty()) {
             parts.add(renderSectionBody(declarationLines, lineRefs, content, contextLines, "[DECLARATIONS]"));
         }
-        if (!usageLines.isEmpty()) {
-            parts.add(renderUsageSectionBody(file, usageLines, lineRefs, content, contextLines, analyzer, "[USAGES]"));
+        if (!usageBlocksByLine.isEmpty()) {
+            parts.add(renderUsageSectionBody(usageBlocksByLine, lineRefs, content, contextLines, "[USAGES]"));
         }
         if (parts.isEmpty()) {
             return "";
@@ -406,18 +388,17 @@ final class AlmostGrep {
 
     private static String renderUsageSection(
             String tag,
-            ProjectFile file,
+            Map<Integer, EnclosingUsageBlock> usageBlocksByLine,
             Set<Integer> matchedLines,
             List<LineRef> lineRefs,
             String content,
             int contextLines,
-            IAnalyzer analyzer,
             @Nullable String heading) {
         if (matchedLines.isEmpty()) {
             return "";
         }
 
-        String body = renderUsageSectionBody(file, matchedLines, lineRefs, content, contextLines, analyzer, heading);
+        String body = renderUsageSectionBody(usageBlocksByLine, lineRefs, content, contextLines, heading);
         return "<%s>\n%s\n</%s>".formatted(tag, body, tag);
     }
 
@@ -436,17 +417,15 @@ final class AlmostGrep {
     }
 
     private static String renderUsageSectionBody(
-            ProjectFile file,
-            Set<Integer> matchedLines,
+            Map<Integer, EnclosingUsageBlock> usageBlocksByLine,
             List<LineRef> lineRefs,
             String content,
             int contextLines,
-            IAnalyzer analyzer,
             @Nullable String heading) {
         Map<EnclosingUsageBlock, Set<Integer>> linesByBlock = new LinkedHashMap<>();
-        matchedLines.stream().sorted().forEach(lineNo -> linesByBlock
-                .computeIfAbsent(resolveEnclosingUsageBlock(file, analyzer, lineNo), ignored -> new LinkedHashSet<>())
-                .add(lineNo));
+        usageBlocksByLine.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> linesByBlock
+                .computeIfAbsent(entry.getValue(), ignored -> new LinkedHashSet<>())
+                .add(entry.getKey()));
 
         List<String> lines = new ArrayList<>();
         if (heading != null) {
@@ -562,7 +541,8 @@ final class AlmostGrep {
 
     private record EnclosingUsageBlock(String symbol, int startLine, int endLine) {}
 
-    private record MatchBuckets(Set<Integer> declarations, Set<Integer> usages, Set<Integer> related) {}
+    private record MatchBuckets(
+            Set<Integer> declarations, Map<Integer, EnclosingUsageBlock> usageBlocksByLine, Set<Integer> related) {}
 
     record FileContentSearchResult(String output, int matches) {}
 
