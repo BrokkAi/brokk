@@ -755,6 +755,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         lastUpdateEpochNanos.set(initNowNanos);
     }
 
+    protected final AnalyzerCache cache() {
+        return cache;
+    }
+
     protected TreeSitterAnalyzer(ICoreProject project, Language language, AnalyzerState prebuiltState) {
         this(project, language, prebuiltState, ProgressListener.NOOP, null);
     }

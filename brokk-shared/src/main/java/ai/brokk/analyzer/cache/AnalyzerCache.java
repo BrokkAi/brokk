@@ -3,6 +3,10 @@ package ai.brokk.analyzer.cache;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceContent;
+import ai.brokk.analyzer.usages.ExportIndex;
+import ai.brokk.analyzer.usages.ImportBinder;
+import ai.brokk.analyzer.usages.ReferenceCandidate;
+import ai.brokk.analyzer.usages.ReferenceHit;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -21,6 +25,10 @@ public class AnalyzerCache {
     private final SimpleCache<CodeUnit, List<String>> rawSupertypes;
     private final BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports;
     private final BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy;
+    private final SimpleCache<ProjectFile, ExportIndex> exportIndex;
+    private final SimpleCache<ProjectFile, ImportBinder> importBinder;
+    private final SimpleCache<ProjectFile, Set<ReferenceCandidate>> references;
+    private final SimpleCache<CodeUnit, Set<ReferenceHit>> usages;
 
     public AnalyzerCache() {
         this.sources = new CaffeineSimpleCache<>(1000);
@@ -38,6 +46,10 @@ public class AnalyzerCache {
                     // Logic for reverse population is handled by the caller during resolve
                 },
                 Collections::emptyList);
+        this.exportIndex = new CaffeineSimpleCache<>(10_000);
+        this.importBinder = new CaffeineSimpleCache<>(10_000);
+        this.references = new CaffeineSimpleCache<>(10_000);
+        this.usages = new CaffeineSimpleCache<>(10_000);
     }
 
     /**
@@ -82,6 +94,30 @@ public class AnalyzerCache {
                 this.typeHierarchy.putForward(cu, List.copyOf(supers));
             }
         });
+
+        previous.exportIndex.forEach((file, idx) -> {
+            if (!changedFiles.contains(file)) {
+                this.exportIndex.put(file, idx);
+            }
+        });
+
+        previous.importBinder.forEach((file, binder) -> {
+            if (!changedFiles.contains(file)) {
+                this.importBinder.put(file, binder);
+            }
+        });
+
+        previous.references.forEach((file, refs) -> {
+            if (!changedFiles.contains(file)) {
+                this.references.put(file, Set.copyOf(refs));
+            }
+        });
+
+        previous.usages.forEach((cu, hits) -> {
+            if (!changedFiles.contains(cu.source())) {
+                this.usages.put(cu, Set.copyOf(hits));
+            }
+        });
     }
 
     public SimpleCache<ProjectFile, SourceContent> sources() {
@@ -104,6 +140,22 @@ public class AnalyzerCache {
         return typeHierarchy;
     }
 
+    public SimpleCache<ProjectFile, ExportIndex> exportIndex() {
+        return exportIndex;
+    }
+
+    public SimpleCache<ProjectFile, ImportBinder> importBinder() {
+        return importBinder;
+    }
+
+    public SimpleCache<ProjectFile, Set<ReferenceCandidate>> references() {
+        return references;
+    }
+
+    public SimpleCache<CodeUnit, Set<ReferenceHit>> usages() {
+        return usages;
+    }
+
     /**
      * Returns true only if ALL caches are empty.
      */
@@ -112,14 +164,27 @@ public class AnalyzerCache {
                 && typeIdentifiers.isEmpty()
                 && rawSupertypes.isEmpty()
                 && imports.isEmpty()
-                && typeHierarchy.isEmpty();
+                && typeHierarchy.isEmpty()
+                && exportIndex.isEmpty()
+                && importBinder.isEmpty()
+                && references.isEmpty()
+                && usages.isEmpty();
     }
 
     /**
      * Returns a snapshot of the current state of all caches.
      */
     public CacheSnapshot snapshot() {
-        return new CacheSnapshot(sources, typeIdentifiers, rawSupertypes, imports, typeHierarchy);
+        return new CacheSnapshot(
+                sources,
+                typeIdentifiers,
+                rawSupertypes,
+                imports,
+                typeHierarchy,
+                exportIndex,
+                importBinder,
+                references,
+                usages);
     }
 
     /**
@@ -130,5 +195,9 @@ public class AnalyzerCache {
             SimpleCache<ProjectFile, Set<String>> typeIdentifiers,
             SimpleCache<CodeUnit, List<String>> rawSupertypes,
             BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports,
-            BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy) {}
+            BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy,
+            SimpleCache<ProjectFile, ExportIndex> exportIndex,
+            SimpleCache<ProjectFile, ImportBinder> importBinder,
+            SimpleCache<ProjectFile, Set<ReferenceCandidate>> references,
+            SimpleCache<CodeUnit, Set<ReferenceHit>> usages) {}
 }
