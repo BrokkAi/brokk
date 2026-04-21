@@ -27,13 +27,11 @@ Skip directly to **Mode: Remote PR** below using that number.
 
 ### If no argument is provided
 
-Ask the user which review mode they want. If `AskUserQuestion` is available,
-use it. Otherwise present this numbered list and **stop and wait for their
-reply** before proceeding:
+Present a menu to the user using `AskUserQuestion` with these options:
 
-1. **Uncommitted changes** — Review staged and unstaged changes in the working tree
-2. **Remote PR** — Review a pull request from GitHub by number
-3. **Branch vs merge base** — Review all commits on this branch against the merge base
+- **Uncommitted changes** — Review staged and unstaged changes in the working tree
+- **Remote PR** — Review a pull request from GitHub by number
+- **Branch vs merge base** — Review all commits on this branch against the merge base
 
 Do NOT pick a default. Do NOT proceed until the user has chosen.
 Then follow the matching mode below.
