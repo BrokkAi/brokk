@@ -4,10 +4,8 @@ import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.CoreTestProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestProject;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -26,17 +24,14 @@ public final class PythonAnalyzerTest {
     private static final Logger logger = LoggerFactory.getLogger(PythonAnalyzerTest.class);
 
     @Nullable
-    private static TestProject project;
+    private static CoreTestProject project;
 
     @Nullable
     private static PythonAnalyzer analyzer;
 
     @BeforeAll
     public static void setup() {
-        Path testDir = Path.of("src/test/resources", "testcode-py");
-        assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
-        assertTrue(Files.isDirectory(testDir), testDir + " is not a directory");
-        project = new TestProject(testDir.toAbsolutePath(), Languages.PYTHON);
+        project = CoreTestProject.fromResourceDir("testcode-py", Languages.PYTHON);
         analyzer = new PythonAnalyzer(project);
     }
 
@@ -47,12 +42,9 @@ public final class PythonAnalyzerTest {
         }
     }
 
-    /** Creates a TestProject rooted under src/test/resources/{subDir}. */
-    static TestProject createTestProject(String subDir, Language lang) { // Use Brokk's Language enum
-        Path testDir = Path.of("src/test/resources", subDir);
-        assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
-        assertTrue(Files.isDirectory(testDir), testDir + " is not a directory");
-        return new TestProject(testDir.toAbsolutePath(), lang);
+    /** Creates a project backed by {@code src/test/resources/{subDir}}. */
+    static CoreTestProject createTestProject(String subDir, Language lang) { // Use Brokk's Language enum
+        return CoreTestProject.fromResourceDir(subDir, lang);
     }
 
     /* -------------------- Python -------------------- */
@@ -359,7 +351,7 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonDuplicateFieldsInDifferentScopes() {
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile duplicateFieldsFile = new ProjectFile(project.getRoot(), "duplictad_fields_test.py");
@@ -398,7 +390,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testPythonAstropyDuplicateFieldPattern() {
         // Test specific astropy pattern that was causing ERROR logging
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile astropyFile = new ProjectFile(project.getRoot(), "python_duplicate_fields_test.py");
@@ -437,7 +429,7 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonPropertySetterDetection() {
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile testFile = new ProjectFile(project.getRoot(), "duplictad_fields_test.py");
@@ -477,7 +469,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testPythonPropertySetterFiltering() {
         // Test property getter, setter, and deleter filtering
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile testFile = new ProjectFile(project.getRoot(), "property_setter_test.py");
@@ -522,7 +514,7 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testAstropyDuplicateFunctionNames() {
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile astropyDuplicateFile = new ProjectFile(project.getRoot(), "astropy_duplicate_test.py");
@@ -572,7 +564,7 @@ public final class PythonAnalyzerTest {
     void testDeterministicDisambiguationAcrossFiles() {
         // Test that Python's "last wins" behavior applies to duplicate function-local classes
         // This matches Python's runtime semantics where duplicate definitions replace earlier ones
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile fileA = new ProjectFile(project.getRoot(), "disambiguation_test_a.py");
@@ -619,7 +611,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testNestedFunctionLocalClasses() {
         // Test that nested classes inside function-local classes use $ for class boundaries
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile file = new ProjectFile(project.getRoot(), "nested_local_classes.py");
@@ -691,7 +683,7 @@ public final class PythonAnalyzerTest {
     void testUnderscorePrefixedFunctionLocalClasses() {
         // Test that functions starting with underscores (_private, __dunder__) are correctly
         // identified as functions (not classes) when detecting function-local classes
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile file = new ProjectFile(project.getRoot(), "underscore_functions.py");
@@ -755,7 +747,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testFunctionRedefinition() {
         // Test that Python's "last wins" semantics work for top-level function redefinition
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile file = new ProjectFile(project.getRoot(), "function_redefinition.py");
@@ -820,7 +812,7 @@ public final class PythonAnalyzerTest {
     void testFunctionRedefinitionWithImports() {
         // Regression guard: ensure function redefinition "last wins" semantics
         // don't interfere with imports and vice versa
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile file = new ProjectFile(project.getRoot(), "function_redefinition_with_imports.py");
@@ -872,7 +864,7 @@ public final class PythonAnalyzerTest {
     void testPythonDuplicateChildren() {
         // Test Python's "last wins" semantics for duplicate children
         // (methods, class attributes, nested classes)
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile file = new ProjectFile(project.getRoot(), "duplicate_children.py");
@@ -936,7 +928,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testConditionalClassDefinitions() {
         // Test how PythonAnalyzer handles conditional class definitions (like Reflex base.py pattern)
-        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
 
         ProjectFile basePy = new ProjectFile(testProject.getRoot(), "conditional_pkg/base.py");
@@ -1109,7 +1101,7 @@ public final class PythonAnalyzerTest {
         // - Type-only annotations (VAR: Type)
         // - Tuple unpacking (A, B = 1, 2)
         // - Multi-target assignments (FOO = BAR = 42)
-        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
 
         ProjectFile file = new ProjectFile(testProject.getRoot(), "assignment_types.py");
@@ -1190,7 +1182,7 @@ public final class PythonAnalyzerTest {
         // Tests that TreeSitter AST node types correctly determine FQN construction,
         // regardless of naming conventions (PEP 8 compliant or not).
         // The :F marker mechanism passes AST type info through classChain for accurate FQNs.
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer testAnalyzer = new PythonAnalyzer(project);
 
         ProjectFile file = new ProjectFile(project.getRoot(), "nonstandard_naming.py");
@@ -1277,7 +1269,7 @@ public final class PythonAnalyzerTest {
     void testNonStandardNamingMethodResolution() {
         // Tests that methods and nested classes resolve correctly with TreeSitter AST-based FQNs.
         // The :F marker mechanism ensures correct FQN construction regardless of naming conventions.
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        CoreTestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer testAnalyzer = new PythonAnalyzer(project);
 
         ProjectFile file = new ProjectFile(project.getRoot(), "nonstandard_naming.py");

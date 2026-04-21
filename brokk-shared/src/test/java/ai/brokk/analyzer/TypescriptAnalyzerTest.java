@@ -1,12 +1,12 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.CoreTestProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestCodeProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,12 +16,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 public class TypescriptAnalyzerTest {
 
-    private static TestProject project;
+    private static CoreTestProject project;
     private static TypescriptAnalyzer analyzer;
 
     // Helper to normalize line endings and strip leading/trailing whitespace from each line
@@ -30,16 +31,16 @@ public class TypescriptAnalyzerTest {
 
     @BeforeAll
     static void setUp() {
-        // Use a common TestProject setup method if available, or adapt TreeSitterAnalyzerTest.createTestProject
-        Path testResourceRoot = Path.of("src/test/resources/testcode-ts");
-        assertTrue(
-                Files.exists(testResourceRoot) && Files.isDirectory(testResourceRoot),
-                "Test resource directory 'testcode-ts' must exist.");
-
-        // For TypescriptAnalyzerTest, we'll point the TestProject root directly to testcode-ts
-        project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
+        project = TestCodeProject.fromResourceDir("testcode-ts", Languages.TYPESCRIPT);
         analyzer = new TypescriptAnalyzer(project); // Initialize with default excluded files (none)
         assertFalse(analyzer.isEmpty(), "Analyzer should have processed TypeScript files and not be empty.");
+    }
+
+    @AfterAll
+    static void tearDown() throws Exception {
+        if (project != null) {
+            project.close();
+        }
     }
 
     @Test
@@ -727,49 +728,53 @@ public class TypescriptAnalyzerTest {
     @Test
     void testCodeUnitEqualityFixed() throws IOException {
         // Test that verifies the CodeUnit equality fix prevents byte range corruption
-        var project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        var analyzer = new TypescriptAnalyzer(project);
+        try (var project = TestCodeProject.fromResourceDir("testcode-ts", Languages.TYPESCRIPT)) {
+            var analyzer = new TypescriptAnalyzer(project);
 
-        // Find both Point interfaces from different files
-        var allPointInterfaces = analyzer.getTopLevelDeclarations().values().stream()
-                .flatMap(List::stream)
-                .filter(cu -> cu.fqName().equals("Point") && cu.isClass())
-                .toList();
+            // Find both Point interfaces from different files
+            var allPointInterfaces = analyzer.getTopLevelDeclarations().values().stream()
+                    .flatMap(List::stream)
+                    .filter(cu -> cu.fqName().equals("Point") && cu.isClass())
+                    .toList();
 
-        // Should find Point interfaces/classes from Hello.ts, Advanced.ts, and NamespaceMerging.ts
-        assertEquals(
-                3,
-                allPointInterfaces.size(),
-                "Should find Point interfaces in Hello.ts, Advanced.ts, and NamespaceMerging.ts");
+            // Should find Point interfaces/classes from Hello.ts, Advanced.ts, and NamespaceMerging.ts
+            assertEquals(
+                    3,
+                    allPointInterfaces.size(),
+                    "Should find Point interfaces in Hello.ts, Advanced.ts, and NamespaceMerging.ts");
 
-        CodeUnit helloPoint = allPointInterfaces.stream()
-                .filter(cu -> cu.source().toString().equals("Hello.ts"))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("Should find Point in Hello.ts"));
+            CodeUnit helloPoint = allPointInterfaces.stream()
+                    .filter(cu -> cu.source().toString().equals("Hello.ts"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Should find Point in Hello.ts"));
 
-        CodeUnit advancedPoint = allPointInterfaces.stream()
-                .filter(cu -> cu.source().toString().equals("Advanced.ts"))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("Should find Point in Advanced.ts"));
+            CodeUnit advancedPoint = allPointInterfaces.stream()
+                    .filter(cu -> cu.source().toString().equals("Advanced.ts"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Should find Point in Advanced.ts"));
 
-        // The CodeUnits should be from different files
-        assertNotEquals(
-                helloPoint.source().toString(),
-                advancedPoint.source().toString(),
-                "Point interfaces should be from different files");
+            // The CodeUnits should be from different files
+            assertNotEquals(
+                    helloPoint.source().toString(),
+                    advancedPoint.source().toString(),
+                    "Point interfaces should be from different files");
 
-        // After the fix: CodeUnits with same FQN but different source files should be distinct
-        assertFalse(
-                helloPoint.equals(advancedPoint), "CodeUnits with same FQN from different files should be distinct");
-        assertNotEquals(
-                helloPoint.hashCode(), advancedPoint.hashCode(), "Distinct CodeUnits should have different hashCodes");
+            // After the fix: CodeUnits with same FQN but different source files should be distinct
+            assertFalse(
+                    helloPoint.equals(advancedPoint),
+                    "CodeUnits with same FQN from different files should be distinct");
+            assertNotEquals(
+                    helloPoint.hashCode(),
+                    advancedPoint.hashCode(),
+                    "Distinct CodeUnits should have different hashCodes");
 
-        // With distinct CodeUnits, getClassSource should work correctly without corruption
-        String pointSource = AnalyzerUtil.getSource(analyzer, "Point", true).get();
+            // With distinct CodeUnits, getClassSource should work correctly without corruption
+            String pointSource = AnalyzerUtil.getSource(analyzer, "Point", true).get();
 
-        // The source should be a valid Point interface, not corrupted
-        assertFalse(pointSource.contains("MyParameterDecorator"), "Should not contain decorator function text");
-        assertTrue(pointSource.contains("interface Point"), "Should contain interface declaration");
+            // The source should be a valid Point interface, not corrupted
+            assertFalse(pointSource.contains("MyParameterDecorator"), "Should not contain decorator function text");
+            assertTrue(pointSource.contains("interface Point"), "Should contain interface declaration");
+        }
     }
 
     @Test
@@ -777,7 +782,7 @@ public class TypescriptAnalyzerTest {
         // Create a temporary test project with a node_modules directory
         Path tempDir = Files.createTempDirectory("typescript-dep-test");
         try {
-            var tsProject = new TestProject(tempDir, Languages.TYPESCRIPT);
+            var tsProject = new CoreTestProject(tempDir, Set.of(Languages.TYPESCRIPT));
 
             // Create a node_modules directory structure
             Path nodeModules = tempDir.resolve("node_modules");
@@ -848,7 +853,7 @@ public class TypescriptAnalyzerTest {
         // Test with project that has no node_modules
         Path tempDir = Files.createTempDirectory("typescript-nodeps-test");
         try {
-            var tsProject = new TestProject(tempDir, Languages.TYPESCRIPT);
+            var tsProject = new CoreTestProject(tempDir, Set.of(Languages.TYPESCRIPT));
 
             List<Path> candidates = Languages.TYPESCRIPT.getDependencyCandidates(tsProject);
 
@@ -864,7 +869,7 @@ public class TypescriptAnalyzerTest {
         // Create a temporary test project
         Path tempDir = Files.createTempDirectory("typescript-analyzed-test");
         try {
-            var tsProject = new TestProject(tempDir, Languages.TYPESCRIPT);
+            var tsProject = new CoreTestProject(tempDir, Set.of(Languages.TYPESCRIPT));
 
             // Create a node_modules directory
             Path nodeModules = tempDir.resolve("node_modules");
@@ -912,7 +917,7 @@ public class TypescriptAnalyzerTest {
         // Create a test project with mixed TypeScript and JavaScript files
         Path tempDir = Files.createTempDirectory("typescript-js-ignore-test");
         try {
-            var tsProject = new TestProject(tempDir, Languages.TYPESCRIPT);
+            var tsProject = new CoreTestProject(tempDir, Set.of(Languages.TYPESCRIPT));
 
             // Create both TypeScript and JavaScript files in project root
             Files.writeString(
@@ -1157,159 +1162,166 @@ public class TypescriptAnalyzerTest {
 
     @Test
     void testTypescriptAnnotationComments() throws IOException {
-        TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
+        try (var project = TestCodeProject.fromResourceDir("testcode-ts", Languages.TYPESCRIPT)) {
+            TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
 
-        Function<String, String> normalize =
-                s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
+            Function<String, String> normalize =
+                    s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
-        // Test class with JSDoc annotations
-        Optional<String> userServiceSource = AnalyzerUtil.getSource(analyzer, "UserService", true);
-        assertTrue(userServiceSource.isPresent(), "UserService class should be found");
+            // Test class with JSDoc annotations
+            Optional<String> userServiceSource = AnalyzerUtil.getSource(analyzer, "UserService", true);
+            assertTrue(userServiceSource.isPresent(), "UserService class should be found");
 
-        String normalizedService = normalize.apply(userServiceSource.get());
-        assertTrue(
-                normalizedService.contains("Service class for user management")
-                        || normalizedService.contains("@class UserService"),
-                "Class source should include JSDoc class annotation");
-        assertTrue(normalizedService.contains("class UserService"), "Class source should include class definition");
+            String normalizedService = normalize.apply(userServiceSource.get());
+            assertTrue(
+                    normalizedService.contains("Service class for user management")
+                            || normalizedService.contains("@class UserService"),
+                    "Class source should include JSDoc class annotation");
+            assertTrue(normalizedService.contains("class UserService"), "Class source should include class definition");
 
-        // Test method with comprehensive JSDoc annotations
-        Optional<String> getUserByIdSource = AnalyzerUtil.getSource(analyzer, "UserService.getUserById", true);
-        assertTrue(getUserByIdSource.isPresent(), "getUserById method should be found");
+            // Test method with comprehensive JSDoc annotations
+            Optional<String> getUserByIdSource = AnalyzerUtil.getSource(analyzer, "UserService.getUserById", true);
+            assertTrue(getUserByIdSource.isPresent(), "getUserById method should be found");
 
-        String normalizedGetUserById = normalize.apply(getUserByIdSource.get());
-        assertTrue(
-                normalizedGetUserById.contains("Retrieves user by ID")
-                        || normalizedGetUserById.contains("@param")
-                        || normalizedGetUserById.contains("@returns"),
-                "Method source should include JSDoc annotations");
-        assertTrue(
-                normalizedGetUserById.contains("async getUserById"), "Method source should include method definition");
+            String normalizedGetUserById = normalize.apply(getUserByIdSource.get());
+            assertTrue(
+                    normalizedGetUserById.contains("Retrieves user by ID")
+                            || normalizedGetUserById.contains("@param")
+                            || normalizedGetUserById.contains("@returns"),
+                    "Method source should include JSDoc annotations");
+            assertTrue(
+                    normalizedGetUserById.contains("async getUserById"),
+                    "Method source should include method definition");
 
-        // Test deprecated method with @deprecated annotation
-        Optional<String> getUserDeprecatedSource = AnalyzerUtil.getSource(analyzer, "UserService.getUser", true);
-        assertTrue(getUserDeprecatedSource.isPresent(), "getUser deprecated method should be found");
+            // Test deprecated method with @deprecated annotation
+            Optional<String> getUserDeprecatedSource = AnalyzerUtil.getSource(analyzer, "UserService.getUser", true);
+            assertTrue(getUserDeprecatedSource.isPresent(), "getUser deprecated method should be found");
 
-        String normalizedDeprecated = normalize.apply(getUserDeprecatedSource.get());
-        assertTrue(
-                normalizedDeprecated.contains("@deprecated") || normalizedDeprecated.contains("deprecated method"),
-                "Deprecated method source should include deprecation annotation");
-        assertTrue(normalizedDeprecated.contains("async getUser"), "Method source should include method definition");
+            String normalizedDeprecated = normalize.apply(getUserDeprecatedSource.get());
+            assertTrue(
+                    normalizedDeprecated.contains("@deprecated") || normalizedDeprecated.contains("deprecated method"),
+                    "Deprecated method source should include deprecation annotation");
+            assertTrue(
+                    normalizedDeprecated.contains("async getUser"), "Method source should include method definition");
 
-        // Test static method with annotations
-        // Note: Static methods now have $static suffix to distinguish from instance methods with same name
-        Optional<String> validateConfigSource =
-                AnalyzerUtil.getSource(analyzer, "UserService.validateConfig$static", true);
-        assertTrue(validateConfigSource.isPresent(), "validateConfig static method should be found");
+            // Test static method with annotations
+            // Note: Static methods now have $static suffix to distinguish from instance methods with same name
+            Optional<String> validateConfigSource =
+                    AnalyzerUtil.getSource(analyzer, "UserService.validateConfig$static", true);
+            assertTrue(validateConfigSource.isPresent(), "validateConfig static method should be found");
 
-        String normalizedStatic = normalize.apply(validateConfigSource.get());
-        assertTrue(
-                normalizedStatic.contains("@static") || normalizedStatic.contains("Validates user configuration"),
-                "Static method source should include static annotation");
-        assertTrue(
-                normalizedStatic.contains("static validateConfig"),
-                "Method source should include static method definition");
+            String normalizedStatic = normalize.apply(validateConfigSource.get());
+            assertTrue(
+                    normalizedStatic.contains("@static") || normalizedStatic.contains("Validates user configuration"),
+                    "Static method source should include static annotation");
+            assertTrue(
+                    normalizedStatic.contains("static validateConfig"),
+                    "Method source should include static method definition");
+        }
     }
 
     @Test
     void testTypescriptGenericClassAnnotations() throws IOException {
-        TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
+        try (var project = TestCodeProject.fromResourceDir("testcode-ts", Languages.TYPESCRIPT)) {
+            TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
 
-        Function<String, String> normalize =
-                s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
+            Function<String, String> normalize =
+                    s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
-        // Test generic class with template annotations
-        Optional<String> repositorySource = AnalyzerUtil.getSource(analyzer, "Repository", true);
-        assertTrue(repositorySource.isPresent(), "Repository generic class should be found");
+            // Test generic class with template annotations
+            Optional<String> repositorySource = AnalyzerUtil.getSource(analyzer, "Repository", true);
+            assertTrue(repositorySource.isPresent(), "Repository generic class should be found");
 
-        String normalizedRepo = normalize.apply(repositorySource.get());
-        assertTrue(
-                normalizedRepo.contains("@template") || normalizedRepo.contains("Generic repository pattern"),
-                "Generic class source should include template annotations");
-        assertTrue(normalizedRepo.contains("class Repository"), "Class source should include class definition");
+            String normalizedRepo = normalize.apply(repositorySource.get());
+            assertTrue(
+                    normalizedRepo.contains("@template") || normalizedRepo.contains("Generic repository pattern"),
+                    "Generic class source should include template annotations");
+            assertTrue(normalizedRepo.contains("class Repository"), "Class source should include class definition");
 
-        // Test method with experimental annotation
-        Optional<String> batchProcessSource = AnalyzerUtil.getSource(analyzer, "Repository.batchProcess", true);
-        assertTrue(batchProcessSource.isPresent(), "batchProcess method should be found");
+            // Test method with experimental annotation
+            Optional<String> batchProcessSource = AnalyzerUtil.getSource(analyzer, "Repository.batchProcess", true);
+            assertTrue(batchProcessSource.isPresent(), "batchProcess method should be found");
 
-        String normalizedBatch = normalize.apply(batchProcessSource.get());
-        assertTrue(
-                normalizedBatch.contains("@experimental")
-                        || normalizedBatch.contains("@beta")
-                        || normalizedBatch.contains("under development"),
-                "Experimental method source should include experimental annotations");
-        assertTrue(normalizedBatch.contains("async batchProcess"), "Method source should include method definition");
+            String normalizedBatch = normalize.apply(batchProcessSource.get());
+            assertTrue(
+                    normalizedBatch.contains("@experimental")
+                            || normalizedBatch.contains("@beta")
+                            || normalizedBatch.contains("under development"),
+                    "Experimental method source should include experimental annotations");
+            assertTrue(
+                    normalizedBatch.contains("async batchProcess"), "Method source should include method definition");
+        }
     }
 
     @Test
     void testTypescriptFunctionOverloadsWithAnnotations() throws IOException {
-        TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
+        try (var project = TestCodeProject.fromResourceDir("testcode-ts", Languages.TYPESCRIPT)) {
+            TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
 
-        Function<String, String> normalize =
-                s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
+            Function<String, String> normalize =
+                    s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
-        // Test function overloads with individual JSDoc annotations
-        Optional<String> processDataSource = AnalyzerUtil.getSource(analyzer, "processData", true);
-        assertTrue(processDataSource.isPresent(), "processData overloaded function should be found");
+            // Test function overloads with individual JSDoc annotations
+            Optional<String> processDataSource = AnalyzerUtil.getSource(analyzer, "processData", true);
+            assertTrue(processDataSource.isPresent(), "processData overloaded function should be found");
 
-        String normalizedProcessData = normalize.apply(processDataSource.get());
-        assertTrue(
-                normalizedProcessData.contains("@overload")
-                        || normalizedProcessData.contains("String processing")
-                        || normalizedProcessData.contains("Number processing"),
-                "Function overloads should include overload annotations");
-        assertTrue(
-                normalizedProcessData.contains("function processData"),
-                "Function source should include function definitions");
+            String normalizedProcessData = normalize.apply(processDataSource.get());
+            assertTrue(
+                    normalizedProcessData.contains("@overload")
+                            || normalizedProcessData.contains("String processing")
+                            || normalizedProcessData.contains("Number processing"),
+                    "Function overloads should include overload annotations");
+            assertTrue(
+                    normalizedProcessData.contains("function processData"),
+                    "Function source should include function definitions");
 
-        // Test async function with comprehensive annotations
-        Optional<String> fetchWithRetrySource = AnalyzerUtil.getSource(analyzer, "fetchWithRetry", true);
-        assertTrue(fetchWithRetrySource.isPresent(), "fetchWithRetry function should be found");
+            // Test async function with comprehensive annotations
+            Optional<String> fetchWithRetrySource = AnalyzerUtil.getSource(analyzer, "fetchWithRetry", true);
+            assertTrue(fetchWithRetrySource.isPresent(), "fetchWithRetry function should be found");
 
-        String normalizedFetch = normalize.apply(fetchWithRetrySource.get());
-        assertTrue(
-                normalizedFetch.contains("@async")
-                        || normalizedFetch.contains("@throws")
-                        || normalizedFetch.contains("@see")
-                        || normalizedFetch.contains("@todo")
-                        || normalizedFetch.contains("retry logic"),
-                "Async function should include comprehensive annotations");
-        assertTrue(
-                normalizedFetch.contains("async function fetchWithRetry"),
-                "Function source should include async function definition");
+            String normalizedFetch = normalize.apply(fetchWithRetrySource.get());
+            assertTrue(
+                    normalizedFetch.contains("@async")
+                            || normalizedFetch.contains("@throws")
+                            || normalizedFetch.contains("@see")
+                            || normalizedFetch.contains("@todo")
+                            || normalizedFetch.contains("retry logic"),
+                    "Async function should include comprehensive annotations");
+            assertTrue(
+                    normalizedFetch.contains("async function fetchWithRetry"),
+                    "Function source should include async function definition");
+        }
     }
 
     @Test
     void testTypescriptInterfaceAndEnumAnnotations() throws IOException {
-        TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
+        try (var project = TestCodeProject.fromResourceDir("testcode-ts", Languages.TYPESCRIPT)) {
+            TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
 
-        Function<String, String> normalize =
-                s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
+            Function<String, String> normalize =
+                    s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
-        // Test interface with JSDoc annotations
-        Optional<String> userConfigSource = AnalyzerUtil.getSource(analyzer, "UserConfig", true);
-        if (userConfigSource.isPresent()) {
-            String normalizedConfig = normalize.apply(userConfigSource.get());
-            assertTrue(
-                    normalizedConfig.contains("User configuration")
-                            || normalizedConfig.contains("@since")
-                            || normalizedConfig.contains("@category"),
-                    "Interface source should include JSDoc annotations");
-        }
+            // Test interface with JSDoc annotations
+            Optional<String> userConfigSource = AnalyzerUtil.getSource(analyzer, "UserConfig", true);
+            if (userConfigSource.isPresent()) {
+                String normalizedConfig = normalize.apply(userConfigSource.get());
+                assertTrue(
+                        normalizedConfig.contains("User configuration")
+                                || normalizedConfig.contains("@since")
+                                || normalizedConfig.contains("@category"),
+                        "Interface source should include JSDoc annotations");
+            }
 
-        // Test enum with annotations
-        Optional<String> userRoleSource = AnalyzerUtil.getSource(analyzer, "UserRole", true);
-        if (userRoleSource.isPresent()) {
-            String normalizedRole = normalize.apply(userRoleSource.get());
-            assertTrue(
-                    normalizedRole.contains("@enum")
-                            || normalizedRole.contains("User role enumeration")
-                            || normalizedRole.contains("Standard user access"),
-                    "Enum source should include enum and member annotations");
+            // Test enum with annotations
+            Optional<String> userRoleSource = AnalyzerUtil.getSource(analyzer, "UserRole", true);
+            if (userRoleSource.isPresent()) {
+                String normalizedRole = normalize.apply(userRoleSource.get());
+                assertTrue(
+                        normalizedRole.contains("@enum")
+                                || normalizedRole.contains("User role enumeration")
+                                || normalizedRole.contains("Standard user access"),
+                        "Enum source should include enum and member annotations");
+            }
         }
     }
 
