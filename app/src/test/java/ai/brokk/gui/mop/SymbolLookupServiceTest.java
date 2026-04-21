@@ -10,12 +10,15 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Tests for SymbolLookupService improvements, particularly the findBestMatch logic that prioritizes exact matches over
  * substring matches.
  */
 class SymbolLookupServiceTest {
+    @TempDir
+    Path tempDir;
 
     @Nested
     @DisplayName("findBestMatch method tests")
@@ -216,19 +219,11 @@ class SymbolLookupServiceTest {
             var searchResults = List.of(
                     createCodeUnit("com.example.Parser", "Parser"), // CLASS - should match
                     CodeUnit.fn(
-                            new ProjectFile(
-                                    Path.of(System.getProperty("java.io.tmpdir"))
-                                            .resolve("test")
-                                            .toAbsolutePath(),
-                                    "Test.java"),
+                            new ProjectFile(tempDir, "Test.java"),
                             "com.example",
                             "Parser.parse"), // METHOD - should NOT match
                     CodeUnit.field(
-                            new ProjectFile(
-                                    Path.of(System.getProperty("java.io.tmpdir"))
-                                            .resolve("test")
-                                            .toAbsolutePath(),
-                                    "Test.java"),
+                            new ProjectFile(tempDir, "Test.java"),
                             "com.example",
                             "Config.PARSER_ENABLED")); // FIELD - should NOT match
 
@@ -293,11 +288,7 @@ class SymbolLookupServiceTest {
             packageName = fqName.substring(0, lastDot);
         }
 
-        // Use an absolute path that works cross-platform
-        Path absoluteTestPath =
-                Path.of(System.getProperty("java.io.tmpdir")).resolve("test").toAbsolutePath();
-        return new CodeUnit(
-                new ProjectFile(absoluteTestPath, "Test.java"), CodeUnitType.CLASS, packageName, simpleName);
+        return new CodeUnit(new ProjectFile(tempDir, "Test.java"), CodeUnitType.CLASS, packageName, simpleName);
     }
 
     private CodeUnit invokePrivateFindBestMatch(String searchTerm, List<CodeUnit> searchResults) {

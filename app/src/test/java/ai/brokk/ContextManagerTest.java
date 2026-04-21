@@ -15,11 +15,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Unit tests for {@link ai.brokk.analyzer.TestFileHeuristics}. */
 class ContextManagerTest {
     @Test
-    void shouldMatchTestFilenames() {
+    void shouldMatchTestFilenames(@TempDir Path tempDir) {
         var positives = List.of(
                 // match in path
                 "src/test/java/MyClass.java",
@@ -70,11 +71,9 @@ class ContextManagerTest {
                 "packages/core/__tests__/util.ts");
 
         var mismatches = new ArrayList<String>();
-        Path root =
-                Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
 
         positives.forEach(path -> {
-            if (!ContextManager.isTestFile(new ProjectFile(root, path), null)) {
+            if (!ContextManager.isTestFile(new ProjectFile(tempDir, path), null)) {
                 mismatches.add(path);
             }
         });
@@ -83,7 +82,7 @@ class ContextManagerTest {
     }
 
     @Test
-    void shouldNotMatchNonTestFilenames() {
+    void shouldNotMatchNonTestFilenames(@TempDir Path tempDir) {
         var negatives = List.of(
                 "testing/Bar.java",
                 "src/production/java/MyClass.java",
@@ -97,11 +96,9 @@ class ContextManagerTest {
                 "aspect-ratio.ts");
 
         var unexpectedMatches = new ArrayList<String>();
-        Path root =
-                Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
 
         negatives.forEach(path -> {
-            if (ContextManager.isTestFile(new ProjectFile(root, path), null)) {
+            if (ContextManager.isTestFile(new ProjectFile(tempDir, path), null)) {
                 unexpectedMatches.add(path);
             }
         });

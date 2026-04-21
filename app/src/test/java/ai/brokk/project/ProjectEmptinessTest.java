@@ -136,20 +136,16 @@ class ProjectEmptinessTest {
     }
 
     @Test
-    void isEmptyProject_interfaceDefaultReturnsFalse() {
+    void isEmptyProject_interfaceDefaultReturnsFalse(@TempDir Path tempDir) {
         IProject minimalProject = new IProject() {
-            private final Path root = Path.of(System.getProperty("java.io.tmpdir"))
-                    .toAbsolutePath()
-                    .normalize();
-
             @Override
             public Path getRoot() {
-                return root;
+                return tempDir;
             }
 
             @Override
             public Path getMasterRootPathForConfig() {
-                return root;
+                return tempDir;
             }
         };
         assertFalse(
