@@ -908,7 +908,7 @@ def _build_codex_plugin_manifest() -> dict[str, Any]:
             "Semantic code intelligence -- symbol navigation, cross-reference "
             "analysis, and structural code understanding powered by tree-sitter"
         ),
-        "version": "0.1.0",
+        "version": "0.1.2",
         "skills": "./skills/",
         "mcpServers": "./.mcp.json",
         "author": {
