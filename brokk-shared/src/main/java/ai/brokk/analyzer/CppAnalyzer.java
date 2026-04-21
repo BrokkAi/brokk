@@ -1949,7 +1949,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                             }
                         }
                     }
-                    return hasStructuredMarkerByName(rootNode, sourceContent);
+                    return false;
                 },
                 false);
     }
@@ -2047,21 +2047,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                     return blocks;
                 },
                 List.of());
-    }
-
-    private static boolean hasStructuredMarkerByName(TSNode rootNode, SourceContent sourceContent) {
-        var identifiers = new ArrayList<TSNode>();
-        collectNodesByType(rootNode, Set.of(IDENTIFIER), identifiers);
-        for (TSNode identifierNode : identifiers) {
-            String markerName = sourceContent.substringFrom(identifierNode).strip();
-            if (!TEST_MARKER_NAMES.contains(markerName)) {
-                continue;
-            }
-            if (isStructuredTestMarker(identifierNode, markerName, sourceContent)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static void collectStructuredMarkerBlocks(

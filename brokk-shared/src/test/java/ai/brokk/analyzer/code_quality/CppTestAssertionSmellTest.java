@@ -13,6 +13,43 @@ public class CppTestAssertionSmellTest extends AbstractBrittleTestSuite {
     private static final String TEST_PATH = "src/sample.cpp";
 
     @Test
+    void containsTestsIsTrueForGTestMacroInNonTestPath() {
+        String code =
+                """
+                #include <gtest/gtest.h>
+
+                TEST(SampleTest, HasTestMarker) {
+                    EXPECT_TRUE(true);
+                }
+                """;
+        try (var testProject = InlineCoreProject.code(code, TEST_PATH).build()) {
+            IAnalyzer analyzer = testProject.getAnalyzer();
+            ProjectFile file = new ProjectFile(testProject.getRoot(), TEST_PATH);
+            assertTrue(analyzer.containsTests(file));
+        }
+    }
+
+    @Test
+    void containsTestsIsFalseWhenNoTestMarkersPresent() {
+        String code =
+                """
+                int add(int a, int b) {
+                    return a + b;
+                }
+
+                void usesIdentifierNamedTEST() {
+                    int TEST = 1;
+                    (void) TEST;
+                }
+                """;
+        try (var testProject = InlineCoreProject.code(code, TEST_PATH).build()) {
+            IAnalyzer analyzer = testProject.getAnalyzer();
+            ProjectFile file = new ProjectFile(testProject.getRoot(), TEST_PATH);
+            assertFalse(analyzer.containsTests(file));
+        }
+    }
+
+    @Test
     void flagsConstantTruthAndConstantEqualityInGTest() {
         String code =
                 """

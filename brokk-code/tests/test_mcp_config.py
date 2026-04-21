@@ -114,6 +114,8 @@ def test_configure_codex_mcp_settings_appends_to_codex_agents(tmp_path, monkeypa
     agents_md = tmp_path / ".codex" / "AGENTS.md"
 
     assert config_path.exists()
+    config_data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert config_data["mcp_servers"]["brokk"]["default_tools_approval_mode"] == "approve"
     assert agents_md.exists()
     content = agents_md.read_text()
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" in content
@@ -210,6 +212,7 @@ def test_configure_codex_mcp_settings_uses_uvx_command(tmp_path):
     data = tomllib.loads(config_path.read_text(encoding="utf-8"))
     assert data["mcp_servers"]["brokk"]["command"] == "/home/user/.local/bin/uvx"
     assert data["mcp_servers"]["brokk"]["args"] == ["brokk", "mcp"]
+    assert data["mcp_servers"]["brokk"]["default_tools_approval_mode"] == "approve"
 
 
 def test_configure_claude_code_mcp_settings_defaults_to_uvx(tmp_path):
@@ -334,6 +337,14 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, 
     assert mcp_data["mcpServers"]["brokk"]["type"] == "stdio"
     assert mcp_data["mcpServers"]["brokk"]["command"] == "uvx"
     assert mcp_data["mcpServers"]["brokk"]["args"] == ["brokk", "mcp-core"]
+
+    config_toml_path = tmp_path / ".codex" / "config.toml"
+    assert config_toml_path.exists()
+    config_data = tomllib.loads(config_toml_path.read_text(encoding="utf-8"))
+    brokk_server = config_data["mcp_servers"]["brokk"]
+    assert brokk_server["command"] == "uvx"
+    assert brokk_server["args"] == ["brokk", "mcp-core"]
+    assert brokk_server["default_tools_approval_mode"] == "approve"
 
     marketplace_data = json.loads(marketplace_path.read_text(encoding="utf-8"))
     assert marketplace_data["name"] == "brokk-local"
