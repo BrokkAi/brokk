@@ -4,14 +4,14 @@ import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.CoreTestProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestProject;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import ai.brokk.testutil.TestCodeProject;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -20,29 +20,28 @@ import org.slf4j.LoggerFactory;
 public final class JavascriptAnalyzerTest {
     private static final Logger logger = LoggerFactory.getLogger(JavascriptAnalyzerTest.class);
 
-    private static TestProject jsTestProject;
+    private static CoreTestProject jsTestProject;
     private static JavascriptAnalyzer jsAnalyzer;
     private static ProjectFile helloJsFile;
     private static ProjectFile helloJsxFile;
     private static ProjectFile varsJsFile;
 
-    /** Creates a TestProject rooted under src/test/resources/{subDir}. */
-    static TestProject createTestProject(String subDir, Language lang) { // Use Brokk's Language enum
-        Path testDir = Path.of("src/test/resources", subDir);
-        assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
-        assertTrue(Files.isDirectory(testDir), testDir + " is not a directory");
-        return new TestProject(testDir.toAbsolutePath(), lang);
-    }
-
     @BeforeAll
     static void setup() {
-        jsTestProject = createTestProject("testcode-js", Languages.JAVASCRIPT);
+        jsTestProject = TestCodeProject.fromResourceDir("testcode-js", Languages.JAVASCRIPT);
         jsAnalyzer = new JavascriptAnalyzer(jsTestProject);
         assertFalse(jsAnalyzer.isEmpty(), "Analyzer should have processed JS/JSX files");
 
         helloJsFile = new ProjectFile(jsTestProject.getRoot(), "Hello.js");
         helloJsxFile = new ProjectFile(jsTestProject.getRoot(), "Hello.jsx");
         varsJsFile = new ProjectFile(jsTestProject.getRoot(), "Vars.js");
+    }
+
+    @AfterAll
+    static void tearDown() throws Exception {
+        if (jsTestProject != null) {
+            jsTestProject.close();
+        }
     }
 
     /* -------------------- JavaScript / JSX -------------------- */

@@ -5,8 +5,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.AnalyzerCreator;
+import ai.brokk.testutil.CoreTestProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestCodeProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -28,7 +30,7 @@ import org.treesitter.TreeSitterGo;
 public class GoAnalyzerTest {
     private static final Logger logger = LoggerFactory.getLogger(GoAnalyzerTest.class);
 
-    private static TestProject testProject;
+    private static CoreTestProject testProject;
     private static GoAnalyzer analyzer;
     private static final TSLanguage GO_LANGUAGE = new TreeSitterGo(); // For direct parsing tests
 
@@ -40,9 +42,7 @@ public class GoAnalyzerTest {
 
     @BeforeAll
     static void setUp() {
-        Path testCodeDir = Path.of("src/test/resources/testcode-go").toAbsolutePath();
-        assertTrue(Files.exists(testCodeDir), "Test resource directory 'testcode-go' not found.");
-        testProject = new TestProject(testCodeDir, Languages.GO);
+        testProject = TestCodeProject.fromResourceDir("testcode-go", Languages.GO);
         analyzer = new GoAnalyzer(testProject);
 
         packagesGoFile = new ProjectFile(testProject.getRoot(), "packages.go");
@@ -50,6 +50,13 @@ public class GoAnalyzerTest {
         noPkgGoFile = new ProjectFile(testProject.getRoot(), "nopkg.go");
         emptyGoFile = new ProjectFile(testProject.getRoot(), "empty.go");
         declarationsGoFile = new ProjectFile(testProject.getRoot(), "declarations.go");
+    }
+
+    @AfterAll
+    static void tearDown() throws Exception {
+        if (testProject != null) {
+            testProject.close();
+        }
     }
 
     // Helper method to parse Go code and get the root node

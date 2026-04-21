@@ -7,14 +7,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.testutil.CoreTestProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestCodeProject;
 import ai.brokk.testutil.TestContextManager;
-import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -34,17 +32,12 @@ public class JavaAnalyzerTest {
     private static JavaAnalyzer analyzer;
 
     @Nullable
-    private static TestProject testProject;
+    private static CoreTestProject testProject;
 
     @BeforeAll
-    public static void setup() throws IOException {
-        final var testPath =
-                Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
-        assertTrue(Files.exists(testPath), "Test resource directory 'testcode-java' not found.");
-        testProject = new TestProject(testPath, Languages.JAVA);
-        logger.debug(
-                "Setting up analyzer with test code from {}",
-                testPath.toAbsolutePath().normalize());
+    public static void setup() {
+        testProject = TestCodeProject.fromResourceDir("testcode-java", Languages.JAVA);
+        logger.debug("Setting up analyzer with test code from {}", testProject.getRoot());
         analyzer = new JavaAnalyzer(testProject);
     }
 
@@ -1266,21 +1259,22 @@ public class JavaAnalyzerTest {
 
     @Test
     public void testInlineJavadocDoesNotIncludePrecedingCode() throws IOException {
-        var project = TestProject.createTestProject("testcode-java", Languages.JAVA);
-        var testAnalyzer = new JavaAnalyzer(project);
+        try (var project = TestCodeProject.fromResourceDir("testcode-java", Languages.JAVA)) {
+            var testAnalyzer = new JavaAnalyzer(project);
 
-        // methodAfterInlineJavadoc has Javadoc on same line as `private int other = 1;`
-        var sourceOpt = AnalyzerUtil.getSource(testAnalyzer, "InlineComment.methodAfterInlineJavadoc", true);
-        assertTrue(sourceOpt.isPresent(), "Method source should be available");
+            // methodAfterInlineJavadoc has Javadoc on same line as `private int other = 1;`
+            var sourceOpt = AnalyzerUtil.getSource(testAnalyzer, "InlineComment.methodAfterInlineJavadoc", true);
+            assertTrue(sourceOpt.isPresent(), "Method source should be available");
 
-        String source = sourceOpt.get();
+            String source = sourceOpt.get();
 
-        // Verify Javadoc IS included
-        assertCodeContains(source, "/** Inline Javadoc on same line as code */", "Should include the Javadoc");
+            // Verify Javadoc IS included
+            assertCodeContains(source, "/** Inline Javadoc on same line as code */", "Should include the Javadoc");
 
-        // Verify the preceding code is NOT included
-        assertFalse(source.contains("private int other"), "Should NOT include code from same line as Javadoc");
-        assertFalse(source.contains("= 1;"), "Should NOT include field initialization from same line");
+            // Verify the preceding code is NOT included
+            assertFalse(source.contains("private int other"), "Should NOT include code from same line as Javadoc");
+            assertFalse(source.contains("= 1;"), "Should NOT include field initialization from same line");
+        }
     }
 
     @Test
@@ -1501,7 +1495,7 @@ public class JavaAnalyzerTest {
                 .build()) {
 
             var analyzer = new JavaAnalyzer(project);
-            var cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+            var cm = new TestContextManager(project, analyzer);
 
             var frag =
                     new ContextFragments.SummaryFragment(cm, "p.Outer", ContextFragment.SummaryType.CODEUNIT_SKELETON);

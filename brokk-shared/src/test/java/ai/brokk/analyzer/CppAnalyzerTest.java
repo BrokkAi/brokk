@@ -6,11 +6,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.*;
 
 import ai.brokk.testutil.AnalyzerCreator;
+import ai.brokk.testutil.CoreTestProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestCodeProject;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -31,17 +30,12 @@ public class CppAnalyzerTest {
     private static CppAnalyzer analyzer;
 
     @Nullable
-    private static TestProject testProject;
+    private static CoreTestProject testProject;
 
     @BeforeAll
     public static void setup() throws IOException {
-        final var testPath =
-                Path.of("src/test/resources/testcode-cpp").toAbsolutePath().normalize();
-        assertTrue(Files.exists(testPath), "Test resource directory 'testcode-cpp' not found.");
-        testProject = new TestProject(testPath, Languages.C_CPP);
-        logger.debug(
-                "Setting up analyzer with test code from {}",
-                testPath.toAbsolutePath().normalize());
+        testProject = TestCodeProject.fromResourceDir("testcode-cpp", Languages.C_CPP);
+        logger.debug("Setting up analyzer with test code from {}", testProject.getRoot());
         analyzer = new CppAnalyzer(testProject);
     }
 

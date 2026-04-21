@@ -1,16 +1,17 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.*;
-import static ai.brokk.testutil.TestProject.createTestProject;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.CoreTestProject;
+import ai.brokk.testutil.TestCodeProject;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -20,13 +21,20 @@ public class PhpAnalyzerTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PhpAnalyzerTest.class);
 
-    private static TestProject testProject;
+    private static CoreTestProject testProject;
     private static PhpAnalyzer analyzer;
 
     @BeforeAll
-    static void setUp() throws IOException {
-        testProject = createTestProject("testcode-php", Languages.PHP);
+    static void setUp() {
+        testProject = TestCodeProject.fromResourceDir("testcode-php", Languages.PHP);
         analyzer = new PhpAnalyzer(testProject); // This will trigger analysis
+    }
+
+    @AfterAll
+    static void tearDown() throws Exception {
+        if (testProject != null) {
+            testProject.close();
+        }
     }
 
     @Test
