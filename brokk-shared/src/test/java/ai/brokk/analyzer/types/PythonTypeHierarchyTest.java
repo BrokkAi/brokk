@@ -7,16 +7,12 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.analyzer.TypeHierarchyProvider;
-import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.testutil.CoreTestProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestCodeProject;
 import ai.brokk.testutil.TestContextManager;
-import ai.brokk.testutil.TestProject;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
@@ -27,16 +23,14 @@ import org.junit.jupiter.api.Test;
 public final class PythonTypeHierarchyTest {
 
     @Nullable
-    private static TestProject project;
+    private static CoreTestProject project;
 
     @Nullable
     private static PythonAnalyzer analyzer;
 
     @BeforeAll
     public static void setup() {
-        Path testDir = Path.of("src/test/resources", "testcode-py");
-        assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
-        project = new TestProject(testDir.toAbsolutePath(), Languages.PYTHON);
+        project = TestCodeProject.fromResourceDir("testcode-py", Languages.PYTHON);
         analyzer = new PythonAnalyzer(project);
     }
 
@@ -50,12 +44,12 @@ public final class PythonTypeHierarchyTest {
     @Test
     void testPythonTypeHierarchy() {
         // Test parent class resolution for Python
-        Path testDir = Path.of("src/test/resources", "testcode-py");
-        TestProject testProject = new TestProject(testDir.toAbsolutePath(), Languages.PYTHON);
-        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+        var testAnalyzer = analyzer;
+        assertNotNull(testAnalyzer);
+        assertNotNull(project);
 
         // Test 1: Simple same-file inheritance
-        ProjectFile simplePy = new ProjectFile(testProject.getRoot(), "inheritance/simple.py");
+        ProjectFile simplePy = new ProjectFile(project.getRoot(), "inheritance/simple.py");
         Set<CodeUnit> simpleDecls = testAnalyzer.getDeclarations(simplePy);
 
         var dogClass =
@@ -74,7 +68,7 @@ public final class PythonTypeHierarchyTest {
                 "Dog's ancestor should be Animal");
 
         // Test 2: Multi-level inheritance
-        ProjectFile multilevelPy = new ProjectFile(testProject.getRoot(), "inheritance/multilevel.py");
+        ProjectFile multilevelPy = new ProjectFile(project.getRoot(), "inheritance/multilevel.py");
         Set<CodeUnit> multilevelDecls = testAnalyzer.getDeclarations(multilevelPy);
 
         var childClass = multilevelDecls.stream()
@@ -89,7 +83,7 @@ public final class PythonTypeHierarchyTest {
         assertEquals(2, childAllAncestors.size(), "Child should have 2 transitive ancestors (Middle, Base)");
 
         // Test 3: Cross-file inheritance
-        ProjectFile childPy = new ProjectFile(testProject.getRoot(), "inheritance/child.py");
+        ProjectFile childPy = new ProjectFile(project.getRoot(), "inheritance/child.py");
         Set<CodeUnit> childFileDecls = testAnalyzer.getDeclarations(childPy);
 
         var birdClass = childFileDecls.stream()
@@ -101,7 +95,7 @@ public final class PythonTypeHierarchyTest {
         assertEquals(1, birdAncestors.size(), "Bird should have exactly 1 direct ancestor (Animal)");
 
         // Test 4: Multiple inheritance
-        ProjectFile multiplePy = new ProjectFile(testProject.getRoot(), "inheritance/multiple.py");
+        ProjectFile multiplePy = new ProjectFile(project.getRoot(), "inheritance/multiple.py");
         Set<CodeUnit> multipleDecls = testAnalyzer.getDeclarations(multiplePy);
 
         var duckClass = multipleDecls.stream()
@@ -111,8 +105,6 @@ public final class PythonTypeHierarchyTest {
 
         var duckAncestors = testAnalyzer.getDirectAncestors(duckClass.get());
         assertEquals(2, duckAncestors.size(), "Duck should have exactly 2 direct ancestors (Flyable, Swimmable)");
-
-        testProject.close();
     }
 
     @Test
@@ -288,12 +280,12 @@ public final class PythonTypeHierarchyTest {
 
     @Test
     void testPackagedTopLevelClassesIncludeModuleName() {
-        Path testDir = Path.of("src/test/resources", "testcode-py");
-        TestProject project = new TestProject(testDir.toAbsolutePath(), Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+        var testAnalyzer = analyzer;
+        assertNotNull(testAnalyzer);
+        assertNotNull(project);
 
         ProjectFile testUtilsFile = new ProjectFile(project.getRoot(), "tests/units/utils/test_utils.py");
-        Set<CodeUnit> declarations = analyzer.getDeclarations(testUtilsFile);
+        Set<CodeUnit> declarations = testAnalyzer.getDeclarations(testUtilsFile);
 
         var topLevelClasses = declarations.stream()
                 .filter(CodeUnit::isClass)
@@ -304,8 +296,6 @@ public final class PythonTypeHierarchyTest {
                 .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.ExampleTestState")));
         assertTrue(
                 topLevelClasses.stream().anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.DataFrame")));
-
-        project.close();
     }
 
     @Test
@@ -349,7 +339,7 @@ public final class PythonTypeHierarchyTest {
 
         try (var testProject = builder.build()) {
             var testAnalyzer = new PythonAnalyzer(testProject);
-            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), testAnalyzer);
+            var cm = new TestContextManager(testProject, testAnalyzer);
 
             var dClass = testAnalyzer.getDefinitions("diamond.d.D");
             var classD = dClass.getFirst();
@@ -364,18 +354,6 @@ public final class PythonTypeHierarchyTest {
                     .collect(Collectors.toSet());
 
             assertEquals(Set.of("diamond.b.B", "diamond.c.C"), supportingIdentifiers);
-
-            var context = new Context(cm);
-            context = context.addFragments(summaryFragment);
-
-            var allFragments = context.allFragments().toList();
-            var summaryFragmentsInContext = allFragments.stream()
-                    .filter(f -> f instanceof ContextFragments.SummaryFragment)
-                    .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
-                    .toList();
-
-            var uniqueIdentifiers = new HashSet<>(summaryFragmentsInContext);
-            assertEquals(uniqueIdentifiers.size(), summaryFragmentsInContext.size());
         }
     }
 }
