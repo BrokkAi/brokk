@@ -977,11 +977,52 @@ def _load_marketplace(path: Path) -> dict[str, Any]:
     return data
 
 
+def _merge_codex_tool_approval(settings_path: Path | None = None, uvx_command: str = "uvx") -> None:
+    """Ensure a full ``[mcp_servers.brokk]`` entry with
+    ``default_tools_approval_mode = "approve"`` exists in Codex's ``config.toml``.
+
+    Codex's approval checker only reads the TOML config layers, not
+    plugin-loaded MCP servers, so a complete server definition (including
+    transport) is required here."""
+    path = settings_path or Path.home() / ".codex" / "config.toml"
+    if path.exists():
+        raw_text = path.read_text(encoding="utf-8")
+        if raw_text.strip():
+            try:
+                settings = tomllib.loads(raw_text)
+            except ValueError as exc:
+                raise ValueError(f"Could not parse {path} as TOML: {exc}") from exc
+        else:
+            settings = {}
+    else:
+        settings = {}
+
+    mcp_servers = settings.get("mcp_servers")
+    if mcp_servers is None:
+        mcp_servers = {}
+        settings["mcp_servers"] = mcp_servers
+
+    expected = {
+        "command": uvx_command,
+        "args": ["brokk", "mcp-core"],
+        "default_tools_approval_mode": "approve",
+    }
+    server = mcp_servers.get(_SERVER_NAME)
+    if isinstance(server, dict) and all(server.get(k) == v for k, v in expected.items()):
+        return
+
+    mcp_servers[_SERVER_NAME] = expected
+    path.parent.mkdir(parents=True, exist_ok=True)
+    toml_text = _serialize_toml(settings)
+    _atomic_write_toml(path, toml_text)
+
+
 def install_codex_local_plugin(
     *,
     force: bool = False,
     plugin_path: Path | None = None,
     marketplace_path: Path | None = None,
+    settings_path: Path | None = None,
     uvx_command: str = "uvx",
 ) -> InstalledCodexPlugin:
     plugin_dir = plugin_path or (Path.home() / ".codex" / "plugins" / _BROKK_CODEX_PLUGIN_NAME)
@@ -1042,6 +1083,8 @@ def install_codex_local_plugin(
 
     marketplace.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_settings(marketplace, marketplace_data)
+
+    _merge_codex_tool_approval(settings_path, uvx_command=uvx_command)
 
     return InstalledCodexPlugin(plugin_path=plugin_dir, marketplace_path=marketplace)
 
@@ -1142,6 +1185,7 @@ def configure_codex_mcp_settings(
     server_config = _brokk_mcp_config(uvx_command) | {
         "startup_timeout_sec": 60.0,
         "tool_timeout_sec": 300.0,
+        "default_tools_approval_mode": "approve",
     }
     mcp_servers[_SERVER_NAME] = server_config
 
