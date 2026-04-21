@@ -3,11 +3,10 @@ package ai.brokk.analyzer.usages;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.JavaAnalyzer;
-import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.UsageFinderTestUtil;
-import ai.brokk.usages.UsageFinder;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -48,15 +47,18 @@ public class JavaUsagesTest {
                 }
                 """;
 
-        try (IProject project = InlineTestProjectCreator.code(targetCode, "com/example/Target.java")
+        try (var project = InlineTestProjectCreator.code(targetCode, "com/example/Target.java")
                 .addFileContents(consumerCode, "com/example/Consumer.java")
                 .build()) {
 
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
-            UsageFinder finder = UsageFinderTestUtil.createForTest(project, analyzer);
+            var finder = new UsageFinder(project, analyzer, new RegexUsageAnalyzer(analyzer));
 
             // 1. Test usages of the class 'com.example.Target'
-            FuzzyResult classResult = finder.findUsages("com.example.Target");
+            List<CodeUnit> classOverloads = List.copyOf(analyzer.getDefinitions("com.example.Target"));
+            assertTrue(!classOverloads.isEmpty(), "Expected definitions for Target class");
+
+            FuzzyResult classResult = finder.findUsages(classOverloads);
             assertTrue(classResult instanceof FuzzyResult.Success, "Expected Success for Target class search");
             Set<UsageHit> classHits = ((FuzzyResult.Success) classResult).hits();
 
@@ -74,7 +76,10 @@ public class JavaUsagesTest {
             }
 
             // 2. Test usages of the method 'com.example.Target.doSomething'
-            FuzzyResult methodResult = finder.findUsages("com.example.Target.doSomething");
+            List<CodeUnit> methodOverloads = List.copyOf(analyzer.getDefinitions("com.example.Target.doSomething"));
+            assertTrue(!methodOverloads.isEmpty(), "Expected definitions for doSomething method");
+
+            FuzzyResult methodResult = finder.findUsages(methodOverloads);
             assertTrue(methodResult instanceof FuzzyResult.Success, "Expected Success for doSomething search");
             Set<UsageHit> methodHits = ((FuzzyResult.Success) methodResult).hits();
 
