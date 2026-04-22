@@ -782,56 +782,57 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public int computeCyclomaticComplexity(CodeUnit cu) {
         if (!cu.isFunction()) return 0;
+        int fallbackComplexity = super.computeCyclomaticComplexity(cu);
 
-        return getSource(cu, false)
-                .map(source -> {
-                    try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
-                        TSNode root = tree.getRootNode();
-                        if (root == null) return 1;
-
-                        SourceContent content = SourceContent.of(source);
-                        int complexity = 1; // Base complexity
-
-                        Deque<TSNode> stack = new ArrayDeque<>();
-                        stack.push(root);
-
-                        while (!stack.isEmpty()) {
-                            TSNode node = stack.pop();
-                            String type = node.getType();
-                            if (type == null) {
-                                continue;
+        Integer result = withTreeOf(
+                cu.source(),
+                tree -> withSource(
+                        cu.source(),
+                        content -> {
+                            TSNode cuNode = primaryNodeForCodeUnit(tree, cu);
+                            if (cuNode == null) {
+                                return 1;
                             }
 
-                            switch (type) {
-                                case IF_STATEMENT,
-                                        ELIF_CLAUSE,
-                                        FOR_STATEMENT,
-                                        WHILE_STATEMENT,
-                                        EXCEPT_CLAUSE,
-                                        CONDITIONAL_EXPRESSION,
-                                        CASE_CLAUSE -> complexity++;
-                                case BOOLEAN_OPERATOR -> {
-                                    String op = content.substringFrom(node);
-                                    if (op.contains("and") || op.contains("or")) {
-                                        complexity++;
+                            int complexity = 1;
+                            Deque<TSNode> stack = new ArrayDeque<>();
+                            stack.push(cuNode);
+
+                            while (!stack.isEmpty()) {
+                                TSNode node = stack.pop();
+                                String type = node.getType();
+                                if (type == null) {
+                                    continue;
+                                }
+
+                                switch (type) {
+                                    case IF_STATEMENT,
+                                            ELIF_CLAUSE,
+                                            FOR_STATEMENT,
+                                            WHILE_STATEMENT,
+                                            EXCEPT_CLAUSE,
+                                            CONDITIONAL_EXPRESSION,
+                                            CASE_CLAUSE -> complexity++;
+                                    case BOOLEAN_OPERATOR -> {
+                                        String op = content.substringFrom(node);
+                                        if (op.contains("and") || op.contains("or")) {
+                                            complexity++;
+                                        }
+                                    }
+                                }
+
+                                for (int i = 0; i < node.getNamedChildCount(); i++) {
+                                    TSNode child = node.getNamedChild(i);
+                                    if (child != null) {
+                                        stack.push(child);
                                     }
                                 }
                             }
-
-                            for (int i = 0; i < node.getNamedChildCount(); i++) {
-                                TSNode child = node.getNamedChild(i);
-                                if (child != null) {
-                                    stack.push(child);
-                                }
-                            }
-                        }
-                        return complexity;
-                    } catch (Exception e) {
-                        log.warn("Failed to compute complexity for {} using AST; falling back", cu.fqName(), e);
-                        return super.computeCyclomaticComplexity(cu);
-                    }
-                })
-                .orElse(0);
+                            return complexity;
+                        },
+                        fallbackComplexity),
+                fallbackComplexity);
+        return result != null ? result : fallbackComplexity;
     }
 
     @Override
