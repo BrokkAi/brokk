@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
+import ai.brokk.cli.CliArgParser;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.executor.agents.AgentDefinition;
 import ai.brokk.executor.agents.AgentStore;
@@ -74,63 +75,14 @@ public final class HeadlessExecutorMain {
     private final Thread initThread;
     private final CompletableFuture<Void> headlessInit = new CompletableFuture<>();
 
-    /**
-     * Result of parsing command-line arguments, including both parsed args and invalid keys.
-     */
-    private record ParseArgsResult(Map<String, String> args, Set<String> invalidKeys) {}
-
-    /*
-     * Parse command-line arguments into a map of normalized keys to values.
-     * Supports both --key value and --key=value forms.
-     * Returns both valid parsed args and any unrecognized keys found.
-     */
-    private static ParseArgsResult parseArgs(String[] args) {
-        var result = new HashMap<String, String>();
-        var invalidKeys = new HashSet<String>();
-        for (int i = 0; i < args.length; i++) {
-            var arg = args[i];
-            if (arg.startsWith("--")) {
-                var withoutPrefix = arg.substring(2);
-                String key;
-                String value;
-
-                if (withoutPrefix.contains("=")) {
-                    // Form: --key=value
-                    var parts = withoutPrefix.split("=", 2);
-                    key = parts[0];
-                    value = parts.length > 1 ? parts[1] : "";
-                } else {
-                    // Form: --key value
-                    key = withoutPrefix;
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        value = args[++i];
-                    } else {
-                        value = "";
-                    }
-                }
-
-                // Track invalid keys
-                if (!VALID_ARGS.contains(key)) {
-                    invalidKeys.add(key);
-                } else {
-                    result.put(key, value);
-                }
-            }
-        }
-        return new ParseArgsResult(result, invalidKeys);
+    /** Delegates to shared {@link CliArgParser}. */
+    private static CliArgParser.ParseResult parseArgs(String[] args) {
+        return CliArgParser.parse(args, VALID_ARGS);
     }
 
-    /*
-     * Get configuration value from either parsed args or environment variable.
-     * Returns null/blank only if both are absent.
-     */
     @Nullable
     private static String getConfigValue(Map<String, String> parsedArgs, String argKey, String envVarName) {
-        var argValue = parsedArgs.get(argKey);
-        if (argValue != null && !argValue.isBlank()) {
-            return argValue;
-        }
-        return System.getenv(envVarName);
+        return CliArgParser.getConfigValue(parsedArgs, argKey, envVarName);
     }
 
     private static boolean parseBooleanValue(String rawValue, String sourceName) {
@@ -158,22 +110,10 @@ public final class HeadlessExecutorMain {
         return defaultValue;
     }
 
-    /**
-     * Create a copy of the parsed arguments map with sensitive values redacted.
-     * Sensitive keys include: auth-token, brokk-api-key
-     *
-     * @param parsedArgs the original parsed arguments map
-     * @return a new map with sensitive values replaced with [REDACTED]
-     */
+    private static final Set<String> SENSITIVE_ARGS = Set.of("auth-token", "brokk-api-key");
+
     private static Map<String, String> redactSensitiveArgs(Map<String, String> parsedArgs) {
-        var redacted = new HashMap<>(parsedArgs);
-        if (redacted.containsKey("auth-token")) {
-            redacted.put("auth-token", "[REDACTED]");
-        }
-        if (redacted.containsKey("brokk-api-key")) {
-            redacted.put("brokk-api-key", "[REDACTED]");
-        }
-        return redacted;
+        return CliArgParser.redactSensitiveArgs(parsedArgs, SENSITIVE_ARGS);
     }
 
     /**

@@ -156,6 +156,8 @@ dependencies {
     implementation(libs.disklrucache)
     implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
+    implementation(libs.acp.core)
+    implementation(libs.acp.agent.support)
     implementation(libs.pcollections)
     implementation(libs.caffeine)
     // For JSON serialization interfaces (used by CodeUnit)
@@ -770,6 +772,16 @@ tasks.register<JavaExec>("runHeadlessCli") {
     description = "Runs the HeadlessExecCli"
     mainClass.set("ai.brokk.tools.HeadlessExecCli")
     classpath = sourceSets.main.get().runtimeClasspath
+}
+
+tasks.register<JavaExec>("runAcpServer") {
+    group = "application"
+    description = "Runs the Brokk ACP Server (stdio JSON-RPC)"
+    mainClass.set("ai.brokk.acp.AcpServerMain")
+    classpath = sourceSets.main.get().runtimeClasspath
+
+    systemProperty("brokk.devmode", "false")
+    systemProperty("java.awt.headless", "true")
 }
 
 tasks.register<JavaExec>("runSftServer") {

@@ -309,14 +309,22 @@ public final class JobRunner {
     }
 
     /**
+     * Execute a job asynchronously using the default HeadlessHttpConsole.
+     */
+    public synchronized CompletableFuture<Void> runAsync(String jobId, JobSpec spec) {
+        return runAsync(jobId, spec, null);
+    }
+
+    /**
      * Execute a job asynchronously.
      *
      * @param jobId The unique job identifier
      * @param spec The job specification
+     * @param customConsole optional IConsoleIO to use instead of creating a HeadlessHttpConsole
      * @return A CompletableFuture that completes when the job finishes or fails
      * @throws IllegalStateException if another job is already running and has a different jobId
      */
-    public synchronized CompletableFuture<Void> runAsync(String jobId, JobSpec spec) {
+    public synchronized CompletableFuture<Void> runAsync(String jobId, JobSpec spec, @Nullable IConsoleIO customConsole) {
         // Guard: prevent concurrent execution of different jobs
         if (activeJobId != null && !activeJobId.equals(jobId)) {
             var fut = new CompletableFuture<Void>();
@@ -326,11 +334,13 @@ public final class JobRunner {
 
         activeJobId = jobId;
         cancelled.set(false);
-        console = new HeadlessHttpConsole(store, jobId, null);
+        var httpConsole = customConsole == null ? new HeadlessHttpConsole(store, jobId, null) : null;
+        console = httpConsole;
+        final IConsoleIO activeConsole = customConsole != null ? customConsole : requireNonNull(httpConsole);
         final var previousIo = cm.getIo();
         final var previousAutoCommit = cm.isAutoCommit();
-        cm.setIo(console);
-        logger.info("Job {} attaching streaming console", jobId);
+        cm.setIo(activeConsole);
+        logger.info("Job {} attaching streaming console (custom={})", jobId, customConsole != null);
 
         // Transition status to RUNNING
         try {
@@ -347,7 +357,7 @@ public final class JobRunner {
 
         // Emit start event
         try {
-            console.showNotification(IConsoleIO.NotificationRole.INFO, "Job started: " + jobId);
+            activeConsole.showNotification(IConsoleIO.NotificationRole.INFO, "Job started: " + jobId);
         } catch (Throwable ignore) {
             // Non-critical: event writing failed, continue
         }
@@ -492,7 +502,7 @@ public final class JobRunner {
                                     }
                                     case LUTZ -> {
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
-                                            new LutzExecutor(cm, cancelled::get, console)
+                                            new LutzExecutor(cm, cancelled::get, activeConsole)
                                                     .execute(
                                                             spec.taskInput(),
                                                             requireNonNull(
@@ -694,19 +704,17 @@ public final class JobRunner {
                                                         jobId,
                                                         t.getMessage(),
                                                         t);
-                                                // Report to headless console if available (best-effort).
-                                                if (console != null) {
-                                                    try {
-                                                        console.toolError(
-                                                                "ASK direct-answer failed: "
-                                                                        + (t.getMessage() == null
-                                                                                ? t.getClass()
-                                                                                        .getSimpleName()
-                                                                                : t.getMessage()),
-                                                                "ASK error");
-                                                    } catch (Throwable ignore) {
-                                                        // best-effort only
-                                                    }
+                                                // Report to console (best-effort).
+                                                try {
+                                                    activeConsole.toolError(
+                                                            "ASK direct-answer failed: "
+                                                                    + (t.getMessage() == null
+                                                                            ? t.getClass()
+                                                                                    .getSimpleName()
+                                                                            : t.getMessage()),
+                                                            "ASK error");
+                                                } catch (Throwable ignore) {
+                                                    // best-effort only
                                                 }
                                                 // Append a non-fatal TaskResult indicating the failure so the task
                                                 // has a record,
@@ -1119,7 +1127,7 @@ public final class JobRunner {
                                                 architectCodeModel, "code model required for ISSUE jobs");
 
                                         var issueExecutor =
-                                                new IssueExecutor(cm, store, jobId, cancelled::get, console);
+                                                new IssueExecutor(cm, store, jobId, cancelled::get, activeConsole);
                                         issueExecutor.executeSolve(spec, issuePlannerModel, issueCodeModel);
                                     }
                                     case ISSUE_DIAGNOSE -> {
@@ -1335,12 +1343,10 @@ public final class JobRunner {
                     var errorMessage = formatThrowableMessage(failure);
 
                     // Emit error event
-                    if (console != null) {
-                        try {
-                            console.toolError(errorMessage, "Job error");
-                        } catch (Throwable ignore) {
-                            // Non-critical: event writing failed
-                        }
+                    try {
+                        activeConsole.toolError(errorMessage, "Job error");
+                    } catch (Throwable ignore) {
+                        // Non-critical: event writing failed
                     }
 
                     // Update status to FAILED
@@ -1387,6 +1393,16 @@ public final class JobRunner {
         });
 
         return future;
+    }
+
+    /**
+     * Cancel the currently active job, if any.
+     */
+    public void cancelActive() {
+        var jobId = activeJobId;
+        if (jobId != null) {
+            cancel(jobId);
+        }
     }
 
     /**
