@@ -1,7 +1,5 @@
 package ai.brokk.executor;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.cli.CliArgParser;
@@ -29,7 +27,6 @@ import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.executor.routers.SettingsRouter;
 import ai.brokk.project.MainProject;
-import ai.brokk.project.ModelProperties;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -437,9 +434,7 @@ public final class HeadlessExecutorMain {
 
             // Log parsed arguments (with sensitive values redacted) early for debugging
             var redactedArgs = redactSensitiveArgs(parsedArgs);
-            var argsDisplay = redactedArgs.entrySet().stream()
-                    .map(e -> e.getKey() + "=" + e.getValue())
-                    .collect(Collectors.joining(", "));
+            var argsDisplay = CliArgParser.formatForLogging(redactedArgs);
             logger.info("Parsed arguments: {}", argsDisplay);
             System.out.println("Parsed arguments: {" + argsDisplay + "}");
 
@@ -472,22 +467,6 @@ public final class HeadlessExecutorMain {
                         "AUTH_TOKEN must be provided via --auth-token argument or AUTH_TOKEN environment variable");
             }
 
-            var brokkApiKey = getConfigValue(parsedArgs, "brokk-api-key", "BROKK_API_KEY");
-
-            var proxySettingStr = getConfigValue(parsedArgs, "proxy-setting", "PROXY_SETTING");
-            @Nullable MainProject.LlmProxySetting proxySetting = null;
-            if (proxySettingStr != null && !proxySettingStr.isBlank()) {
-                try {
-                    proxySetting = MainProject.LlmProxySetting.valueOf(proxySettingStr.toUpperCase(Locale.ROOT));
-                } catch (IllegalArgumentException e) {
-                    throw new IllegalArgumentException(
-                            "Invalid proxy setting: '"
-                                    + proxySettingStr
-                                    + "'. Must be one of: BROKK, LOCALHOST, STAGING",
-                            e);
-                }
-            }
-
             var workspaceDirStr = getConfigValue(parsedArgs, "workspace-dir", "WORKSPACE_DIR");
             if (workspaceDirStr == null || workspaceDirStr.isBlank()) {
                 throw new IllegalArgumentException(
@@ -500,58 +479,11 @@ public final class HeadlessExecutorMain {
             // Build ContextManager from workspace
             var project = new MainProject(workspaceDir);
 
-            // Apply vendor preference and role mappings (if requested)
-            String vendorArg = parsedArgs.get("vendor");
-            if (vendorArg != null && !vendorArg.isBlank()) {
-                String requestedVendor = vendorArg.trim();
-                String canonicalVendor;
-                if (ModelProperties.DEFAULT_VENDOR.equalsIgnoreCase(requestedVendor)) {
-                    canonicalVendor = ModelProperties.DEFAULT_VENDOR;
-                } else {
-                    canonicalVendor = ModelProperties.getAvailableVendors().stream()
-                            .filter(v -> v.equalsIgnoreCase(requestedVendor))
-                            .findFirst()
-                            .orElseThrow(() -> new IllegalArgumentException(
-                                    "Invalid vendor: '" + requestedVendor + "'. Must be one of: "
-                                            + ModelProperties.DEFAULT_VENDOR + ", "
-                                            + String.join(", ", ModelProperties.getAvailableVendors())));
-                }
-
-                if (ModelProperties.DEFAULT_VENDOR.equals(canonicalVendor)) {
-                    for (ModelProperties.ModelType type : ModelProperties.ModelType.values()) {
-                        if (type != ModelProperties.ModelType.CODE && type != ModelProperties.ModelType.ARCHITECT) {
-                            project.removeModelConfig(type);
-                        }
-                    }
-                    MainProject.setOtherModelsVendorPreference("");
-                    logger.info("Cleared other-models vendor preference and internal role overrides");
-                } else {
-                    if ("OpenAI - Codex".equals(canonicalVendor) && !MainProject.isOpenAiCodexOauthConnected()) {
-                        throw new IllegalArgumentException(
-                                "OpenAI - Codex selected but Codex OAuth is not connected; connect/login first.");
-                    }
-                    var vendorModels = requireNonNull(
-                            ModelProperties.getVendorModels(canonicalVendor),
-                            "Vendor models unexpectedly null for " + canonicalVendor);
-                    vendorModels.forEach(project::setModelConfig);
-                    MainProject.setOtherModelsVendorPreference(canonicalVendor);
-                    logger.info("Applied other-models vendor preference: {}", canonicalVendor);
-                }
-            }
+            // Apply vendor preference, API key, and proxy overrides via shared utility
+            CliArgParser.applyVendorPreference(parsedArgs.get("vendor"), project);
+            CliArgParser.applyHeadlessOverrides(parsedArgs);
 
             var contextManager = new ContextManager(project);
-
-            // Set per-executor Brokk API key override if provided
-            if (brokkApiKey != null && !brokkApiKey.isBlank()) {
-                MainProject.setHeadlessBrokkApiKeyOverride(brokkApiKey);
-                logger.info("Using executor-specific Brokk API key (length={})", brokkApiKey.length());
-            }
-
-            // Set per-executor proxy setting override if provided
-            if (proxySetting != null) {
-                MainProject.setHeadlessProxySettingOverride(proxySetting);
-                logger.info("Using executor-specific proxy setting: {}", proxySetting);
-            }
 
             var derivedSessionsDir = workspaceDir.resolve(".brokk").resolve("sessions");
 
@@ -568,10 +500,12 @@ public final class HeadlessExecutorMain {
             System.out.println("  execId:      " + execId);
             System.out.println("  listenAddr:  " + listenAddr);
             System.out.println("  workspaceDir: " + workspaceDir);
-            System.out.println("  brokkApiKey:  "
-                    + (brokkApiKey != null && !brokkApiKey.isBlank() ? "(provided)" : "(using global config)"));
+            var brokkApiKeyArg = getConfigValue(parsedArgs, "brokk-api-key", "BROKK_API_KEY");
+            System.out.println("  brokkApiKey:  " + (brokkApiKeyArg != null ? "(provided)" : "(using global config)"));
+            var proxySettingArg = getConfigValue(parsedArgs, "proxy-setting", "PROXY_SETTING");
             System.out.println(
-                    "  proxySetting: " + (proxySetting != null ? proxySetting.name() : "(using global config)"));
+                    "  proxySetting: " + (proxySettingArg != null ? proxySettingArg : "(using global config)"));
+            var vendorArg = parsedArgs.get("vendor");
             if (vendorArg != null && !vendorArg.isBlank()) {
                 System.out.println("  vendor:      " + vendorArg.trim());
             }

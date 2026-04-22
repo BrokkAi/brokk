@@ -118,14 +118,14 @@ val errorproneCompile by configurations.creating {
     isCanBeConsumed = false
 }
 
-// Force Jackson version alignment to prevent MCP SDK from pulling in unreleased versions
+// Force Jackson version alignment across all transitive dependencies
 configurations.all {
     resolutionStrategy {
-        force("com.fasterxml.jackson.core:jackson-databind:2.18.3")
-        force("com.fasterxml.jackson.core:jackson-core:2.18.3")
-        force("com.fasterxml.jackson.core:jackson-annotations:2.18.3")
-        force("com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.18.3")
-        force("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.3")
+        force("com.fasterxml.jackson.core:jackson-databind:2.19.2")
+        force("com.fasterxml.jackson.core:jackson-core:2.19.2")
+        force("com.fasterxml.jackson.core:jackson-annotations:2.19.2")
+        force("com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.19.2")
+        force("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.19.2")
     }
 }
 

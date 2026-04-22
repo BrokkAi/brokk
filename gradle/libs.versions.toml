@@ -1,7 +1,7 @@
 [versions]
 junit = "6.0.0"
 log4j = "2.20.0"
-jackson = "2.18.3"
+jackson = "2.19.2"
 jgit = "7.5.0.202512021534-r"
 nullaway = "0.12.7"
 flatlaf = "3.6.2"

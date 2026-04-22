@@ -232,7 +232,6 @@ public final class JobRunner {
     private final JobStore store;
 
     private final ExecutorService runner;
-    private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
@@ -335,9 +334,8 @@ public final class JobRunner {
 
         activeJobId = jobId;
         cancelled.set(false);
-        var httpConsole = customConsole == null ? new HeadlessHttpConsole(store, jobId, null) : null;
-        console = httpConsole;
-        final IConsoleIO activeConsole = customConsole != null ? customConsole : requireNonNull(httpConsole);
+        final IConsoleIO activeConsole =
+                customConsole != null ? customConsole : new HeadlessHttpConsole(store, jobId, null);
         final var previousIo = cm.getIo();
         final var previousAutoCommit = cm.isAutoCommit();
         cm.setIo(activeConsole);
@@ -1293,8 +1291,8 @@ public final class JobRunner {
                         current = current.completed(null);
                         logger.info("Job {} completed successfully", jobId);
                     }
-                    if (console != null) {
-                        long lastSeq = console.getLastSeq();
+                    long lastSeq = store.getLastSeq(jobId);
+                    if (lastSeq >= 0) {
                         current = current.withMetadata("lastSeq", Long.toString(lastSeq));
                     }
                     store.updateStatus(jobId, current);
@@ -1323,8 +1321,8 @@ public final class JobRunner {
                             s = s.cancelled();
                         }
 
-                        if (console != null) {
-                            long lastSeq = console.getLastSeq();
+                        long lastSeq = store.getLastSeq(jobId);
+                        if (lastSeq >= 0) {
                             s = s.withMetadata("lastSeq", Long.toString(lastSeq));
                         }
 
@@ -1357,8 +1355,8 @@ public final class JobRunner {
                             s = JobStatus.queued(jobId);
                         }
                         s = s.failed(errorMessage);
-                        if (console != null) {
-                            long lastSeq = console.getLastSeq();
+                        long lastSeq = store.getLastSeq(jobId);
+                        if (lastSeq >= 0) {
                             s = s.withMetadata("lastSeq", Long.toString(lastSeq));
                         }
                         store.updateStatus(jobId, s);
@@ -1369,17 +1367,8 @@ public final class JobRunner {
                     futureFailure[0] = failure;
                 }
             } finally {
-                // Clean up
-                if (console != null) {
-                    try {
-                        // No-op: events are written synchronously, so nothing to await.
-                    } catch (Throwable ignore) {
-                        // Non-critical: shutdown failed
-                    }
-                }
-                // Restore original console. HeadlessHttpConsole is installed only for the job duration so that
-                // all ContextManager/agents IConsoleIO callbacks flow to the JobStore; then the previous console is
-                // restored.
+                // Restore original IO. The custom or HeadlessHttpConsole was installed only for the
+                // job duration so that all ContextManager/agents IConsoleIO callbacks flow through it.
                 cm.setAutoCommit(previousAutoCommit);
                 cm.setIo(previousIo);
                 activeJobId = null;
@@ -1441,8 +1430,10 @@ public final class JobRunner {
                         && !JobStatus.State.FAILED.name().equals(state)
                         && !JobStatus.State.CANCELLED.name().equals(state)) {
                     s = s.cancelled();
-                    long lastSeq = console != null ? console.getLastSeq() : -1;
-                    s = s.withMetadata("lastSeq", Long.toString(lastSeq));
+                    long lastSeq = store.getLastSeq(jobId);
+                    if (lastSeq >= 0) {
+                        s = s.withMetadata("lastSeq", Long.toString(lastSeq));
+                    }
                     store.updateStatus(jobId, s);
                     logger.info("Job {} status updated to CANCELLED", jobId);
                 }
