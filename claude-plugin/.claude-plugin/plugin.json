@@ -3,7 +3,15 @@
   "description": "Semantic code intelligence -- symbol navigation, cross-reference analysis, and structural code understanding powered by tree-sitter",
   "version": "0.2.0",
   "skills": "./skills/",
-  "agents": "./agents/",
+  "agents": [
+    "./agents/architect-reviewer.md",
+    "./agents/devops-reviewer.md",
+    "./agents/dry-reviewer.md",
+    "./agents/issue-diagnostician.md",
+    "./agents/issue-planner.md",
+    "./agents/security-reviewer.md",
+    "./agents/senior-dev-reviewer.md"
+  ],
   "mcpServers": "./.mcp.json",
   "author": {
     "name": "Brokk AI"
