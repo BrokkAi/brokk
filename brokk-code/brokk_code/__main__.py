@@ -931,6 +931,12 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     install_parser.add_argument(
+        "--native",
+        action="store_true",
+        default=False,
+        help="Use native Java ACP server instead of Python bridge (for zed/intellij targets)",
+    )
+    install_parser.add_argument(
         "--force",
         action="store_true",
         default=False,
@@ -1982,7 +1988,7 @@ def _main_dispatch(
                     executor_snapshot=args.executor_snapshot,
                 )
                 settings_path = configure_zed_acp_settings(
-                    force=args.force, uvx_command=uvx_command
+                    force=args.force, uvx_command=uvx_command, native=args.native
                 )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
@@ -1999,7 +2005,7 @@ def _main_dispatch(
                     executor_snapshot=args.executor_snapshot,
                 )
                 settings_path = configure_intellij_acp_settings(
-                    force=args.force, uvx_command=uvx_command
+                    force=args.force, uvx_command=uvx_command, native=args.native
                 )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
