@@ -394,9 +394,6 @@ public class JsTsExportUsageReferenceGraphTest {
     }
 
     private static ProjectFile projectFile(Set<ProjectFile> files, String fileName) {
-        return files.stream()
-                .filter(pf -> pf.toString().endsWith(fileName))
-                .findFirst()
-                .orElseThrow();
+        return AbstractUsageReferenceGraphTest.projectFile(files, fileName);
     }
 }

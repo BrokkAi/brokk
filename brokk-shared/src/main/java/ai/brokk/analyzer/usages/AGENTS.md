@@ -51,3 +51,9 @@ additional files needed to continue resolution.
 - CommonJS interop: `require(...)`, `module.exports`, `exports.*`.
 - Richer member resolution: `import()` dynamic, destructuring patterns, and non-identifier property access.
 - TS-only: type-only exports/imports coverage gaps and `export type { ... }`.
+
+## App wiring
+
+- `BRK_USAGE_GRAPH=1` enables the JS/TS exported-symbol reference-graph usage analyzer in the app-layer
+  `ai.brokk.usages.UsageFinder` for JavaScript and TypeScript.
+- When enabled, JS/TS usage results are graph-only (no LLM fallback). Frontier is tracked but not yet surfaced in the UI.
