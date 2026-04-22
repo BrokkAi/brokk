@@ -259,6 +259,214 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
     }
 
     @Test
+    public void aliasedReceiver_onConstructedInstance_resolvesMemberUsage() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                const x = new Foo();
+                const y = x;
+                y.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    public void nestedScopeShadowing_blocksOuterSeededReceiverUsage() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                const x = new Foo();
+                {
+                  const x = { bar() {} };
+                  x.bar();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(0, result.hits().size());
+        }
+    }
+
+    @Test
+    public void unknownAliasSource_doesNotCountAsMemberUsage() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                const y = missing;
+                y.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(0, result.hits().size());
+        }
+    }
+
+    @Test
+    public void typedLocalReceiver_resolvesMemberUsage() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                declare const seed: Foo;
+                const x: Foo = seed;
+                x.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    public void typedParameterReceiver_resolvesMemberUsage() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                function run(x: Foo) {
+                  x.bar();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    public void sameIdentifierInTypeAndValueSpace_doesNotLeakReceiverFactsAcrossScopes() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                function run(value: Foo) {
+                  {
+                    const value = { bar() {} };
+                    value.bar();
+                  }
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(0, result.hits().size());
+        }
+    }
+
+    @Test
     public void staticMember_onNamespaceImportedClass_resolvesMemberUsage() throws Exception {
         String a =
                 """
@@ -319,6 +527,180 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                     aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
 
             assertEquals(0, result.hits().size());
+        }
+    }
+
+    @Test
+    public void ambiguousTypedUnionBeyondCap_doesNotCountAsMemberUsage() throws Exception {
+        String a =
+                """
+                export class A { bar() {} }
+                export class B { bar() {} }
+                export class C { bar() {} }
+                export class D { bar() {} }
+                export class E { bar() {} }
+                """;
+        String b =
+                """
+                import { A, B, C, D, E } from "./a";
+                declare const seed: A | B | C | D | E;
+                const value: A | B | C | D | E = seed;
+                value.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "A", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(0, result.hits().size());
+        }
+    }
+
+    @Test
+    public void ambiguousTypedUnionUnderCap_producesBoundedLowConfidenceHits() throws Exception {
+        String a =
+                """
+                export class A { bar() {} }
+                export class B { bar() {} }
+                """;
+        String b =
+                """
+                import { A, B } from "./a";
+                declare const seed: A | B;
+                const value: A | B = seed;
+                value.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit targetA = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.shortName().startsWith("A."))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit targetB = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.shortName().startsWith("B."))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var resultA = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "A", targetA, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+            var resultB = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "B", targetB, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, resultA.hits().size());
+            assertEquals(1, resultB.hits().size());
+            assertTrue(resultA.hits().iterator().next().confidence() < 0.95);
+            assertTrue(resultB.hits().iterator().next().confidence() < 0.95);
+        }
+    }
+
+    @Test
+    public void aliasChainBeyondOneHop_keepsWorkingWithLowerConfidence() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                const x = new Foo();
+                const y = x;
+                const z = y;
+                x.bar();
+                z.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            var confidences = result.hits().stream()
+                    .map(ReferenceHit::confidence)
+                    .sorted()
+                    .toList();
+            assertEquals(2, confidences.size());
+            assertTrue(confidences.getLast() > confidences.getFirst());
+        }
+    }
+
+    @Test
+    public void receiverInference_confidenceOrdersDirectAboveConstructedAboveAliased() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  static make() {}
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                Foo.make();
+                const x = new Foo();
+                x.bar();
+                const y = x;
+                y.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit staticTarget = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("make"))
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit instanceTarget = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var staticResult = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", staticTarget, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+            var instanceResult = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", instanceTarget, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            double directConfidence = staticResult.hits().iterator().next().confidence();
+            var instanceConfidences = instanceResult.hits().stream()
+                    .map(ReferenceHit::confidence)
+                    .sorted()
+                    .toList();
+
+            assertEquals(2, instanceConfidences.size());
+            assertTrue(directConfidence > instanceConfidences.getLast());
+            assertTrue(instanceConfidences.getLast() > instanceConfidences.getFirst());
         }
     }
 

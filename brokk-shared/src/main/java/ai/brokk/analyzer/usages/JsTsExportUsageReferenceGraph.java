@@ -116,13 +116,33 @@ public final class JsTsExportUsageReferenceGraph {
             if (binder.bindings().isEmpty()) continue;
 
             Set<ReferenceCandidate> candidates = jsTs.exportUsageCandidatesOf(file, binder);
-            if (candidates.isEmpty()) continue;
+            Set<ResolvedReceiverCandidate> receiverCandidates = jsTs.resolvedReceiverCandidatesOf(file, binder);
+            if (candidates.isEmpty() && receiverCandidates.isEmpty()) continue;
 
             for (ReferenceCandidate cand : candidates) {
                 if (hits.size() >= limits.maxHits()) break;
 
                 Optional<ResolvedExport> resolved =
                         resolveCandidate(cand, file, binder, jsTs, limits, frontier, externalFrontier);
+                if (resolved.isEmpty()) continue;
+
+                CodeUnit resolvedTarget = resolved.get().target();
+                double confidence = resolved.get().confidence();
+
+                for (CodeUnit target : targets) {
+                    if (matchesTarget(target, resolvedTarget, heritageEdges)) {
+                        hits.add(new ReferenceHit(
+                                file, cand.range(), cand.enclosingUnit(), cand.kind(), target, confidence));
+                        break;
+                    }
+                }
+            }
+
+            for (ResolvedReceiverCandidate cand : receiverCandidates) {
+                if (hits.size() >= limits.maxHits()) break;
+
+                Optional<ResolvedExport> resolved =
+                        resolveReceiverCandidate(cand, file, jsTs, limits, frontier, externalFrontier);
                 if (resolved.isEmpty()) continue;
 
                 CodeUnit resolvedTarget = resolved.get().target();
@@ -326,6 +346,44 @@ public final class JsTsExportUsageReferenceGraph {
         outcome.resolved().ifPresent(frontier::add);
         outcome.externalFrontier().ifPresent(externalFrontier::add);
         return Optional.empty();
+    }
+
+    private static Optional<ResolvedExport> resolveReceiverCandidate(
+            ResolvedReceiverCandidate cand,
+            ProjectFile file,
+            JsTsAnalyzer jsTs,
+            Limits limits,
+            Set<ProjectFile> frontier,
+            Set<String> externalFrontier) {
+        JsTsAnalyzer.ResolutionOutcome imported =
+                jsTs.resolveEsmModuleOutcome(file, cand.receiverTarget().moduleSpecifier());
+        if (imported.resolved().isEmpty()) {
+            imported.externalFrontier().ifPresent(externalFrontier::add);
+            return addFrontier(frontier, externalFrontier, cand.receiverTarget().moduleSpecifier(), file, jsTs);
+        }
+
+        var ownerResolution = resolveExport(
+                imported.resolved().orElseThrow(),
+                cand.receiverTarget().exportedName(),
+                jsTs,
+                limits,
+                externalFrontier);
+        frontier.addAll(ownerResolution.frontier());
+        CodeUnit ownerClass = ownerResolution.targets().stream()
+                .filter(cu -> cu.kind() == CodeUnitType.CLASS)
+                .findFirst()
+                .orElse(null);
+        if (ownerClass == null) {
+            return Optional.empty();
+        }
+
+        CodeUnit member = resolveClassMember(
+                ownerClass, cand.identifier(), cand.receiverTarget().instanceReceiver(), jsTs);
+        if (member == null) {
+            return Optional.empty();
+        }
+
+        return Optional.of(new ResolvedExport(member, cand.confidence()));
     }
 
     private record ExportResolution(Set<CodeUnit> targets, Set<ProjectFile> frontier) {}

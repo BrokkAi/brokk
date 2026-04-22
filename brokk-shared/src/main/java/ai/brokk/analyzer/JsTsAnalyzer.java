@@ -9,6 +9,7 @@ import ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes;
 import ai.brokk.analyzer.usages.ExportIndex;
 import ai.brokk.analyzer.usages.ImportBinder;
 import ai.brokk.analyzer.usages.ReferenceCandidate;
+import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import ai.brokk.project.ICoreProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -170,6 +171,27 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
         cache().references().put(file, computed);
         return computed;
+    }
+
+    public Set<ResolvedReceiverCandidate> resolvedReceiverCandidatesOf(ProjectFile file, ImportBinder binder) {
+        if (binder.bindings().isEmpty()) {
+            return Set.of();
+        }
+
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Set.<ResolvedReceiverCandidate>of();
+                    }
+                    return withSource(
+                            file,
+                            sc -> JsTsExportUsageExtractor.computeResolvedReceiverCandidates(
+                                    this, file, root, sc, binder),
+                            Set.<ResolvedReceiverCandidate>of());
+                },
+                Set.<ResolvedReceiverCandidate>of());
     }
 
     /**
