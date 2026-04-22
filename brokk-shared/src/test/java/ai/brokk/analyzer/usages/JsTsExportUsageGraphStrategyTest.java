@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.usages;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
@@ -133,6 +134,24 @@ public class JsTsExportUsageGraphStrategyTest extends AbstractUsageReferenceGrap
             assertEquals(
                     1,
                     ((FuzzyResult.Success) result).hitsByOverload().get(target).size());
+        }
+    }
+
+    @Test
+    public void nonExportedFunction_cannotUseGraphSeed() throws Exception {
+        String a = """
+                function helper() {}
+                helper();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts").build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            CodeUnit target =
+                    analyzer.getDefinitions("helper").stream().findFirst().orElseThrow();
+
+            var strategy = new JsTsExportUsageGraphStrategy(analyzer);
+
+            assertFalse(strategy.canHandle(target));
         }
     }
 }

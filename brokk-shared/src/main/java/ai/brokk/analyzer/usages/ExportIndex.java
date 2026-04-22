@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.usages;
 
+import ai.brokk.analyzer.CodeUnitType;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -41,5 +42,5 @@ public record ExportIndex(
 
     public record HeritageEdge(String childName, String parentName) {}
 
-    public record ClassMember(String ownerClassName, String memberName, boolean staticMember) {}
+    public record ClassMember(String ownerClassName, String memberName, boolean staticMember, CodeUnitType kind) {}
 }

@@ -6,12 +6,17 @@ import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.CLASS_D
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.FUNCTION_DECLARATION;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.IMPORT_DECLARATION;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.METHOD_DEFINITION;
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.RETURN_STATEMENT;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.VARIABLE_DECLARATOR;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.JsTsAnalyzer;
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceContent;
 import ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes;
@@ -25,6 +30,7 @@ import ai.brokk.analyzer.usages.ReferenceKind;
 import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import com.google.common.base.Splitter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -50,6 +56,11 @@ import org.treesitter.TSQueryMatch;
  */
 public final class JsTsExportUsageExtractor {
     private static final Logger logger = LogManager.getLogger(JsTsExportUsageExtractor.class);
+
+    private record ScopeKey(int startByte, int endByte, String type) {}
+
+    private record ShadowingIndex(Map<ScopeKey, Set<String>> localNamesByScope) {}
+
     private static final String IMPORT_STATEMENT = "import_statement";
     private static final String CLASS_BODY = "class_body";
     private static final String CLASS_HERITAGE = "class_heritage";
@@ -58,20 +69,27 @@ public final class JsTsExportUsageExtractor {
     private static final String TYPE_ALIAS_DECLARATION = "type_alias_declaration";
     private static final String TYPE_ANNOTATION = "type_annotation";
     private static final String TYPE_ARGUMENTS = "type_arguments";
+    private static final String TYPE_QUERY = "type_query";
     private static final String PROPERTY_IDENTIFIER = "property_identifier";
     private static final String PUBLIC_FIELD_DEFINITION = "public_field_definition";
     private static final String ABSTRACT_METHOD_SIGNATURE = "abstract_method_signature";
     private static final String METHOD_SIGNATURE = "method_signature";
     private static final String OBJECT_TYPE = "object_type";
+    private static final String THIS = "this";
     private static final String TYPE_IDENTIFIER = "type_identifier";
     private static final String NESTED_TYPE_IDENTIFIER = "nested_type_identifier";
     private static final String NEW_EXPRESSION = "new_expression";
     private static final String MEMBER_EXPRESSION = "member_expression";
+    private static final String OBJECT_PATTERN = "object_pattern";
+    private static final String ARRAY_PATTERN = "array_pattern";
+    private static final String PAIR_PATTERN = "pair_pattern";
+    private static final String SHORTHAND_PROPERTY_IDENTIFIER_PATTERN = "shorthand_property_identifier_pattern";
     private static final String STATEMENT_BLOCK = "statement_block";
     private static final String FORMAL_PARAMETERS = "formal_parameters";
     private static final String OBJECT = "object";
     private static final String PROPERTY = "property";
     private static final String CONSTRUCTOR = "constructor";
+    private static final String FUNCTION = "function";
     private static final String VALUE = "value";
     private static final String STATIC = "static";
 
@@ -364,15 +382,19 @@ public final class JsTsExportUsageExtractor {
         if (bindings.isEmpty()) return Set.of();
 
         var candidates = new LinkedHashSet<ReferenceCandidate>();
+        ShadowingIndex shadowingIndex = buildShadowingIndex(root, sc);
         CodeUnit fallbackEnclosing = analyzer.enclosingCodeUnit(file, new IAnalyzer.Range(0, 0, 0, 0, 0))
                 .orElseGet(() -> CodeUnit.module(file, "", file.getFileName()));
 
         try {
-            collectReferenceCandidates(root, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
+            collectReferenceCandidates(
+                    root, analyzer, file, sc, bindings, shadowingIndex, fallbackEnclosing, candidates);
         } catch (Exception e) {
             logger.debug("Tree-sitter export usage candidate extraction failed for {}", file, e);
             return Set.of();
         }
+
+        logger.debug("JS/TS export usage candidates for {}: {}", file, candidates);
 
         return Set.copyOf(candidates);
     }
@@ -402,6 +424,7 @@ public final class JsTsExportUsageExtractor {
             ProjectFile file,
             SourceContent sc,
             Map<String, ImportBinder.ImportBinding> bindings,
+            ShadowingIndex shadowingIndex,
             CodeUnit fallbackEnclosing,
             Set<ReferenceCandidate> candidates) {
         if (node == null) {
@@ -409,16 +432,18 @@ public final class JsTsExportUsageExtractor {
         }
 
         if (isTypeContextRoot(node)) {
-            collectTypeReferenceCandidates(node, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
+            collectTypeReferenceCandidates(
+                    node, analyzer, file, sc, bindings, shadowingIndex, fallbackEnclosing, candidates);
         }
-        addIdentifierCandidate(node, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
-        addMemberCandidate(node, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
+        addIdentifierCandidate(node, analyzer, file, sc, bindings, shadowingIndex, fallbackEnclosing, candidates);
+        addMemberCandidate(node, analyzer, file, sc, bindings, shadowingIndex, fallbackEnclosing, candidates);
 
         int childCount = node.getChildCount();
         for (int i = 0; i < childCount; i++) {
             TSNode child = node.getChild(i);
             if (child != null) {
-                collectReferenceCandidates(child, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
+                collectReferenceCandidates(
+                        child, analyzer, file, sc, bindings, shadowingIndex, fallbackEnclosing, candidates);
             }
         }
     }
@@ -429,6 +454,7 @@ public final class JsTsExportUsageExtractor {
             ProjectFile file,
             SourceContent sc,
             Map<String, ImportBinder.ImportBinding> bindings,
+            ShadowingIndex shadowingIndex,
             CodeUnit fallbackEnclosing,
             Set<ReferenceCandidate> candidates) {
         if (node == null) {
@@ -440,7 +466,7 @@ public final class JsTsExportUsageExtractor {
                     && IDENTIFIER_TOKEN.matcher(text).matches()
                     && !isWithinImportStatement(node)
                     && !isDeclarationIdentifier(node)
-                    && !isShadowedInEnclosingFunction(analyzer, node, text, sc)) {
+                    && !isShadowed(node, text, shadowingIndex)) {
                 addCandidate(
                         candidates,
                         analyzer,
@@ -459,7 +485,8 @@ public final class JsTsExportUsageExtractor {
         for (int i = 0; i < node.getChildCount(); i++) {
             TSNode child = node.getChild(i);
             if (child != null) {
-                collectTypeReferenceCandidates(child, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
+                collectTypeReferenceCandidates(
+                        child, analyzer, file, sc, bindings, shadowingIndex, fallbackEnclosing, candidates);
             }
         }
     }
@@ -470,6 +497,7 @@ public final class JsTsExportUsageExtractor {
             ProjectFile file,
             SourceContent sc,
             Map<String, ImportBinder.ImportBinding> bindings,
+            ShadowingIndex shadowingIndex,
             CodeUnit fallbackEnclosing,
             Set<ReferenceCandidate> candidates) {
         if (!isIdentifierLike(node)) {
@@ -480,7 +508,7 @@ public final class JsTsExportUsageExtractor {
         if (!bindings.containsKey(identifier) || isWithinImportStatement(node) || isDeclarationIdentifier(node)) {
             return;
         }
-        if (isShadowedInEnclosingFunction(analyzer, node, identifier, sc)) {
+        if (isShadowed(node, identifier, shadowingIndex)) {
             return;
         }
 
@@ -541,6 +569,7 @@ public final class JsTsExportUsageExtractor {
             ProjectFile file,
             SourceContent sc,
             Map<String, ImportBinder.ImportBinding> bindings,
+            ShadowingIndex shadowingIndex,
             CodeUnit fallbackEnclosing,
             Set<ReferenceCandidate> candidates) {
         if (!MEMBER_EXPRESSION.equals(node.getType())) {
@@ -549,6 +578,12 @@ public final class JsTsExportUsageExtractor {
 
         TSNode objectNode = node.getChildByFieldName("object");
         TSNode propertyNode = node.getChildByFieldName("property");
+        if (objectNode == null && node.getNamedChildCount() > 0) {
+            objectNode = node.getNamedChild(0);
+        }
+        if (propertyNode == null && node.getNamedChildCount() > 1) {
+            propertyNode = node.getNamedChild(1);
+        }
         if (objectNode == null || propertyNode == null || isDeclarationIdentifier(propertyNode)) {
             return;
         }
@@ -564,10 +599,29 @@ public final class JsTsExportUsageExtractor {
 
         boolean isMethodCall = isMethodCallMember(node);
 
+        if (THIS.equals(objectNode.getType())
+                || "this".equals(sc.substringFrom(objectNode).strip())) {
+            String ownerClassName = enclosingClassName(node, sc);
+            if (ownerClassName != null && isExportedClass(analyzer, file, ownerClassName)) {
+                addCandidate(
+                        candidates,
+                        analyzer,
+                        file,
+                        propertyNode,
+                        fallbackEnclosing,
+                        property,
+                        null,
+                        ownerClassName,
+                        true,
+                        isMethodCall ? ReferenceKind.METHOD_CALL : ReferenceKind.FIELD_READ);
+            }
+            return;
+        }
+
         if (isIdentifierLike(objectNode)) {
             String qualifier = sc.substringFrom(objectNode).strip();
             ImportBinder.ImportBinding binding = bindings.get(qualifier);
-            if (binding == null || isShadowedInEnclosingFunction(analyzer, objectNode, qualifier, sc)) {
+            if (binding == null || isShadowed(objectNode, qualifier, shadowingIndex)) {
                 return;
             }
 
@@ -598,7 +652,7 @@ public final class JsTsExportUsageExtractor {
                 ImportBinder.ImportBinding binding = bindings.get(qualifier);
                 if (binding != null
                         && binding.kind() == ImportBinder.ImportKind.NAMESPACE
-                        && !isShadowedInEnclosingFunction(analyzer, namespaceNode, qualifier, sc)) {
+                        && !isShadowed(namespaceNode, qualifier, shadowingIndex)) {
                     addCandidate(
                             candidates,
                             analyzer,
@@ -620,8 +674,7 @@ public final class JsTsExportUsageExtractor {
             if (ctorNode != null
                     && isIdentifierLike(ctorNode)
                     && bindings.containsKey(sc.substringFrom(ctorNode).strip())
-                    && !isShadowedInEnclosingFunction(
-                            analyzer, ctorNode, sc.substringFrom(ctorNode).strip(), sc)) {
+                    && !isShadowed(ctorNode, sc.substringFrom(ctorNode).strip(), shadowingIndex)) {
                 addCandidate(
                         candidates,
                         analyzer,
@@ -650,7 +703,9 @@ public final class JsTsExportUsageExtractor {
                     events.add(new LocalUsageEvent.DeclareSymbol(name));
                     events.add(new LocalUsageEvent.SeedSymbol(name, Set.of(target)));
                 }));
-        collectLocalUsageEvents(root, analyzer, file, sc, binder.bindings(), fallbackEnclosing, events, false);
+        var returnTargetsByFunction = computeSimpleReturnTargets(root, sc, binder.bindings());
+        collectLocalUsageEvents(
+                root, analyzer, file, sc, binder.bindings(), returnTargetsByFunction, fallbackEnclosing, events, false);
         return List.copyOf(events);
     }
 
@@ -660,6 +715,7 @@ public final class JsTsExportUsageExtractor {
             ProjectFile file,
             SourceContent sc,
             Map<String, ImportBinder.ImportBinding> bindings,
+            Map<String, Set<ReceiverTargetRef>> returnTargetsByFunction,
             CodeUnit fallbackEnclosing,
             List<LocalUsageEvent> events,
             boolean insideFunctionLike) {
@@ -673,10 +729,11 @@ public final class JsTsExportUsageExtractor {
             events.add(new LocalUsageEvent.EnterScope());
             if (childFunctionLike) {
                 emitParameterEvents(node, sc, bindings, events);
+                emitThisEvents(node, analyzer, file, sc, events);
             }
         }
 
-        emitLocalDeclarationEvents(node, sc, bindings, events);
+        emitLocalDeclarationEvents(node, sc, bindings, returnTargetsByFunction, events);
         emitReceiverAccessEvent(node, analyzer, file, sc, bindings, fallbackEnclosing, events);
 
         int childCount = node.getChildCount();
@@ -684,7 +741,15 @@ public final class JsTsExportUsageExtractor {
             TSNode child = node.getChild(i);
             if (child != null) {
                 collectLocalUsageEvents(
-                        child, analyzer, file, sc, bindings, fallbackEnclosing, events, childFunctionLike);
+                        child,
+                        analyzer,
+                        file,
+                        sc,
+                        bindings,
+                        returnTargetsByFunction,
+                        fallbackEnclosing,
+                        events,
+                        childFunctionLike);
             }
         }
 
@@ -737,31 +802,60 @@ public final class JsTsExportUsageExtractor {
         });
     }
 
+    private static void emitThisEvents(
+            TSNode functionNode,
+            JsTsAnalyzer analyzer,
+            ProjectFile file,
+            SourceContent sc,
+            List<LocalUsageEvent> events) {
+        if (!isMethodLikeFunction(functionNode)) {
+            return;
+        }
+        String ownerClassName = enclosingClassName(functionNode, sc);
+        if (ownerClassName == null || !isExportedClass(analyzer, file, ownerClassName)) {
+            return;
+        }
+        events.add(new LocalUsageEvent.DeclareSymbol(THIS));
+        events.add(new LocalUsageEvent.SeedSymbol(
+                THIS, Set.of(new ReceiverTargetRef(null, ownerClassName, true, 0.96, file))));
+    }
+
+    private static boolean isMethodLikeFunction(TSNode functionNode) {
+        TSNode parent = functionNode.getParent();
+        return parent != null && METHOD_DEFINITION.equals(parent.getType());
+    }
+
     private static void emitLocalDeclarationEvents(
             TSNode node,
             SourceContent sc,
             Map<String, ImportBinder.ImportBinding> bindings,
+            Map<String, Set<ReceiverTargetRef>> returnTargetsByFunction,
             List<LocalUsageEvent> events) {
         if (!VARIABLE_DECLARATOR.equals(node.getType())) {
             return;
         }
         TSNode nameNode = node.getChildByFieldName("name");
-        if (nameNode == null || !isIdentifierLike(nameNode)) {
+        if (nameNode == null) {
             return;
         }
-        String localName = sc.substringFrom(nameNode).strip();
-        events.add(new LocalUsageEvent.DeclareSymbol(localName));
+        var localNames = new LinkedHashSet<String>();
+        collectDeclaredLocalNames(nameNode, sc, localNames);
+        if (localNames.isEmpty()) {
+            return;
+        }
+        localNames.forEach(name -> events.add(new LocalUsageEvent.DeclareSymbol(name)));
 
         Set<ReceiverTargetRef> typeTargets =
                 receiverTargetsFromTypeAnnotation(node.getChildByFieldName("type"), sc, bindings, true);
-        if (!typeTargets.isEmpty()) {
-            events.add(new LocalUsageEvent.SeedSymbol(localName, typeTargets));
+        if (!typeTargets.isEmpty() && localNames.size() == 1) {
+            events.add(new LocalUsageEvent.SeedSymbol(localNames.iterator().next(), typeTargets));
         }
 
         TSNode valueNode = node.getChildByFieldName(VALUE);
-        if (valueNode == null) {
+        if (valueNode == null || localNames.size() != 1) {
             return;
         }
+        String localName = localNames.iterator().next();
 
         if (isIdentifierLike(valueNode)) {
             events.add(new LocalUsageEvent.AliasSymbol(
@@ -776,6 +870,21 @@ public final class JsTsExportUsageExtractor {
                         bindings.get(sc.substringFrom(ctorNode).strip());
                 receiverTarget(binding, true)
                         .ifPresent(target -> events.add(new LocalUsageEvent.SeedSymbol(localName, Set.of(target))));
+                return;
+            }
+        }
+
+        if (CALL_EXPRESSION.equals(valueNode.getType())) {
+            TSNode calleeNode = valueNode.getChildByFieldName(FUNCTION);
+            if (calleeNode == null && valueNode.getNamedChildCount() > 0) {
+                calleeNode = valueNode.getNamedChild(0);
+            }
+            if (calleeNode != null && isIdentifierLike(calleeNode)) {
+                Set<ReceiverTargetRef> returnTargets =
+                        returnTargetsByFunction.get(sc.substringFrom(calleeNode).strip());
+                if (returnTargets != null && !returnTargets.isEmpty()) {
+                    events.add(new LocalUsageEvent.SeedSymbol(localName, returnTargets));
+                }
             }
         }
     }
@@ -794,12 +903,33 @@ public final class JsTsExportUsageExtractor {
 
         TSNode objectNode = node.getChildByFieldName(OBJECT);
         TSNode propertyNode = node.getChildByFieldName(PROPERTY);
+        if (objectNode == null && node.getNamedChildCount() > 0) {
+            objectNode = node.getNamedChild(0);
+        }
+        if (propertyNode == null && node.getNamedChildCount() > 1) {
+            propertyNode = node.getNamedChild(1);
+        }
         if (objectNode == null
                 || propertyNode == null
-                || !isIdentifierLike(objectNode)
                 || !isIdentifierLike(propertyNode)
                 || isDeclarationIdentifier(propertyNode)
                 || isWithinImportStatement(objectNode)) {
+            return;
+        }
+
+        if (THIS.equals(objectNode.getType())) {
+            IAnalyzer.Range range = rangeOf(propertyNode);
+            CodeUnit enclosing = analyzer.enclosingCodeUnit(file, range).orElse(fallbackEnclosing);
+            events.add(new LocalUsageEvent.ReceiverAccess(
+                    THIS,
+                    sc.substringFrom(propertyNode).strip(),
+                    isMethodCallMember(node) ? ReferenceKind.METHOD_CALL : ReferenceKind.FIELD_READ,
+                    range,
+                    enclosing));
+            return;
+        }
+
+        if (!isIdentifierLike(objectNode)) {
             return;
         }
 
@@ -835,6 +965,187 @@ public final class JsTsExportUsageExtractor {
         return Set.copyOf(targets);
     }
 
+    private static Map<String, Set<ReceiverTargetRef>> computeSimpleReturnTargets(
+            TSNode root, SourceContent sc, Map<String, ImportBinder.ImportBinding> bindings) {
+        var returnTargetsByFunction = new java.util.HashMap<String, Set<ReceiverTargetRef>>();
+        walk(root, node -> {
+            if (!FUNCTION_DECLARATION.equals(node.getType())) {
+                return;
+            }
+            TSNode nameNode = node.getChildByFieldName("name");
+            if (nameNode == null || !isIdentifierLike(nameNode)) {
+                return;
+            }
+            Set<ReceiverTargetRef> targets = simpleReturnTargets(node, sc, bindings);
+            if (!targets.isEmpty()) {
+                returnTargetsByFunction.put(sc.substringFrom(nameNode).strip(), targets);
+            }
+        });
+        return Map.copyOf(returnTargetsByFunction);
+    }
+
+    private static Set<ReceiverTargetRef> simpleReturnTargets(
+            TSNode functionNode, SourceContent sc, Map<String, ImportBinder.ImportBinding> bindings) {
+        var targets = new LinkedHashSet<ReceiverTargetRef>();
+        walk(functionNode, node -> {
+            if (!RETURN_STATEMENT.equals(node.getType())) {
+                return;
+            }
+            TSNode valueNode = node.getChildByFieldName(VALUE);
+            if (valueNode == null && node.getNamedChildCount() > 0) {
+                valueNode = node.getNamedChild(0);
+            }
+            if (valueNode == null) {
+                return;
+            }
+            if (NEW_EXPRESSION.equals(valueNode.getType())) {
+                TSNode ctorNode = valueNode.getChildByFieldName(CONSTRUCTOR);
+                if (ctorNode == null && valueNode.getNamedChildCount() > 0) {
+                    ctorNode = valueNode.getNamedChild(0);
+                }
+                if (ctorNode != null && isIdentifierLike(ctorNode)) {
+                    receiverTarget(bindings.get(sc.substringFrom(ctorNode).strip()), true)
+                            .ifPresent(targets::add);
+                }
+                return;
+            }
+            if (isIdentifierLike(valueNode)) {
+                receiverTarget(bindings.get(sc.substringFrom(valueNode).strip()), true)
+                        .ifPresent(targets::add);
+            }
+        });
+        return Set.copyOf(targets);
+    }
+
+    private static ShadowingIndex buildShadowingIndex(TSNode root, SourceContent sc) {
+        var localNamesByScope = new java.util.HashMap<ScopeKey, Set<String>>();
+        collectShadowingIndex(root, sc, localNamesByScope, false);
+        collectShadowingBindings(root, sc, localNamesByScope);
+        return new ShadowingIndex(Collections.unmodifiableMap(localNamesByScope));
+    }
+
+    private static void collectShadowingIndex(
+            TSNode node, SourceContent sc, Map<ScopeKey, Set<String>> localNamesByScope, boolean insideFunctionLike) {
+        if (node == null) {
+            return;
+        }
+
+        boolean functionLike = isFunctionLike(node);
+        boolean opensScope = functionLike || (STATEMENT_BLOCK.equals(node.getType()) && insideFunctionLike);
+        if (opensScope) {
+            localNamesByScope.put(scopeKey(node), new HashSet<>());
+        }
+
+        boolean childInsideFunction = insideFunctionLike || functionLike;
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (child != null) {
+                collectShadowingIndex(child, sc, localNamesByScope, childInsideFunction);
+            }
+        }
+    }
+
+    private static void collectShadowingBindings(
+            TSNode node, SourceContent sc, Map<ScopeKey, Set<String>> localNamesByScope) {
+        if (node == null) {
+            return;
+        }
+
+        if (FORMAL_PARAMETERS.equals(node.getType())) {
+            addLocalNames(sc, localNamesByScope, nearestShadowScope(node), node);
+        }
+
+        if (isShadowingDeclarationNode(node)) {
+            TSNode nameNode = node.getChildByFieldName("name");
+            if (nameNode != null) {
+                addLocalNames(sc, localNamesByScope, nearestShadowScope(node), nameNode);
+            }
+        }
+
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (child != null) {
+                collectShadowingBindings(child, sc, localNamesByScope);
+            }
+        }
+    }
+
+    private static boolean isShadowingDeclarationNode(TSNode node) {
+        String type = node.getType();
+        return VARIABLE_DECLARATOR.equals(type)
+                || FUNCTION_DECLARATION.equals(type)
+                || CLASS_DECLARATION.equals(type)
+                || TypeScriptTreeSitterNodeTypes.INTERFACE_DECLARATION.equals(type)
+                || TYPE_ALIAS_DECLARATION.equals(type);
+    }
+
+    private static void addLocalNames(
+            SourceContent sc,
+            Map<ScopeKey, Set<String>> localNamesByScope,
+            @Nullable TSNode scopeNode,
+            TSNode bindingNode) {
+        if (scopeNode == null) {
+            return;
+        }
+        Set<String> localNames = localNamesByScope.get(scopeKey(scopeNode));
+        if (localNames == null) {
+            return;
+        }
+        collectBoundNames(bindingNode, sc, localNames);
+    }
+
+    private static void collectBoundNames(TSNode node, SourceContent sc, Set<String> localNames) {
+        if (node == null) {
+            return;
+        }
+        if (isIdentifierLike(node)) {
+            String localName = sc.substringFrom(node).strip();
+            if (!localName.isEmpty()) {
+                localNames.add(localName);
+            }
+            return;
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            if (child != null) {
+                collectBoundNames(child, sc, localNames);
+            }
+        }
+    }
+
+    private static boolean isShadowed(TSNode node, String identifierName, ShadowingIndex shadowingIndex) {
+        TSNode current = node.getParent();
+        while (current != null) {
+            Set<String> localNames = shadowingIndex.localNamesByScope().get(scopeKey(current));
+            if (localNames != null && localNames.contains(identifierName)) {
+                return true;
+            }
+            current = current.getParent();
+        }
+        return false;
+    }
+
+    private static ScopeKey scopeKey(TSNode node) {
+        return new ScopeKey(
+                node.getStartByte(),
+                node.getEndByte(),
+                Optional.ofNullable(node.getType()).orElse(""));
+    }
+
+    private static @Nullable TSNode nearestShadowScope(TSNode node) {
+        TSNode current = node.getParent();
+        while (current != null) {
+            TSNode parent = current.getParent();
+            boolean insideFunctionLike = parent != null && isFunctionLike(parent);
+            if (isFunctionLike(current) || (STATEMENT_BLOCK.equals(current.getType()) && insideFunctionLike)) {
+                return current;
+            }
+            current = parent;
+        }
+        return null;
+    }
+
     private static void collectReceiverTargetsFromType(
             TSNode node,
             SourceContent sc,
@@ -865,7 +1176,11 @@ public final class JsTsExportUsageExtractor {
             return Optional.empty();
         }
         return Optional.of(new ReceiverTargetRef(
-                binding.moduleSpecifier(), binding.importedName(), instanceReceiver, instanceReceiver ? 0.95 : 1.0));
+                binding.moduleSpecifier(),
+                binding.importedName(),
+                instanceReceiver,
+                instanceReceiver ? 0.95 : 1.0,
+                null));
     }
 
     private static @Nullable TSNode findFirstDescendant(TSNode node, String type) {
@@ -987,9 +1302,20 @@ public final class JsTsExportUsageExtractor {
                     continue;
                 }
                 classMembers.add(new ExportIndex.ClassMember(
-                        className, sc.substringFrom(memberNameNode).strip(), hasModifier(member, STATIC)));
+                        className,
+                        sc.substringFrom(memberNameNode).strip(),
+                        hasModifier(member, STATIC),
+                        memberKindOf(member)));
             }
         }
+    }
+
+    private static CodeUnitType memberKindOf(TSNode member) {
+        String type = member.getType();
+        if (METHOD_DEFINITION.equals(type) || ABSTRACT_METHOD_SIGNATURE.equals(type) || METHOD_SIGNATURE.equals(type)) {
+            return CodeUnitType.FUNCTION;
+        }
+        return CodeUnitType.FIELD;
     }
 
     private static boolean isClassMemberNode(TSNode node) {
@@ -1047,20 +1373,23 @@ public final class JsTsExportUsageExtractor {
         TSNode parent = identifierNode.getParent();
         if (parent == null) return false;
         String type = parent.getType();
-        if (VARIABLE_DECLARATOR.equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
+        TSNode nameNode = parent.getChildByFieldName("name");
+        if (nameNode == null && parent.getNamedChildCount() > 0) {
+            nameNode = parent.getNamedChild(0);
+        }
+        if (VARIABLE_DECLARATOR.equals(type) && identifierNode.equals(nameNode)) {
             return true;
         }
-        if (FUNCTION_DECLARATION.equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
+        if (FUNCTION_DECLARATION.equals(type) && identifierNode.equals(nameNode)) {
             return true;
         }
-        if (CLASS_DECLARATION.equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
+        if (CLASS_DECLARATION.equals(type) && identifierNode.equals(nameNode)) {
             return true;
         }
-        if (TypeScriptTreeSitterNodeTypes.INTERFACE_DECLARATION.equals(type)
-                && identifierNode.equals(parent.getChildByFieldName("name"))) {
+        if (TypeScriptTreeSitterNodeTypes.INTERFACE_DECLARATION.equals(type) && identifierNode.equals(nameNode)) {
             return true;
         }
-        if (TYPE_ALIAS_DECLARATION.equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
+        if (TYPE_ALIAS_DECLARATION.equals(type) && identifierNode.equals(nameNode)) {
             return true;
         }
         return false;
@@ -1076,6 +1405,7 @@ public final class JsTsExportUsageExtractor {
             if (TYPE_ANNOTATION.equals(type)
                     || TYPE_ALIAS_DECLARATION.equals(type)
                     || TYPE_ARGUMENTS.equals(type)
+                    || TYPE_QUERY.equals(type)
                     || IMPLEMENTS_CLAUSE.equals(type)
                     || EXTENDS_CLAUSE.equals(type)) {
                 return true;
@@ -1093,9 +1423,59 @@ public final class JsTsExportUsageExtractor {
         return TYPE_ANNOTATION.equals(type)
                 || TYPE_ALIAS_DECLARATION.equals(type)
                 || TYPE_ARGUMENTS.equals(type)
+                || TYPE_QUERY.equals(type)
                 || CLASS_HERITAGE.equals(type)
                 || IMPLEMENTS_CLAUSE.equals(type)
                 || EXTENDS_CLAUSE.equals(type);
+    }
+
+    private static void collectDeclaredLocalNames(@Nullable TSNode node, SourceContent sc, Set<String> localNames) {
+        if (node == null) {
+            return;
+        }
+        String type = node.getType();
+        if (isIdentifierLike(node) || SHORTHAND_PROPERTY_IDENTIFIER_PATTERN.equals(type)) {
+            String localName = sc.substringFrom(node).strip();
+            if (!localName.isEmpty()) {
+                localNames.add(localName);
+            }
+            return;
+        }
+        if (PAIR_PATTERN.equals(type)) {
+            collectDeclaredLocalNames(node.getChildByFieldName(VALUE), sc, localNames);
+            return;
+        }
+        if (!OBJECT_PATTERN.equals(type) && !ARRAY_PATTERN.equals(type)) {
+            return;
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            if (child != null) {
+                collectDeclaredLocalNames(child, sc, localNames);
+            }
+        }
+    }
+
+    private static @Nullable String enclosingClassName(TSNode node, SourceContent sc) {
+        TSNode current = node;
+        while (current != null) {
+            if (CLASS_DECLARATION.equals(current.getType())) {
+                TSNode nameNode = current.getChildByFieldName("name");
+                return nameNode != null ? sc.substringFrom(nameNode).strip() : null;
+            }
+            current = current.getParent();
+        }
+        return null;
+    }
+
+    private static boolean isExportedClass(JsTsAnalyzer analyzer, ProjectFile file, String localClassName) {
+        return analyzer.exportIndexOf(file).exportsByName().values().stream().anyMatch(export -> {
+            if (export instanceof ExportIndex.LocalExport local) {
+                return localClassName.equals(local.localName());
+            }
+            return export instanceof ExportIndex.DefaultExport localDefault
+                    && localDefault.localName() != null
+                    && localClassName.equals(localDefault.localName());
+        });
     }
 
     private static boolean isIdentifierLike(TSNode node) {
@@ -1113,69 +1493,65 @@ public final class JsTsExportUsageExtractor {
                 && memberExpression.equals(parent.getChildByFieldName("function"));
     }
 
-    private static boolean isShadowedInEnclosingFunction(
-            JsTsAnalyzer analyzer, TSNode usageNode, String identifierName, SourceContent sc) {
-        TSNode fn = nearestEnclosingFunctionLike(usageNode);
-        if (fn == null) {
-            return false;
-        }
-
-        // Best-effort lexical shadowing: prefer Tree-sitter, but fall back to a conservative text scan.
-        String queryStr =
-                """
-            (formal_parameters (identifier) @shadow.name)
-            (variable_declarator name: (identifier) @shadow.name)
-            """;
-
-        try (TSQuery query = new TSQuery(analyzer.tsLanguage(), queryStr);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, fn, sc.text());
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture cap : match.getCaptures()) {
-                    String name = query.getCaptureNameForId(cap.getIndex());
-                    if (!"shadow.name".equals(name)) continue;
-                    TSNode node = cap.getNode();
-                    if (node == null) continue;
-                    String declared = sc.substringFrom(node).strip();
-                    if (identifierName.equals(declared)) {
-                        return true;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Tree-sitter shadowing query failed; falling back to text scan", e);
-        }
-
-        String fnText = sc.substringFrom(fn);
-        return Pattern.compile("\\b(const|let|var)\\s+" + Pattern.quote(identifierName) + "\\b")
-                        .matcher(fnText)
-                        .find()
-                || Pattern.compile("\\bfunction\\s+\\w+\\s*\\([^)]*\\b" + Pattern.quote(identifierName) + "\\b")
-                        .matcher(fnText)
-                        .find();
-    }
-
-    private static @Nullable TSNode nearestEnclosingFunctionLike(TSNode node) {
-        TSNode current = node;
-        while (current != null) {
-            String type = Optional.ofNullable(current.getType()).orElse("");
-            if (FUNCTION_DECLARATION.equals(type)
-                    || "function".equals(type)
-                    || ARROW_FUNCTION.equals(type)
-                    || METHOD_DEFINITION.equals(type)) {
-                return current;
-            }
-            current = current.getParent();
-        }
-        return null;
-    }
-
     private static IAnalyzer.Range rangeOf(TSNode node) {
         TSPoint start = node.getStartPoint();
         TSPoint end = node.getEndPoint();
         return new IAnalyzer.Range(
                 node.getStartByte(), node.getEndByte(), start.getRow(), end.getRow(), node.getStartByte());
+    }
+
+    public static Map<ProjectFile, Set<ProjectFile>> buildReverseReexportIndex(JsTsAnalyzer jsTs) {
+        var reverse = new java.util.HashMap<ProjectFile, Set<ProjectFile>>();
+        for (ProjectFile file : jsTs.getAnalyzedFiles()) {
+            if (!isJsTs(file)) {
+                continue;
+            }
+
+            ExportIndex idx = jsTs.exportIndexOf(file);
+            for (ExportIndex.ExportEntry entry : idx.exportsByName().values()) {
+                if (entry instanceof ExportIndex.ReexportedNamed named) {
+                    jsTs.resolveEsmModule(file, named.moduleSpecifier())
+                            .ifPresent(target -> reverse.computeIfAbsent(target, ignored -> new LinkedHashSet<>())
+                                    .add(file));
+                }
+            }
+            for (ExportIndex.ReexportStar star : idx.reexportStars()) {
+                jsTs.resolveEsmModule(file, star.moduleSpecifier())
+                        .ifPresent(target -> reverse.computeIfAbsent(target, ignored -> new LinkedHashSet<>())
+                                .add(file));
+            }
+        }
+        return Map.copyOf(reverse);
+    }
+
+    public static void ensureImportReverseIndexPopulated(JsTsAnalyzer jsTs, ImportAnalysisProvider provider)
+            throws InterruptedException {
+        for (ProjectFile file : jsTs.getAnalyzedFiles()) {
+            if (!isJsTs(file)) {
+                continue;
+            }
+            provider.importedCodeUnitsOf(file);
+        }
+    }
+
+    public static Map<String, Set<String>> buildHeritageIndex(JsTsAnalyzer jsTs) {
+        var edges = new java.util.HashMap<String, Set<String>>();
+        for (ProjectFile file : jsTs.getAnalyzedFiles()) {
+            if (!isJsTs(file)) {
+                continue;
+            }
+            ExportIndex idx = jsTs.exportIndexOf(file);
+            for (ExportIndex.HeritageEdge edge : idx.heritageEdges()) {
+                edges.computeIfAbsent(edge.childName(), ignored -> new LinkedHashSet<>())
+                        .add(edge.parentName());
+            }
+        }
+        return Map.copyOf(edges);
+    }
+
+    private static boolean isJsTs(ProjectFile file) {
+        Language lang = Languages.fromExtension(file.extension());
+        return lang.contains(Languages.JAVASCRIPT) || lang.contains(Languages.TYPESCRIPT);
     }
 
     private static String unquote(String s) {

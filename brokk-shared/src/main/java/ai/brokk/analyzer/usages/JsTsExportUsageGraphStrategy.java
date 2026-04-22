@@ -32,6 +32,13 @@ public final class JsTsExportUsageGraphStrategy implements UsageAnalyzer {
         this.limits = limits != null ? limits : JsTsExportUsageReferenceGraph.Limits.defaults();
     }
 
+    public boolean canHandle(CodeUnit target) {
+        if (!(analyzer instanceof JsTsAnalyzer jsTs)) {
+            return false;
+        }
+        return inferQuerySeed(jsTs, target).isPresent();
+    }
+
     @Override
     public FuzzyResult findUsages(List<CodeUnit> overloads, Set<ProjectFile> candidateFiles, int maxUsages)
             throws InterruptedException {

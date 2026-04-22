@@ -7,11 +7,8 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.JsTsAnalyzer;
-import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.ArrayDeque;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -28,11 +25,6 @@ import org.jetbrains.annotations.Nullable;
 public final class JsTsExportUsageReferenceGraph {
 
     private JsTsExportUsageReferenceGraph() {}
-
-    private static boolean isJsTs(ProjectFile file) {
-        Language lang = Languages.fromExtension(file.extension());
-        return lang.contains(Languages.JAVASCRIPT) || lang.contains(Languages.TYPESCRIPT);
-    }
 
     public static ExportUsageReferenceGraph create() {
         return new Impl(Limits.defaults());
@@ -94,16 +86,20 @@ public final class JsTsExportUsageReferenceGraph {
             return new ReferenceGraphResult(Set.of(), Set.copyOf(frontier), Set.copyOf(externalFrontier));
         }
 
-        Set<ProjectFile> filesToAnalyze;
-        if (candidateFiles != null) {
-            filesToAnalyze = Set.copyOf(candidateFiles);
-        } else {
-            // Seed candidate files by walking the reverse import graph starting from the defining module.
-            Map<ProjectFile, Set<ProjectFile>> reverseReexports = buildReverseReexportIndex(jsTs);
-            filesToAnalyze = collectReferencingFiles(definingFile, jsTs, reverseReexports, limits.maxFiles());
-        }
+        Map<ProjectFile, Set<ProjectFile>> reverseReexports = jsTs.reverseReexportIndex();
+        Set<ProjectFile> filesToAnalyze = candidateFiles != null
+                ? Set.copyOf(candidateFiles)
+                : collectReferencingFiles(definingFile, jsTs, reverseReexports, limits.maxFiles());
+        var expandedFilesToAnalyze = new LinkedHashSet<>(filesToAnalyze);
+        expandedFilesToAnalyze.add(definingFile);
+        filesToAnalyze = Set.copyOf(expandedFilesToAnalyze);
+        boolean shouldResolveReceiverCandidates =
+                targets.stream().anyMatch(JsTsExportUsageReferenceGraph::isMemberTarget);
 
-        Map<String, Set<String>> heritageEdges = buildHeritageIndex(jsTs);
+        Map<String, Set<String>> heritageEdges =
+                targets.stream().allMatch(target -> target.kind() != CodeUnitType.CLASS && !isMemberTarget(target))
+                        ? Map.of()
+                        : jsTs.heritageIndex();
 
         Set<ReferenceHit> hits = new LinkedHashSet<>();
         int filesProcessed = 0;
@@ -113,10 +109,9 @@ public final class JsTsExportUsageReferenceGraph {
             filesProcessed++;
 
             ImportBinder binder = jsTs.importBinderOf(file);
-            if (binder.bindings().isEmpty()) continue;
-
             Set<ReferenceCandidate> candidates = jsTs.exportUsageCandidatesOf(file, binder);
-            Set<ResolvedReceiverCandidate> receiverCandidates = jsTs.resolvedReceiverCandidatesOf(file, binder);
+            Set<ResolvedReceiverCandidate> receiverCandidates =
+                    shouldResolveReceiverCandidates ? jsTs.resolvedReceiverCandidatesOf(file, binder) : Set.of();
             if (candidates.isEmpty() && receiverCandidates.isEmpty()) continue;
 
             for (ReferenceCandidate cand : candidates) {
@@ -169,10 +164,13 @@ public final class JsTsExportUsageReferenceGraph {
 
         if ((queryTarget.kind() == CodeUnitType.FIELD || queryTarget.kind() == CodeUnitType.FUNCTION)
                 && (resolvedTarget.kind() == CodeUnitType.FIELD || resolvedTarget.kind() == CodeUnitType.FUNCTION)
-                && queryTarget.source().equals(resolvedTarget.source())
-                && normalizedMemberName(queryTarget).equals(normalizedMemberName(resolvedTarget))
-                && ownerNameOf(queryTarget).equals(ownerNameOf(resolvedTarget))) {
-            return true;
+                && normalizedMemberName(queryTarget).equals(normalizedMemberName(resolvedTarget))) {
+            String queryOwner = ownerNameOf(queryTarget);
+            String resolvedOwner = ownerNameOf(resolvedTarget);
+            if (queryTarget.source().equals(resolvedTarget.source()) && queryOwner.equals(resolvedOwner)) {
+                return true;
+            }
+            return ownerMatchesHeritage(queryOwner, resolvedOwner, heritageEdges);
         }
 
         // JS/TS polymorphism (v1): class inheritance only, flow-insensitive.
@@ -212,6 +210,9 @@ public final class JsTsExportUsageReferenceGraph {
             Set<ProjectFile> frontier,
             Set<String> externalFrontier) {
         if (cand.ownerIdentifier() != null) {
+            if (cand.qualifier() == null) {
+                return resolveLocalOwnerMemberCandidate(cand, file, jsTs);
+            }
             return resolveNamespaceMemberCandidate(cand, file, binder, jsTs, limits, frontier, externalFrontier);
         }
 
@@ -336,6 +337,16 @@ public final class JsTsExportUsageReferenceGraph {
         return Optional.of(new ResolvedExport(member, 1.0));
     }
 
+    private static Optional<ResolvedExport> resolveLocalOwnerMemberCandidate(
+            ReferenceCandidate cand, ProjectFile file, JsTsAnalyzer jsTs) {
+        String ownerIdentifier = requireNonNull(cand.ownerIdentifier());
+        CodeUnit member = resolveClassMember(file, ownerIdentifier, cand.identifier(), cand.instanceReceiver(), jsTs);
+        if (member == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new ResolvedExport(member, 0.98));
+    }
+
     private static Optional<ResolvedExport> addFrontier(
             Set<ProjectFile> frontier,
             Set<String> externalFrontier,
@@ -355,19 +366,19 @@ public final class JsTsExportUsageReferenceGraph {
             Limits limits,
             Set<ProjectFile> frontier,
             Set<String> externalFrontier) {
-        JsTsAnalyzer.ResolutionOutcome imported =
-                jsTs.resolveEsmModuleOutcome(file, cand.receiverTarget().moduleSpecifier());
-        if (imported.resolved().isEmpty()) {
-            imported.externalFrontier().ifPresent(externalFrontier::add);
-            return addFrontier(frontier, externalFrontier, cand.receiverTarget().moduleSpecifier(), file, jsTs);
+        ProjectFile ownerFile = cand.receiverTarget().localFile();
+        if (ownerFile == null) {
+            String moduleSpecifier = requireNonNull(cand.receiverTarget().moduleSpecifier());
+            JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, moduleSpecifier);
+            if (imported.resolved().isEmpty()) {
+                imported.externalFrontier().ifPresent(externalFrontier::add);
+                return addFrontier(frontier, externalFrontier, moduleSpecifier, file, jsTs);
+            }
+            ownerFile = imported.resolved().orElseThrow();
         }
 
-        var ownerResolution = resolveExport(
-                imported.resolved().orElseThrow(),
-                cand.receiverTarget().exportedName(),
-                jsTs,
-                limits,
-                externalFrontier);
+        var ownerResolution =
+                resolveExport(ownerFile, cand.receiverTarget().exportedName(), jsTs, limits, externalFrontier);
         frontier.addAll(ownerResolution.frontier());
         CodeUnit ownerClass = ownerResolution.targets().stream()
                 .filter(cu -> cu.kind() == CodeUnitType.CLASS)
@@ -390,8 +401,20 @@ public final class JsTsExportUsageReferenceGraph {
 
     private static ExportResolution resolveExport(
             ProjectFile file, String exportName, JsTsAnalyzer jsTs, Limits limits, Set<String> externalFrontier) {
+        JsTsAnalyzer.ExportResolutionData cached = jsTs.cachedExportResolution(
+                file,
+                exportName,
+                limits.maxReexportDepth(),
+                () -> computeExportResolution(file, exportName, jsTs, limits));
+        externalFrontier.addAll(cached.externalFrontier());
+        return new ExportResolution(cached.targets(), cached.frontier());
+    }
+
+    private static JsTsAnalyzer.ExportResolutionData computeExportResolution(
+            ProjectFile file, String exportName, JsTsAnalyzer jsTs, Limits limits) {
         var frontier = new LinkedHashSet<ProjectFile>();
         var targets = new LinkedHashSet<CodeUnit>();
+        var externalFrontier = new LinkedHashSet<String>();
 
         var queue = new ArrayDeque<Map.Entry<ProjectFile, String>>();
         queue.add(Map.entry(file, exportName));
@@ -449,7 +472,8 @@ public final class JsTsExportUsageReferenceGraph {
             }
         }
 
-        return new ExportResolution(Set.copyOf(targets), Set.copyOf(frontier));
+        return new JsTsAnalyzer.ExportResolutionData(
+                Set.copyOf(targets), Set.copyOf(frontier), Set.copyOf(externalFrontier));
     }
 
     private static Set<CodeUnit> resolveLocalExport(ProjectFile file, String localName, IAnalyzer analyzer) {
@@ -476,33 +500,32 @@ public final class JsTsExportUsageReferenceGraph {
 
     private static @Nullable CodeUnit resolveClassMember(
             CodeUnit ownerClass, String memberName, boolean instanceReceiver, JsTsAnalyzer jsTs) {
-        ExportIndex idx = jsTs.exportIndexOf(ownerClass.source());
-        boolean memberDeclared = idx.classMembers().stream()
-                .anyMatch(member -> member.ownerClassName().equals(ownerClass.identifier())
-                        && member.memberName().equals(memberName)
-                        && (instanceReceiver ? !member.staticMember() : true));
-        if (!memberDeclared) {
+        return resolveClassMember(ownerClass.source(), ownerClass.identifier(), memberName, instanceReceiver, jsTs);
+    }
+
+    private static @Nullable CodeUnit resolveClassMember(
+            ProjectFile sourceFile,
+            String ownerClassName,
+            String memberName,
+            boolean instanceReceiver,
+            JsTsAnalyzer jsTs) {
+        CodeUnit exact = jsTs.memberResolutionIndex(sourceFile)
+                .get(new JsTsAnalyzer.MemberLookupKey(ownerClassName, memberName, instanceReceiver));
+        if (exact != null) {
+            return exact;
+        }
+
+        ExportIndex.ClassMember declared = jsTs.exportIndexOf(sourceFile).classMembers().stream()
+                .filter(member -> member.ownerClassName().equals(ownerClassName))
+                .filter(member -> member.memberName().equals(memberName))
+                .filter(member -> instanceReceiver ? !member.staticMember() : member.staticMember())
+                .findFirst()
+                .orElse(null);
+        if (declared == null) {
             return null;
         }
 
-        for (CodeUnit cu : jsTs.getAllDeclarations()) {
-            if (!cu.source().equals(ownerClass.source())) {
-                continue;
-            }
-            if (!normalizedMemberName(cu).equals(memberName)) {
-                continue;
-            }
-            if (!ownerNameOf(cu).equals(ownerClass.identifier())) {
-                continue;
-            }
-            if (instanceReceiver && isStaticMember(cu)) {
-                continue;
-            }
-            return cu;
-        }
-
-        return CodeUnit.field(ownerClass.source(), ownerClass.packageName(), ownerClass.identifier() + "." + memberName)
-                .withSynthetic(true);
+        return syntheticMember(sourceFile, ownerClassName, declared);
     }
 
     private static Set<ProjectFile> collectReferencingFiles(
@@ -510,11 +533,14 @@ public final class JsTsExportUsageReferenceGraph {
             throws InterruptedException {
         var providerOpt = jsTs.as(ImportAnalysisProvider.class);
         if (providerOpt.isEmpty()) {
-            return reverseReexports.getOrDefault(start, Set.of());
+            var fallback = new LinkedHashSet<ProjectFile>();
+            fallback.add(start);
+            fallback.addAll(reverseReexports.getOrDefault(start, Set.of()));
+            return Set.copyOf(fallback);
         }
 
         var provider = providerOpt.get();
-        ensureImportReverseIndexPopulated(jsTs, provider);
+        jsTs.ensureImportReverseIndexPopulated();
         var seen = new LinkedHashSet<ProjectFile>();
         var queue = new ArrayDeque<ProjectFile>();
         queue.add(start);
@@ -537,53 +563,41 @@ public final class JsTsExportUsageReferenceGraph {
         return Set.copyOf(seen);
     }
 
-    private static Map<ProjectFile, Set<ProjectFile>> buildReverseReexportIndex(JsTsAnalyzer jsTs) {
-        var reverse = new HashMap<ProjectFile, Set<ProjectFile>>();
-        for (ProjectFile file : jsTs.getAnalyzedFiles()) {
-            if (!isJsTs(file)) continue;
-
-            ExportIndex idx = jsTs.exportIndexOf(file);
-            for (ExportIndex.ExportEntry entry : idx.exportsByName().values()) {
-                if (entry instanceof ExportIndex.ReexportedNamed named) {
-                    jsTs.resolveEsmModule(file, named.moduleSpecifier())
-                            .ifPresent(target -> reverse.computeIfAbsent(target, k -> new LinkedHashSet<>())
-                                    .add(file));
-                }
-            }
-            for (ExportIndex.ReexportStar star : idx.reexportStars()) {
-                jsTs.resolveEsmModule(file, star.moduleSpecifier())
-                        .ifPresent(target -> reverse.computeIfAbsent(target, k -> new LinkedHashSet<>())
-                                .add(file));
-            }
-        }
-        return Map.copyOf(reverse);
-    }
-
-    private static void ensureImportReverseIndexPopulated(JsTsAnalyzer jsTs, ImportAnalysisProvider provider)
-            throws InterruptedException {
-        // The bidirectional imports cache populates reverse mappings lazily; make sure it's available for
-        // referencingFilesOf(...) by priming the forward lookups.
-        for (ProjectFile file : jsTs.getAnalyzedFiles()) {
-            if (!isJsTs(file)) continue;
-            provider.importedCodeUnitsOf(file);
-        }
-    }
-
-    private static Map<String, Set<String>> buildHeritageIndex(JsTsAnalyzer jsTs) {
-        var edges = new HashMap<String, Set<String>>();
-        for (ProjectFile file : jsTs.getAnalyzedFiles()) {
-            if (!isJsTs(file)) continue;
-            ExportIndex idx = jsTs.exportIndexOf(file);
-            for (ExportIndex.HeritageEdge e : idx.heritageEdges()) {
-                edges.computeIfAbsent(e.childName(), ignored -> new LinkedHashSet<>())
-                        .add(e.parentName());
-            }
-        }
-        return Map.copyOf(edges);
-    }
-
     private static String normalizedMemberName(CodeUnit codeUnit) {
         return stripMemberSuffix(codeUnit.identifier());
+    }
+
+    private static boolean ownerMatchesHeritage(
+            String queryOwner, String resolvedOwner, Map<String, Set<String>> heritageEdges) {
+        if (queryOwner.isEmpty() || resolvedOwner.isEmpty()) {
+            return false;
+        }
+        if (queryOwner.equals(resolvedOwner)) {
+            return true;
+        }
+        var queue = new ArrayDeque<String>();
+        var visited = new HashSet<String>();
+        queue.add(resolvedOwner);
+        while (!queue.isEmpty()) {
+            String current = queue.removeFirst();
+            if (!visited.add(current)) {
+                continue;
+            }
+            Set<String> parents = heritageEdges.get(current);
+            if (parents == null || parents.isEmpty()) {
+                continue;
+            }
+            if (parents.contains(queryOwner)) {
+                return true;
+            }
+            parents.forEach(queue::addLast);
+        }
+        return false;
+    }
+
+    private static boolean isMemberTarget(CodeUnit target) {
+        return (target.kind() == CodeUnitType.FIELD || target.kind() == CodeUnitType.FUNCTION)
+                && !ownerNameOf(target).isEmpty();
     }
 
     private static String ownerNameOf(CodeUnit codeUnit) {
@@ -595,8 +609,14 @@ public final class JsTsExportUsageReferenceGraph {
         return shortName.substring(0, lastDot);
     }
 
-    private static boolean isStaticMember(CodeUnit codeUnit) {
-        return codeUnit.fqName().contains("$static");
+    private static CodeUnit syntheticMember(
+            ProjectFile sourceFile, String ownerClassName, ExportIndex.ClassMember declaredMember) {
+        String shortName = ownerClassName + "." + declaredMember.memberName();
+        return switch (declaredMember.kind()) {
+            case FUNCTION -> CodeUnit.fn(sourceFile, "", shortName).withSynthetic(true);
+            case FIELD -> CodeUnit.field(sourceFile, "", shortName).withSynthetic(true);
+            default -> CodeUnit.field(sourceFile, "", shortName).withSynthetic(true);
+        };
     }
 
     private static String stripMemberSuffix(String name) {

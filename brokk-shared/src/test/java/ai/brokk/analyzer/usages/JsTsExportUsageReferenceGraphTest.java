@@ -1,6 +1,8 @@
 package ai.brokk.analyzer.usages;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -272,6 +274,42 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                 const x = new Foo();
                 const y = x;
                 y.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    public void nestedScopeAlias_canUseOuterSeededReceiver() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                const x = new Foo();
+                {
+                  const y = x;
+                  y.bar();
+                }
                 """;
 
         try (var project = InlineTestProjectCreator.code(a, "a.ts")
@@ -701,6 +739,255 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
             assertEquals(2, instanceConfidences.size());
             assertTrue(directConfidence > instanceConfidences.getLast());
             assertTrue(instanceConfidences.getLast() > instanceConfidences.getFirst());
+        }
+    }
+
+    @Test
+    public void receiverCandidateExtraction_isCachedPerFile() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                const x = new Foo();
+                x.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile bFile = projectFile(project.getAllFiles(), "b.ts");
+            ImportBinder binder = analyzer.importBinderOf(bFile);
+
+            var first = analyzer.resolvedReceiverCandidatesOf(bFile, binder);
+            var second = analyzer.resolvedReceiverCandidatesOf(bFile, binder);
+
+            assertSame(first, second);
+        }
+    }
+
+    @Test
+    public void receiverInference_isSkippedForPlainExportQueries() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                const x = new Foo();
+                x.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            ProjectFile bFile = projectFile(project.getAllFiles(), "b.ts");
+            CodeUnit classTarget = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS)
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", classTarget, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, result.hits().size());
+            assertFalse(analyzer.hasCachedReceiverCandidates(bFile));
+        }
+    }
+
+    @Test
+    public void projectWideUsageIndexes_areCachedAcrossQueries() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String index = """
+                export { Foo } from "./a";
+                """;
+        String b =
+                """
+                import { Foo } from "./index";
+                const x = new Foo();
+                x.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(index, "index.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+
+            var reverse1 = analyzer.reverseReexportIndex();
+            var reverse2 = analyzer.reverseReexportIndex();
+            var heritage1 = analyzer.heritageIndex();
+            var heritage2 = analyzer.heritageIndex();
+
+            assertSame(reverse1, reverse2);
+            assertSame(heritage1, heritage2);
+        }
+    }
+
+    @Test
+    public void exportResolution_isCachedAcrossQueries() throws Exception {
+        String a = """
+                export class Foo {}
+                """;
+        String index = """
+                export { Foo } from "./a";
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(index, "index.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile indexFile = projectFile(project.getAllFiles(), "index.ts");
+            var expected = new JsTsAnalyzer.ExportResolutionData(Set.of(), Set.of(), Set.of("cached"));
+
+            var first = analyzer.cachedExportResolution(
+                    indexFile,
+                    "Foo",
+                    JsTsExportUsageReferenceGraph.Limits.defaults().maxReexportDepth(),
+                    () -> expected);
+            var second = analyzer.cachedExportResolution(
+                    indexFile,
+                    "Foo",
+                    JsTsExportUsageReferenceGraph.Limits.defaults().maxReexportDepth(),
+                    () -> new JsTsAnalyzer.ExportResolutionData(Set.of(), Set.of(), Set.of("other")));
+
+            assertSame(first, second);
+            assertSame(expected, first);
+        }
+    }
+
+    @Test
+    public void memberResolutionIndex_isCachedPerFile() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts").build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+
+            var first = analyzer.memberResolutionIndex(aFile);
+            var second = analyzer.memberResolutionIndex(aFile);
+
+            assertSame(first, second);
+        }
+    }
+
+    @Test
+    public void simpleFactoryReturn_infersReceiverForMemberUsage() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                function makeFoo() {
+                  return new Foo();
+                }
+                const value = makeFoo();
+                value.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    public void typeofTypeQuery_countsAsTypeReferenceUsage() throws Exception {
+        String a = """
+                export class Foo {}
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                type T = typeof Foo;
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(1, result.hits().size());
+            assertEquals(
+                    ReferenceKind.TYPE_REFERENCE,
+                    result.hits().iterator().next().kind());
+        }
+    }
+
+    @Test
+    public void interfaceMemberInheritance_matchesImplementingClassMemberUsage() throws Exception {
+        String a =
+                """
+                export interface Base {
+                  bar(): void;
+                }
+                export class Child implements Base {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Child } from "./a";
+                new Child().bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.shortName().startsWith("Base."))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Base", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, result.hits().size());
         }
     }
 

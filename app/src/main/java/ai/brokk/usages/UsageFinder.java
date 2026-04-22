@@ -8,8 +8,8 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.CandidateFileProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
@@ -75,7 +75,11 @@ public final class UsageFinder {
         }
         Language lang = Languages.fromExtension(target.source().extension());
         if (lang.contains(Languages.JAVASCRIPT) || lang.contains(Languages.TYPESCRIPT)) {
-            return new Configuration(createDefaultProvider(), new JsTsExportUsageGraphStrategy(analyzer), false);
+            var graphStrategy = new JsTsExportUsageGraphStrategy(analyzer);
+            if (graphStrategy.canHandle(target)) {
+                return new Configuration(createDefaultProvider(), graphStrategy, false);
+            }
+            return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
         }
         if (lang.contains(Languages.JAVA)) {
             return new Configuration(new TextSearchCandidateProvider(), new JdtUsageAnalyzerStrategy(project), true);

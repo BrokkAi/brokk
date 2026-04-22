@@ -68,6 +68,21 @@ public class LocalUsageInferenceTest {
     }
 
     @Test
+    public void nestedScopeAlias_canSeeOuterSeededSymbol() {
+        var result = LocalUsageInference.infer(List.of(
+                new LocalUsageEvent.DeclareSymbol("x"),
+                new LocalUsageEvent.SeedSymbol("x", Set.of(target("a", "Foo", true, 0.95))),
+                new LocalUsageEvent.EnterScope(),
+                new LocalUsageEvent.DeclareSymbol("y"),
+                new LocalUsageEvent.AliasSymbol("y", "x"),
+                new LocalUsageEvent.ReceiverAccess("y", "bar", ReferenceKind.METHOD_CALL, RANGE, ENCLOSING),
+                new LocalUsageEvent.ExitScope()));
+
+        assertEquals(1, result.size());
+        assertEquals("Foo", result.iterator().next().receiverTarget().exportedName());
+    }
+
+    @Test
     public void targetsOverCap_areDropped() {
         var result = LocalUsageInference.infer(
                 List.of(
@@ -108,6 +123,6 @@ public class LocalUsageInferenceTest {
 
     private static ReceiverTargetRef target(
             String moduleSpecifier, String exportedName, boolean instanceReceiver, double confidence) {
-        return new ReceiverTargetRef(moduleSpecifier, exportedName, instanceReceiver, confidence);
+        return new ReceiverTargetRef(moduleSpecifier, exportedName, instanceReceiver, confidence, null);
     }
 }
