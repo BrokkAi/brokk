@@ -55,7 +55,8 @@ public final class AcpServerMain {
             if (parsedArgs.containsKey("help")) {
                 System.err.println("Usage: java AcpServerMain --workspace-dir <path> [options]");
                 System.err.println("  --workspace-dir <path>     Path to workspace directory (required)");
-                System.err.println("  --brokk-api-key <key>      Brokk API key override (optional, prefer env BROKK_API_KEY)");
+                System.err.println(
+                        "  --brokk-api-key <key>      Brokk API key override (optional, prefer env BROKK_API_KEY)");
                 System.err.println("  --proxy-setting <setting>  LLM proxy: BROKK, LOCALHOST, STAGING (optional)");
                 System.err.println("  --vendor <vendor>          Model vendor preference (optional)");
                 System.exit(0);
@@ -78,10 +79,12 @@ public final class AcpServerMain {
             // Use a silent console (not HeadlessConsole) because stdout is reserved for JSON-RPC.
             // HeadlessConsole writes to System.out which would corrupt the protocol stream.
             var contextManager = new ContextManager(project);
-            var initThread = new Thread(() -> {
-                contextManager.createHeadless(false, new MemoryConsole() {});
-                logger.info("ContextManager headless initialization complete");
-            }, "AcpServer-init");
+            var initThread = new Thread(
+                    () -> {
+                        contextManager.createHeadless(false, new MemoryConsole() {});
+                        logger.info("ContextManager headless initialization complete");
+                    },
+                    "AcpServer-init");
             initThread.setDaemon(true);
             initThread.start();
 
@@ -95,31 +98,32 @@ public final class AcpServerMain {
             // Create and start ACP agent
             var agent = new BrokkAcpAgent(contextManager, jobRunner, jobStore);
             var transport = new StdioAcpAgentTransport();
-            var support = AcpAgentSupport.create(agent)
-                    .transport(transport)
-                    .build();
+            var support = AcpAgentSupport.create(agent).transport(transport).build();
 
             // Register shutdown hook -- close transport first (stop accepting requests),
             // then job infrastructure, then context manager
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                logger.info("Shutdown hook triggered, cleaning up...");
-                try {
-                    support.close();
-                } catch (Exception e) {
-                    logger.warn("Error closing ACP transport", e);
-                }
-                try {
-                    jobRunner.shutdown();
-                } catch (Exception e) {
-                    logger.warn("Error shutting down JobRunner", e);
-                }
-                try {
-                    contextManager.close();
-                } catch (Exception e) {
-                    logger.warn("Error closing ContextManager", e);
-                }
-                logger.info("Shutdown complete");
-            }, "AcpServer-shutdown"));
+            Runtime.getRuntime()
+                    .addShutdownHook(new Thread(
+                            () -> {
+                                logger.info("Shutdown hook triggered, cleaning up...");
+                                try {
+                                    support.close();
+                                } catch (Exception e) {
+                                    logger.warn("Error closing ACP transport", e);
+                                }
+                                try {
+                                    jobRunner.shutdown();
+                                } catch (Exception e) {
+                                    logger.warn("Error shutting down JobRunner", e);
+                                }
+                                try {
+                                    contextManager.close();
+                                } catch (Exception e) {
+                                    logger.warn("Error closing ContextManager", e);
+                                }
+                                logger.info("Shutdown complete");
+                            },
+                            "AcpServer-shutdown"));
 
             logger.info("ACP server started, listening on stdio");
 

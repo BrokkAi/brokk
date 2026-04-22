@@ -27,7 +27,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jetbrains.annotations.Blocking;
 import org.junit.jupiter.api.Test;
@@ -461,8 +460,18 @@ class JobRunnerTest {
 
             // Spec with an invalid model name -- the job will fail with MODEL_UNAVAILABLE,
             // but the key assertion is that it doesn't NPE when using the custom console.
-            var spec = JobSpec.of("test prompt", false, false, "nonexistent-model", null, null, false,
-                    Map.of("mode", "ASK"), null, null, null);
+            var spec = JobSpec.of(
+                    "test prompt",
+                    false,
+                    false,
+                    "nonexistent-model",
+                    null,
+                    null,
+                    false,
+                    Map.of("mode", "ASK"),
+                    null,
+                    null,
+                    null);
             var jobId = "test-custom-console-job";
             jobStore.createOrGetJob(jobId, spec);
 
@@ -477,8 +486,8 @@ class JobRunnerTest {
             }
 
             // Verify the custom console received the "Job started" notification
-            assertTrue(notificationReceived.get(),
-                    "Custom console should have received the 'Job started' notification");
+            assertTrue(
+                    notificationReceived.get(), "Custom console should have received the 'Job started' notification");
 
             // Verify the IO was restored after the job
             assertNotNull(cm.getIo(), "ContextManager IO should be restored after job completes");

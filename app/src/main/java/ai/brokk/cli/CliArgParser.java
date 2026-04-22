@@ -1,9 +1,9 @@
 package ai.brokk.cli;
 
-import ai.brokk.project.MainProject;
-import ai.brokk.project.ModelProperties;
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -136,8 +136,8 @@ public final class CliArgParser {
             canonicalVendor = ModelProperties.getAvailableVendors().stream()
                     .filter(v -> v.equalsIgnoreCase(requestedVendor))
                     .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Invalid vendor: '" + requestedVendor + "'. Must be one of: "
+                    .orElseThrow(() ->
+                            new IllegalArgumentException("Invalid vendor: '" + requestedVendor + "'. Must be one of: "
                                     + ModelProperties.DEFAULT_VENDOR + ", "
                                     + String.join(", ", ModelProperties.getAvailableVendors())));
         }

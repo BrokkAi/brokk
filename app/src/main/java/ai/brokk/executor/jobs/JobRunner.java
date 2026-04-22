@@ -324,7 +324,8 @@ public final class JobRunner {
      * @return A CompletableFuture that completes when the job finishes or fails
      * @throws IllegalStateException if another job is already running and has a different jobId
      */
-    public synchronized CompletableFuture<Void> runAsync(String jobId, JobSpec spec, @Nullable IConsoleIO customConsole) {
+    public synchronized CompletableFuture<Void> runAsync(
+            String jobId, JobSpec spec, @Nullable IConsoleIO customConsole) {
         // Guard: prevent concurrent execution of different jobs
         if (activeJobId != null && !activeJobId.equals(jobId)) {
             var fut = new CompletableFuture<Void>();

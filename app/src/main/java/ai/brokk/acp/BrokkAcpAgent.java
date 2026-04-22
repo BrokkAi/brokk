@@ -102,8 +102,7 @@ public class BrokkAcpAgent {
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
 
-        var modeState = new AcpSchema.SessionModeState(
-                modeBySession.getOrDefault(sessionId, "LUTZ"), AVAILABLE_MODES);
+        var modeState = new AcpSchema.SessionModeState(modeBySession.getOrDefault(sessionId, "LUTZ"), AVAILABLE_MODES);
         var modelState = buildModelState(sessionId);
 
         return new AcpSchema.LoadSessionResponse(modeState, modelState);
@@ -113,7 +112,9 @@ public class BrokkAcpAgent {
     public AcpSchema.PromptResponse prompt(AcpSchema.PromptRequest request, SyncPromptContext promptContext) {
         var sessionId = request.sessionId();
         var text = request.text();
-        logger.info("ACP prompt session={} text={}", sessionId,
+        logger.info(
+                "ACP prompt session={} text={}",
+                sessionId,
                 text != null ? text.substring(0, Math.min(80, text.length())) : "(empty)");
 
         if (text == null || text.isBlank()) {
@@ -128,22 +129,22 @@ public class BrokkAcpAgent {
         tags.put("mode", mode);
 
         var spec = new JobSpec(
-                text,       // taskInput
-                true,       // autoCommit
-                true,       // autoCompress
-                model,      // plannerModel
-                null,       // scanModel
-                null,       // codeModel
-                false,      // preScan
-                tags,       // tags
-                null,       // sourceBranch
-                null,       // targetBranch
-                null,       // reasoningLevel
-                null,       // reasoningLevelCode
-                null,       // temperature
-                null,       // temperatureCode
-                false,      // skipVerification
-                null);      // maxIssueFixAttempts
+                text, // taskInput
+                true, // autoCommit
+                true, // autoCompress
+                model, // plannerModel
+                null, // scanModel
+                null, // codeModel
+                false, // preScan
+                tags, // tags
+                null, // sourceBranch
+                null, // targetBranch
+                null, // reasoningLevel
+                null, // reasoningLevelCode
+                null, // temperature
+                null, // temperatureCode
+                false, // skipVerification
+                null); // maxIssueFixAttempts
 
         // Create console adapter and run the job
         var acpConsole = new AcpConsoleIO(promptContext);
@@ -207,7 +208,8 @@ public class BrokkAcpAgent {
             models = List.of(new AcpSchema.ModelInfo("default", "Default Model", null));
         }
 
-        var currentModel = modelBySession.getOrDefault(sessionId, models.getFirst().modelId());
+        var currentModel =
+                modelBySession.getOrDefault(sessionId, models.getFirst().modelId());
         modelBySession.putIfAbsent(sessionId, currentModel);
 
         return new AcpSchema.SessionModelState(currentModel, models);
