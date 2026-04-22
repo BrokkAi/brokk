@@ -1,5 +1,13 @@
 package ai.brokk.analyzer.javascript;
 
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.ARROW_FUNCTION;
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.CALL_EXPRESSION;
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.CLASS_DECLARATION;
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.FUNCTION_DECLARATION;
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.IMPORT_DECLARATION;
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.METHOD_DEFINITION;
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.VARIABLE_DECLARATOR;
+
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportInfo;
@@ -15,11 +23,12 @@ import com.google.common.base.Splitter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSNode;
 import org.treesitter.TSPoint;
@@ -35,6 +44,8 @@ import org.treesitter.TSQueryMatch;
  * maintaining project-level state and caches, not analysis feature implementations.
  */
 public final class JsTsExportUsageExtractor {
+    private static final Logger logger = LogManager.getLogger(JsTsExportUsageExtractor.class);
+    private static final String IMPORT_STATEMENT = "import_statement";
 
     private static final Pattern EXPORT_NAMED_FROM =
             Pattern.compile("export\\s*\\{([^}]*)\\}\\s*from\\s*['\\\"]([^'\\\"]+)['\\\"]");
@@ -164,7 +175,7 @@ public final class JsTsExportUsageExtractor {
                 }
             }
         } catch (Exception e) {
-            // best-effort; fall back to regex parsing below
+            logger.debug("Tree-sitter export index extraction failed; falling back to regex parsing", e);
         }
 
         // Regex fallback: keep re-exports robust across subtle grammar differences.
@@ -361,7 +372,7 @@ public final class JsTsExportUsageExtractor {
 
                         TSNode parent = node.getParent();
                         if (parent != null
-                                && "call_expression".equals(parent.getType())
+                                && CALL_EXPRESSION.equals(parent.getType())
                                 && node.equals(parent.getChildByFieldName("function"))) {
                             continue;
                         }
@@ -402,7 +413,7 @@ public final class JsTsExportUsageExtractor {
                 }
             }
         } catch (Exception e) {
-            // best-effort: empty set
+            logger.debug("Tree-sitter export usage candidate extraction failed for {}", file, e);
             return Set.of();
         }
 
@@ -413,7 +424,9 @@ public final class JsTsExportUsageExtractor {
         TSNode current = node;
         while (current != null) {
             String type = current.getType();
-            if ("import_statement".equals(type) || TypeScriptTreeSitterNodeTypes.IMPORT_DECLARATION.equals(type)) {
+            if (IMPORT_STATEMENT.equals(type)
+                    || IMPORT_DECLARATION.equals(type)
+                    || TypeScriptTreeSitterNodeTypes.IMPORT_DECLARATION.equals(type)) {
                 return true;
             }
             current = current.getParent();
@@ -425,13 +438,13 @@ public final class JsTsExportUsageExtractor {
         TSNode parent = identifierNode.getParent();
         if (parent == null) return false;
         String type = parent.getType();
-        if ("variable_declarator".equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
+        if (VARIABLE_DECLARATOR.equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
             return true;
         }
-        if ("function_declaration".equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
+        if (FUNCTION_DECLARATION.equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
             return true;
         }
-        if ("class_declaration".equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
+        if (CLASS_DECLARATION.equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
             return true;
         }
         return false;
@@ -468,7 +481,7 @@ public final class JsTsExportUsageExtractor {
                 }
             }
         } catch (Exception e) {
-            // Fall through to text scan.
+            logger.debug("Tree-sitter shadowing query failed; falling back to text scan", e);
         }
 
         String fnText = sc.substringFrom(fn);
@@ -483,11 +496,11 @@ public final class JsTsExportUsageExtractor {
     private static @Nullable TSNode nearestEnclosingFunctionLike(TSNode node) {
         TSNode current = node;
         while (current != null) {
-            String type = Optional.ofNullable(current.getType()).orElse("").toLowerCase(Locale.ROOT);
-            if ("function_declaration".equals(type)
+            String type = Optional.ofNullable(current.getType()).orElse("");
+            if (FUNCTION_DECLARATION.equals(type)
                     || "function".equals(type)
-                    || "arrow_function".equals(type)
-                    || "method_definition".equals(type)) {
+                    || ARROW_FUNCTION.equals(type)
+                    || METHOD_DEFINITION.equals(type)) {
                 return current;
             }
             current = current.getParent();
