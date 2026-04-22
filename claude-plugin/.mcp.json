@@ -1,9 +1,11 @@
 {
-  "brokk": {
-    "command": "uvx",
-    "args": [
-      "brokk",
-      "mcp-core"
-    ]
+  "mcpServers": {
+    "brokk": {
+      "command": "uvx",
+      "args": [
+        "brokk",
+        "mcp-core"
+      ]
+    }
   }
 }
