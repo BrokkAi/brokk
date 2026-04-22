@@ -250,7 +250,7 @@ class InstalledCodexPlugin:
 
 
 _GITHUB_RAW_BASE = "https://raw.githubusercontent.com/BrokkAi/brokk"
-_CLAUDE_PLUGIN_VERSION = "0.2.0"
+_CLAUDE_PLUGIN_VERSION = "0.3.0"
 
 _log = logging.getLogger(__name__)
 
@@ -326,40 +326,19 @@ def _fetch_codex_skills() -> dict[str, str]:
 
 
 
-def _build_codex_plugin_manifest() -> dict[str, Any]:
-    return {
-        "name": _BROKK_CODEX_PLUGIN_NAME,
-        "description": (
-            "Semantic code intelligence -- symbol navigation, cross-reference "
-            "analysis, and structural code understanding powered by tree-sitter"
-        ),
-        "version": "0.2.0",
-        "skills": "./skills/",
-        "mcpServers": "./.mcp.json",
-        "author": {
-            "name": "Brokk AI",
-        },
-        "license": "GPL-3.0",
-        "homepage": "https://github.com/BrokkAI/brokk",
-        "keywords": [
-            "code-intelligence",
-            "tree-sitter",
-            "code-navigation",
-            "semantic-search",
-        ],
-    }
+def _fetch_plugin_manifest() -> dict[str, Any]:
+    """Fetch plugin.json from GitHub and adapt for Codex (strip agents field)."""
+    raw = _fetch_github_file("claude-plugin/.claude-plugin/plugin.json")
+    manifest = json.loads(raw)
+    # Codex doesn't support the agents field; drop it
+    manifest.pop("agents", None)
+    return manifest
 
 
-def _build_codex_plugin_mcp_config(uvx_command: str) -> dict[str, Any]:
-    return {
-        "mcpServers": {
-            _SERVER_NAME: {
-                "type": "stdio",
-                "command": uvx_command,
-                "args": ["brokk", "mcp-core"],
-            }
-        }
-    }
+def _fetch_plugin_mcp_config() -> dict[str, Any]:
+    """Fetch .mcp.json from GitHub."""
+    raw = _fetch_github_file("claude-plugin/.mcp.json")
+    return json.loads(raw)
 
 
 def _marketplace_root(marketplace_path: Path) -> Path:
@@ -404,18 +383,20 @@ def _build_codex_plugin_marketplace_entry(
     }
 
 
-def _write_codex_plugin_files(*, plugin_path: Path, uvx_command: str) -> None:
+def _write_codex_plugin_files(*, plugin_path: Path) -> None:
     # Fetch all remote content first so a network failure doesn't leave a
     # partially installed plugin directory.
     codex_skills = _fetch_codex_skills()
+    manifest = _fetch_plugin_manifest()
+    mcp_config = _fetch_plugin_mcp_config()
 
     manifest_dir = plugin_path / ".codex-plugin"
     skills_dir = plugin_path / "skills"
     manifest_dir.mkdir(parents=True, exist_ok=True)
     skills_dir.mkdir(parents=True, exist_ok=True)
 
-    atomic_write_settings(manifest_dir / "plugin.json", _build_codex_plugin_manifest())
-    atomic_write_settings(plugin_path / ".mcp.json", _build_codex_plugin_mcp_config(uvx_command))
+    atomic_write_settings(manifest_dir / "plugin.json", manifest)
+    atomic_write_settings(plugin_path / ".mcp.json", mcp_config)
 
     for skill_dir_name, skill_markdown in codex_skills.items():
         skill_dir = skills_dir / skill_dir_name
@@ -504,7 +485,7 @@ def install_codex_local_plugin(
                 "use --force to overwrite it"
             )
 
-    _write_codex_plugin_files(plugin_path=plugin_dir, uvx_command=uvx_command)
+    _write_codex_plugin_files(plugin_path=plugin_dir)
 
     marketplace_data = _load_marketplace(marketplace)
     if "name" not in marketplace_data:

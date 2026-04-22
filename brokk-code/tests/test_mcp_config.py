@@ -346,7 +346,6 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(
     assert manifest_data["mcpServers"] == "./.mcp.json"
 
     mcp_data = json.loads(mcp_path.read_text(encoding="utf-8"))
-    assert mcp_data["mcpServers"]["brokk"]["type"] == "stdio"
     assert mcp_data["mcpServers"]["brokk"]["command"] == "uvx"
     assert mcp_data["mcpServers"]["brokk"]["args"] == ["brokk", "mcp-core"]
 
