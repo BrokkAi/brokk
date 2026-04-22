@@ -53,6 +53,10 @@ additional files needed to continue resolution.
   - prefer import-derived / explicit-provenance targets
   - stop propagating once ambiguity exceeds the cap
   - do not fan out to every class with a matching member name
+- JS/TS performance architecture should cache the expensive middle layers:
+  - per-file member-resolution indexes keyed by owner/member/static-vs-instance
+  - export-resolution results keyed by defining file + export name (+ depth budget when relevant)
+  - receiver inference should only run for member queries, not plain exported symbol lookups
 - Keep the local-inference model reusable for Python and other dynamic languages by expressing it in generic fact/event
   records rather than JS/TS-specific AST state.
 - Minimum test expectations for receiver inference changes:
@@ -66,7 +70,19 @@ additional files needed to continue resolution.
 - Module resolution: `node:` built-ins, package imports, and `tsconfig` paths/aliases.
 - CommonJS interop: `require(...)`, `module.exports`, `exports.*`.
 - Richer member resolution: `import()` dynamic, destructuring patterns, and non-identifier property access.
+- Preferred next capability work:
+  - declaration-backed member identity rather than only owner/name matching
+  - bounded destructuring and same-file wrapper propagation
+  - explicit TS type-space constructs such as `typeof` and interface/member inheritance
+  - same-file `this` receiver support where it can be kept bounded and declaration-backed
 - TS-only: type-only exports/imports coverage gaps and `export type { ... }`.
+
+## Continued non-goals
+
+- CFG or branch-sensitive narrowing.
+- Interprocedural search beyond bounded same-file wrappers.
+- Speculative widening to all matching member names in the project.
+- Full TypeScript typechecker semantics.
 
 ## App wiring
 

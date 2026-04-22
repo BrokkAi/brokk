@@ -42,6 +42,13 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     protected record ModulePathKey(ProjectFile importingFile, String modulePath) {}
 
+    public record MemberLookupKey(String ownerClassName, String memberName, boolean instanceReceiver) {}
+
+    public record ExportResolutionKey(ProjectFile definingFile, String exportName, int maxReexportDepth) {}
+
+    public record ExportResolutionData(
+            Set<CodeUnit> targets, Set<ProjectFile> frontier, Set<String> externalFrontier) {}
+
     protected static final List<String> KNOWN_EXTENSIONS = List.of(".js", ".jsx", ".ts", ".tsx");
 
     private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
@@ -69,8 +76,15 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private final Cache<Path, TsConfigPathsResolver> tsConfigResolverCache =
             Caffeine.newBuilder().maximumSize(64).build();
+    private final Cache<ProjectFile, Map<MemberLookupKey, CodeUnit>> memberResolutionIndexCache =
+            Caffeine.newBuilder().maximumSize(10_000).build();
+    private final Cache<ExportResolutionKey, ExportResolutionData> exportResolutionCache =
+            Caffeine.newBuilder().maximumSize(20_000).build();
 
     private volatile @Nullable Set<Path> absoluteProjectPathsCache;
+    private volatile @Nullable Map<ProjectFile, Set<ProjectFile>> reverseReexportIndexCache;
+    private volatile @Nullable Map<String, Set<String>> heritageIndexCache;
+    private volatile boolean importReverseIndexPrimed;
 
     protected JsTsAnalyzer(ICoreProject project, Language language) {
         super(project, language);
@@ -152,11 +166,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             return cached;
         }
 
-        if (binder.bindings().isEmpty()) {
-            cache().references().put(file, Set.<ReferenceCandidate>of());
-            return Set.<ReferenceCandidate>of();
-        }
-
         Set<ReferenceCandidate> computed = withTreeOf(
                 file,
                 tree -> {
@@ -174,11 +183,12 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     public Set<ResolvedReceiverCandidate> resolvedReceiverCandidatesOf(ProjectFile file, ImportBinder binder) {
-        if (binder.bindings().isEmpty()) {
-            return Set.of();
+        Set<ResolvedReceiverCandidate> cached = cache().receiverCandidates().get(file);
+        if (cached != null) {
+            return cached;
         }
 
-        return withTreeOf(
+        Set<ResolvedReceiverCandidate> computed = withTreeOf(
                 file,
                 tree -> {
                     TSNode root = tree.getRootNode();
@@ -192,6 +202,97 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                             Set.<ResolvedReceiverCandidate>of());
                 },
                 Set.<ResolvedReceiverCandidate>of());
+        cache().receiverCandidates().put(file, computed);
+        return computed;
+    }
+
+    public Map<MemberLookupKey, CodeUnit> memberResolutionIndex(ProjectFile file) {
+        return memberResolutionIndexCache.get(file, this::buildMemberResolutionIndex);
+    }
+
+    public ExportResolutionData cachedExportResolution(
+            ProjectFile definingFile,
+            String exportName,
+            int maxReexportDepth,
+            java.util.function.Supplier<ExportResolutionData> supplier) {
+        return exportResolutionCache.get(
+                new ExportResolutionKey(definingFile, exportName, maxReexportDepth), ignored -> supplier.get());
+    }
+
+    public Map<ProjectFile, Set<ProjectFile>> reverseReexportIndex() {
+        Map<ProjectFile, Set<ProjectFile>> cached = reverseReexportIndexCache;
+        if (cached != null) {
+            return cached;
+        }
+        var computed = JsTsExportUsageExtractor.buildReverseReexportIndex(this);
+        reverseReexportIndexCache = computed;
+        return computed;
+    }
+
+    public Map<String, Set<String>> heritageIndex() {
+        Map<String, Set<String>> cached = heritageIndexCache;
+        if (cached != null) {
+            return cached;
+        }
+        var computed = JsTsExportUsageExtractor.buildHeritageIndex(this);
+        heritageIndexCache = computed;
+        return computed;
+    }
+
+    public void ensureImportReverseIndexPopulated() throws InterruptedException {
+        if (importReverseIndexPrimed) {
+            return;
+        }
+        var providerOpt = as(ImportAnalysisProvider.class);
+        if (providerOpt.isEmpty()) {
+            importReverseIndexPrimed = true;
+            return;
+        }
+        JsTsExportUsageExtractor.ensureImportReverseIndexPopulated(this, providerOpt.orElseThrow());
+        importReverseIndexPrimed = true;
+    }
+
+    public boolean hasCachedReceiverCandidates(ProjectFile file) {
+        return cache().receiverCandidates().get(file) != null;
+    }
+
+    private Map<MemberLookupKey, CodeUnit> buildMemberResolutionIndex(ProjectFile file) {
+        var index = new java.util.HashMap<MemberLookupKey, CodeUnit>();
+        for (CodeUnit declaration : getAllDeclarations()) {
+            if (!declaration.source().equals(file)) {
+                continue;
+            }
+            if (declaration.kind() != CodeUnitType.FIELD && declaration.kind() != CodeUnitType.FUNCTION) {
+                continue;
+            }
+            String ownerName = ownerNameOf(declaration);
+            if (ownerName.isEmpty()) {
+                continue;
+            }
+            index.putIfAbsent(
+                    new MemberLookupKey(ownerName, normalizedMemberName(declaration), !isStaticMember(declaration)),
+                    declaration);
+        }
+        return Map.copyOf(index);
+    }
+
+    private static String ownerNameOf(CodeUnit codeUnit) {
+        String shortName = codeUnit.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return "";
+        }
+        return shortName.substring(0, lastDot);
+    }
+
+    private static String normalizedMemberName(CodeUnit codeUnit) {
+        String identifier = codeUnit.identifier();
+        int marker = identifier.indexOf('$');
+        return marker >= 0 ? identifier.substring(0, marker) : identifier;
+    }
+
+    private static boolean isStaticMember(CodeUnit codeUnit) {
+        return codeUnit.fqName().contains("$static");
     }
 
     /**

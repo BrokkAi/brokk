@@ -42,8 +42,7 @@ public final class LocalUsageInference {
                 case LocalUsageEvent.SeedSymbol seed ->
                     currentScope(scopes).put(seed.name(), stateFor(seed.targets(), 0, limits));
                 case LocalUsageEvent.AliasSymbol alias ->
-                    currentScope(scopes)
-                            .put(alias.name(), aliasState(alias.sourceName(), currentScope(scopes), limits));
+                    currentScope(scopes).put(alias.name(), aliasState(alias.sourceName(), scopes, limits));
                 case LocalUsageEvent.ReceiverAccess access ->
                     lookupVisible(access.receiverName(), scopes)
                             .filter(state ->
@@ -74,8 +73,8 @@ public final class LocalUsageInference {
     }
 
     private static LocalSymbolState aliasState(
-            String sourceName, Map<String, LocalSymbolState> currentScope, Limits limits) {
-        LocalSymbolState source = currentScope.get(sourceName);
+            String sourceName, ArrayDeque<Map<String, LocalSymbolState>> scopes, Limits limits) {
+        LocalSymbolState source = lookupVisible(sourceName, scopes).orElse(null);
         if (source == null || source.blocked() || source.targets().isEmpty()) {
             return blockedState();
         }

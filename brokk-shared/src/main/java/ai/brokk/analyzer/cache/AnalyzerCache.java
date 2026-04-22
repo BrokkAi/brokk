@@ -7,6 +7,7 @@ import ai.brokk.analyzer.usages.ExportIndex;
 import ai.brokk.analyzer.usages.ImportBinder;
 import ai.brokk.analyzer.usages.ReferenceCandidate;
 import ai.brokk.analyzer.usages.ReferenceHit;
+import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -28,6 +29,7 @@ public class AnalyzerCache {
     private final SimpleCache<ProjectFile, ExportIndex> exportIndex;
     private final SimpleCache<ProjectFile, ImportBinder> importBinder;
     private final SimpleCache<ProjectFile, Set<ReferenceCandidate>> references;
+    private final SimpleCache<ProjectFile, Set<ResolvedReceiverCandidate>> receiverCandidates;
     private final SimpleCache<CodeUnit, Set<ReferenceHit>> usages;
 
     public AnalyzerCache() {
@@ -49,6 +51,7 @@ public class AnalyzerCache {
         this.exportIndex = new CaffeineSimpleCache<>(10_000);
         this.importBinder = new CaffeineSimpleCache<>(10_000);
         this.references = new CaffeineSimpleCache<>(10_000);
+        this.receiverCandidates = new CaffeineSimpleCache<>(10_000);
         this.usages = new CaffeineSimpleCache<>(10_000);
     }
 
@@ -113,6 +116,12 @@ public class AnalyzerCache {
             }
         });
 
+        previous.receiverCandidates.forEach((file, resolved) -> {
+            if (!changedFiles.contains(file)) {
+                this.receiverCandidates.put(file, Set.copyOf(resolved));
+            }
+        });
+
         previous.usages.forEach((cu, hits) -> {
             if (!changedFiles.contains(cu.source())) {
                 this.usages.put(cu, Set.copyOf(hits));
@@ -152,6 +161,10 @@ public class AnalyzerCache {
         return references;
     }
 
+    public SimpleCache<ProjectFile, Set<ResolvedReceiverCandidate>> receiverCandidates() {
+        return receiverCandidates;
+    }
+
     public SimpleCache<CodeUnit, Set<ReferenceHit>> usages() {
         return usages;
     }
@@ -168,6 +181,7 @@ public class AnalyzerCache {
                 && exportIndex.isEmpty()
                 && importBinder.isEmpty()
                 && references.isEmpty()
+                && receiverCandidates.isEmpty()
                 && usages.isEmpty();
     }
 
@@ -184,6 +198,7 @@ public class AnalyzerCache {
                 exportIndex,
                 importBinder,
                 references,
+                receiverCandidates,
                 usages);
     }
 
@@ -199,5 +214,6 @@ public class AnalyzerCache {
             SimpleCache<ProjectFile, ExportIndex> exportIndex,
             SimpleCache<ProjectFile, ImportBinder> importBinder,
             SimpleCache<ProjectFile, Set<ReferenceCandidate>> references,
+            SimpleCache<ProjectFile, Set<ResolvedReceiverCandidate>> receiverCandidates,
             SimpleCache<CodeUnit, Set<ReferenceHit>> usages) {}
 }
