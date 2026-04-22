@@ -359,6 +359,16 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, 
     assert "architect-reviewer" in review_content
     assert "Embedded Reviewer Prompts" in review_content
 
+    guided_issue_skill = plugin_dir / "skills" / "guided-issue" / "SKILL.md"
+    assert guided_issue_skill.exists()
+    guided_content = guided_issue_skill.read_text(encoding="utf-8")
+    assert "name: brokk-guided-issue" in guided_content
+    assert "issue-diagnostician" in guided_content
+    assert "issue-planner" in guided_content
+    assert "security-reviewer" in guided_content
+    assert "Embedded Reviewer Prompts" in guided_content
+    assert "Embedded Issue Agent Prompts" in guided_content
+
 
 def test_install_codex_local_plugin_preserves_existing_marketplace_entries(tmp_path) -> None:
     plugin_dir = tmp_path / ".codex" / "plugins" / "brokk"

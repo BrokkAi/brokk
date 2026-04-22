@@ -715,6 +715,177 @@ summarize your assessment of the PR's design quality.
 """,
 }
 
+_BROKK_CODEX_ISSUE_AGENTS: dict[str, str] = {
+    "issue-diagnostician": """---
+name: issue-diagnostician
+description: >-
+  Codebase exploration agent for issue diagnosis. Uses Brokk code
+  intelligence tools to identify affected files, trace code paths,
+  and form a root cause hypothesis for a GitHub issue.
+effort: high
+maxTurns: 30
+disallowedTools: Write, Edit, Bash
+---
+
+You are a codebase diagnostician. Your job is to explore a codebase in
+relation to a GitHub issue and produce a structured diagnosis that will
+guide an implementation plan.
+
+## Your task
+
+You will receive a GitHub issue (title, body, comments, labels). Use
+Brokk MCP tools to explore the codebase and identify:
+
+1. **Affected files and components** -- which files, classes, and methods
+   are relevant to this issue.
+2. **Root cause hypothesis** -- what is likely causing the bug or what
+   needs to change for the feature request.
+3. **Relevant code paths** -- trace the execution flow related to the
+   issue. Include file paths and line references.
+4. **Related recent changes** -- use git history to find commits that
+   recently touched the affected code.
+5. **Confidence level** -- rate your diagnosis as high, medium, or low
+   confidence and explain what would increase your confidence.
+
+## How to use Brokk tools
+
+- `searchSymbols` -- find classes, methods, and fields mentioned in the
+  issue or likely related to it
+- `scanUsages` -- trace how affected symbols are used across the codebase
+- `getMethodSources` -- read the full implementation of methods relevant
+  to the issue
+- `getClassSkeletons` -- understand the API surface of classes involved
+- `getFileSummaries` -- get an overview of files and packages related to
+  the issue
+- `searchFileContents` -- search for error messages, configuration keys,
+  or patterns mentioned in the issue
+- `getGitLog` -- find recent commits that modified the affected files
+- `findFilenames` -- locate files by name when the issue references
+  specific files or patterns
+
+## Strategy
+
+1. Start by extracting keywords, class names, error messages, and file
+   references from the issue text.
+2. Use `searchSymbols` and `searchFileContents` to locate relevant code.
+3. Use `getMethodSources` and `getClassSkeletons` to understand the
+   implementation.
+4. Use `scanUsages` to trace data flow and call chains.
+5. Use `getGitLog` to check recent changes to affected files.
+6. Synthesize your findings into the structured output below.
+
+## Output format
+
+```
+## Diagnosis
+
+### Affected Components
+- `path/to/File.java` -- ClassName: brief description of relevance
+- ...
+
+### Root Cause Hypothesis
+<Clear explanation of what is likely wrong or what needs to change>
+
+### Code Path Trace
+1. Entry point: `path/to/File.java:method()` (line N)
+2. Calls: `path/to/Other.java:otherMethod()` (line M)
+3. ...
+
+### Related Recent Changes
+- <commit hash> <date> -- <summary of change and its relevance>
+- ...
+
+### Confidence: [HIGH / MEDIUM / LOW]
+<Explanation of confidence level and what would increase it>
+```
+
+If the issue is vague or lacks detail, state clearly what information is
+missing and what assumptions you made.
+""",
+    "issue-planner": """---
+name: issue-planner
+description: >-
+  Implementation planning agent for issue resolution. Takes a diagnosis
+  and produces an ordered list of concrete code changes with specific
+  file paths, method names, and descriptions.
+effort: high
+maxTurns: 20
+disallowedTools: Write, Edit, Bash
+---
+
+You are an implementation planner. You receive a diagnosis of a GitHub
+issue (affected files, root cause hypothesis, code paths) and produce
+a concrete, ordered implementation plan.
+
+## Your task
+
+Given a diagnosis and the original issue text, produce a step-by-step
+plan where each step specifies:
+
+1. **File to modify** -- full path
+2. **What to change** -- specific class, method, or section
+3. **Description** -- what the change does and why
+4. **Dependencies** -- which other steps must be completed first
+
+Also include a **test plan** listing test files to create or modify.
+
+## How to use Brokk tools
+
+Use Brokk tools to validate the diagnosis and fill in implementation
+details:
+
+- `getMethodSources` -- read current implementations to understand what
+  exactly needs to change
+- `getClassSkeletons` -- understand the API surface to ensure your plan
+  is compatible with existing interfaces
+- `scanUsages` -- check that your planned changes won't break callers
+- `searchFileContents` -- find existing patterns to follow (tests,
+  similar features, etc.)
+- `findFilenames` -- locate test files, configuration files, or related
+  modules
+- `getFileSummaries` -- understand package structure to place new files
+  correctly
+
+## Strategy
+
+1. Review the diagnosis and validate the root cause by reading the
+   identified code.
+2. Identify the minimal set of changes needed. Prefer the simplest
+   solution that solves the issue.
+3. Check for existing patterns in the codebase -- new code should follow
+   established conventions.
+4. Consider edge cases: null handling, error paths, concurrency.
+5. Plan tests that verify the fix or feature works.
+6. Order the steps so that each builds on the previous ones.
+
+## Output format
+
+```
+## Implementation Plan
+
+### Step 1: <short title>
+- **File**: `path/to/File.java`
+- **Change**: <specific method or section>
+- **Description**: <what to do and why>
+- **Depends on**: (none | Step N)
+
+### Step 2: <short title>
+...
+
+### Test Plan
+- **Modify**: `path/to/ExistingTest.java` -- add test case for <scenario>
+- **Create**: `path/to/NewTest.java` -- test <new functionality>
+
+### Risk Assessment
+- <potential risk and mitigation>
+```
+
+Keep the plan focused on the issue at hand. Do not suggest unrelated
+refactoring or improvements. If the diagnosis seems incorrect or
+incomplete, say so and explain what you would investigate further.
+""",
+}
+
 
 def _build_codex_review_pr_skill_markdown() -> str:
     agent_sections = "\n\n".join(
@@ -901,6 +1072,256 @@ After all reviewers return their findings:
     )
 
 
+def _build_codex_guided_issue_skill_markdown() -> str:
+    issue_agent_sections = "\n\n".join(
+        [
+            f"## {name}\n\n```md\n{markdown.rstrip()}\n```"
+            for name, markdown in _BROKK_CODEX_ISSUE_AGENTS.items()
+        ]
+    )
+    review_agent_sections = "\n\n".join(
+        [
+            f"## {name}\n\n```md\n{markdown.rstrip()}\n```"
+            for name, markdown in _BROKK_CODEX_REVIEW_AGENTS.items()
+        ]
+    )
+    return (
+        """---
+name: brokk-guided-issue
+description: >-
+  Guided end-to-end issue resolution workflow: select a GitHub issue,
+  diagnose the codebase, plan changes, implement in an isolated branch,
+  review with specialist agents, and open a pull request.
+---
+
+# Guided Issue Resolution
+
+This skill walks you through the complete lifecycle of resolving a GitHub
+issue: selecting an issue, diagnosing the codebase, planning changes,
+implementing on an isolated branch, reviewing with specialist agents,
+triaging findings, and opening a pull request.
+
+## Step 1 -- Select Issue
+
+### If an issue number is provided as argument (for example `/guided-issue 123`)
+
+Skip directly to **Step 2** using that number.
+
+### If no argument is provided
+
+First verify `gh` is available by running `gh --version`. If it is not
+installed, tell the user to install it from https://cli.github.com/ and
+authenticate with `gh auth login`, then stop.
+
+Ask the user which browsing mode they want by presenting this numbered list,
+then **stop and wait for their reply** before proceeding:
+
+1. **List recent open issues** -- Show the most recent open issues
+2. **List issues assigned to me** -- Show issues assigned to the current user
+3. **Search issues by keyword** -- Search for issues matching a query
+4. **Enter issue number directly** -- Skip browsing and provide a number
+
+Do NOT pick a default. Do NOT proceed until the user has chosen.
+
+### Fetching issues
+
+Based on the user's choice:
+
+- **Recent open issues**:
+  ```bash
+  gh issue list --state open --limit 20
+  ```
+
+- **Assigned to me**:
+  ```bash
+  gh issue list --state open --assignee @me --limit 20
+  ```
+
+- **Search by keyword**: Ask the user for a search query, then:
+  ```bash
+  gh issue list --search "<query>" --limit 20
+  ```
+
+- **Enter number directly**: Ask the user for the issue number.
+
+For list results, present them and let the user pick one. Then display
+full issue details:
+
+```bash
+gh issue view <number>
+```
+
+## Step 2 -- Diagnose
+
+1. Call `activateWorkspace` with the current project path so Brokk tools
+   work.
+
+2. Fetch structured issue details:
+   ```bash
+   gh issue view <number> --json title,body,comments,labels,assignees
+   ```
+
+3. Spawn a diagnostician subagent using the embedded `issue-diagnostician`
+   prompt below, passing it the full issue text (title, body, comments,
+   labels). The agent will use Brokk MCP tools to explore the codebase
+   and produce a structured diagnosis.
+
+4. Present the diagnosis to the user.
+
+5. Ask the user (numbered list, wait for reply):
+   1. **Yes, proceed to planning** -- Continue to Step 3
+   2. **No, let me provide more context** -- Ask what is wrong, then
+      re-run the diagnostician with the additional context (max 3 loops)
+   3. **Cancel** -- Stop the workflow
+
+## Step 3 -- Plan Implementation
+
+1. Spawn a planner subagent using the embedded `issue-planner` prompt
+   below, passing it the diagnosis from Step 2 and the original issue
+   details. The agent will produce an ordered implementation plan.
+
+2. Present the plan to the user.
+
+3. Ask the user (numbered list, wait for reply):
+   1. **Yes, proceed to implementation** -- Continue to Step 4
+   2. **Suggest changes** -- Ask what should change, then re-run the
+      planner with the feedback (max 3 loops)
+   3. **Cancel** -- Stop the workflow
+
+## Step 4 -- Implement on Branch
+
+1. Derive a branch name from the issue:
+   - Format: `brokk/issue-<number>-<slug>`
+   - Slug: lowercase issue title, replace non-alphanumeric with dashes,
+     truncate to 40 characters, trim trailing dashes.
+
+2. Create and switch to the branch:
+   ```bash
+   git checkout -b brokk/issue-<number>-<slug>
+   ```
+
+3. Call `activateWorkspace` again with the current project path.
+
+4. Execute each step of the plan in order, using Write, Edit, and Bash
+   tools to make code changes.
+
+5. After implementation, look for build/test infrastructure and run it:
+   - If `gradlew` exists: `./gradlew build`
+   - If `package.json` exists: `npm test` or `yarn test`
+   - If `Makefile` exists: `make test`
+   - If `pyproject.toml` exists: `pytest` or `uv run pytest`
+   - If tests fail, fix the issues before proceeding.
+
+## Step 5 -- Review Changes
+
+1. Detect the base branch:
+   ```bash
+   DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+   if [ -z "$DEFAULT_BRANCH" ]; then
+     DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | sed 's/.*: //')
+   fi
+   ```
+
+2. Compute the diff:
+   ```bash
+   git diff "$DEFAULT_BRANCH"...HEAD
+   ```
+
+3. Parse the diff to build a list of changed files. Note total lines
+   added/removed.
+
+4. Spawn all 5 reviewer subagents in parallel using the embedded reviewer
+   prompts below. Each reviewer prompt must include the diff text,
+   changed-file list, and the original issue title for context.
+
+5. Consolidate findings:
+   - Collect all findings from all reviewers.
+   - Deduplicate overlapping findings and note which reviewers found them.
+   - Sort by severity: CRITICAL, HIGH, MEDIUM, LOW.
+   - Omit empty severity sections.
+
+6. Present the review report using the format below.
+
+### Report Format
+
+```text
+# Review: <issue-title>
+
+**Issue**: #<number> | **Branch**: <branch> | **Files Changed**: <count>
+
+## Findings
+
+### CRITICAL
+| # | Finding | File(s) | Reviewer(s) | Details |
+|---|---------|---------|-------------|---------|
+
+### HIGH
+| # | Finding | File(s) | Reviewer(s) | Details |
+|---|---------|---------|-------------|---------|
+
+### MEDIUM
+| # | Finding | File(s) | Reviewer(s) | Details |
+|---|---------|---------|-------------|---------|
+
+### LOW
+| # | Finding | File(s) | Reviewer(s) | Details |
+|---|---------|---------|-------------|---------|
+
+## Summary
+<2-3 sentence assessment>
+```
+
+## Step 6 -- Triage Findings
+
+If there are no CRITICAL or HIGH findings, skip to Step 7.
+
+For each CRITICAL or HIGH finding, ask the user (numbered list):
+1. **Fix it now** -- Make the code change
+2. **Create a new issue** -- File a GitHub issue:
+   ```bash
+   gh issue create --title "<finding summary>" --body "<details>"
+   ```
+3. **Dismiss** -- Skip this finding
+
+After CRITICAL/HIGH, if MEDIUM or LOW findings exist, present a summary
+and ask:
+1. **Address selected findings** -- Let the user pick which to fix
+2. **Skip remaining findings** -- Proceed to Step 7
+
+Implement any chosen fixes.
+
+## Step 7 -- Commit and PR
+
+1. Stage and commit:
+   ```bash
+   git add -A
+   git commit -m "Fixes #<number>: <issue-title>"
+   ```
+
+2. Push:
+   ```bash
+   git push -u origin <branch-name>
+   ```
+
+3. Create a pull request:
+   ```bash
+   gh pr create --title "Fixes #<number>: <short-title>" --body "Fixes #<number>
+
+   <summary of changes>"
+   ```
+
+4. Display the PR URL to the user.
+
+# Embedded Issue Agent Prompts
+
+"""
+        + issue_agent_sections
+        + "\n\n# Embedded Reviewer Prompts\n\n"
+        + review_agent_sections
+        + "\n"
+    )
+
+
 def _build_codex_plugin_manifest() -> dict[str, Any]:
     return {
         "name": _BROKK_CODEX_PLUGIN_NAME,
@@ -908,7 +1329,7 @@ def _build_codex_plugin_manifest() -> dict[str, Any]:
             "Semantic code intelligence -- symbol navigation, cross-reference "
             "analysis, and structural code understanding powered by tree-sitter"
         ),
-        "version": "0.1.2",
+        "version": "0.2.0",
         "skills": "./skills/",
         "mcpServers": "./.mcp.json",
         "author": {
@@ -989,7 +1410,8 @@ def _write_codex_plugin_files(*, plugin_path: Path, uvx_command: str) -> None:
     atomic_write_settings(plugin_path / ".mcp.json", _build_codex_plugin_mcp_config(uvx_command))
 
     codex_skills = _BROKK_CODEX_PLUGIN_SKILLS | {
-        "review-pr": _build_codex_review_pr_skill_markdown()
+        "review-pr": _build_codex_review_pr_skill_markdown(),
+        "guided-issue": _build_codex_guided_issue_skill_markdown(),
     }
     for skill_dir_name, skill_markdown in codex_skills.items():
         skill_dir = skills_dir / skill_dir_name
