@@ -1209,20 +1209,18 @@ gh issue view <number>
    - Slug: lowercase issue title, replace non-alphanumeric with dashes,
      truncate to 40 characters, trim trailing dashes.
 
-2. Record the current branch so you can restore it later:
+2. Record the current branch and create the new branch in a single Bash
+   invocation so the variable is available:
    ```bash
    ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-   ```
-
-3. Create and switch to the branch:
-   ```bash
+   echo "$ORIGINAL_BRANCH" > /tmp/.brokk-original-branch
    git checkout -b brokk/issue-<number>-<slug>
    ```
 
    If the workflow is cancelled or fails at any point after this, restore
-   the original branch: `git checkout $ORIGINAL_BRANCH`.
+   the original branch: `git checkout "$(cat /tmp/.brokk-original-branch)"`.
 
-4. Call `activateWorkspace` again with the current project path.
+3. Call `activateWorkspace` again with the current project path.
 
 4. Execute each step of the plan in order, using Write, Edit, and Bash
    tools to make code changes.
@@ -1299,9 +1297,15 @@ If there are no CRITICAL or HIGH findings, skip to Step 7.
 
 For each CRITICAL or HIGH finding, ask the user (numbered list):
 1. **Fix it now** -- Make the code change
-2. **Create a new issue** -- File a GitHub issue:
+2. **Create a new issue** -- Sanitize finding text and use a heredoc:
    ```bash
-   gh issue create --title "<finding summary>" --body "<details>"
+   SAFE_SUMMARY=$(echo "<finding summary>" | tr -d '"'"'"'$`')
+   gh issue create --title "$SAFE_SUMMARY" --body "$(cat <<'EOF'
+   <finding details>
+
+   Found during review of #<number>
+   EOF
+   )"
    ```
 3. **Dismiss** -- Skip this finding
 
@@ -1321,9 +1325,11 @@ Implement any chosen fixes.
    git add <file1> <file2> ...
    ```
 
-2. Commit with a sanitized issue title (strip shell metacharacters):
+2. Commit with a sanitized issue title. Compute the sanitized title in
+   the same Bash invocation as the commit (variables do not persist
+   across tool calls):
    ```bash
-   SAFE_TITLE=$(echo "<issue-title>" | tr -d '"\047$\\`')
+   SAFE_TITLE=$(echo "<issue-title>" | tr -d '"'"'"'$`')
    git commit -m "Fixes #<number>: $SAFE_TITLE"
    ```
 
@@ -1332,8 +1338,10 @@ Implement any chosen fixes.
    git push -u origin <branch-name>
    ```
 
-4. Create a pull request using a heredoc for the body:
+4. Create a pull request. Recompute the sanitized title in this
+   invocation and use a heredoc for the body:
    ```bash
+   SAFE_TITLE=$(echo "<issue-title>" | tr -d '"'"'"'$`')
    gh pr create --title "Fixes #<number>: $SAFE_TITLE" --body "$(cat <<'EOF'
    Fixes #<number>
 
@@ -1342,9 +1350,10 @@ Implement any chosen fixes.
    )"
    ```
 
-5. Return to the original branch:
+5. Return to the original branch (read from the temp file saved in
+   Step 4):
    ```bash
-   git checkout $ORIGINAL_BRANCH
+   git checkout "$(cat /tmp/.brokk-original-branch)"
    ```
 
 6. Display the PR URL to the user.

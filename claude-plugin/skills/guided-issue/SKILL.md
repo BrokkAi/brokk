@@ -206,9 +206,16 @@ If there are no CRITICAL or HIGH findings, skip to Step 7.
 For each CRITICAL or HIGH finding, ask the user via `AskUserQuestion`:
 
 - **Fix it now** -- Make the code change to address the finding
-- **Create a new issue** -- File a GitHub issue for it:
+- **Create a new issue** -- File a GitHub issue for it. Sanitize the
+  finding text before interpolation and use a heredoc for the body:
   ```bash
-  gh issue create --title "<finding summary>" --body "<finding details>\n\nFound during review of #<number>"
+  SAFE_SUMMARY=$(echo "<finding summary>" | tr -d '"'\''$`')
+  gh issue create --title "$SAFE_SUMMARY" --body "$(cat <<'EOF'
+  <finding details>
+
+  Found during review of #<number>
+  EOF
+  )"
   ```
 - **Dismiss** -- Skip this finding
 
@@ -230,9 +237,11 @@ Implement any chosen fixes.
    ```
 
 2. Commit with a message referencing the issue. Sanitize the issue title
-   by stripping shell metacharacters (quotes, backticks, `$`, etc.):
+   by stripping shell metacharacters (quotes, backticks, `$`, etc.).
+   Compute the sanitized title and commit in a single Bash invocation
+   so the variable is available:
    ```bash
-   SAFE_TITLE=$(echo "<issue-title>" | tr -d '"\047$\`')
+   SAFE_TITLE=$(echo "<issue-title>" | tr -d '"'\''$`')
    git commit -m "Fixes #<number>: $SAFE_TITLE"
    ```
 
@@ -241,9 +250,11 @@ Implement any chosen fixes.
    git push -u origin <branch-name>
    ```
 
-4. Create a pull request. Use a heredoc for the body to avoid shell
-   interpolation issues:
+4. Create a pull request. Recompute the sanitized title in this Bash
+   invocation (shell variables do not persist across tool calls).
+   Use a heredoc for the body to avoid shell interpolation:
    ```bash
+   SAFE_TITLE=$(echo "<issue-title>" | tr -d '"'\''$`')
    gh pr create --title "Fixes #<number>: $SAFE_TITLE" --body "$(cat <<'EOF'
    ## Summary
 
