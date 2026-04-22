@@ -3,12 +3,10 @@ package ai.brokk.analyzer.cache;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceContent;
-import ai.brokk.analyzer.javascript.TsConfigPathsResolver;
 import ai.brokk.analyzer.usages.ExportIndex;
 import ai.brokk.analyzer.usages.ImportBinder;
 import ai.brokk.analyzer.usages.ReferenceCandidate;
 import ai.brokk.analyzer.usages.ReferenceHit;
-import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -31,7 +29,6 @@ public class AnalyzerCache {
     private final SimpleCache<ProjectFile, ImportBinder> importBinder;
     private final SimpleCache<ProjectFile, Set<ReferenceCandidate>> references;
     private final SimpleCache<CodeUnit, Set<ReferenceHit>> usages;
-    private final SimpleCache<Path, TsConfigPathsResolver> tsConfigPathsResolver;
 
     public AnalyzerCache() {
         this.sources = new CaffeineSimpleCache<>(1000);
@@ -53,7 +50,6 @@ public class AnalyzerCache {
         this.importBinder = new CaffeineSimpleCache<>(10_000);
         this.references = new CaffeineSimpleCache<>(10_000);
         this.usages = new CaffeineSimpleCache<>(10_000);
-        this.tsConfigPathsResolver = new CaffeineSimpleCache<>(256);
     }
 
     /**
@@ -69,9 +65,6 @@ public class AnalyzerCache {
      */
     public AnalyzerCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
         this();
-        boolean anyTsConfigChanged = changedFiles.stream()
-                .anyMatch(pf -> pf.getRelPath().getFileName().toString().equals("tsconfig.json"));
-
         previous.sources.forEach((file, source) -> {
             if (!changedFiles.contains(file)) {
                 this.sources.put(file, source);
@@ -125,10 +118,6 @@ public class AnalyzerCache {
                 this.usages.put(cu, Set.copyOf(hits));
             }
         });
-
-        if (!anyTsConfigChanged) {
-            previous.tsConfigPathsResolver.forEach(this.tsConfigPathsResolver::put);
-        }
     }
 
     public SimpleCache<ProjectFile, SourceContent> sources() {
@@ -167,10 +156,6 @@ public class AnalyzerCache {
         return usages;
     }
 
-    public SimpleCache<Path, TsConfigPathsResolver> tsConfigPathsResolver() {
-        return tsConfigPathsResolver;
-    }
-
     /**
      * Returns true only if ALL caches are empty.
      */
@@ -183,8 +168,7 @@ public class AnalyzerCache {
                 && exportIndex.isEmpty()
                 && importBinder.isEmpty()
                 && references.isEmpty()
-                && usages.isEmpty()
-                && tsConfigPathsResolver.isEmpty();
+                && usages.isEmpty();
     }
 
     /**
@@ -200,8 +184,7 @@ public class AnalyzerCache {
                 exportIndex,
                 importBinder,
                 references,
-                usages,
-                tsConfigPathsResolver);
+                usages);
     }
 
     /**
@@ -216,6 +199,5 @@ public class AnalyzerCache {
             SimpleCache<ProjectFile, ExportIndex> exportIndex,
             SimpleCache<ProjectFile, ImportBinder> importBinder,
             SimpleCache<ProjectFile, Set<ReferenceCandidate>> references,
-            SimpleCache<CodeUnit, Set<ReferenceHit>> usages,
-            SimpleCache<Path, TsConfigPathsResolver> tsConfigPathsResolver) {}
+            SimpleCache<CodeUnit, Set<ReferenceHit>> usages) {}
 }
