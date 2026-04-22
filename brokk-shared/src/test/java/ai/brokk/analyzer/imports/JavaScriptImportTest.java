@@ -46,7 +46,8 @@ public class JavaScriptImportTest {
                     "import 'global-polyfill';");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
 
-            List<ImportInfo> infos = analyzer.as(ImportAnalysisProvider.class).orElseThrow().importInfoOf(file);
+            List<ImportInfo> infos =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().importInfoOf(file);
             assertTrue(
                     infos.stream().anyMatch(i -> i.identifier() != null),
                     "ImportInfo should include structured identifiers where possible");

@@ -54,12 +54,13 @@ public final class JsTsExportUsageReferenceGraph {
                     "Analyzer is not a JS/TS analyzer: " + analyzer.getClass().getName());
         }
 
-        var resolution = resolveExport(definingFile, exportName, jsTs, limits);
+        Set<String> externalFrontier = new LinkedHashSet<>();
+        var resolution = resolveExport(definingFile, exportName, jsTs, limits, externalFrontier);
         Set<CodeUnit> targets = resolution.targets();
         Set<ProjectFile> frontier = new LinkedHashSet<>(resolution.frontier());
 
         if (targets.isEmpty()) {
-            return new ReferenceGraphResult(Set.of(), Set.copyOf(frontier));
+            return new ReferenceGraphResult(Set.of(), Set.copyOf(frontier), Set.copyOf(externalFrontier));
         }
 
         // Seed candidate files by walking the reverse import graph starting from the defining module.
@@ -85,7 +86,8 @@ public final class JsTsExportUsageReferenceGraph {
             for (ReferenceCandidate cand : candidates) {
                 if (hits.size() >= limits.maxHits()) break;
 
-                Optional<ResolvedExport> resolved = resolveCandidate(cand, file, binder, jsTs, limits, frontier);
+                Optional<ResolvedExport> resolved =
+                        resolveCandidate(cand, file, binder, jsTs, limits, frontier, externalFrontier);
                 if (resolved.isEmpty()) continue;
 
                 CodeUnit resolvedTarget = resolved.get().target();
@@ -101,7 +103,7 @@ public final class JsTsExportUsageReferenceGraph {
             }
         }
 
-        return new ReferenceGraphResult(Set.copyOf(hits), Set.copyOf(frontier));
+        return new ReferenceGraphResult(Set.copyOf(hits), Set.copyOf(frontier), Set.copyOf(externalFrontier));
     }
 
     private static boolean matchesTarget(
@@ -144,20 +146,23 @@ public final class JsTsExportUsageReferenceGraph {
             ImportBinder binder,
             JsTsAnalyzer jsTs,
             Limits limits,
-            Set<ProjectFile> frontier) {
+            Set<ProjectFile> frontier,
+            Set<String> externalFrontier) {
         if (cand.qualifier() == null) {
             ImportBinder.ImportBinding binding = binder.bindings().get(cand.identifier());
             if (binding == null) return Optional.empty();
 
-            Optional<ProjectFile> importedFile = jsTs.resolveEsmModule(file, binding.moduleSpecifier());
-            if (importedFile.isEmpty()) {
-                return addFrontier(frontier, binding.moduleSpecifier(), file, jsTs);
+            JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
+            if (imported.resolved().isEmpty()) {
+                imported.externalFrontier().ifPresent(externalFrontier::add);
+                return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, jsTs);
             }
 
             String importedName = binding.importedName();
             if (importedName == null) return Optional.empty();
 
-            var resolution = resolveExport(importedFile.get(), importedName, jsTs, limits);
+            var resolution =
+                    resolveExport(imported.resolved().orElseThrow(), importedName, jsTs, limits, externalFrontier);
             frontier.addAll(resolution.frontier());
             CodeUnit target = resolution.targets().stream().findFirst().orElse(null);
             if (target == null) return Optional.empty();
@@ -171,12 +176,14 @@ public final class JsTsExportUsageReferenceGraph {
             return Optional.empty();
         }
 
-        Optional<ProjectFile> importedFile = jsTs.resolveEsmModule(file, binding.moduleSpecifier());
-        if (importedFile.isEmpty()) {
-            return addFrontier(frontier, binding.moduleSpecifier(), file, jsTs);
+        JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
+        if (imported.resolved().isEmpty()) {
+            imported.externalFrontier().ifPresent(externalFrontier::add);
+            return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, jsTs);
         }
 
-        var resolution = resolveExport(importedFile.get(), cand.identifier(), jsTs, limits);
+        var resolution =
+                resolveExport(imported.resolved().orElseThrow(), cand.identifier(), jsTs, limits, externalFrontier);
         frontier.addAll(resolution.frontier());
         CodeUnit target = resolution.targets().stream().findFirst().orElse(null);
         if (target == null) return Optional.empty();
@@ -184,16 +191,21 @@ public final class JsTsExportUsageReferenceGraph {
     }
 
     private static Optional<ResolvedExport> addFrontier(
-            Set<ProjectFile> frontier, String moduleSpecifier, ProjectFile importingFile, JsTsAnalyzer jsTs) {
-        // We can only add frontier files when the module spec is resolvable; otherwise leave it empty.
-        jsTs.resolveEsmModule(importingFile, moduleSpecifier).ifPresent(frontier::add);
+            Set<ProjectFile> frontier,
+            Set<String> externalFrontier,
+            String moduleSpecifier,
+            ProjectFile importingFile,
+            JsTsAnalyzer jsTs) {
+        JsTsAnalyzer.ResolutionOutcome outcome = jsTs.resolveEsmModuleOutcome(importingFile, moduleSpecifier);
+        outcome.resolved().ifPresent(frontier::add);
+        outcome.externalFrontier().ifPresent(externalFrontier::add);
         return Optional.empty();
     }
 
     private record ExportResolution(Set<CodeUnit> targets, Set<ProjectFile> frontier) {}
 
     private static ExportResolution resolveExport(
-            ProjectFile file, String exportName, JsTsAnalyzer jsTs, Limits limits) {
+            ProjectFile file, String exportName, JsTsAnalyzer jsTs, Limits limits, Set<String> externalFrontier) {
         var frontier = new LinkedHashSet<ProjectFile>();
         var targets = new LinkedHashSet<CodeUnit>();
 
@@ -231,19 +243,25 @@ public final class JsTsExportUsageReferenceGraph {
             }
 
             if (entry instanceof ExportIndex.ReexportedNamed reexp) {
-                Optional<ProjectFile> resolved = jsTs.resolveEsmModule(currentFile, reexp.moduleSpecifier());
-                if (resolved.isEmpty()) {
+                JsTsAnalyzer.ResolutionOutcome resolved =
+                        jsTs.resolveEsmModuleOutcome(currentFile, reexp.moduleSpecifier());
+                if (resolved.resolved().isEmpty()) {
+                    resolved.externalFrontier().ifPresent(externalFrontier::add);
                     continue;
                 }
-                queue.add(Map.entry(resolved.get(), reexp.importedName()));
+                queue.add(Map.entry(resolved.resolved().orElseThrow(), reexp.importedName()));
                 continue;
             }
 
             // Not an explicit export: try star re-exports.
             for (ExportIndex.ReexportStar star : index.reexportStars()) {
-                Optional<ProjectFile> resolved = jsTs.resolveEsmModule(currentFile, star.moduleSpecifier());
-                if (resolved.isEmpty()) continue;
-                queue.add(Map.entry(resolved.get(), name));
+                JsTsAnalyzer.ResolutionOutcome resolved =
+                        jsTs.resolveEsmModuleOutcome(currentFile, star.moduleSpecifier());
+                if (resolved.resolved().isEmpty()) {
+                    resolved.externalFrontier().ifPresent(externalFrontier::add);
+                    continue;
+                }
+                queue.add(Map.entry(resolved.resolved().orElseThrow(), name));
             }
         }
 

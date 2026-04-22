@@ -273,13 +273,14 @@ public final class JsTsExportUsageExtractor {
 
         var expanded = new ArrayList<ImportInfo>();
 
-        var nsMatcher = Pattern.compile("\\bimport\\s+\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\b").matcher(normalized);
+        var nsMatcher = Pattern.compile("\\bimport\\s+\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\b")
+                .matcher(normalized);
         if (nsMatcher.find()) {
             expanded.add(new ImportInfo(rawSnippet, true, null, nsMatcher.group(1)));
         }
 
-        var defaultMatcher =
-                Pattern.compile("\\bimport\\s+([A-Za-z_$][\\w$]*)\\b\\s*(,|from\\b)").matcher(normalized);
+        var defaultMatcher = Pattern.compile("\\bimport\\s+([A-Za-z_$][\\w$]*)\\b\\s*(,|from\\b)")
+                .matcher(normalized);
         if (defaultMatcher.find()) {
             expanded.add(new ImportInfo(rawSnippet, false, "default", defaultMatcher.group(1)));
         }
@@ -295,7 +296,8 @@ public final class JsTsExportUsageExtractor {
                 }
                 int asIdx = part.indexOf(" as ");
                 String identifier = asIdx >= 0 ? part.substring(0, asIdx).strip() : part;
-                String alias = asIdx >= 0 ? part.substring(asIdx + " as ".length()).strip() : null;
+                String alias =
+                        asIdx >= 0 ? part.substring(asIdx + " as ".length()).strip() : null;
                 if (!identifier.isEmpty()) {
                     expanded.add(new ImportInfo(rawSnippet, false, identifier, alias));
                 }
