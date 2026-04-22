@@ -49,6 +49,7 @@ import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.xml.XMLConstants;
@@ -703,6 +704,11 @@ public class SearchTools {
                 compiled.add(newlyCompiled);
             } catch (StackOverflowError e) {
                 errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
+            } catch (PatternSyntaxException e) {
+                logger.debug("Pattern '{}' is not valid regex, falling back to literal match", pat);
+                Pattern literal = Pattern.compile(Pattern.quote(pat));
+                cache.put(pat, literal);
+                compiled.add(literal);
             } catch (RuntimeException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 errors.add("'%s': %s".formatted(pat, message));
@@ -728,9 +734,8 @@ public class SearchTools {
         List<String> errors = new ArrayList<>();
 
         for (String pat : nonBlank) {
+            String cacheKey = pat + "::flags=" + flags;
             try {
-                String cacheKey = pat + "::flags=" + flags;
-
                 Pattern cached = cache.getIfPresent(cacheKey);
                 if (cached != null) {
                     compiled.add(cached);
@@ -742,6 +747,11 @@ public class SearchTools {
                 compiled.add(newlyCompiled);
             } catch (StackOverflowError e) {
                 errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
+            } catch (PatternSyntaxException e) {
+                logger.debug("Pattern '{}' is not valid regex, falling back to literal match", pat);
+                Pattern literal = Pattern.compile(Pattern.quote(pat), flags);
+                cache.put(cacheKey, literal);
+                compiled.add(literal);
             } catch (RuntimeException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 errors.add("'%s': %s".formatted(pat, message));

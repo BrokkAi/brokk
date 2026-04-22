@@ -23,6 +23,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.Nullable;
@@ -147,17 +148,17 @@ public class SearchToolsTest {
     // ---------------------------------------------------------------------
 
     @Test
-    void testfindFilesContaining_invalidRegexThrows() throws Exception {
-        // SearchTools.compilePatterns throws on invalid regex for this tool
+    void testfindFilesContaining_invalidRegexFallsBackToLiteral() throws Exception {
+        // Invalid regex should fall back to literal matching, not throw
         String result = searchTools.findFilesContaining(List.of("[["), 200);
-        assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
+        assertFalse(result.contains("Invalid regex pattern"), "Should not report regex error after fallback");
     }
 
     @Test
-    void testfindFilenames_invalidRegexThrows() throws Exception {
-        // SearchTools.compilePatterns throws on invalid regex for this tool
+    void testfindFilenames_invalidRegexFallsBackToLiteral() throws Exception {
+        // Invalid regex should fall back to literal matching, not throw
         String result = searchTools.findFilenames(List.of("[["), 200);
-        assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
+        assertFalse(result.contains("Invalid regex pattern"), "Should not report regex error after fallback");
     }
 
     @Test
@@ -420,10 +421,10 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testSearchFileContents_invalidRegexThrows() throws Exception {
-        // "[[" is invalid regex, should return error message
+    void testSearchFileContents_invalidRegexFallsBackToLiteral() throws Exception {
+        // Invalid regex should fall back to literal matching, not throw
         String result = searchTools.searchFileContents(List.of("[["), "README.md", false, false, 0, 200);
-        assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
+        assertFalse(result.contains("Invalid regex pattern"), "Should not report regex error after fallback");
     }
 
     @Test
@@ -549,15 +550,39 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testCompilePatterns_ErrorAggregation() {
-        List<String> invalidPatterns = List.of("valid", "[", "(", "   ");
-        IllegalArgumentException ex =
-                assertThrows(IllegalArgumentException.class, () -> SearchTools.compilePatterns(invalidPatterns));
+    void testCompilePatterns_InvalidRegexFallsBackToLiteral() {
+        // Invalid regex patterns should fall back to literal matching instead of throwing
+        List<String> mixedPatterns = List.of("valid", "[", "(", "   ");
+        List<Pattern> compiled = SearchTools.compilePatterns(mixedPatterns);
 
-        assertTrue(ex.getMessage().contains("'['"), "Should report first invalid pattern");
-        assertTrue(ex.getMessage().contains("'('"), "Should report second invalid pattern");
-        assertFalse(ex.getMessage().contains("'valid'"), "Should not report valid pattern");
-        assertFalse(ex.getMessage().contains("'   '"), "Should ignore blank patterns");
+        // Should compile 3 patterns (blank "   " is filtered out)
+        assertEquals(3, compiled.size(), "Should compile valid + two literal fallbacks, filtering blank");
+        // The valid pattern should match as regex
+        assertTrue(compiled.get(0).matcher("valid").find(), "First pattern should match 'valid'");
+        // The fallback patterns should match their literal characters
+        assertTrue(compiled.get(1).matcher("a[b").find(), "Literal '[' should match in 'a[b'");
+        assertTrue(compiled.get(2).matcher("foo(bar").find(), "Literal '(' should match in 'foo(bar'");
+    }
+
+    @Test
+    void testCompilePatterns_ValidRegexStillWorksAsRegex() {
+        List<Pattern> compiled = SearchTools.compilePatterns(List.of("foo.*bar"));
+        assertEquals(1, compiled.size());
+        assertTrue(compiled.getFirst().matcher("fooXYZbar").find(), "Should match as regex, not literal");
+        assertFalse(
+                compiled.getFirst().matcher("foo.*bar").find()
+                        && !compiled.getFirst().matcher("foobar").find(),
+                "Should be regex, not literal");
+    }
+
+    @Test
+    void testCompilePatterns_IssueScenario() {
+        // Exact scenario from issue #3199: _show_welcome_message( should not throw
+        List<Pattern> compiled = SearchTools.compilePatterns(List.of("_show_welcome_message("));
+        assertEquals(1, compiled.size());
+        assertTrue(
+                compiled.getFirst().matcher("def _show_welcome_message(self):").find(),
+                "Should match the literal string including the parenthesis");
     }
 
     @Test
