@@ -2533,6 +2533,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
                         List<String> localImportStatements = localImportInfos.stream()
                                 .map(ImportInfo::rawSnippet)
+                                .distinct()
                                 .toList();
 
                         // Register modules from imports

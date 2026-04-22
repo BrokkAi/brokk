@@ -222,7 +222,10 @@ public final class JsTsExportUsageReferenceGraph {
 
             if (entry instanceof ExportIndex.DefaultExport def) {
                 String localName = def.localName();
-                if (localName == null) continue;
+                if (localName == null) {
+                    targets.add(syntheticModuleField(currentFile, "default"));
+                    continue;
+                }
                 targets.addAll(resolveLocalExport(currentFile, localName, jsTs));
                 continue;
             }
@@ -258,9 +261,13 @@ public final class JsTsExportUsageReferenceGraph {
         if (matches.isEmpty()) {
             // JS/TS sometimes does not emit CodeUnits for certain top-level export forms yet (e.g., exported const).
             // Create a stable synthetic FIELD CodeUnit so exported-symbol orchestration still works.
-            matches.add(CodeUnit.field(file, "", "_module_." + localName).withSynthetic(true));
+            matches.add(syntheticModuleField(file, localName));
         }
         return Set.copyOf(matches);
+    }
+
+    private static CodeUnit syntheticModuleField(ProjectFile file, String name) {
+        return CodeUnit.field(file, "", "_module_." + name).withSynthetic(true);
     }
 
     private static Set<ProjectFile> collectReferencingFiles(

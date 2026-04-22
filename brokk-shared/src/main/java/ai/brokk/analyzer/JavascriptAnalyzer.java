@@ -493,67 +493,6 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         super.extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
-
-        // Enhance the last added ImportInfo with JS-specific identifier/alias extraction
-        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
-        if (importNode != null && !localImportInfos.isEmpty()) {
-            ImportInfo last = localImportInfos.getLast();
-            // Verify this is the info for the node we just processed via super
-            if (last.rawSnippet().equals(sourceContent.substringFrom(importNode))) {
-                List<String> identifiers = new ArrayList<>();
-                List<String> aliases = new ArrayList<>();
-                extractNamedImportIdentifiers(importNode, sourceContent, identifiers, aliases);
-
-                if (!identifiers.isEmpty() || !aliases.isEmpty()) {
-                    String firstId = identifiers.isEmpty() ? null : identifiers.getFirst();
-                    String firstAlias = aliases.isEmpty() ? null : aliases.getFirst();
-                    localImportInfos.set(
-                            localImportInfos.size() - 1,
-                            new ImportInfo(last.rawSnippet(), last.isWildcard(), firstId, firstAlias));
-                }
-            }
-        }
-    }
-
-    /**
-     * Extracts identifiers and aliases from an import statement into the provided lists.
-     */
-    private void extractNamedImportIdentifiers(
-            TSNode importNode, SourceContent sourceContent, List<String> identifiers, List<String> aliases) {
-        // Query for:
-        // 1. Default imports: import Foo from ...
-        // 2. Named imports: import { Bar } from ...
-        // 3. Aliased imports: import { Baz as Quux } from ...
-        // 4. Namespace imports: import * as Telemetry from ...
-        String queryStr =
-                """
-            (import_clause (identifier) @import.id)
-            (import_specifier name: (identifier) @import.id)
-            (import_specifier alias: (identifier) @import.alias)
-            (namespace_import (identifier) @import.alias)
-            """;
-
-        try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, importNode, sourceContent.text());
-            TSQueryMatch match = new TSQueryMatch();
-
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    String captureName = query.getCaptureNameForId(capture.getIndex());
-                    TSNode node = capture.getNode();
-                    String text = sourceContent.substringFrom(node);
-
-                    if ("import.id".equals(captureName)) {
-                        identifiers.add(text);
-                    } else if ("import.alias".equals(captureName)) {
-                        aliases.add(text);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.error("Failed to parse named imports in JS", e);
-        }
     }
 
     /**

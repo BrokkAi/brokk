@@ -145,6 +145,58 @@ public class JsTsExportUsageReferenceGraphTest {
         }
     }
 
+    @Test
+    public void defaultExport_importedAndUsed_countsAsUsage() throws Exception {
+        String a = """
+                export default function foo() {}
+                """;
+        String b = """
+                import X from "./a";
+                X();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "default", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(1, result.hits().size());
+            assertTrue(result.hits().iterator().next().file().toString().endsWith("b.ts"));
+        }
+    }
+
+    @Test
+    public void defaultExport_reexportedAndConsumed_isFollowed() throws Exception {
+        String a = """
+                export default function foo() {}
+                """;
+        String index = """
+                export { default as Y } from "./a";
+                """;
+        String b = """
+                import { Y } from "./index";
+                Y();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(index, "index.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "default", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(1, result.hits().size());
+            assertTrue(result.hits().iterator().next().file().toString().endsWith("b.ts"));
+        }
+    }
+
     private static ProjectFile projectFile(Set<ProjectFile> files, String fileName) {
         return files.stream()
                 .filter(pf -> pf.toString().endsWith(fileName))

@@ -42,6 +42,20 @@ public class TypeScriptImportTest {
                     "import React, { useState } from 'react';",
                     "import DefaultThing from './default-thing';");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
+
+            List<ImportInfo> infos = analyzer.as(ImportAnalysisProvider.class).orElseThrow().importInfoOf(file);
+            assertTrue(
+                    infos.stream().anyMatch(i -> "default".equals(i.identifier()) && "React".equals(i.alias())),
+                    "Default import should be represented as identifier=default, alias=localName");
+            assertTrue(
+                    infos.stream().anyMatch(i -> "useState".equals(i.identifier()) && i.alias() == null),
+                    "Named import without alias should have alias=null. infos=" + infos);
+            assertTrue(
+                    infos.stream().anyMatch(i -> "AnotherThing".equals(i.identifier()) && "AT".equals(i.alias())),
+                    "Named import alias should be represented as identifier+alias");
+            assertTrue(
+                    infos.stream().anyMatch(i -> i.isWildcard() && "AllThings".equals(i.alias())),
+                    "Namespace import should be represented as wildcard with alias");
         }
     }
 
