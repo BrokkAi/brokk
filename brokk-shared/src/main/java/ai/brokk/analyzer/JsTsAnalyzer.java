@@ -46,6 +46,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     public record ExportResolutionKey(ProjectFile definingFile, String exportName, int maxReexportDepth) {}
 
+    public record ExportSeed(ProjectFile file, String exportName) {}
+
+    public record ReverseExportSeedKey(ProjectFile sourceFile, String sourceExportName) {}
+
     public record ExportResolutionData(
             Set<CodeUnit> targets, Set<ProjectFile> frontier, Set<String> externalFrontier) {}
 
@@ -83,6 +87,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private volatile @Nullable Set<Path> absoluteProjectPathsCache;
     private volatile @Nullable Map<ProjectFile, Set<ProjectFile>> reverseReexportIndexCache;
+    private volatile @Nullable Map<ReverseExportSeedKey, Set<ExportSeed>> reverseExportSeedIndexCache;
     private volatile @Nullable Map<String, Set<String>> heritageIndexCache;
     private volatile boolean importReverseIndexPrimed;
 
@@ -226,6 +231,16 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         }
         var computed = JsTsExportUsageExtractor.buildReverseReexportIndex(this);
         reverseReexportIndexCache = computed;
+        return computed;
+    }
+
+    public Map<ReverseExportSeedKey, Set<ExportSeed>> reverseExportSeedIndex() {
+        Map<ReverseExportSeedKey, Set<ExportSeed>> cached = reverseExportSeedIndexCache;
+        if (cached != null) {
+            return cached;
+        }
+        var computed = JsTsExportUsageExtractor.buildReverseExportSeedIndex(this);
+        reverseExportSeedIndexCache = computed;
         return computed;
     }
 

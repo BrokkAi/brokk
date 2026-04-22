@@ -56,7 +56,13 @@ additional files needed to continue resolution.
 - JS/TS performance architecture should cache the expensive middle layers:
   - per-file member-resolution indexes keyed by owner/member/static-vs-instance
   - export-resolution results keyed by defining file + export name (+ depth budget when relevant)
+  - reverse export seed discovery keyed by underlying source file + exported name so barrel files like `index.ts`
+    (`import { Foo } from "./foo"; export { Foo };`) can seed the graph without rescanning the whole project
   - receiver inference should only run for member queries, not plain exported symbol lookups
+- Barrel/local re-exports should be modeled from structured export/import state, not grep:
+  - `export { Foo } from "./a"` is a direct reverse-export edge
+  - `import { Foo } from "./a"; export { Foo as Bar }` is also a reverse-export edge and must resolve back through
+    the import binding during export resolution
 - Keep the local-inference model reusable for Python and other dynamic languages by expressing it in generic fact/event
   records rather than JS/TS-specific AST state.
 - Minimum test expectations for receiver inference changes:

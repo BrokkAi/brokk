@@ -1524,6 +1524,44 @@ public final class JsTsExportUsageExtractor {
         return Map.copyOf(reverse);
     }
 
+    public static Map<JsTsAnalyzer.ReverseExportSeedKey, Set<JsTsAnalyzer.ExportSeed>> buildReverseExportSeedIndex(
+            JsTsAnalyzer jsTs) {
+        var reverse = new java.util.HashMap<JsTsAnalyzer.ReverseExportSeedKey, Set<JsTsAnalyzer.ExportSeed>>();
+        for (ProjectFile file : jsTs.getAnalyzedFiles()) {
+            if (!isJsTs(file)) {
+                continue;
+            }
+
+            ExportIndex idx = jsTs.exportIndexOf(file);
+            ImportBinder binder = jsTs.importBinderOf(file);
+            for (Map.Entry<String, ExportIndex.ExportEntry> export :
+                    idx.exportsByName().entrySet()) {
+                String exportedName = export.getKey();
+                ExportIndex.ExportEntry entry = export.getValue();
+                if (entry instanceof ExportIndex.ReexportedNamed named) {
+                    jsTs.resolveEsmModule(file, named.moduleSpecifier()).ifPresent(target -> reverse.computeIfAbsent(
+                                    new JsTsAnalyzer.ReverseExportSeedKey(target, named.importedName()),
+                                    ignored -> new LinkedHashSet<>())
+                            .add(new JsTsAnalyzer.ExportSeed(file, exportedName)));
+                    continue;
+                }
+                if (!(entry instanceof ExportIndex.LocalExport local)) {
+                    continue;
+                }
+                ImportBinder.ImportBinding binding = binder.bindings().get(local.localName());
+                if (binding == null || binding.importedName() == null) {
+                    continue;
+                }
+                String importedName = binding.importedName();
+                jsTs.resolveEsmModule(file, binding.moduleSpecifier()).ifPresent(target -> reverse.computeIfAbsent(
+                                new JsTsAnalyzer.ReverseExportSeedKey(target, importedName),
+                                ignored -> new LinkedHashSet<>())
+                        .add(new JsTsAnalyzer.ExportSeed(file, exportedName)));
+            }
+        }
+        return Map.copyOf(reverse);
+    }
+
     public static void ensureImportReverseIndexPopulated(JsTsAnalyzer jsTs, ImportAnalysisProvider provider)
             throws InterruptedException {
         for (ProjectFile file : jsTs.getAnalyzedFiles()) {

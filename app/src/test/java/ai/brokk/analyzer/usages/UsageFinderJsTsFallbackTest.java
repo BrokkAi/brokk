@@ -72,4 +72,39 @@ public class UsageFinderJsTsFallbackTest {
             assertTrue(fileNamesFromHits(either.getUsages()).contains("a.ts"));
         }
     }
+
+    @Test
+    public void exportedTypescriptSymbol_findsUsageThroughLocalBarrelReexport() throws Exception {
+        String service = """
+                export class LayoutService {}
+                """;
+        String index =
+                """
+                import { LayoutService } from "./layout.service";
+                export { LayoutService };
+                """;
+        String consumer =
+                """
+                import { LayoutService } from "./index";
+                new LayoutService();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "layout.service.ts")
+                .addFileContents(index, "index.ts")
+                .addFileContents(consumer, "consumer.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> "LayoutService".equals(cu.identifier()))
+                    .findFirst()
+                    .orElseThrow();
+            var finder = new UsageFinder(
+                    project, analyzer, UsageFinder.createDefaultProvider(), new RegexUsageAnalyzer(analyzer), null);
+
+            var either = finder.findUsages(target.fqName()).toEither();
+
+            assertFalse(either.hasErrorMessage());
+            assertTrue(fileNamesFromHits(either.getUsages()).contains("consumer.ts"));
+        }
+    }
 }

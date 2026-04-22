@@ -74,6 +74,43 @@ public class JsTsExportUsageGraphStrategyTest extends AbstractUsageReferenceGrap
     }
 
     @Test
+    public void exportedClass_barrelReexportFindsUsageThroughIndex() throws Exception {
+        String service = """
+                export class LayoutService {}
+                """;
+        String index =
+                """
+                import { LayoutService } from "./layout.service";
+                export { LayoutService };
+                """;
+        String consumer =
+                """
+                import { LayoutService } from "./index";
+                new LayoutService();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "layout.service.ts")
+                .addFileContents(index, "index.ts")
+                .addFileContents(consumer, "consumer.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "layout.service.ts");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.ts");
+            CodeUnit target = analyzer.getDefinitions("LayoutService").stream()
+                    .filter(cu -> cu.source().equals(serviceFile))
+                    .findFirst()
+                    .orElseThrow();
+
+            var strategy = new JsTsExportUsageGraphStrategy(analyzer);
+            var result = strategy.findUsages(List.of(target), Set.of(consumerFile), 1000);
+
+            assertEquals(
+                    2,
+                    ((FuzzyResult.Success) result).hitsByOverload().get(target).size());
+        }
+    }
+
+    @Test
     public void defaultExport_localNameInferred_mapsToDefaultExportName() throws Exception {
         String a = """
                 export default function foo() {}

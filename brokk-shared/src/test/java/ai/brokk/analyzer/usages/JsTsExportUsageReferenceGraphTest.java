@@ -97,6 +97,112 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
     }
 
     @Test
+    public void localBarrelReexport_isFollowed() throws Exception {
+        String service = """
+                export class LayoutService {}
+                """;
+        String index =
+                """
+                import { LayoutService } from "./layout.service";
+                export { LayoutService };
+                """;
+        String consumer =
+                """
+                import { LayoutService } from "./index";
+                const service = new LayoutService();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "layout.service.ts")
+                .addFileContents(index, "index.ts")
+                .addFileContents(consumer, "consumer.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "layout.service.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    serviceFile, "LayoutService", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(2, result.hits().size());
+            assertTrue(
+                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("index.ts")));
+            assertTrue(
+                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("consumer.ts")));
+        }
+    }
+
+    @Test
+    public void aliasedLocalBarrelReexport_isFollowed() throws Exception {
+        String service = """
+                export class LayoutService {}
+                """;
+        String index =
+                """
+                import { LayoutService } from "./layout.service";
+                export { LayoutService as PublicLayoutService };
+                """;
+        String consumer =
+                """
+                import { PublicLayoutService } from "./index";
+                new PublicLayoutService();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "layout.service.ts")
+                .addFileContents(index, "index.ts")
+                .addFileContents(consumer, "consumer.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "layout.service.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    serviceFile, "LayoutService", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(2, result.hits().size());
+            assertTrue(
+                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("index.ts")));
+            assertTrue(
+                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("consumer.ts")));
+        }
+    }
+
+    @Test
+    public void chainedLocalBarrelReexport_isFollowed() throws Exception {
+        String service = """
+                export class LayoutService {}
+                """;
+        String index =
+                """
+                import { LayoutService } from "./layout.service";
+                export { LayoutService };
+                """;
+        String featureIndex = """
+                export { LayoutService } from "../index";
+                """;
+        String consumer =
+                """
+                import { LayoutService } from "./feature/index";
+                new LayoutService();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "layout.service.ts")
+                .addFileContents(index, "index.ts")
+                .addFileContents(featureIndex, "feature/index.ts")
+                .addFileContents(consumer, "consumer.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "layout.service.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    serviceFile, "LayoutService", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(2, result.hits().size());
+            assertTrue(
+                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("index.ts")));
+            assertTrue(
+                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("consumer.ts")));
+        }
+    }
+
+    @Test
     public void localShadowing_doesNotCountAsUsage() throws Exception {
         String a = """
                 export function foo() {}

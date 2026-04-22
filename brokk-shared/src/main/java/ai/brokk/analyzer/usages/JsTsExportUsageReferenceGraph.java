@@ -435,6 +435,10 @@ public final class JsTsExportUsageReferenceGraph {
             ExportIndex.ExportEntry entry = index.exportsByName().get(name);
 
             if (entry instanceof ExportIndex.LocalExport local) {
+                if (tryQueueImportedLocalExport(
+                        currentFile, local.localName(), jsTs, frontier, externalFrontier, queue)) {
+                    continue;
+                }
                 targets.addAll(resolveLocalExport(currentFile, local.localName(), jsTs));
                 continue;
             }
@@ -443,6 +447,9 @@ public final class JsTsExportUsageReferenceGraph {
                 String localName = def.localName();
                 if (localName == null) {
                     targets.add(syntheticModuleField(currentFile, "default"));
+                    continue;
+                }
+                if (tryQueueImportedLocalExport(currentFile, localName, jsTs, frontier, externalFrontier, queue)) {
                     continue;
                 }
                 targets.addAll(resolveLocalExport(currentFile, localName, jsTs));
@@ -474,6 +481,30 @@ public final class JsTsExportUsageReferenceGraph {
 
         return new JsTsAnalyzer.ExportResolutionData(
                 Set.copyOf(targets), Set.copyOf(frontier), Set.copyOf(externalFrontier));
+    }
+
+    private static boolean tryQueueImportedLocalExport(
+            ProjectFile currentFile,
+            String localName,
+            JsTsAnalyzer jsTs,
+            Set<ProjectFile> frontier,
+            Set<String> externalFrontier,
+            ArrayDeque<Map.Entry<ProjectFile, String>> queue) {
+        ImportBinder.ImportBinding binding =
+                jsTs.importBinderOf(currentFile).bindings().get(localName);
+        if (binding == null || binding.importedName() == null) {
+            return false;
+        }
+
+        JsTsAnalyzer.ResolutionOutcome resolved = jsTs.resolveEsmModuleOutcome(currentFile, binding.moduleSpecifier());
+        if (resolved.resolved().isEmpty()) {
+            resolved.externalFrontier().ifPresent(externalFrontier::add);
+            addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), currentFile, jsTs);
+            return true;
+        }
+
+        queue.add(Map.entry(resolved.resolved().orElseThrow(), binding.importedName()));
+        return true;
     }
 
     private static Set<CodeUnit> resolveLocalExport(ProjectFile file, String localName, IAnalyzer analyzer) {
