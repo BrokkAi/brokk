@@ -3229,7 +3229,9 @@ def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
         ensure_called["n"] += 1
         return "/usr/bin/jbang"
 
-    def fake_configure_zed_acp_settings(*, force: bool = False, uvx_command: str | None = None, **_kwargs):
+    def fake_configure_zed_acp_settings(
+        *, force: bool = False, uvx_command: str | None = None, **_kwargs
+    ):
         return tmp_path / "zed.json"
 
     monkeypatch.setattr(main_module, "ensure_jbang_ready", fake_ensure_jbang_ready)
