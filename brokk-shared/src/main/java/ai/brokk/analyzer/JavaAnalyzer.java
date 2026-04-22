@@ -1555,6 +1555,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     @Override
     public int computeCyclomaticComplexity(CodeUnit cu) {
         if (!cu.isFunction()) return 0;
+        int fallbackComplexity = super.computeCyclomaticComplexity(cu);
 
         Integer result = withTreeOf(
                 cu.source(),
@@ -1608,9 +1609,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                             }
                             return complexity;
                         },
-                        1),
-                1);
-        return result != null ? result : 1;
+                        fallbackComplexity),
+                fallbackComplexity);
+        return result != null ? result : fallbackComplexity;
     }
 
     @Override
