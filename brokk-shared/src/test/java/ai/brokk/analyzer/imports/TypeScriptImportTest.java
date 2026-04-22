@@ -43,7 +43,8 @@ public class TypeScriptImportTest {
                     "import DefaultThing from './default-thing';");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
 
-            List<ImportInfo> infos = analyzer.as(ImportAnalysisProvider.class).orElseThrow().importInfoOf(file);
+            List<ImportInfo> infos =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().importInfoOf(file);
             assertTrue(
                     infos.stream().anyMatch(i -> "default".equals(i.identifier()) && "React".equals(i.alias())),
                     "Default import should be represented as identifier=default, alias=localName");
