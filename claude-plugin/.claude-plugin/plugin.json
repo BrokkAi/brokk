@@ -2,11 +2,14 @@
   "name": "brokk",
   "description": "Semantic code intelligence -- symbol navigation, cross-reference analysis, and structural code understanding powered by tree-sitter",
   "version": "0.2.0",
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "mcpServers": "./.mcp.json",
   "author": {
     "name": "Brokk AI"
   },
   "license": "GPL-3.0",
-  "homepage": "https://github.com/BrokkAI/brokk",
+  "homepage": "https://github.com/BrokkAi/brokk",
   "keywords": [
     "code-intelligence",
     "tree-sitter",
