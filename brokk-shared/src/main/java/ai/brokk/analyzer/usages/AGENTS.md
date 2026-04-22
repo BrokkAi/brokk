@@ -44,6 +44,22 @@ additional files needed to continue resolution.
   `ai.brokk.analyzer.javascript.JsTsExportUsageExtractor` so the analyzer stays compositional.
 - `ImportBinder` is derived from the existing `importInfoOf(...)` pipeline (structured `ImportInfo`),
   so the same import analysis drives both import-graph resolution and export-usage binding.
+- Local receiver inference should be a separate reusable stage:
+  - language-specific extraction emits local seed/alias/receiver-access facts
+  - a language-agnostic local-inference engine manages scoped symbol tables, bounded propagation, and confidence
+  - cross-file/export resolution consumes the inferred receiver candidates after local inference completes
+- False-positive guardrails for local inference are mandatory:
+  - cap possible targets per local symbol
+  - prefer import-derived / explicit-provenance targets
+  - stop propagating once ambiguity exceeds the cap
+  - do not fan out to every class with a matching member name
+- Keep the local-inference model reusable for Python and other dynamic languages by expressing it in generic fact/event
+  records rather than JS/TS-specific AST state.
+- Minimum test expectations for receiver inference changes:
+  - add reusable-engine unit tests for `LocalUsageInference`
+  - add JS/TS extractor/integration tests for scope, shadowing, and ambiguity boundaries
+  - add false-positive guardrail tests for unknown receivers and object-literal collisions
+  - only assert confidence ordering where it is intentionally contractual at a coarse level
 
 ## Follow-ups / Roadmap
 
@@ -83,3 +99,7 @@ Proposed design:
   - exports: treat top-level `def`/`class` and `__all__` (best-effort) as exports
   - imports: `from mod import x as y`, `import mod as m`
   - resolution: in-project module resolution only; external modules go to external frontier
+- For receiver inference reuse, the adapter should also expose:
+  - local seed facts (imports, annotations, constructor facts)
+  - local transfer facts (same-scope aliases / simple destructuring)
+  - receiver access sites (`obj.foo`, `obj.foo()`)
