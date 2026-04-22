@@ -13,10 +13,11 @@ import org.jetbrains.annotations.Nullable;
 public record ExportIndex(
         Map<String, ExportEntry> exportsByName,
         List<ReexportStar> reexportStars,
-        Set<ClassExtendsEdge> classExtendsEdges) {
+        Set<HeritageEdge> heritageEdges,
+        Set<ClassMember> classMembers) {
 
     public static ExportIndex empty() {
-        return new ExportIndex(Map.of(), List.of(), Set.of());
+        return new ExportIndex(Map.of(), List.of(), Set.of(), Set.of());
     }
 
     public sealed interface ExportEntry permits LocalExport, ReexportedNamed, DefaultExport {}
@@ -38,8 +39,7 @@ public record ExportIndex(
 
     public record ReexportStar(String moduleSpecifier) {}
 
-    /**
-     * Minimal class inheritance edge for flow-insensitive "polymorphism" in JS/TS.
-     */
-    public record ClassExtendsEdge(String childClassName, String parentClassName) {}
+    public record HeritageEdge(String childName, String parentName) {}
+
+    public record ClassMember(String ownerClassName, String memberName, boolean staticMember) {}
 }
