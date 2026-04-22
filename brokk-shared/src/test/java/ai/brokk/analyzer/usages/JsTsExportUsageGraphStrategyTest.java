@@ -96,8 +96,9 @@ public class JsTsExportUsageGraphStrategyTest extends AbstractUsageReferenceGrap
             var analyzer = new TypescriptAnalyzer(project);
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "layout.service.ts");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.ts");
-            CodeUnit target = analyzer.getDefinitions("LayoutService").stream()
+            CodeUnit target = analyzer.getAllDeclarations().stream()
                     .filter(cu -> cu.source().equals(serviceFile))
+                    .filter(cu -> "LayoutService".equals(cu.identifier()))
                     .findFirst()
                     .orElseThrow();
 

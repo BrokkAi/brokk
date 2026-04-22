@@ -87,7 +87,7 @@ public final class JsTsExportUsageReferenceGraph {
         }
 
         Map<ProjectFile, Set<ProjectFile>> reverseReexports = jsTs.reverseReexportIndex();
-        Set<ProjectFile> filesToAnalyze = candidateFiles != null
+        Set<ProjectFile> filesToAnalyze = candidateFiles != null && !candidateFiles.isEmpty()
                 ? Set.copyOf(candidateFiles)
                 : collectReferencingFiles(definingFile, jsTs, reverseReexports, limits.maxFiles());
         var expandedFilesToAnalyze = new LinkedHashSet<>(filesToAnalyze);

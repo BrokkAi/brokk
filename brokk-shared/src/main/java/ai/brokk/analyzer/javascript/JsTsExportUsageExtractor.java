@@ -771,6 +771,7 @@ public final class JsTsExportUsageExtractor {
         return FUNCTION_DECLARATION.equals(type)
                 || ARROW_FUNCTION.equals(type)
                 || METHOD_DEFINITION.equals(type)
+                || CONSTRUCTOR.equals(type)
                 || "function".equals(type);
     }
 
