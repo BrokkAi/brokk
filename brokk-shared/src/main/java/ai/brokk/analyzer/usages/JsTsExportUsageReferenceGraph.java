@@ -5,6 +5,8 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.JsTsAnalyzer;
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.ArrayDeque;
 import java.util.HashMap;
@@ -24,6 +26,11 @@ import org.jetbrains.annotations.Nullable;
 public final class JsTsExportUsageReferenceGraph {
 
     private JsTsExportUsageReferenceGraph() {}
+
+    private static boolean isJsTs(ProjectFile file) {
+        Language lang = Languages.fromExtension(file.extension());
+        return lang.contains(Languages.JAVASCRIPT) || lang.contains(Languages.TYPESCRIPT);
+    }
 
     public static ExportUsageReferenceGraph create() {
         return new Impl(Limits.defaults());
@@ -338,8 +345,7 @@ public final class JsTsExportUsageReferenceGraph {
     private static Map<ProjectFile, Set<ProjectFile>> buildReverseReexportIndex(JsTsAnalyzer jsTs) {
         var reverse = new HashMap<ProjectFile, Set<ProjectFile>>();
         for (ProjectFile file : jsTs.getAnalyzedFiles()) {
-            String ext = file.extension();
-            if (!"js".equals(ext) && !"jsx".equals(ext) && !"ts".equals(ext) && !"tsx".equals(ext)) continue;
+            if (!isJsTs(file)) continue;
 
             ExportIndex idx = jsTs.exportIndexOf(file);
             for (ExportIndex.ExportEntry entry : idx.exportsByName().values()) {
@@ -363,8 +369,7 @@ public final class JsTsExportUsageReferenceGraph {
         // The bidirectional imports cache populates reverse mappings lazily; make sure it's available for
         // referencingFilesOf(...) by priming the forward lookups.
         for (ProjectFile file : jsTs.getAnalyzedFiles()) {
-            String ext = file.extension();
-            if (!"js".equals(ext) && !"jsx".equals(ext) && !"ts".equals(ext) && !"tsx".equals(ext)) continue;
+            if (!isJsTs(file)) continue;
             provider.importedCodeUnitsOf(file);
         }
     }
@@ -372,8 +377,7 @@ public final class JsTsExportUsageReferenceGraph {
     private static Map<String, String> buildClassExtendsIndex(JsTsAnalyzer jsTs) {
         var edges = new HashMap<String, String>();
         for (ProjectFile file : jsTs.getAnalyzedFiles()) {
-            String ext = file.extension();
-            if (!"js".equals(ext) && !"jsx".equals(ext) && !"ts".equals(ext) && !"tsx".equals(ext)) continue;
+            if (!isJsTs(file)) continue;
             ExportIndex idx = jsTs.exportIndexOf(file);
             for (ExportIndex.ClassExtendsEdge e : idx.classExtendsEdges()) {
                 edges.putIfAbsent(e.childClassName(), e.parentClassName());
