@@ -44,13 +44,14 @@ public final class JsTsExportUsageGraphStrategy implements UsageAnalyzer {
             return new FuzzyResult.Success(Map.of(target, Set.of()));
         }
 
-        Optional<String> exportNameOpt = inferExportName(jsTs, target.source(), target.identifier());
-        if (exportNameOpt.isEmpty()) {
+        Optional<QuerySeed> querySeedOpt = inferQuerySeed(jsTs, target);
+        if (querySeedOpt.isEmpty()) {
             return new FuzzyResult.Success(Map.of(target, Set.of()));
         }
+        QuerySeed querySeed = querySeedOpt.orElseThrow();
 
         ReferenceGraphResult graphResult = JsTsExportUsageReferenceGraph.findExportUsages(
-                target.source(), exportNameOpt.get(), analyzer, limits, candidateFiles);
+                target.source(), querySeed.exportName(), target, analyzer, limits, candidateFiles);
 
         Set<UsageHit> hits = graphResult.hits().stream()
                 .map(hit -> {
@@ -69,6 +70,22 @@ public final class JsTsExportUsageGraphStrategy implements UsageAnalyzer {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
         return new FuzzyResult.Success(Map.of(target, Set.copyOf(hits)));
+    }
+
+    private record QuerySeed(ProjectFile definingFile, String exportName) {}
+
+    private static Optional<QuerySeed> inferQuerySeed(JsTsAnalyzer analyzer, CodeUnit target) {
+        Optional<String> exportName = inferExportName(analyzer, target.source(), target.identifier());
+        if (exportName.isPresent()) {
+            return Optional.of(new QuerySeed(target.source(), exportName.orElseThrow()));
+        }
+
+        String ownerName = ownerNameOf(target);
+        if (ownerName.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return inferExportName(analyzer, target.source(), ownerName).map(name -> new QuerySeed(target.source(), name));
     }
 
     private static Optional<String> inferExportName(JsTsAnalyzer analyzer, ProjectFile definingFile, String localName) {
@@ -93,5 +110,14 @@ public final class JsTsExportUsageGraphStrategy implements UsageAnalyzer {
         }
 
         return Optional.empty();
+    }
+
+    private static String ownerNameOf(CodeUnit target) {
+        String shortName = target.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return "";
+        }
+        return shortName.substring(0, lastDot);
     }
 }

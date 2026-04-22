@@ -5,4 +5,10 @@ import ai.brokk.analyzer.IAnalyzer.Range;
 import org.jetbrains.annotations.Nullable;
 
 public record ReferenceCandidate(
-        String identifier, @Nullable String qualifier, ReferenceKind kind, Range range, CodeUnit enclosingUnit) {}
+        String identifier,
+        @Nullable String qualifier,
+        @Nullable String ownerIdentifier,
+        boolean instanceReceiver,
+        ReferenceKind kind,
+        Range range,
+        CodeUnit enclosingUnit) {}

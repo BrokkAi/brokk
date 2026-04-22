@@ -46,6 +46,23 @@ import org.treesitter.TSQueryMatch;
 public final class JsTsExportUsageExtractor {
     private static final Logger logger = LogManager.getLogger(JsTsExportUsageExtractor.class);
     private static final String IMPORT_STATEMENT = "import_statement";
+    private static final String CLASS_BODY = "class_body";
+    private static final String CLASS_HERITAGE = "class_heritage";
+    private static final String EXTENDS_CLAUSE = "extends_clause";
+    private static final String IMPLEMENTS_CLAUSE = "implements_clause";
+    private static final String TYPE_ALIAS_DECLARATION = "type_alias_declaration";
+    private static final String TYPE_ANNOTATION = "type_annotation";
+    private static final String TYPE_ARGUMENTS = "type_arguments";
+    private static final String PROPERTY_IDENTIFIER = "property_identifier";
+    private static final String PUBLIC_FIELD_DEFINITION = "public_field_definition";
+    private static final String ABSTRACT_METHOD_SIGNATURE = "abstract_method_signature";
+    private static final String METHOD_SIGNATURE = "method_signature";
+    private static final String OBJECT_TYPE = "object_type";
+    private static final String TYPE_IDENTIFIER = "type_identifier";
+    private static final String NESTED_TYPE_IDENTIFIER = "nested_type_identifier";
+    private static final String NEW_EXPRESSION = "new_expression";
+    private static final String MEMBER_EXPRESSION = "member_expression";
+    private static final String STATIC = "static";
 
     private static final Pattern EXPORT_NAMED_FROM =
             Pattern.compile("export\\s*\\{([^}]*)\\}\\s*from\\s*['\\\"]([^'\\\"]+)['\\\"]");
@@ -53,13 +70,15 @@ public final class JsTsExportUsageExtractor {
             Pattern.compile("export\\s*\\*\\s*from\\s*['\\\"]([^'\\\"]+)['\\\"]");
     private static final Pattern EXPORT_DIRECT =
             Pattern.compile("\\bexport\\s+(const|let|var|function|class)\\s+([A-Za-z_$][\\w$]*)\\b");
+    private static final Pattern IDENTIFIER_TOKEN = Pattern.compile("[A-Za-z_$][\\w$]*");
 
     private JsTsExportUsageExtractor() {}
 
     public static ExportIndex computeExportIndex(JsTsAnalyzer analyzer, TSNode root, SourceContent sc) {
         var exportsByName = new java.util.HashMap<String, ExportIndex.ExportEntry>();
         var exportStars = new java.util.ArrayList<ExportIndex.ReexportStar>();
-        var extendsEdges = new java.util.LinkedHashSet<ExportIndex.ClassExtendsEdge>();
+        var heritageEdges = new java.util.LinkedHashSet<ExportIndex.HeritageEdge>();
+        var classMembers = new java.util.LinkedHashSet<ExportIndex.ClassMember>();
 
         // Tree-sitter best-effort extraction.
         String queryStr =
@@ -169,7 +188,7 @@ public final class JsTsExportUsageExtractor {
                 }
 
                 if (className != null && classExtends != null) {
-                    extendsEdges.add(new ExportIndex.ClassExtendsEdge(
+                    heritageEdges.add(new ExportIndex.HeritageEdge(
                             sc.substringFrom(className).strip(),
                             sc.substringFrom(classExtends).strip()));
                 }
@@ -177,6 +196,8 @@ public final class JsTsExportUsageExtractor {
         } catch (Exception e) {
             logger.debug("Tree-sitter export index extraction failed; falling back to regex parsing", e);
         }
+
+        collectClassMetadata(root, sc, heritageEdges, classMembers);
 
         // Regex fallback: keep re-exports robust across subtle grammar differences.
         String text = sc.text();
@@ -209,7 +230,11 @@ public final class JsTsExportUsageExtractor {
             exportsByName.putIfAbsent(name, new ExportIndex.LocalExport(name));
         }
 
-        return new ExportIndex(Map.copyOf(exportsByName), List.copyOf(exportStars), Set.copyOf(extendsEdges));
+        return new ExportIndex(
+                Map.copyOf(exportsByName),
+                List.copyOf(exportStars),
+                Set.copyOf(heritageEdges),
+                Set.copyOf(classMembers));
     }
 
     public static ImportBinder computeImportBinder(List<ImportInfo> importInfos) {
@@ -331,93 +356,398 @@ public final class JsTsExportUsageExtractor {
         CodeUnit fallbackEnclosing = analyzer.enclosingCodeUnit(file, new IAnalyzer.Range(0, 0, 0, 0, 0))
                 .orElseGet(() -> CodeUnit.module(file, "", file.getFileName()));
 
-        String queryStr =
-                """
-            (call_expression function: (identifier) @call.id)
-            (member_expression
-              object: (identifier) @member.obj
-              property: (_) @member.prop)
-            (identifier) @id
-            """;
-
-        try (TSQuery query = new TSQuery(analyzer.tsLanguage(), queryStr);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, root, sc.text());
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture cap : match.getCaptures()) {
-                    String capName = query.getCaptureNameForId(cap.getIndex());
-                    TSNode node = cap.getNode();
-                    if (node == null) continue;
-
-                    if ("call.id".equals(capName)) {
-                        String id = sc.substringFrom(node).strip();
-                        if (!bindings.containsKey(id)) continue;
-                        if (isWithinImportStatement(node)) continue;
-                        if (!analyzer.isAccessExpression(file, node.getStartByte(), node.getEndByte())) continue;
-                        if (isShadowedInEnclosingFunction(analyzer, node, id, sc)) continue;
-
-                        IAnalyzer.Range range = rangeOf(node);
-                        CodeUnit enclosing =
-                                analyzer.enclosingCodeUnit(file, range).orElse(fallbackEnclosing);
-                        candidates.add(new ReferenceCandidate(id, null, ReferenceKind.METHOD_CALL, range, enclosing));
-                        continue;
-                    }
-
-                    if ("id".equals(capName)) {
-                        String id = sc.substringFrom(node).strip();
-                        if (!bindings.containsKey(id)) continue;
-                        if (isWithinImportStatement(node)) continue;
-                        if (isDeclarationIdentifier(node)) continue;
-
-                        TSNode parent = node.getParent();
-                        if (parent != null
-                                && CALL_EXPRESSION.equals(parent.getType())
-                                && node.equals(parent.getChildByFieldName("function"))) {
-                            continue;
-                        }
-
-                        if (!analyzer.isAccessExpression(file, node.getStartByte(), node.getEndByte())) continue;
-                        if (isShadowedInEnclosingFunction(analyzer, node, id, sc)) continue;
-
-                        IAnalyzer.Range range = rangeOf(node);
-                        CodeUnit enclosing =
-                                analyzer.enclosingCodeUnit(file, range).orElse(fallbackEnclosing);
-                        candidates.add(
-                                new ReferenceCandidate(id, null, ReferenceKind.STATIC_REFERENCE, range, enclosing));
-                    }
-                }
-
-                // member_expression: only count `NS.foo` where NS is a namespace import.
-                TSNode objNode = null;
-                TSNode propNode = null;
-                for (TSQueryCapture cap : match.getCaptures()) {
-                    String capName = query.getCaptureNameForId(cap.getIndex());
-                    if ("member.obj".equals(capName)) objNode = cap.getNode();
-                    else if ("member.prop".equals(capName)) propNode = cap.getNode();
-                }
-                if (objNode != null && propNode != null) {
-                    String qualifier = sc.substringFrom(objNode).strip();
-                    ImportBinder.ImportBinding binding = bindings.get(qualifier);
-                    if (binding != null && binding.kind() == ImportBinder.ImportKind.NAMESPACE) {
-                        String property = sc.substringFrom(propNode).strip();
-                        if (!analyzer.isAccessExpression(file, propNode.getStartByte(), propNode.getEndByte())) {
-                            continue;
-                        }
-                        IAnalyzer.Range range = rangeOf(propNode);
-                        CodeUnit enclosing =
-                                analyzer.enclosingCodeUnit(file, range).orElse(fallbackEnclosing);
-                        candidates.add(new ReferenceCandidate(
-                                property, qualifier, ReferenceKind.METHOD_CALL, range, enclosing));
-                    }
-                }
-            }
+        try {
+            collectReferenceCandidates(root, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
         } catch (Exception e) {
             logger.debug("Tree-sitter export usage candidate extraction failed for {}", file, e);
             return Set.of();
         }
 
         return Set.copyOf(candidates);
+    }
+
+    private static void collectReferenceCandidates(
+            TSNode node,
+            JsTsAnalyzer analyzer,
+            ProjectFile file,
+            SourceContent sc,
+            Map<String, ImportBinder.ImportBinding> bindings,
+            CodeUnit fallbackEnclosing,
+            Set<ReferenceCandidate> candidates) {
+        if (node == null) {
+            return;
+        }
+
+        if (isTypeContextRoot(node)) {
+            collectTypeReferenceCandidates(node, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
+        }
+        addIdentifierCandidate(node, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
+        addMemberCandidate(node, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
+
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (child != null) {
+                collectReferenceCandidates(child, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
+            }
+        }
+    }
+
+    private static void collectTypeReferenceCandidates(
+            TSNode node,
+            JsTsAnalyzer analyzer,
+            ProjectFile file,
+            SourceContent sc,
+            Map<String, ImportBinder.ImportBinding> bindings,
+            CodeUnit fallbackEnclosing,
+            Set<ReferenceCandidate> candidates) {
+        if (node == null) {
+            return;
+        }
+        if (node.getChildCount() == 0) {
+            String text = sc.substringFrom(node).strip();
+            if (bindings.containsKey(text)
+                    && IDENTIFIER_TOKEN.matcher(text).matches()
+                    && !isWithinImportStatement(node)
+                    && !isDeclarationIdentifier(node)
+                    && !isShadowedInEnclosingFunction(analyzer, node, text, sc)) {
+                addCandidate(
+                        candidates,
+                        analyzer,
+                        file,
+                        node,
+                        fallbackEnclosing,
+                        text,
+                        null,
+                        null,
+                        false,
+                        ReferenceKind.TYPE_REFERENCE);
+            }
+            return;
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child != null) {
+                collectTypeReferenceCandidates(child, analyzer, file, sc, bindings, fallbackEnclosing, candidates);
+            }
+        }
+    }
+
+    private static void addIdentifierCandidate(
+            TSNode node,
+            JsTsAnalyzer analyzer,
+            ProjectFile file,
+            SourceContent sc,
+            Map<String, ImportBinder.ImportBinding> bindings,
+            CodeUnit fallbackEnclosing,
+            Set<ReferenceCandidate> candidates) {
+        if (!isIdentifierLike(node)) {
+            return;
+        }
+
+        String identifier = sc.substringFrom(node).strip();
+        if (!bindings.containsKey(identifier) || isWithinImportStatement(node) || isDeclarationIdentifier(node)) {
+            return;
+        }
+        if (isShadowedInEnclosingFunction(analyzer, node, identifier, sc)) {
+            return;
+        }
+
+        if (isTypeReferenceNode(node)) {
+            addCandidate(
+                    candidates,
+                    analyzer,
+                    file,
+                    node,
+                    fallbackEnclosing,
+                    identifier,
+                    null,
+                    null,
+                    false,
+                    ReferenceKind.TYPE_REFERENCE);
+            return;
+        }
+
+        TSNode parent = node.getParent();
+        if (parent != null
+                && CALL_EXPRESSION.equals(parent.getType())
+                && node.equals(parent.getChildByFieldName("function"))) {
+            if (analyzer.isAccessExpression(file, node.getStartByte(), node.getEndByte())) {
+                addCandidate(
+                        candidates,
+                        analyzer,
+                        file,
+                        node,
+                        fallbackEnclosing,
+                        identifier,
+                        null,
+                        null,
+                        false,
+                        ReferenceKind.METHOD_CALL);
+            }
+            return;
+        }
+
+        if (!analyzer.isAccessExpression(file, node.getStartByte(), node.getEndByte())) {
+            return;
+        }
+        addCandidate(
+                candidates,
+                analyzer,
+                file,
+                node,
+                fallbackEnclosing,
+                identifier,
+                null,
+                null,
+                false,
+                ReferenceKind.STATIC_REFERENCE);
+    }
+
+    private static void addMemberCandidate(
+            TSNode node,
+            JsTsAnalyzer analyzer,
+            ProjectFile file,
+            SourceContent sc,
+            Map<String, ImportBinder.ImportBinding> bindings,
+            CodeUnit fallbackEnclosing,
+            Set<ReferenceCandidate> candidates) {
+        if (!MEMBER_EXPRESSION.equals(node.getType())) {
+            return;
+        }
+
+        TSNode objectNode = node.getChildByFieldName("object");
+        TSNode propertyNode = node.getChildByFieldName("property");
+        if (objectNode == null || propertyNode == null || isDeclarationIdentifier(propertyNode)) {
+            return;
+        }
+
+        if (!analyzer.isAccessExpression(file, propertyNode.getStartByte(), propertyNode.getEndByte())) {
+            return;
+        }
+
+        String property = sc.substringFrom(propertyNode).strip();
+        if (property.isEmpty()) {
+            return;
+        }
+
+        boolean isMethodCall = isMethodCallMember(node);
+
+        if (isIdentifierLike(objectNode)) {
+            String qualifier = sc.substringFrom(objectNode).strip();
+            ImportBinder.ImportBinding binding = bindings.get(qualifier);
+            if (binding == null || isShadowedInEnclosingFunction(analyzer, objectNode, qualifier, sc)) {
+                return;
+            }
+
+            ReferenceKind kind = isMethodCall ? ReferenceKind.METHOD_CALL : ReferenceKind.FIELD_READ;
+            if (binding.kind() == ImportBinder.ImportKind.NAMESPACE) {
+                addCandidate(
+                        candidates,
+                        analyzer,
+                        file,
+                        propertyNode,
+                        fallbackEnclosing,
+                        property,
+                        qualifier,
+                        null,
+                        false,
+                        kind);
+                return;
+            }
+
+            addCandidate(
+                    candidates,
+                    analyzer,
+                    file,
+                    propertyNode,
+                    fallbackEnclosing,
+                    property,
+                    qualifier,
+                    null,
+                    false,
+                    kind);
+            return;
+        }
+
+        if (MEMBER_EXPRESSION.equals(objectNode.getType())) {
+            TSNode namespaceNode = objectNode.getChildByFieldName("object");
+            TSNode classNode = objectNode.getChildByFieldName("property");
+            if (namespaceNode != null
+                    && classNode != null
+                    && isIdentifierLike(namespaceNode)
+                    && isIdentifierLike(classNode)) {
+                String qualifier = sc.substringFrom(namespaceNode).strip();
+                ImportBinder.ImportBinding binding = bindings.get(qualifier);
+                if (binding != null
+                        && binding.kind() == ImportBinder.ImportKind.NAMESPACE
+                        && !isShadowedInEnclosingFunction(analyzer, namespaceNode, qualifier, sc)) {
+                    addCandidate(
+                            candidates,
+                            analyzer,
+                            file,
+                            propertyNode,
+                            fallbackEnclosing,
+                            property,
+                            qualifier,
+                            sc.substringFrom(classNode).strip(),
+                            false,
+                            isMethodCall ? ReferenceKind.METHOD_CALL : ReferenceKind.FIELD_READ);
+                }
+            }
+            return;
+        }
+
+        if (NEW_EXPRESSION.equals(objectNode.getType())) {
+            TSNode ctorNode = objectNode.getChildByFieldName("constructor");
+            if (ctorNode != null && isIdentifierLike(ctorNode)) {
+                String qualifier = sc.substringFrom(ctorNode).strip();
+                if (bindings.containsKey(qualifier)
+                        && !isShadowedInEnclosingFunction(analyzer, ctorNode, qualifier, sc)) {
+                    addCandidate(
+                            candidates,
+                            analyzer,
+                            file,
+                            propertyNode,
+                            fallbackEnclosing,
+                            property,
+                            qualifier,
+                            null,
+                            true,
+                            isMethodCall ? ReferenceKind.METHOD_CALL : ReferenceKind.FIELD_READ);
+                }
+            }
+        }
+    }
+
+    private static void addCandidate(
+            Set<ReferenceCandidate> candidates,
+            JsTsAnalyzer analyzer,
+            ProjectFile file,
+            TSNode node,
+            CodeUnit fallbackEnclosing,
+            String identifier,
+            @Nullable String qualifier,
+            @Nullable String ownerIdentifier,
+            boolean instanceReceiver,
+            ReferenceKind kind) {
+        IAnalyzer.Range range = rangeOf(node);
+        CodeUnit enclosing = analyzer.enclosingCodeUnit(file, range).orElse(fallbackEnclosing);
+        candidates.add(new ReferenceCandidate(
+                identifier, qualifier, ownerIdentifier, instanceReceiver, kind, range, enclosing));
+    }
+
+    private static void collectClassMetadata(
+            TSNode root,
+            SourceContent sc,
+            Set<ExportIndex.HeritageEdge> heritageEdges,
+            Set<ExportIndex.ClassMember> classMembers) {
+        walk(root, node -> {
+            String nodeType = node.getType();
+            if (CLASS_DECLARATION.equals(nodeType)
+                    || TypeScriptTreeSitterNodeTypes.INTERFACE_DECLARATION.equals(nodeType)) {
+                collectHeritageEdges(node, sc, heritageEdges);
+            }
+            if (CLASS_DECLARATION.equals(nodeType)) {
+                collectClassMembers(node, sc, classMembers);
+            }
+        });
+    }
+
+    private static void collectHeritageEdges(
+            TSNode classLikeNode, SourceContent sc, Set<ExportIndex.HeritageEdge> heritageEdges) {
+        TSNode nameNode = classLikeNode.getChildByFieldName("name");
+        if (nameNode == null) {
+            return;
+        }
+        String childName = sc.substringFrom(nameNode).strip();
+        walk(classLikeNode, node -> {
+            if (!CLASS_HERITAGE.equals(node.getType())
+                    && !EXTENDS_CLAUSE.equals(node.getType())
+                    && !IMPLEMENTS_CLAUSE.equals(node.getType())) {
+                return;
+            }
+            collectReferencedTypeNames(node, sc, childName, heritageEdges);
+        });
+    }
+
+    private static void collectReferencedTypeNames(
+            TSNode node, SourceContent sc, String childName, Set<ExportIndex.HeritageEdge> heritageEdges) {
+        if (isIdentifierLike(node)) {
+            String parentName = sc.substringFrom(node).strip();
+            if (!parentName.isEmpty()) {
+                heritageEdges.add(new ExportIndex.HeritageEdge(childName, parentName));
+            }
+            return;
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            if (child != null) {
+                collectReferencedTypeNames(child, sc, childName, heritageEdges);
+            }
+        }
+    }
+
+    private static void collectClassMembers(
+            TSNode classNode, SourceContent sc, Set<ExportIndex.ClassMember> classMembers) {
+        TSNode nameNode = classNode.getChildByFieldName("name");
+        if (nameNode == null) {
+            return;
+        }
+        String className = sc.substringFrom(nameNode).strip();
+        for (TSNode child : classNode.getNamedChildren()) {
+            if (child == null || !CLASS_BODY.equals(child.getType())) {
+                continue;
+            }
+            for (TSNode member : child.getNamedChildren()) {
+                if (member == null || !isClassMemberNode(member)) {
+                    continue;
+                }
+                TSNode memberNameNode = member.getChildByFieldName("name");
+                if (memberNameNode == null || !isIdentifierLike(memberNameNode)) {
+                    continue;
+                }
+                classMembers.add(new ExportIndex.ClassMember(
+                        className, sc.substringFrom(memberNameNode).strip(), hasModifier(member, STATIC)));
+            }
+        }
+    }
+
+    private static boolean isClassMemberNode(TSNode node) {
+        String type = node.getType();
+        return METHOD_DEFINITION.equals(type)
+                || PUBLIC_FIELD_DEFINITION.equals(type)
+                || ABSTRACT_METHOD_SIGNATURE.equals(type)
+                || METHOD_SIGNATURE.equals(type);
+    }
+
+    private static boolean hasModifier(TSNode node, String modifierType) {
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (child != null && modifierType.equals(child.getType())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private interface NodeVisitor {
+        void visit(TSNode node);
+    }
+
+    private static void walk(TSNode node, NodeVisitor visitor) {
+        if (node == null) {
+            return;
+        }
+        visitor.visit(node);
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (child != null) {
+                walk(child, visitor);
+            }
+        }
     }
 
     private static boolean isWithinImportStatement(TSNode node) {
@@ -447,7 +777,61 @@ public final class JsTsExportUsageExtractor {
         if (CLASS_DECLARATION.equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
             return true;
         }
+        if (TypeScriptTreeSitterNodeTypes.INTERFACE_DECLARATION.equals(type)
+                && identifierNode.equals(parent.getChildByFieldName("name"))) {
+            return true;
+        }
+        if (TYPE_ALIAS_DECLARATION.equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
+            return true;
+        }
         return false;
+    }
+
+    private static boolean isTypeReferenceNode(TSNode node) {
+        if (!isIdentifierLike(node)) {
+            return false;
+        }
+        TSNode current = node.getParent();
+        while (current != null) {
+            String type = current.getType();
+            if (TYPE_ANNOTATION.equals(type)
+                    || TYPE_ALIAS_DECLARATION.equals(type)
+                    || TYPE_ARGUMENTS.equals(type)
+                    || IMPLEMENTS_CLAUSE.equals(type)
+                    || EXTENDS_CLAUSE.equals(type)) {
+                return true;
+            }
+            if (CALL_EXPRESSION.equals(type) || MEMBER_EXPRESSION.equals(type) || OBJECT_TYPE.equals(type)) {
+                return false;
+            }
+            current = current.getParent();
+        }
+        return false;
+    }
+
+    private static boolean isTypeContextRoot(TSNode node) {
+        String type = node.getType();
+        return TYPE_ANNOTATION.equals(type)
+                || TYPE_ALIAS_DECLARATION.equals(type)
+                || TYPE_ARGUMENTS.equals(type)
+                || CLASS_HERITAGE.equals(type)
+                || IMPLEMENTS_CLAUSE.equals(type)
+                || EXTENDS_CLAUSE.equals(type);
+    }
+
+    private static boolean isIdentifierLike(TSNode node) {
+        String type = node.getType();
+        return TypeScriptTreeSitterNodeTypes.IDENTIFIER.equals(type)
+                || PROPERTY_IDENTIFIER.equals(type)
+                || TYPE_IDENTIFIER.equals(type)
+                || NESTED_TYPE_IDENTIFIER.equals(type);
+    }
+
+    private static boolean isMethodCallMember(TSNode memberExpression) {
+        TSNode parent = memberExpression.getParent();
+        return parent != null
+                && CALL_EXPRESSION.equals(parent.getType())
+                && memberExpression.equals(parent.getChildByFieldName("function"));
     }
 
     private static boolean isShadowedInEnclosingFunction(

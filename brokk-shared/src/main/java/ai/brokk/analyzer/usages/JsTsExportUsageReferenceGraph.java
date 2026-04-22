@@ -1,5 +1,7 @@
 package ai.brokk.analyzer.usages;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
@@ -57,12 +59,23 @@ public final class JsTsExportUsageReferenceGraph {
     public static ReferenceGraphResult findExportUsages(
             ProjectFile definingFile, String exportName, IAnalyzer analyzer, Limits limits)
             throws InterruptedException {
-        return findExportUsages(definingFile, exportName, analyzer, limits, null);
+        return findExportUsages(definingFile, exportName, null, analyzer, limits, null);
     }
 
     public static ReferenceGraphResult findExportUsages(
             ProjectFile definingFile,
             String exportName,
+            IAnalyzer analyzer,
+            Limits limits,
+            @Nullable Set<ProjectFile> candidateFiles)
+            throws InterruptedException {
+        return findExportUsages(definingFile, exportName, null, analyzer, limits, candidateFiles);
+    }
+
+    public static ReferenceGraphResult findExportUsages(
+            ProjectFile definingFile,
+            String exportName,
+            @Nullable CodeUnit queryTarget,
             IAnalyzer analyzer,
             Limits limits,
             @Nullable Set<ProjectFile> candidateFiles)
@@ -74,7 +87,7 @@ public final class JsTsExportUsageReferenceGraph {
 
         Set<String> externalFrontier = new LinkedHashSet<>();
         var resolution = resolveExport(definingFile, exportName, jsTs, limits, externalFrontier);
-        Set<CodeUnit> targets = resolution.targets();
+        Set<CodeUnit> targets = queryTarget != null ? Set.of(queryTarget) : resolution.targets();
         Set<ProjectFile> frontier = new LinkedHashSet<>(resolution.frontier());
 
         if (targets.isEmpty()) {
@@ -90,7 +103,7 @@ public final class JsTsExportUsageReferenceGraph {
             filesToAnalyze = collectReferencingFiles(definingFile, jsTs, reverseReexports, limits.maxFiles());
         }
 
-        Map<String, String> extendsEdges = buildClassExtendsIndex(jsTs);
+        Map<String, Set<String>> heritageEdges = buildHeritageIndex(jsTs);
 
         Set<ReferenceHit> hits = new LinkedHashSet<>();
         int filesProcessed = 0;
@@ -116,7 +129,7 @@ public final class JsTsExportUsageReferenceGraph {
                 double confidence = resolved.get().confidence();
 
                 for (CodeUnit target : targets) {
-                    if (matchesTarget(target, resolvedTarget, extendsEdges)) {
+                    if (matchesTarget(target, resolvedTarget, heritageEdges)) {
                         hits.add(new ReferenceHit(
                                 file, cand.range(), cand.enclosingUnit(), cand.kind(), target, confidence));
                         break;
@@ -129,32 +142,40 @@ public final class JsTsExportUsageReferenceGraph {
     }
 
     private static boolean matchesTarget(
-            CodeUnit queryTarget, CodeUnit resolvedTarget, Map<String, String> extendsEdges) {
+            CodeUnit queryTarget, CodeUnit resolvedTarget, Map<String, Set<String>> heritageEdges) {
         if (queryTarget.fqName().equals(resolvedTarget.fqName())) {
             return true;
         }
 
-        if (queryTarget.kind() == CodeUnitType.FIELD
-                && resolvedTarget.kind() == CodeUnitType.FIELD
+        if ((queryTarget.kind() == CodeUnitType.FIELD || queryTarget.kind() == CodeUnitType.FUNCTION)
+                && (resolvedTarget.kind() == CodeUnitType.FIELD || resolvedTarget.kind() == CodeUnitType.FUNCTION)
                 && queryTarget.source().equals(resolvedTarget.source())
-                && queryTarget.identifier().equals(resolvedTarget.identifier())) {
+                && normalizedMemberName(queryTarget).equals(normalizedMemberName(resolvedTarget))
+                && ownerNameOf(queryTarget).equals(ownerNameOf(resolvedTarget))) {
             return true;
         }
 
         // JS/TS polymorphism (v1): class inheritance only, flow-insensitive.
         if (queryTarget.kind() == CodeUnitType.CLASS && resolvedTarget.kind() == CodeUnitType.CLASS) {
             String q = queryTarget.identifier();
-            String current = resolvedTarget.identifier();
-            while (true) {
-                String parent = extendsEdges.get(current);
-                if (parent == null) {
-                    return false;
+            var queue = new ArrayDeque<String>();
+            var visited = new HashSet<String>();
+            queue.add(resolvedTarget.identifier());
+            while (!queue.isEmpty()) {
+                String current = queue.removeFirst();
+                if (!visited.add(current)) {
+                    continue;
                 }
-                if (parent.equals(q)) {
+                Set<String> parents = heritageEdges.get(current);
+                if (parents == null || parents.isEmpty()) {
+                    continue;
+                }
+                if (parents.contains(q)) {
                     return true;
                 }
-                current = parent;
+                parents.forEach(queue::addLast);
             }
+            return false;
         }
 
         return false;
@@ -170,6 +191,10 @@ public final class JsTsExportUsageReferenceGraph {
             Limits limits,
             Set<ProjectFile> frontier,
             Set<String> externalFrontier) {
+        if (cand.ownerIdentifier() != null) {
+            return resolveNamespaceMemberCandidate(cand, file, binder, jsTs, limits, frontier, externalFrontier);
+        }
+
         if (cand.qualifier() == null) {
             ImportBinder.ImportBinding binding = binder.bindings().get(cand.identifier());
             if (binding == null) return Optional.empty();
@@ -194,8 +219,12 @@ public final class JsTsExportUsageReferenceGraph {
         }
 
         ImportBinder.ImportBinding binding = binder.bindings().get(cand.qualifier());
-        if (binding == null || binding.kind() != ImportBinder.ImportKind.NAMESPACE) {
+        if (binding == null) {
             return Optional.empty();
+        }
+
+        if (binding.kind() != ImportBinder.ImportKind.NAMESPACE) {
+            return resolveClassMemberCandidate(cand, file, binding, jsTs, limits, frontier, externalFrontier);
         }
 
         JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
@@ -210,6 +239,81 @@ public final class JsTsExportUsageReferenceGraph {
         CodeUnit target = resolution.targets().stream().findFirst().orElse(null);
         if (target == null) return Optional.empty();
         return Optional.of(new ResolvedExport(target, 0.9));
+    }
+
+    private static Optional<ResolvedExport> resolveClassMemberCandidate(
+            ReferenceCandidate cand,
+            ProjectFile file,
+            ImportBinder.ImportBinding binding,
+            JsTsAnalyzer jsTs,
+            Limits limits,
+            Set<ProjectFile> frontier,
+            Set<String> externalFrontier) {
+        JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
+        if (imported.resolved().isEmpty()) {
+            imported.externalFrontier().ifPresent(externalFrontier::add);
+            return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, jsTs);
+        }
+
+        String importedName = binding.importedName();
+        if (importedName == null) {
+            return Optional.empty();
+        }
+
+        var ownerResolution =
+                resolveExport(imported.resolved().orElseThrow(), importedName, jsTs, limits, externalFrontier);
+        frontier.addAll(ownerResolution.frontier());
+        CodeUnit ownerClass = ownerResolution.targets().stream()
+                .filter(cu -> cu.kind() == CodeUnitType.CLASS)
+                .findFirst()
+                .orElse(null);
+        if (ownerClass == null) {
+            return Optional.empty();
+        }
+
+        CodeUnit member = resolveClassMember(ownerClass, cand.identifier(), cand.instanceReceiver(), jsTs);
+        if (member == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new ResolvedExport(member, cand.instanceReceiver() ? 0.95 : 1.0));
+    }
+
+    private static Optional<ResolvedExport> resolveNamespaceMemberCandidate(
+            ReferenceCandidate cand,
+            ProjectFile file,
+            ImportBinder binder,
+            JsTsAnalyzer jsTs,
+            Limits limits,
+            Set<ProjectFile> frontier,
+            Set<String> externalFrontier) {
+        ImportBinder.ImportBinding binding = binder.bindings().get(cand.qualifier());
+        if (binding == null || binding.kind() != ImportBinder.ImportKind.NAMESPACE) {
+            return Optional.empty();
+        }
+        String ownerIdentifier = requireNonNull(cand.ownerIdentifier());
+
+        JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
+        if (imported.resolved().isEmpty()) {
+            imported.externalFrontier().ifPresent(externalFrontier::add);
+            return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, jsTs);
+        }
+
+        var ownerResolution =
+                resolveExport(imported.resolved().orElseThrow(), ownerIdentifier, jsTs, limits, externalFrontier);
+        frontier.addAll(ownerResolution.frontier());
+        CodeUnit ownerClass = ownerResolution.targets().stream()
+                .filter(cu -> cu.kind() == CodeUnitType.CLASS)
+                .findFirst()
+                .orElse(null);
+        if (ownerClass == null) {
+            return Optional.empty();
+        }
+
+        CodeUnit member = resolveClassMember(ownerClass, cand.identifier(), false, jsTs);
+        if (member == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new ResolvedExport(member, 1.0));
     }
 
     private static Optional<ResolvedExport> addFrontier(
@@ -294,7 +398,9 @@ public final class JsTsExportUsageReferenceGraph {
         var matches = new LinkedHashSet<CodeUnit>();
         for (CodeUnit cu : analyzer.getDefinitions(localName)) {
             if (!cu.source().equals(file)) continue;
-            if (cu.identifier().equals(localName) || cu.shortName().equals(localName)) {
+            if (cu.identifier().equals(localName)
+                    || cu.shortName().equals(localName)
+                    || ownerNameOf(cu).equals(localName)) {
                 matches.add(cu);
             }
         }
@@ -308,6 +414,37 @@ public final class JsTsExportUsageReferenceGraph {
 
     private static CodeUnit syntheticModuleField(ProjectFile file, String name) {
         return CodeUnit.field(file, "", "_module_." + name).withSynthetic(true);
+    }
+
+    private static @Nullable CodeUnit resolveClassMember(
+            CodeUnit ownerClass, String memberName, boolean instanceReceiver, JsTsAnalyzer jsTs) {
+        ExportIndex idx = jsTs.exportIndexOf(ownerClass.source());
+        boolean memberDeclared = idx.classMembers().stream()
+                .anyMatch(member -> member.ownerClassName().equals(ownerClass.identifier())
+                        && member.memberName().equals(memberName)
+                        && (instanceReceiver ? !member.staticMember() : true));
+        if (!memberDeclared) {
+            return null;
+        }
+
+        for (CodeUnit cu : jsTs.getAllDeclarations()) {
+            if (!cu.source().equals(ownerClass.source())) {
+                continue;
+            }
+            if (!normalizedMemberName(cu).equals(memberName)) {
+                continue;
+            }
+            if (!ownerNameOf(cu).equals(ownerClass.identifier())) {
+                continue;
+            }
+            if (instanceReceiver && isStaticMember(cu)) {
+                continue;
+            }
+            return cu;
+        }
+
+        return CodeUnit.field(ownerClass.source(), ownerClass.packageName(), ownerClass.identifier() + "." + memberName)
+                .withSynthetic(true);
     }
 
     private static Set<ProjectFile> collectReferencingFiles(
@@ -374,15 +511,38 @@ public final class JsTsExportUsageReferenceGraph {
         }
     }
 
-    private static Map<String, String> buildClassExtendsIndex(JsTsAnalyzer jsTs) {
-        var edges = new HashMap<String, String>();
+    private static Map<String, Set<String>> buildHeritageIndex(JsTsAnalyzer jsTs) {
+        var edges = new HashMap<String, Set<String>>();
         for (ProjectFile file : jsTs.getAnalyzedFiles()) {
             if (!isJsTs(file)) continue;
             ExportIndex idx = jsTs.exportIndexOf(file);
-            for (ExportIndex.ClassExtendsEdge e : idx.classExtendsEdges()) {
-                edges.putIfAbsent(e.childClassName(), e.parentClassName());
+            for (ExportIndex.HeritageEdge e : idx.heritageEdges()) {
+                edges.computeIfAbsent(e.childName(), ignored -> new LinkedHashSet<>())
+                        .add(e.parentName());
             }
         }
         return Map.copyOf(edges);
+    }
+
+    private static String normalizedMemberName(CodeUnit codeUnit) {
+        return stripMemberSuffix(codeUnit.identifier());
+    }
+
+    private static String ownerNameOf(CodeUnit codeUnit) {
+        String shortName = codeUnit.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return "";
+        }
+        return shortName.substring(0, lastDot);
+    }
+
+    private static boolean isStaticMember(CodeUnit codeUnit) {
+        return codeUnit.fqName().contains("$static");
+    }
+
+    private static String stripMemberSuffix(String name) {
+        int marker = name.indexOf('$');
+        return marker >= 0 ? name.substring(0, marker) : name;
     }
 }

@@ -3,6 +3,7 @@ package ai.brokk.analyzer.usages;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.JsTsAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypescriptAnalyzer;
@@ -11,7 +12,7 @@ import ai.brokk.testutil.InlineTestProjectCreator;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-public class JsTsExportUsageReferenceGraphTest {
+public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest {
 
     @Test
     public void namedImportAlias_resolvesToExportedSymbol() throws Exception {
@@ -144,6 +145,180 @@ public class JsTsExportUsageReferenceGraphTest {
                     aFile, "Base", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
 
             assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    public void typeAnnotation_importedClass_countsAsTypeReferenceUsage() throws Exception {
+        String a = """
+                export class Foo {}
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                const value: Foo | null = null;
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(1, result.hits().size());
+            assertEquals(
+                    ReferenceKind.TYPE_REFERENCE,
+                    result.hits().iterator().next().kind());
+        }
+    }
+
+    @Test
+    public void genericTypeArgument_importedClass_countsAsTypeReferenceUsage() throws Exception {
+        String a =
+                """
+                export class Foo {}
+                export type Box<T> = { value: T };
+                """;
+        String b =
+                """
+                import { Foo, Box } from "./a";
+                const value: Box<Foo> = { value: null as Foo };
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(2, result.hits().size());
+        }
+    }
+
+    @Test
+    public void returnType_importedClass_countsAsTypeReferenceUsage() throws Exception {
+        String a = """
+                export class Foo {}
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                function load(): Foo {
+                  return null as Foo;
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(2, result.hits().size());
+        }
+    }
+
+    @Test
+    public void instanceMember_onImportedClass_resolvesMemberUsage() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b = """
+                import { Foo } from "./a";
+                new Foo().bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    public void staticMember_onNamespaceImportedClass_resolvesMemberUsage() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  static make() {}
+                }
+                """;
+        String b = """
+                import * as NS from "./a";
+                NS.Foo.make();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("make"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    public void unresolvedReceiverPropertyAccess_doesNotCountAsMemberUsage() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                const obj = { bar() {} };
+                obj.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", target, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(0, result.hits().size());
         }
     }
 
@@ -391,9 +566,5 @@ public class JsTsExportUsageReferenceGraphTest {
             assertEquals(0, result.hits().size());
             assertTrue(result.externalFrontierSpecifiers().contains("~/lib"));
         }
-    }
-
-    private static ProjectFile projectFile(Set<ProjectFile> files, String fileName) {
-        return AbstractUsageReferenceGraphTest.projectFile(files, fileName);
     }
 }

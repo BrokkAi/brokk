@@ -101,4 +101,38 @@ public class JsTsExportUsageGraphStrategyTest extends AbstractUsageReferenceGrap
                     ((FuzzyResult.Success) result).hitsByOverload().get(target).size());
         }
     }
+
+    @Test
+    public void exportedClassMember_ownerExportNameInferred_mapsToMemberUsages() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b = """
+                import { Foo } from "./a";
+                new Foo().bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            ProjectFile bFile = projectFile(project.getAllFiles(), "b.ts");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().startsWith("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var strategy = new JsTsExportUsageGraphStrategy(analyzer);
+            var result = strategy.findUsages(List.of(target), Set.of(bFile), 1000);
+
+            assertEquals(
+                    1,
+                    ((FuzzyResult.Success) result).hitsByOverload().get(target).size());
+        }
+    }
 }
