@@ -4,6 +4,7 @@ import os
 import re
 import tempfile
 import tomllib
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -249,22 +250,7 @@ class InstalledCodexPlugin:
 
 
 _GITHUB_RAW_BASE = "https://raw.githubusercontent.com/BrokkAi/brokk"
-
-def _github_ref() -> str:
-    """Return the git ref to fetch plugin files from.
-
-    Pins to the release tag matching the installed package version (e.g. ``v0.6.1``)
-    so fetched skills stay in sync with the installed code. Falls back to ``master``
-    for dev/local versions or when the version cannot be determined.
-    """
-    try:
-        from brokk_code import __version__
-        # Strip dev/local suffixes (e.g. "0.6.1.dev3" or "0.6.1+local") that
-        # don't have corresponding git tags.
-        base_version = re.split(r"[.+]dev|[+]", __version__)[0]
-        return f"v{base_version}"
-    except Exception:
-        return "master"
+_CLAUDE_PLUGIN_VERSION = "0.2.0"
 
 _log = logging.getLogger(__name__)
 
@@ -302,11 +288,24 @@ _SKILL_AGENT_DEPS: dict[str, list[str]] = {
 
 
 def _fetch_github_file(path: str) -> str:
-    """Fetch a file from the brokk GitHub repo."""
-    url = f"{_GITHUB_RAW_BASE}/{_github_ref()}/{path}"
-    _log.info("Fetching %s", url)
-    with urllib.request.urlopen(url, timeout=30) as resp:
-        return resp.read().decode("utf-8")
+    """Fetch a file from the brokk GitHub repo.
+
+    Tries the ``claude-plugin-{version}`` tag first, falls back to ``master``
+    if the tag does not exist (HTTP 404).
+    """
+    tag_ref = f"claude-plugin-{_CLAUDE_PLUGIN_VERSION}"
+    for ref in (tag_ref, "master"):
+        url = f"{_GITHUB_RAW_BASE}/{ref}/{path}"
+        _log.info("Fetching %s", url)
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                return resp.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404 and ref != "master":
+                _log.warning("Tag %s not found, falling back to master", tag_ref)
+                continue
+            raise
+    raise RuntimeError(f"Failed to fetch {path} from GitHub")
 
 
 def _fetch_codex_skills() -> dict[str, str]:
