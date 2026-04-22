@@ -1127,6 +1127,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 defaultValue);
     }
 
+    protected @Nullable TSNode primaryNodeForCodeUnit(TSTree tree, CodeUnit cu) {
+        List<Range> ranges = rangesOf(cu);
+        if (ranges.isEmpty()) {
+            return null;
+        }
+
+        TSNode root = tree.getRootNode();
+        if (root == null) {
+            return null;
+        }
+
+        Range primary = ranges.getFirst();
+        return root.getDescendantForByteRange(primary.startByte(), primary.endByte());
+    }
+
     // ---------- IAnalyzer ----------
     @Override
     public Set<Language> languages() {

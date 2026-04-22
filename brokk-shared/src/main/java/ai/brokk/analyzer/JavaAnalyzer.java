@@ -1556,63 +1556,61 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     public int computeCyclomaticComplexity(CodeUnit cu) {
         if (!cu.isFunction()) return 0;
 
-        return getSource(cu, false)
-                .map(source -> {
-                    try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
-                        TSNode root = tree.getRootNode();
-                        if (root == null) return 1;
-
-                        SourceContent content = SourceContent.of(source);
-                        int complexity = 1; // Base complexity
-
-                        Deque<TSNode> stack = new ArrayDeque<>();
-                        stack.push(root);
-
-                        while (!stack.isEmpty()) {
-                            TSNode node = stack.pop();
-                            String type = node.getType();
-                            if (type == null) {
-                                continue;
+        Integer result = withTreeOf(
+                cu.source(),
+                tree -> withSource(
+                        cu.source(),
+                        content -> {
+                            TSNode cuNode = primaryNodeForCodeUnit(tree, cu);
+                            if (cuNode == null) {
+                                return 1;
                             }
 
-                            switch (JavaNodeType.fromType(type)) {
-                                case IF_STATEMENT,
-                                        FOR_STATEMENT,
-                                        ENHANCED_FOR_STATEMENT,
-                                        WHILE_STATEMENT,
-                                        DO_STATEMENT,
-                                        CATCH_CLAUSE,
-                                        TERNARY_EXPRESSION -> complexity++;
-                                case SWITCH_LABEL -> {
-                                    // Only count if not the 'default' case
-                                    if (!content.substringFrom(node).contains("default")) {
-                                        complexity++;
+                            int complexity = 1;
+                            Deque<TSNode> stack = new ArrayDeque<>();
+                            stack.push(cuNode);
+
+                            while (!stack.isEmpty()) {
+                                TSNode node = stack.pop();
+                                String type = node.getType();
+                                if (type == null) {
+                                    continue;
+                                }
+
+                                switch (JavaNodeType.fromType(type)) {
+                                    case IF_STATEMENT,
+                                            FOR_STATEMENT,
+                                            ENHANCED_FOR_STATEMENT,
+                                            WHILE_STATEMENT,
+                                            DO_STATEMENT,
+                                            CATCH_CLAUSE,
+                                            TERNARY_EXPRESSION -> complexity++;
+                                    case SWITCH_LABEL -> {
+                                        if (!content.substringFrom(node).contains("default")) {
+                                            complexity++;
+                                        }
+                                    }
+                                    case BINARY_EXPRESSION -> {
+                                        String operator = content.substringFrom(node);
+                                        if (operator.contains("&&") || operator.contains("||")) {
+                                            complexity++;
+                                        }
+                                    }
+                                    default -> {}
+                                }
+
+                                for (int i = 0; i < node.getNamedChildCount(); i++) {
+                                    TSNode child = node.getNamedChild(i);
+                                    if (child != null) {
+                                        stack.push(child);
                                     }
                                 }
-                                case BINARY_EXPRESSION -> {
-                                    // Check for && or ||
-                                    String operator = content.substringFrom(node);
-                                    if (operator.contains("&&") || operator.contains("||")) {
-                                        complexity++;
-                                    }
-                                }
-                                default -> {}
                             }
-
-                            for (int i = 0; i < node.getNamedChildCount(); i++) {
-                                TSNode child = node.getNamedChild(i);
-                                if (child != null) {
-                                    stack.push(child);
-                                }
-                            }
-                        }
-                        return complexity;
-                    } catch (Exception e) {
-                        log.warn("Failed to compute complexity for {} using AST; falling back", cu.fqName(), e);
-                        return super.computeCyclomaticComplexity(cu);
-                    }
-                })
-                .orElse(0);
+                            return complexity;
+                        },
+                        1),
+                1);
+        return result != null ? result : 1;
     }
 
     @Override
