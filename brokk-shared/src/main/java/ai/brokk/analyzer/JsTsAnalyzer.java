@@ -66,6 +66,9 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
 
+    private final Cache<Path, TsConfigPathsResolver> tsConfigResolverCache =
+            Caffeine.newBuilder().maximumSize(64).build();
+
     private volatile @Nullable Set<Path> absoluteProjectPathsCache;
 
     protected JsTsAnalyzer(ICoreProject project, Language language) {
@@ -200,7 +203,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             return pf != null ? ResolutionOutcome.resolved(pf) : ResolutionOutcome.empty();
         }
 
-        TsConfigPathsResolver resolver = getOrComputeTsConfigResolver(root);
+        TsConfigPathsResolver resolver = tsConfigResolverCache.get(root, TsConfigPathsResolver::new);
         TsConfigPathsResolver.Expansion expansion = resolver.expand(importingFile, moduleSpecifier);
         if (!expansion.hadAnyMapping()) {
             return ResolutionOutcome.external(moduleSpecifier);
@@ -214,16 +217,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         }
 
         return ResolutionOutcome.external(moduleSpecifier);
-    }
-
-    private TsConfigPathsResolver getOrComputeTsConfigResolver(Path root) {
-        TsConfigPathsResolver cached = cache().tsConfigPathsResolver().get(root);
-        if (cached != null) {
-            return cached;
-        }
-        TsConfigPathsResolver computed = new TsConfigPathsResolver(root);
-        cache().tsConfigPathsResolver().put(root, computed);
-        return computed;
     }
 
     @Override
