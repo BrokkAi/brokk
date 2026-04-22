@@ -1,5 +1,7 @@
 import json
 import tomllib
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -13,6 +15,13 @@ from brokk_code.mcp_config import (
     install_codex_mcp_workspace_skill,
 )
 from brokk_code.zed_config import ExistingBrokkCodeEntryError
+
+
+def _mock_fetch_github_file(path: str) -> str:
+    """Read files from the local claude-plugin directory instead of GitHub."""
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    local_path = repo_root / path
+    return local_path.read_text(encoding="utf-8")
 
 
 def test_configure_claude_code_mcp_settings_uses_claude_json(tmp_path, monkeypatch):
@@ -309,7 +318,10 @@ def test_install_claude_mcp_summaries_skill_creates_expected_skill(monkeypatch, 
     assert "class skeletons" in content
 
 
-def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, tmp_path) -> None:
+@patch("brokk_code.mcp_config._fetch_github_file", side_effect=_mock_fetch_github_file)
+def test_install_codex_local_plugin_creates_plugin_and_marketplace(
+    mock_fetch, monkeypatch, tmp_path
+) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
 
     install_result = install_codex_local_plugin()
@@ -357,7 +369,7 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, 
     assert "name: brokk-review-pr" in review_content
     assert "security-reviewer" in review_content
     assert "architect-reviewer" in review_content
-    assert "Embedded Reviewer Prompts" in review_content
+    assert "Embedded Agent Prompts" in review_content
 
     guided_issue_skill = plugin_dir / "skills" / "guided-issue" / "SKILL.md"
     assert guided_issue_skill.exists()
@@ -366,11 +378,13 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, 
     assert "issue-diagnostician" in guided_content
     assert "issue-planner" in guided_content
     assert "security-reviewer" in guided_content
-    assert "Embedded Reviewer Prompts" in guided_content
-    assert "Embedded Issue Agent Prompts" in guided_content
+    assert "Embedded Agent Prompts" in guided_content
 
 
-def test_install_codex_local_plugin_preserves_existing_marketplace_entries(tmp_path) -> None:
+@patch("brokk_code.mcp_config._fetch_github_file", side_effect=_mock_fetch_github_file)
+def test_install_codex_local_plugin_preserves_existing_marketplace_entries(
+    mock_fetch, tmp_path
+) -> None:
     plugin_dir = tmp_path / ".codex" / "plugins" / "brokk"
     marketplace_path = tmp_path / ".agents" / "plugins" / "marketplace.json"
     marketplace_path.parent.mkdir(parents=True)
@@ -399,7 +413,10 @@ def test_install_codex_local_plugin_preserves_existing_marketplace_entries(tmp_p
     ]
 
 
-def test_install_codex_local_plugin_rejects_conflicting_marketplace_entry(tmp_path) -> None:
+@patch("brokk_code.mcp_config._fetch_github_file", side_effect=_mock_fetch_github_file)
+def test_install_codex_local_plugin_rejects_conflicting_marketplace_entry(
+    mock_fetch, tmp_path
+) -> None:
     plugin_dir = tmp_path / ".codex" / "plugins" / "brokk"
     marketplace_path = tmp_path / ".agents" / "plugins" / "marketplace.json"
     marketplace_path.parent.mkdir(parents=True)
