@@ -7,11 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.JavascriptAnalyzer;
 import ai.brokk.testutil.InlineCoreProject;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -43,6 +45,29 @@ public class JavaScriptImportTest {
                     "import './side-effect-module';",
                     "import 'global-polyfill';");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
+
+            List<ImportInfo> infos = analyzer.as(ImportAnalysisProvider.class).orElseThrow().importInfoOf(file);
+            assertTrue(
+                    infos.stream().anyMatch(i -> i.identifier() != null),
+                    "ImportInfo should include structured identifiers where possible");
+            assertTrue(
+                    infos.stream().anyMatch(i -> "default".equals(i.identifier()) && "React".equals(i.alias())),
+                    "Default import should be represented as identifier=default, alias=localName. infos=" + infos);
+            assertTrue(
+                    infos.stream().anyMatch(i -> "useState".equals(i.identifier()) && i.alias() == null),
+                    "Named import without alias should have alias=null");
+            assertTrue(
+                    infos.stream().anyMatch(i -> "AnotherThing".equals(i.identifier()) && "AT".equals(i.alias())),
+                    "Named import alias should be represented as identifier+alias");
+            assertTrue(
+                    infos.stream().anyMatch(i -> i.isWildcard() && "AllThings".equals(i.alias())),
+                    "Namespace import should be represented as wildcard with alias");
+            assertTrue(
+                    infos.stream()
+                            .anyMatch(i -> i.identifier() == null
+                                    && i.alias() == null
+                                    && i.rawSnippet().startsWith("import './side-effect-module'")),
+                    "Side-effect import should be represented as rawSnippet with no identifiers");
         }
     }
 

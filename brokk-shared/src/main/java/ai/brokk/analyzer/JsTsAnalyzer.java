@@ -3,15 +3,14 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.javascript.JsTsExportUsageExtractor;
 import ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes;
 import ai.brokk.analyzer.usages.ExportIndex;
 import ai.brokk.analyzer.usages.ImportBinder;
 import ai.brokk.analyzer.usages.ReferenceCandidate;
-import ai.brokk.analyzer.usages.ReferenceKind;
 import ai.brokk.project.ICoreProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.google.common.base.Splitter;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -28,12 +27,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
+import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSPoint;
-import org.treesitter.TSQuery;
-import org.treesitter.TSQueryCapture;
-import org.treesitter.TSQueryCursor;
-import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TSTreeCursor;
 
@@ -91,6 +86,15 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         super(project, language, state, listener, cache);
     }
 
+    public TSLanguage tsLanguage() {
+        return getTSLanguage();
+    }
+
+    @Override
+    public List<ImportInfo> importInfoOf(ProjectFile file) {
+        return super.importInfoOf(file);
+    }
+
     /**
      * Computes and caches an index of exports for the given file, including ESM re-exports.
      */
@@ -107,7 +111,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                     if (root == null) {
                         return ExportIndex.empty();
                     }
-                    return withSource(file, sc -> extractExportIndex(root, sc), ExportIndex.empty());
+                    return withSource(
+                            file,
+                            sc -> JsTsExportUsageExtractor.computeExportIndex(this, root, sc),
+                            ExportIndex.empty());
                 },
                 ExportIndex.empty());
 
@@ -124,81 +131,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             return cached;
         }
 
-        var importStatements = importStatementsOf(file);
-        if (importStatements.isEmpty()) {
-            var empty = ImportBinder.empty();
-            cache().importBinder().put(file, empty);
-            return empty;
-        }
-
-        var bindings = new java.util.HashMap<String, ImportBinder.ImportBinding>();
-
-        for (String stmt : importStatements) {
-            var modulePathOpt = extractModulePathFromImport(stmt);
-            if (modulePathOpt.isEmpty()) {
-                continue;
-            }
-            String moduleSpecifier = modulePathOpt.get();
-
-            // ESM import binder parsing is intentionally "shallow" and flow-insensitive.
-            // We only need stable local-binding -> imported-name mapping; CommonJS is a follow-up.
-            String normalized = stmt.replace('\n', ' ').replace('\r', ' ').strip();
-
-            // import type { Foo as Bar } from "./x";
-            if (normalized.startsWith("import type ")) {
-                normalized = "import " + normalized.substring("import type ".length());
-            }
-
-            // import * as NS from "./x";
-            var nsMatcher = Pattern.compile("\\bimport\\s+\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\b")
-                    .matcher(normalized);
-            if (nsMatcher.find()) {
-                String local = nsMatcher.group(1);
-                bindings.put(
-                        local, new ImportBinder.ImportBinding(moduleSpecifier, ImportBinder.ImportKind.NAMESPACE, "*"));
-            }
-
-            // import Default from "./x"; (possibly with , { named } following)
-            var defaultMatcher = Pattern.compile("\\bimport\\s+([A-Za-z_$][\\w$]*)\\b\\s*(,|from\\b)")
-                    .matcher(normalized);
-            if (defaultMatcher.find()) {
-                String local = defaultMatcher.group(1);
-                bindings.put(
-                        local,
-                        new ImportBinder.ImportBinding(moduleSpecifier, ImportBinder.ImportKind.DEFAULT, "default"));
-            }
-
-            // import { foo as bar, baz } from "./x";
-            var namedMatcher = Pattern.compile("\\bimport\\s*\\{([^}]*)\\}").matcher(normalized);
-            if (namedMatcher.find()) {
-                String inside = namedMatcher.group(1);
-                for (String item :
-                        Splitter.on(',').trimResults().omitEmptyStrings().splitToList(inside)) {
-                    if (item.isEmpty()) continue;
-                    if (item.startsWith("type ")) {
-                        item = item.substring("type ".length()).strip();
-                    }
-                    String imported;
-                    String local;
-                    int asIdx = item.indexOf(" as ");
-                    if (asIdx >= 0) {
-                        imported = item.substring(0, asIdx).strip();
-                        local = item.substring(asIdx + " as ".length()).strip();
-                    } else {
-                        imported = item;
-                        local = item;
-                    }
-                    if (!imported.isEmpty() && !local.isEmpty()) {
-                        bindings.put(
-                                local,
-                                new ImportBinder.ImportBinding(
-                                        moduleSpecifier, ImportBinder.ImportKind.NAMED, imported));
-                    }
-                }
-            }
-        }
-
-        var computed = new ImportBinder(Map.copyOf(bindings));
+        ImportBinder computed = JsTsExportUsageExtractor.computeImportBinder(importInfoOf(file));
         cache().importBinder().put(file, computed);
         return computed;
     }
@@ -224,7 +157,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                     if (root == null) return Set.<ReferenceCandidate>of();
                     return withSource(
                             file,
-                            sc -> extractExportUsageCandidates(file, root, sc, binder),
+                            sc -> JsTsExportUsageExtractor.computeExportUsageCandidates(this, file, root, sc, binder),
                             Set.<ReferenceCandidate>of());
                 },
                 Set.<ReferenceCandidate>of());
@@ -242,370 +175,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 getProject().getAllFiles().stream().map(ProjectFile::absPath).collect(Collectors.toSet());
         return Optional.ofNullable(
                 resolveJavaScriptLikeModulePath(root, absolutePaths, importingFile, moduleSpecifier));
-    }
-
-    private ExportIndex extractExportIndex(TSNode root, SourceContent sc) {
-        var exportsByName = new java.util.HashMap<String, ExportIndex.ExportEntry>();
-        var exportStars = new java.util.ArrayList<ExportIndex.ReexportStar>();
-        var extendsEdges = new java.util.LinkedHashSet<ExportIndex.ClassExtendsEdge>();
-
-        String queryStr =
-                """
-            (export_statement
-              declaration: [
-                (function_declaration name: (identifier) @export.local)
-                (class_declaration name: (_) @export.local)
-                (lexical_declaration (variable_declarator name: (identifier) @export.local))
-                (variable_declaration (variable_declarator name: (identifier) @export.local))
-              ])
-
-            (export_statement
-              (export_clause
-                (export_specifier
-                  name: (_) @export.spec.name
-                  alias: (_)? @export.spec.alias))
-              (string) @export.spec.source)
-
-            (export_statement
-              (export_clause
-                (export_specifier
-                  name: (_) @export.localspec.name
-                  alias: (_)? @export.localspec.alias)))
-
-            (export_statement
-              "*" @export.star
-              (string) @export.star.source)
-
-            (export_statement
-              "default" @export.default
-              declaration: [
-                (identifier) @export.default.name
-                (class_declaration name: (_) @export.default.name)
-                (function_declaration name: (identifier) @export.default.name)
-              ]?)
-
-            (class_declaration
-              name: (_) @class.name
-              (class_heritage
-                (extends_clause value: (_) @class.extends)))
-            """;
-
-        try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, root, sc.text());
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                TSNode exportLocal = null;
-                TSNode specName = null;
-                TSNode specAlias = null;
-                TSNode specSource = null;
-                TSNode localSpecName = null;
-                TSNode localSpecAlias = null;
-                TSNode starSource = null;
-                boolean isDefault = false;
-                TSNode defaultName = null;
-                TSNode className = null;
-                TSNode classExtends = null;
-
-                for (TSQueryCapture cap : match.getCaptures()) {
-                    String name = query.getCaptureNameForId(cap.getIndex());
-                    TSNode node = cap.getNode();
-                    if ("export.local".equals(name)) exportLocal = node;
-                    else if ("export.spec.name".equals(name)) specName = node;
-                    else if ("export.spec.alias".equals(name)) specAlias = node;
-                    else if ("export.spec.source".equals(name)) specSource = node;
-                    else if ("export.localspec.name".equals(name)) localSpecName = node;
-                    else if ("export.localspec.alias".equals(name)) localSpecAlias = node;
-                    else if ("export.star.source".equals(name)) starSource = node;
-                    else if ("export.default".equals(name)) isDefault = true;
-                    else if ("export.default.name".equals(name)) defaultName = node;
-                    else if ("class.name".equals(name)) className = node;
-                    else if ("class.extends".equals(name)) classExtends = node;
-                }
-
-                if (exportLocal != null) {
-                    String localName = sc.substringFrom(exportLocal).strip();
-                    exportsByName.put(localName, new ExportIndex.LocalExport(localName));
-                }
-
-                if (specName != null && specSource != null) {
-                    String imported = sc.substringFrom(specName).strip();
-                    String exported =
-                            specAlias != null ? sc.substringFrom(specAlias).strip() : imported;
-                    String module = unquote(sc.substringFrom(specSource).strip());
-                    exportsByName.put(exported, new ExportIndex.ReexportedNamed(module, imported));
-                }
-
-                if (localSpecName != null) {
-                    String localName = sc.substringFrom(localSpecName).strip();
-                    String exported = localSpecAlias != null
-                            ? sc.substringFrom(localSpecAlias).strip()
-                            : localName;
-                    exportsByName.put(exported, new ExportIndex.LocalExport(localName));
-                }
-
-                if (starSource != null) {
-                    exportStars.add(new ExportIndex.ReexportStar(
-                            unquote(sc.substringFrom(starSource).strip())));
-                }
-
-                if (isDefault) {
-                    String localName =
-                            defaultName != null ? sc.substringFrom(defaultName).strip() : null;
-                    exportsByName.put("default", new ExportIndex.DefaultExport(localName));
-                }
-
-                if (className != null && classExtends != null) {
-                    extendsEdges.add(new ExportIndex.ClassExtendsEdge(
-                            sc.substringFrom(className).strip(),
-                            sc.substringFrom(classExtends).strip()));
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Failed to extract export index for JS/TS file", e);
-        }
-
-        // Re-exports are worth handling with a shallow regex pass as well: the AST shape differs subtly across
-        // TS/JS grammars and we only need stable name/module mapping for v1.
-        String text = sc.text();
-
-        var reexportNamed = Pattern.compile("export\\s*\\{([^}]*)\\}\\s*from\\s*['\\\"]([^'\\\"]+)['\\\"]")
-                .matcher(text);
-        while (reexportNamed.find()) {
-            String inside = reexportNamed.group(1);
-            String module = reexportNamed.group(2);
-            for (String item : Splitter.on(',').trimResults().omitEmptyStrings().splitToList(inside)) {
-                String part = item.strip();
-                if (part.isEmpty()) continue;
-                int asIdx = part.indexOf(" as ");
-                String imported = asIdx >= 0 ? part.substring(0, asIdx).strip() : part;
-                String exported =
-                        asIdx >= 0 ? part.substring(asIdx + " as ".length()).strip() : imported;
-                if (!imported.isEmpty() && !exported.isEmpty()) {
-                    exportsByName.put(exported, new ExportIndex.ReexportedNamed(module, imported));
-                }
-            }
-        }
-
-        var reexportStar = Pattern.compile("export\\s*\\*\\s*from\\s*['\\\"]([^'\\\"]+)['\\\"]")
-                .matcher(text);
-        while (reexportStar.find()) {
-            exportStars.add(new ExportIndex.ReexportStar(reexportStar.group(1)));
-        }
-
-        var directExport = Pattern.compile("\\bexport\\s+(const|let|var|function|class)\\s+([A-Za-z_$][\\w$]*)\\b")
-                .matcher(text);
-        while (directExport.find()) {
-            String name = directExport.group(2);
-            exportsByName.putIfAbsent(name, new ExportIndex.LocalExport(name));
-        }
-
-        return new ExportIndex(Map.copyOf(exportsByName), List.copyOf(exportStars), Set.copyOf(extendsEdges));
-    }
-
-    private static String unquote(String s) {
-        if (s.length() >= 2) {
-            char first = s.charAt(0);
-            char last = s.charAt(s.length() - 1);
-            if ((first == '\'' && last == '\'') || (first == '"' && last == '"')) {
-                return s.substring(1, s.length() - 1);
-            }
-        }
-        return s;
-    }
-
-    private Set<ReferenceCandidate> extractExportUsageCandidates(
-            ProjectFile file, TSNode root, SourceContent sc, ImportBinder binder) {
-        var bindings = binder.bindings();
-        if (bindings.isEmpty()) return Set.of();
-
-        var candidates = new java.util.LinkedHashSet<ReferenceCandidate>();
-        CodeUnit fallbackEnclosing = enclosingCodeUnit(file, new Range(0, 0, 0, 0, 0))
-                .orElseGet(() -> CodeUnit.module(file, "", file.getFileName()));
-
-        String queryStr =
-                """
-            (call_expression function: (identifier) @call.id)
-            (call_expression function: (member_expression
-              object: (identifier) @call.member.obj
-              property: (_) @call.member.prop))
-            (member_expression
-              object: (identifier) @member.obj
-              property: (_) @member.prop)
-            (identifier) @id
-            """;
-
-        try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, root, sc.text());
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture cap : match.getCaptures()) {
-                    String name = query.getCaptureNameForId(cap.getIndex());
-                    TSNode node = cap.getNode();
-                    if (node == null) continue;
-
-                    Range range = rangeOf(node);
-                    var enclosing = enclosingCodeUnit(file, range).orElse(fallbackEnclosing);
-
-                    if ("call.id".equals(name)) {
-                        String id = sc.substringFrom(node).strip();
-                        if (!bindings.containsKey(id)) continue;
-                        if (isWithinImportStatement(node)) continue;
-                        if (!isAccessExpression(file, node.getStartByte(), node.getEndByte())) continue;
-                        if (isShadowedInEnclosingFunction(node, id, sc)) {
-                            continue;
-                        }
-                        candidates.add(new ReferenceCandidate(id, null, ReferenceKind.METHOD_CALL, range, enclosing));
-                    } else if ("call.member.obj".equals(name)) {
-                        // handled by prop capture below
-                    } else if ("call.member.prop".equals(name)) {
-                        // Can't safely correlate captures across match without more structure; rely on
-                        // member_expression capture.
-                    } else if ("member.obj".equals(name) || "member.prop".equals(name)) {
-                        // also handled by member_expression capture below
-                    } else if ("id".equals(name)) {
-                        String id = sc.substringFrom(node).strip();
-                        if (!bindings.containsKey(id)) continue;
-                        if (isWithinImportStatement(node)) continue;
-                        if (isDeclarationIdentifier(node)) continue;
-                        TSNode parent = node.getParent();
-                        if (parent != null
-                                && CALL_EXPRESSION.equals(parent.getType())
-                                && node.equals(parent.getChildByFieldName("function"))) {
-                            continue;
-                        }
-                        if (!isAccessExpression(file, node.getStartByte(), node.getEndByte())) continue;
-                        if (isShadowedInEnclosingFunction(node, id, sc)) {
-                            continue;
-                        }
-                        candidates.add(
-                                new ReferenceCandidate(id, null, ReferenceKind.STATIC_REFERENCE, range, enclosing));
-                    }
-                }
-
-                // Handle member_expression as a single unit for qualifier/property checks
-                for (TSQueryCapture cap : match.getCaptures()) {
-                    String name = query.getCaptureNameForId(cap.getIndex());
-                    if (!"member.obj".equals(name)) continue;
-                    TSNode objNode = cap.getNode();
-                    if (objNode == null) continue;
-
-                    String qualifier = sc.substringFrom(objNode).strip();
-                    ImportBinder.ImportBinding binding = bindings.get(qualifier);
-                    if (binding == null || binding.kind() != ImportBinder.ImportKind.NAMESPACE) continue;
-
-                    TSNode memberExpr = objNode.getParent();
-                    if (memberExpr == null || !MEMBER_EXPRESSION.equals(memberExpr.getType())) continue;
-                    TSNode prop = memberExpr.getChildByFieldName("property");
-                    if (prop == null) continue;
-                    String property = sc.substringFrom(prop).strip();
-
-                    if (!isAccessExpression(file, memberExpr.getStartByte(), memberExpr.getEndByte())) continue;
-
-                    Range range = rangeOf(prop);
-                    var enclosing = enclosingCodeUnit(file, range)
-                            .orElseGet(() -> CodeUnit.module(file, "", file.getFileName()));
-                    candidates.add(
-                            new ReferenceCandidate(property, qualifier, ReferenceKind.METHOD_CALL, range, enclosing));
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Failed to extract JS/TS export usage candidates for {}", file, e);
-        }
-
-        return Set.copyOf(candidates);
-    }
-
-    private boolean isShadowedInEnclosingFunction(TSNode usageNode, String identifierName, SourceContent sc) {
-        TSNode fn = nearestEnclosingFunctionLike(usageNode);
-        if (fn == null) {
-            return false;
-        }
-
-        // Best-effort lexical shadowing: prefer Tree-sitter, but fall back to a conservative text scan.
-        String queryStr =
-                """
-            (formal_parameters (identifier) @shadow.name)
-            (variable_declarator name: (identifier) @shadow.name)
-            """;
-
-        try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, fn, sc.text());
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture cap : match.getCaptures()) {
-                    String name = query.getCaptureNameForId(cap.getIndex());
-                    if (!"shadow.name".equals(name)) continue;
-                    TSNode node = cap.getNode();
-                    if (node == null) continue;
-                    String declared = sc.substringFrom(node).strip();
-                    if (identifierName.equals(declared)) {
-                        return true;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // Fall through to text scan.
-        }
-
-        String fnText = sc.substringFrom(fn);
-        return Pattern.compile("\\b(const|let|var)\\s+" + Pattern.quote(identifierName) + "\\b")
-                        .matcher(fnText)
-                        .find()
-                || Pattern.compile("\\bfunction\\s+\\w+\\s*\\([^)]*\\b" + Pattern.quote(identifierName) + "\\b")
-                        .matcher(fnText)
-                        .find();
-    }
-
-    private static @Nullable TSNode nearestEnclosingFunctionLike(TSNode node) {
-        TSNode current = node;
-        while (current != null) {
-            String type = current.getType();
-            if ("function_declaration".equals(type)
-                    || "function".equals(type)
-                    || "arrow_function".equals(type)
-                    || "method_definition".equals(type)) {
-                return current;
-            }
-            current = current.getParent();
-        }
-        return null;
-    }
-
-    private static boolean isDeclarationIdentifier(TSNode identifierNode) {
-        TSNode parent = identifierNode.getParent();
-        if (parent == null) return false;
-        String type = parent.getType();
-        if ("variable_declarator".equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
-            return true;
-        }
-        if ("function_declaration".equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
-            return true;
-        }
-        if ("class_declaration".equals(type) && identifierNode.equals(parent.getChildByFieldName("name"))) {
-            return true;
-        }
-        return false;
-    }
-
-    private static boolean isWithinImportStatement(TSNode node) {
-        TSNode current = node;
-        while (current != null) {
-            String type = current.getType();
-            if ("import_statement".equals(type) || TypeScriptTreeSitterNodeTypes.IMPORT_DECLARATION.equals(type)) {
-                return true;
-            }
-            current = current.getParent();
-        }
-        return false;
-    }
-
-    private static Range rangeOf(TSNode node) {
-        TSPoint start = node.getStartPoint();
-        TSPoint end = node.getEndPoint();
-        return new Range(node.getStartByte(), node.getEndByte(), start.getRow(), end.getRow(), node.getStartByte());
     }
 
     @Override
@@ -1273,10 +842,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         TSNode importNode = capturedNodesForMatch.get(CaptureNames.IMPORT_DECLARATION);
 
         if (importNode != null) {
-            String rawSnippet = sourceContent.substringFrom(importNode).strip();
-            if (!rawSnippet.isEmpty()) {
-                localImportInfos.add(new ImportInfo(rawSnippet, false, null, null));
-            }
+            localImportInfos.addAll(JsTsExportUsageExtractor.extractImportInfos(this, importNode, sourceContent));
         }
 
         // CommonJS require extraction
@@ -1440,7 +1006,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         return false;
     }
 
-    protected static Optional<String> extractModulePathFromImport(String importStatement) {
+    public static Optional<String> extractModulePathFromImport(String importStatement) {
         Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
         if (es6Matcher.find()) return Optional.of(es6Matcher.group(1));
 

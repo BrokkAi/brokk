@@ -38,3 +38,16 @@ Resolution proceeds by:
 The orchestration runs as a fixed-point expansion over `ProjectFile`s, stopping on budget and returning a frontier of
 additional files needed to continue resolution.
 
+## Implementation notes
+
+- JS/TS extraction logic intentionally lives outside `JsTsAnalyzer` in
+  `ai.brokk.analyzer.javascript.JsTsExportUsageExtractor` so the analyzer stays compositional.
+- `ImportBinder` is derived from the existing `importInfoOf(...)` pipeline (structured `ImportInfo`),
+  so the same import analysis drives both import-graph resolution and export-usage binding.
+
+## Follow-ups / Roadmap
+
+- Module resolution: `node:` built-ins, package imports, and `tsconfig` paths/aliases.
+- CommonJS interop: `require(...)`, `module.exports`, `exports.*`.
+- Richer member resolution: `import()` dynamic, destructuring patterns, and non-identifier property access.
+- TS-only: type-only exports/imports coverage gaps and `export type { ... }`.
