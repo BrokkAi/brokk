@@ -13,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * JS/TS v1: flow-insensitive exported-symbol usages.
@@ -49,6 +50,16 @@ public final class JsTsExportUsageReferenceGraph {
     public static ReferenceGraphResult findExportUsages(
             ProjectFile definingFile, String exportName, IAnalyzer analyzer, Limits limits)
             throws InterruptedException {
+        return findExportUsages(definingFile, exportName, analyzer, limits, null);
+    }
+
+    public static ReferenceGraphResult findExportUsages(
+            ProjectFile definingFile,
+            String exportName,
+            IAnalyzer analyzer,
+            Limits limits,
+            @Nullable Set<ProjectFile> candidateFiles)
+            throws InterruptedException {
         if (!(analyzer instanceof JsTsAnalyzer jsTs)) {
             throw new IllegalArgumentException(
                     "Analyzer is not a JS/TS analyzer: " + analyzer.getClass().getName());
@@ -63,17 +74,21 @@ public final class JsTsExportUsageReferenceGraph {
             return new ReferenceGraphResult(Set.of(), Set.copyOf(frontier), Set.copyOf(externalFrontier));
         }
 
-        // Seed candidate files by walking the reverse import graph starting from the defining module.
-        Map<ProjectFile, Set<ProjectFile>> reverseReexports = buildReverseReexportIndex(jsTs);
-        Set<ProjectFile> candidateFiles =
-                collectReferencingFiles(definingFile, jsTs, reverseReexports, limits.maxFiles());
+        Set<ProjectFile> filesToAnalyze;
+        if (candidateFiles != null) {
+            filesToAnalyze = Set.copyOf(candidateFiles);
+        } else {
+            // Seed candidate files by walking the reverse import graph starting from the defining module.
+            Map<ProjectFile, Set<ProjectFile>> reverseReexports = buildReverseReexportIndex(jsTs);
+            filesToAnalyze = collectReferencingFiles(definingFile, jsTs, reverseReexports, limits.maxFiles());
+        }
 
         Map<String, String> extendsEdges = buildClassExtendsIndex(jsTs);
 
         Set<ReferenceHit> hits = new LinkedHashSet<>();
         int filesProcessed = 0;
 
-        for (ProjectFile file : candidateFiles) {
+        for (ProjectFile file : filesToAnalyze) {
             if (filesProcessed >= limits.maxFiles()) break;
             filesProcessed++;
 

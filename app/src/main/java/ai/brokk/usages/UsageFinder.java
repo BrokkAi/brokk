@@ -13,6 +13,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.CandidateFileProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
+import ai.brokk.analyzer.usages.JsTsExportUsageGraphStrategy;
 import ai.brokk.analyzer.usages.UsageAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
@@ -30,6 +31,7 @@ public final class UsageFinder {
 
     private static final Logger log = LoggerFactory.getLogger(UsageFinder.class);
     private static final boolean FUZZY_USAGES_ONLY = System.getenv("BRK_FUZZY_USAGES_ONLY") != null;
+    private static final boolean USAGE_GRAPH = System.getenv("BRK_USAGE_GRAPH") != null;
     public static final int DEFAULT_MAX_FILES = ai.brokk.analyzer.usages.UsageFinder.DEFAULT_MAX_FILES;
     public static final int DEFAULT_MAX_USAGES = ai.brokk.analyzer.usages.UsageFinder.DEFAULT_MAX_USAGES;
 
@@ -39,7 +41,8 @@ public final class UsageFinder {
     private final UsageAnalyzer fallbackUsageAnalyzer;
     private final @Nullable Predicate<ProjectFile> fileFilter;
 
-    private record Configuration(CandidateFileProvider candidateProvider, UsageAnalyzer usageAnalyzer) {}
+    private record Configuration(
+            CandidateFileProvider candidateProvider, UsageAnalyzer usageAnalyzer, boolean allowFallback) {}
 
     public static UsageFinder create(IAppContextManager cm) {
         return create(cm, null);
@@ -69,10 +72,13 @@ public final class UsageFinder {
 
     private Configuration getConfiguration(CodeUnit target) {
         Language lang = Languages.fromExtension(target.source().extension());
-        if (!FUZZY_USAGES_ONLY && lang.contains(Languages.JAVA)) {
-            return new Configuration(new TextSearchCandidateProvider(), new JdtUsageAnalyzerStrategy(project));
+        if (USAGE_GRAPH && (lang.contains(Languages.JAVASCRIPT) || lang.contains(Languages.TYPESCRIPT))) {
+            return new Configuration(createDefaultProvider(), new JsTsExportUsageGraphStrategy(analyzer), false);
         }
-        return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer);
+        if (!FUZZY_USAGES_ONLY && lang.contains(Languages.JAVA)) {
+            return new Configuration(new TextSearchCandidateProvider(), new JdtUsageAnalyzerStrategy(project), true);
+        }
+        return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
     }
 
     public static CandidateFileProvider createDefaultProvider() {
@@ -114,7 +120,8 @@ public final class UsageFinder {
         boolean suspiciouslyEmpty =
                 result instanceof FuzzyResult.Success success && success.hits().isEmpty() && !candidateFiles.isEmpty();
 
-        if ((result instanceof FuzzyResult.Failure || suspiciouslyEmpty)
+        if (config.allowFallback()
+                && (result instanceof FuzzyResult.Failure || suspiciouslyEmpty)
                 && config.usageAnalyzer().getClass() != fallbackUsageAnalyzer.getClass()) {
             log.warn(
                     "Primary usage analysis {} for {}, falling back to fuzzy analyzer",
