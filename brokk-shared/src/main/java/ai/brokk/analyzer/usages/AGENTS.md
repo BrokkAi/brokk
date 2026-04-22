@@ -70,9 +70,11 @@ additional files needed to continue resolution.
 
 ## App wiring
 
-- `BRK_USAGE_GRAPH=1` enables the JS/TS exported-symbol reference-graph usage analyzer in the app-layer
-  `ai.brokk.usages.UsageFinder` for JavaScript and TypeScript.
-- When enabled, JS/TS usage results are graph-only (no LLM fallback). Frontier is tracked but not yet surfaced in the UI.
+- JS/TS exported-symbol reference-graph usage analysis is the default app-layer behavior in
+  `ai.brokk.usages.UsageFinder` for JavaScript and TypeScript unless `BRK_FUZZY_USAGES_ONLY=1`
+  is set.
+- In that default mode, JS/TS usage results are graph-only (no LLM fallback). Frontier is
+  tracked but not yet surfaced in the UI.
 
 ## Python follow-up (planned)
 

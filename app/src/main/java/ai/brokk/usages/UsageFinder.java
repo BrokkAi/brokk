@@ -8,8 +8,8 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.usages.CandidateFileProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
@@ -31,7 +31,6 @@ public final class UsageFinder {
 
     private static final Logger log = LoggerFactory.getLogger(UsageFinder.class);
     private static final boolean FUZZY_USAGES_ONLY = System.getenv("BRK_FUZZY_USAGES_ONLY") != null;
-    private static final boolean USAGE_GRAPH = System.getenv("BRK_USAGE_GRAPH") != null;
     public static final int DEFAULT_MAX_FILES = ai.brokk.analyzer.usages.UsageFinder.DEFAULT_MAX_FILES;
     public static final int DEFAULT_MAX_USAGES = ai.brokk.analyzer.usages.UsageFinder.DEFAULT_MAX_USAGES;
 
@@ -71,11 +70,14 @@ public final class UsageFinder {
     }
 
     private Configuration getConfiguration(CodeUnit target) {
+        if (FUZZY_USAGES_ONLY) {
+            return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
+        }
         Language lang = Languages.fromExtension(target.source().extension());
-        if (USAGE_GRAPH && (lang.contains(Languages.JAVASCRIPT) || lang.contains(Languages.TYPESCRIPT))) {
+        if (lang.contains(Languages.JAVASCRIPT) || lang.contains(Languages.TYPESCRIPT)) {
             return new Configuration(createDefaultProvider(), new JsTsExportUsageGraphStrategy(analyzer), false);
         }
-        if (!FUZZY_USAGES_ONLY && lang.contains(Languages.JAVA)) {
+        if (lang.contains(Languages.JAVA)) {
             return new Configuration(new TextSearchCandidateProvider(), new JdtUsageAnalyzerStrategy(project), true);
         }
         return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
