@@ -310,6 +310,41 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
     }
 
     @Test
+    public void constructorParameterProperty_importedClass_countsAsTypeReferenceUsage() throws Exception {
+        String service = """
+                export class LayoutService {}
+                """;
+        String index = """
+                import { LayoutService } from "./layout.service";
+                export { LayoutService };
+                """;
+        String consumer =
+                """
+                import { LayoutService } from "../services";
+
+                export class HeaderComponent {
+                  constructor(private layoutService: LayoutService) {}
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "services/layout.service.ts")
+                .addFileContents(index, "services/index.ts")
+                .addFileContents(consumer, "feature/header.component.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "services/layout.service.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    serviceFile, "LayoutService", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(1, result.hits().size());
+            var hit = result.hits().iterator().next();
+            assertTrue(hit.file().toString().endsWith("feature/header.component.ts"));
+            assertEquals(ReferenceKind.TYPE_REFERENCE, hit.kind());
+        }
+    }
+
+    @Test
     public void returnType_importedClass_countsAsTypeReferenceUsage() throws Exception {
         String a = """
                 export class Foo {}

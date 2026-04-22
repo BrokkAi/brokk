@@ -1054,7 +1054,7 @@ public final class JsTsExportUsageExtractor {
         }
 
         if (FORMAL_PARAMETERS.equals(node.getType())) {
-            addLocalNames(sc, localNamesByScope, nearestShadowScope(node), node);
+            addParameterBindingNames(sc, localNamesByScope, nearestShadowScope(node), node);
         }
 
         if (isShadowingDeclarationNode(node)) {
@@ -1095,6 +1095,48 @@ public final class JsTsExportUsageExtractor {
             return;
         }
         collectBoundNames(bindingNode, sc, localNames);
+    }
+
+    private static void addParameterBindingNames(
+            SourceContent sc,
+            Map<ScopeKey, Set<String>> localNamesByScope,
+            @Nullable TSNode scopeNode,
+            TSNode parametersNode) {
+        if (scopeNode == null) {
+            return;
+        }
+        for (TSNode parameter : parametersNode.getNamedChildren()) {
+            if (parameter == null) {
+                continue;
+            }
+            TSNode bindingNode = parameterBindingNode(parameter);
+            if (bindingNode != null) {
+                addLocalNames(sc, localNamesByScope, scopeNode, bindingNode);
+            }
+        }
+    }
+
+    private static @Nullable TSNode parameterBindingNode(TSNode parameterNode) {
+        TSNode bindingNode = parameterNode.getChildByFieldName("pattern");
+        if (bindingNode != null) {
+            return bindingNode;
+        }
+        bindingNode = parameterNode.getChildByFieldName("name");
+        if (bindingNode != null) {
+            return bindingNode;
+        }
+        for (TSNode child : parameterNode.getNamedChildren()) {
+            if (child == null) {
+                continue;
+            }
+            String type = child.getType();
+            if (TYPE_ANNOTATION.equals(type)
+                    || TypeScriptTreeSitterNodeTypes.ACCESSIBILITY_MODIFIER.equals(type)) {
+                continue;
+            }
+            return child;
+        }
+        return null;
     }
 
     private static void collectBoundNames(TSNode node, SourceContent sc, Set<String> localNames) {
