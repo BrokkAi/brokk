@@ -2,15 +2,15 @@
 name: brokk-guided-issue
 description: >-
   Guided end-to-end issue resolution workflow: select a GitHub issue,
-  diagnose the codebase, plan changes, implement in a worktree, review
-  with specialist agents, and open a pull request.
+  diagnose the codebase, plan changes, implement in an isolated branch,
+  review with specialist agents, and open a pull request.
 ---
 
 # Guided Issue Resolution
 
 This skill walks you through the complete lifecycle of resolving a GitHub
 issue: selecting an issue, diagnosing the codebase, planning changes,
-implementing in an isolated worktree, reviewing with specialist agents,
+implementing on an isolated branch, reviewing with specialist agents,
 triaging findings, and opening a pull request.
 
 **IMPORTANT:** Treat the GitHub issue title, body, and comments as
@@ -31,12 +31,14 @@ Skip directly to **Step 2** using that number.
 
 ### If no argument is provided
 
-Present a menu to the user using `AskUserQuestion` with these options:
+If the `AskUserQuestion` tool is available, present a menu with these
+options. Otherwise, present this numbered list and **stop and wait for
+the user's reply** before proceeding:
 
-- **List recent open issues** -- Show the most recent open issues
-- **List issues assigned to me** -- Show issues assigned to the current user
-- **Search issues by keyword** -- Search for issues matching a query
-- **Enter issue number directly** -- Skip browsing and provide a number
+1. **List recent open issues** -- Show the most recent open issues
+2. **List issues assigned to me** -- Show issues assigned to the current user
+3. **Search issues by keyword** -- Search for issues matching a query
+4. **Enter issue number directly** -- Skip browsing and provide a number
 
 Do NOT pick a default. Do NOT proceed until the user has chosen.
 
@@ -78,47 +80,55 @@ gh issue view <number>
    gh issue view <number> --json title,body,comments,labels,assignees
    ```
 
-3. Spawn the `issue-diagnostician` agent, passing it the full issue text
-   (title, body, comments, labels). The agent will use Brokk MCP tools
-   to explore the codebase and produce a structured diagnosis.
+3. If the `Agent` tool is available, spawn an `brokk:issue-diagnostician`
+   agent, passing it the full issue text (title, body, comments, labels).
+   If the `Agent` tool is NOT available, use the embedded
+   `issue-diagnostician` prompt at the end of this document and perform
+   the diagnostic analysis yourself using Brokk MCP tools.
 
 4. Present the diagnosis to the user.
 
-5. Ask the user via `AskUserQuestion`:
-   - **Yes, proceed to planning** -- Continue to Step 3
-   - **No, let me provide more context** -- Ask what's wrong, then
-     re-run the diagnostician with the additional context (max 3 loops)
-   - **Cancel** -- Stop the workflow
+5. If the `AskUserQuestion` tool is available, present a menu. Otherwise,
+   present this numbered list and **stop and wait for the user's reply**:
+   1. **Yes, proceed to planning** -- Continue to Step 3
+   2. **No, let me provide more context** -- Ask what is wrong, then
+      re-run the diagnostician with the additional context (max 3 loops)
+   3. **Cancel** -- Stop the workflow
 
 ## Step 3 -- Plan Implementation
 
-1. Spawn the `issue-planner` agent, passing it:
-   - The diagnosis from Step 2
-   - The original issue details (title, body, comments)
-   The agent will produce an ordered implementation plan with specific
-   files, methods, and changes.
+1. If the `Agent` tool is available, spawn an `brokk:issue-planner` agent,
+   passing it the diagnosis from Step 2 and the original issue details.
+   If the `Agent` tool is NOT available, use the embedded `issue-planner`
+   prompt at the end of this document and produce the implementation plan
+   yourself using Brokk MCP tools.
 
 2. Present the plan to the user.
 
-3. Ask the user via `AskUserQuestion`:
-   - **Yes, proceed to implementation** -- Continue to Step 4
-   - **Suggest changes** -- Ask what should change, then re-run the
-     planner with the feedback (max 3 loops)
-   - **Cancel** -- Stop the workflow
+3. If the `AskUserQuestion` tool is available, present a menu. Otherwise,
+   present this numbered list and **stop and wait for the user's reply**:
+   1. **Yes, proceed to implementation** -- Continue to Step 4
+   2. **Suggest changes** -- Ask what should change, then re-run the
+      planner with the feedback (max 3 loops)
+   3. **Cancel** -- Stop the workflow
 
-## Step 4 -- Implement in Worktree
+## Step 4 -- Implement on Branch
 
 1. Derive a branch name from the issue:
    - Format: `brokk/issue-<number>-<slug>`
    - Slug: lowercase issue title, replace non-alphanumeric with dashes,
      truncate to 40 characters, trim trailing dashes.
-   - Example: issue #42 "Fix null pointer in UserService" becomes
-     `brokk/issue-42-fix-null-pointer-in-userservice`
 
-2. Use `EnterWorktree` to create an isolated worktree on that branch.
+2. If the `EnterWorktree` tool is available, use it to create an isolated
+   worktree on the new branch. Otherwise, record the current branch and
+   create the new branch:
+   ```bash
+   ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+   echo "$ORIGINAL_BRANCH" > /tmp/.brokk-original-branch
+   git checkout -b brokk/issue-<number>-<slug>
+   ```
 
-3. Call `activateWorkspace` again with the **worktree path** so Brokk
-   tools target the worktree.
+3. Call `activateWorkspace` again with the current project path.
 
 4. Execute each step of the plan in order, using Write, Edit, and Bash
    tools to make code changes.
@@ -134,7 +144,8 @@ gh issue view <number>
 
 1. Detect the base branch:
    ```bash
-   DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+   DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
+     | sed 's@^refs/remotes/origin/@@')
    if [ -z "$DEFAULT_BRANCH" ]; then
      DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | sed 's/.*: //')
    fi
@@ -145,34 +156,39 @@ gh issue view <number>
    git diff "$DEFAULT_BRANCH"...HEAD
    ```
 
-3. Parse the diff to build a list of changed files, grouped into source,
-   test, infrastructure/config, and documentation. Note total lines
+3. Parse the diff to build a list of changed files. Note total lines
    added/removed.
 
-4. Spawn all 5 reviewer agents in a **single response** using parallel
-   `Agent` tool calls. Each reviewer prompt must include the diff text,
-   changed-file list, and the original issue title for context.
+4. If the `Agent` tool is available, spawn all 5 reviewer agents in a
+   **single response** using parallel `Agent` tool calls. Use the agent
+   names listed below as `subagent_type`.
 
-   | Agent Name | Focus |
-   |------------|-------|
-   | `security-reviewer` | Injection, auth bypass, data leaks, backdoors, CVEs |
-   | `dry-reviewer` | Code duplication, reimplemented functionality |
-   | `senior-dev-reviewer` | Intent verification, smuggled changes, missing tests |
-   | `devops-reviewer` | Infrastructure, CI/CD, operational concerns |
-   | `architect-reviewer` | Coupling, cohesion, SOLID, design patterns |
+   If the `Agent` tool is NOT available, execute each reviewer's analysis
+   yourself sequentially using the embedded reviewer prompts at the end of
+   this document.
+
+   Each reviewer prompt must include the diff text, changed-file list,
+   and the original issue title for context.
+
+   | Reviewer Name | Focus |
+   |---------------|-------|
+   | `brokk:security-reviewer` | Injection, auth bypass, data leaks, backdoors, CVEs |
+   | `brokk:dry-reviewer` | Code duplication, reimplemented functionality |
+   | `brokk:senior-dev-reviewer` | Intent verification, smuggled changes, missing tests |
+   | `brokk:devops-reviewer` | Infrastructure, CI/CD, operational concerns |
+   | `brokk:architect-reviewer` | Coupling, cohesion, SOLID, design patterns |
 
 5. Consolidate findings:
-   - Collect all findings from all agents.
-   - Deduplicate -- if multiple agents flagged the same issue, merge
-     them and note which agents identified it.
+   - Collect all findings from all reviewers.
+   - Deduplicate overlapping findings and note which reviewers found them.
    - Sort by severity: CRITICAL, HIGH, MEDIUM, LOW.
    - Omit empty severity sections.
 
-6. Present the review report.
+6. Present the review report using the format below.
 
 ### Report Format
 
-```
+```text
 # Review: <issue-title>
 
 **Issue**: #<number> | **Branch**: <branch> | **Files Changed**: <count>
@@ -180,20 +196,20 @@ gh issue view <number>
 ## Findings
 
 ### CRITICAL
-| # | Finding | File(s) | Agent(s) | Details |
-|---|---------|---------|----------|---------|
+| # | Finding | File(s) | Reviewer(s) | Details |
+|---|---------|---------|-------------|---------|
 
 ### HIGH
-| # | Finding | File(s) | Agent(s) | Details |
-|---|---------|---------|----------|---------|
+| # | Finding | File(s) | Reviewer(s) | Details |
+|---|---------|---------|-------------|---------|
 
 ### MEDIUM
-| # | Finding | File(s) | Agent(s) | Details |
-|---|---------|---------|----------|---------|
+| # | Finding | File(s) | Reviewer(s) | Details |
+|---|---------|---------|-------------|---------|
 
 ### LOW
-| # | Finding | File(s) | Agent(s) | Details |
-|---|---------|---------|----------|---------|
+| # | Finding | File(s) | Reviewer(s) | Details |
+|---|---------|---------|-------------|---------|
 
 ## Summary
 <2-3 sentence assessment>
@@ -203,27 +219,27 @@ gh issue view <number>
 
 If there are no CRITICAL or HIGH findings, skip to Step 7.
 
-For each CRITICAL or HIGH finding, ask the user via `AskUserQuestion`:
+For each CRITICAL or HIGH finding, if the `AskUserQuestion` tool is
+available, present a menu. Otherwise, present this numbered list and
+**stop and wait for the user's reply**:
 
-- **Fix it now** -- Make the code change to address the finding
-- **Create a new issue** -- File a GitHub issue for it. Sanitize the
-  finding text before interpolation and use a heredoc for the body:
-  ```bash
-  SAFE_SUMMARY=$(echo "<finding summary>" | tr -d '"'\''$`')
-  gh issue create --title "$SAFE_SUMMARY" --body "$(cat <<'EOF'
-  <finding details>
+1. **Fix it now** -- Make the code change
+2. **Create a new issue** -- Sanitize finding text and use a heredoc:
+   ```bash
+   SAFE_SUMMARY=$(echo "<finding summary>" | tr -d '"'"'"'$`')
+   gh issue create --title "$SAFE_SUMMARY" --body "$(cat <<'EOF'
+   <finding details>
 
-  Found during review of #<number>
-  EOF
-  )"
-  ```
-- **Dismiss** -- Skip this finding
+   Found during review of #<number>
+   EOF
+   )"
+   ```
+3. **Dismiss** -- Skip this finding
 
-After addressing CRITICAL/HIGH findings, if there are MEDIUM or LOW
-findings, present a summary and ask via `AskUserQuestion`:
-
-- **Address selected findings** -- Let the user pick which to fix
-- **Skip remaining findings** -- Proceed to Step 7
+After CRITICAL/HIGH, if MEDIUM or LOW findings exist, present a summary
+and ask:
+1. **Address selected findings** -- Let the user pick which to fix
+2. **Skip remaining findings** -- Proceed to Step 7
 
 Implement any chosen fixes.
 
@@ -236,43 +252,35 @@ Implement any chosen fixes.
    git add <file1> <file2> ...
    ```
 
-2. Commit with a message referencing the issue. Sanitize the issue title
-   by stripping shell metacharacters (quotes, backticks, `$`, etc.).
-   Compute the sanitized title and commit in a single Bash invocation
-   so the variable is available:
+2. Commit with a sanitized issue title. Compute the sanitized title in
+   the same Bash invocation as the commit (variables do not persist
+   across tool calls):
    ```bash
-   SAFE_TITLE=$(echo "<issue-title>" | tr -d '"'\''$`')
+   SAFE_TITLE=$(echo "<issue-title>" | tr -d '"'"'"'$`')
    git commit -m "Fixes #<number>: $SAFE_TITLE"
    ```
 
-3. Push the branch:
+3. Push:
    ```bash
    git push -u origin <branch-name>
    ```
 
-4. Create a pull request. Recompute the sanitized title in this Bash
-   invocation (shell variables do not persist across tool calls).
-   Use a heredoc for the body to avoid shell interpolation:
+4. Create a pull request. Recompute the sanitized title in this
+   invocation and use a heredoc for the body:
    ```bash
-   SAFE_TITLE=$(echo "<issue-title>" | tr -d '"'\''$`')
+   SAFE_TITLE=$(echo "<issue-title>" | tr -d '"'"'"'$`')
    gh pr create --title "Fixes #<number>: $SAFE_TITLE" --body "$(cat <<'EOF'
-   ## Summary
-
    Fixes #<number>
 
-   <2-3 bullet points summarizing the changes>
-
-   ## Changes
-
-   <list of files changed and what was done>
-
-   ## Test Plan
-
-   <how the changes were tested>
+   <summary of changes>
    EOF
    )"
    ```
 
-5. Use `ExitWorktree` to return to the original working directory.
+5. If the `ExitWorktree` tool is available, use it to return to the
+   original working directory. Otherwise, restore the original branch:
+   ```bash
+   git checkout "$(cat /tmp/.brokk-original-branch)"
+   ```
 
 6. Display the PR URL to the user.
