@@ -255,11 +255,14 @@ def _github_ref() -> str:
 
     Pins to the release tag matching the installed package version (e.g. ``v0.6.1``)
     so fetched skills stay in sync with the installed code. Falls back to ``master``
-    if the version cannot be determined.
+    for dev/local versions or when the version cannot be determined.
     """
     try:
         from brokk_code import __version__
-        return f"v{__version__}"
+        # Strip dev/local suffixes (e.g. "0.6.1.dev3" or "0.6.1+local") that
+        # don't have corresponding git tags.
+        base_version = re.split(r"[.+]dev|[+]", __version__)[0]
+        return f"v{base_version}"
     except Exception:
         return "master"
 
@@ -403,6 +406,10 @@ def _build_codex_plugin_marketplace_entry(
 
 
 def _write_codex_plugin_files(*, plugin_path: Path, uvx_command: str) -> None:
+    # Fetch all remote content first so a network failure doesn't leave a
+    # partially installed plugin directory.
+    codex_skills = _fetch_codex_skills()
+
     manifest_dir = plugin_path / ".codex-plugin"
     skills_dir = plugin_path / "skills"
     manifest_dir.mkdir(parents=True, exist_ok=True)
@@ -411,7 +418,6 @@ def _write_codex_plugin_files(*, plugin_path: Path, uvx_command: str) -> None:
     atomic_write_settings(manifest_dir / "plugin.json", _build_codex_plugin_manifest())
     atomic_write_settings(plugin_path / ".mcp.json", _build_codex_plugin_mcp_config(uvx_command))
 
-    codex_skills = _fetch_codex_skills()
     for skill_dir_name, skill_markdown in codex_skills.items():
         skill_dir = skills_dir / skill_dir_name
         skill_dir.mkdir(parents=True, exist_ok=True)
