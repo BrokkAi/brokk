@@ -77,7 +77,7 @@ public final class UsageFinder {
         if (lang.contains(Languages.JAVASCRIPT) || lang.contains(Languages.TYPESCRIPT)) {
             var graphStrategy = new JsTsExportUsageGraphStrategy(analyzer);
             if (graphStrategy.canHandle(target)) {
-                return new Configuration(createDefaultProvider(), graphStrategy, false);
+                return new Configuration(createDefaultProvider(), graphStrategy, true);
             }
             return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
         }
@@ -123,8 +123,9 @@ public final class UsageFinder {
         var candidateFiles = query.candidateFiles();
         var result = query.result();
 
-        boolean suspiciouslyEmpty =
-                result instanceof FuzzyResult.Success success && success.hits().isEmpty() && !candidateFiles.isEmpty();
+        boolean suspiciouslyEmpty = result instanceof FuzzyResult.Success success
+                && success.hits().isEmpty()
+                && (!candidateFiles.isEmpty() || config.usageAnalyzer() instanceof JsTsExportUsageGraphStrategy);
 
         if (config.allowFallback()
                 && (result instanceof FuzzyResult.Failure || suspiciouslyEmpty)

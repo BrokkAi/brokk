@@ -325,7 +325,6 @@ def _fetch_codex_skills() -> dict[str, str]:
     return skills
 
 
-
 def _fetch_plugin_manifest() -> dict[str, Any]:
     """Fetch plugin.json from GitHub and adapt for Codex (strip agents field)."""
     raw = _fetch_github_file("claude-plugin/.claude-plugin/plugin.json")
