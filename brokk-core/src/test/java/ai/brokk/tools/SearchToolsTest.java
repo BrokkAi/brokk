@@ -22,6 +22,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.SequencedSet;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.junit.jupiter.api.AfterEach;
@@ -303,6 +306,64 @@ class SearchToolsTest {
         assertTrue(result.contains("1: import Foo"));
         assertTrue(result.contains("2: plain Foo"));
         assertFalse(result.contains("<related>"));
+    }
+
+    @Test
+    void getSummaries_BoundsConcurrentSkeletonComputation() throws Exception {
+        Path projectRoot = initRepo();
+        int parallelism = Math.max(2, Runtime.getRuntime().availableProcessors());
+        int fileCount = parallelism + 3;
+        List<String> targets = new java.util.ArrayList<>();
+
+        for (int i = 0; i < fileCount; i++) {
+            String relativePath = "src/main/java/pkg/C%d.java".formatted(i);
+            Path file = projectRoot.resolve(relativePath);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, "class C%d {}".formatted(i));
+            targets.add(relativePath);
+        }
+
+        project = new CoreProject(projectRoot);
+        AtomicInteger inFlight = new AtomicInteger();
+        AtomicInteger maxInFlight = new AtomicInteger();
+        CountDownLatch firstBatchReady = new CountDownLatch(parallelism);
+        CountDownLatch releaseFirstBatch = new CountDownLatch(1);
+
+        IAnalyzer analyzer = new DisabledAnalyzer(project) {
+            @Override
+            public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
+                int active = inFlight.incrementAndGet();
+                maxInFlight.accumulateAndGet(active, Math::max);
+
+                if (active <= parallelism) {
+                    firstBatchReady.countDown();
+                    if (firstBatchReady.getCount() == 0) {
+                        releaseFirstBatch.countDown();
+                    }
+                }
+
+                try {
+                    assertTrue(
+                            releaseFirstBatch.await(5, TimeUnit.SECONDS),
+                            "Timed out waiting for the first getSummaries batch");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                } finally {
+                    inFlight.decrementAndGet();
+                }
+
+                String shortName = file.absPath().getFileName().toString().replace(".java", "");
+                return Map.of(CodeUnit.cls(file, "pkg", shortName), "class %s {}".formatted(shortName));
+            }
+        };
+
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
+
+        String result = tools.getSummaries(targets);
+
+        assertTrue(result.contains("class C0"), "Should include computed skeletons");
+        assertEquals(parallelism, maxInFlight.get(), "getSummaries should cap concurrent getSkeletons calls");
     }
 
     private Path initRepo() throws Exception {

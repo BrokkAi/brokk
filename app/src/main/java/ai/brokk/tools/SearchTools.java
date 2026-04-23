@@ -936,37 +936,44 @@ public class SearchTools {
         var analyzer = getAnalyzer();
         record FileSummaries(ProjectFile file, Map<CodeUnit, String> skeletons) {}
 
-        List<CompletableFuture<FileSummaries>> futures = projectFiles.stream()
-                .map(file -> LoggingFuture.supplyVirtual(() -> new FileSummaries(file, analyzer.getSkeletons(file))))
-                .toList();
-
-        try {
-            LoggingFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
-        } catch (InterruptedException e) {
-            futures.forEach(future -> future.cancel(true));
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while computing summaries", e);
-        } catch (ExecutionException e) {
-            futures.forEach(future -> future.cancel(true));
-            Throwable cause = e.getCause();
-            if (cause instanceof RuntimeException re) {
-                throw re;
-            }
-            if (cause instanceof Error er) {
-                throw er;
-            }
-            throw new RuntimeException("Error computing summaries", cause);
-        }
-
         List<String> allSkeletons = new ArrayList<>();
         Set<ProjectFile> filesWithSummaries = new LinkedHashSet<>();
-        for (var future : futures) {
-            var fileSummaries = future.join();
-            if (!fileSummaries.skeletons().isEmpty()) {
-                allSkeletons.addAll(fileSummaries.skeletons().values());
-                filesWithSummaries.add(fileSummaries.file());
-            } else {
-                logger.debug("No skeletons found in file: {}", fileSummaries.file());
+
+        for (int start = 0; start < projectFiles.size(); ) {
+            int batchSize = min(projectFiles.size() - start, SEARCH_TOOLS_PARALLELISM);
+            var batch = projectFiles.subList(start, start + batchSize);
+            start += batchSize;
+
+            List<CompletableFuture<FileSummaries>> futures = batch.stream()
+                    .map(file -> LoggingFuture.supplyVirtual(() -> new FileSummaries(file, analyzer.getSkeletons(file))))
+                    .toList();
+
+            try {
+                LoggingFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+            } catch (InterruptedException e) {
+                futures.forEach(future -> future.cancel(true));
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while computing summaries", e);
+            } catch (ExecutionException e) {
+                futures.forEach(future -> future.cancel(true));
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException re) {
+                    throw re;
+                }
+                if (cause instanceof Error er) {
+                    throw er;
+                }
+                throw new RuntimeException("Error computing summaries", cause);
+            }
+
+            for (var future : futures) {
+                var fileSummaries = future.join();
+                if (!fileSummaries.skeletons().isEmpty()) {
+                    allSkeletons.addAll(fileSummaries.skeletons().values());
+                    filesWithSummaries.add(fileSummaries.file());
+                } else {
+                    logger.debug("No skeletons found in file: {}", fileSummaries.file());
+                }
             }
         }
         return new SummaryOutput(List.copyOf(allSkeletons), filesWithSummaries);
