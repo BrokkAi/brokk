@@ -32,10 +32,11 @@ The plugin adds the following skills to Claude Code:
 | Workspace | Workspace activation and management |
 | Structured Data | JSON and XML/HTML querying |
 | PR Review | Adversarial multi-agent PR review with security, DRY, intent, devops, and architecture analysis |
+| Guided Review | Interactive guided code review: run parallel agents, then walk through findings one-by-one with code context and triage |
 
 ## Agents
 
-The plugin includes specialist agents used by the PR Review skill:
+The plugin includes specialist agents used by the PR Review and Guided Review skills:
 
 | Agent | Description |
 |-------|-------------|
@@ -47,4 +48,4 @@ The plugin includes specialist agents used by the PR Review skill:
 
 ## Additional prerequisites
 
-The PR Review skill requires [gh](https://cli.github.com/) (GitHub CLI) installed and authenticated for reviewing PRs by number.
+The PR Review and Guided Review skills require [gh](https://cli.github.com/) (GitHub CLI) installed and authenticated for reviewing PRs by number.

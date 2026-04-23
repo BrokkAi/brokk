@@ -263,12 +263,20 @@ _CODEX_SKILL_NAMES: list[str] = [
     "structured-data",
     "workspace",
     "review-pr",
+    "guided-review",
     "guided-issue",
 ]
 
 # Map of skill name -> list of agent files to concatenate
 _SKILL_AGENT_DEPS: dict[str, list[str]] = {
     "review-pr": [
+        "security-reviewer",
+        "dry-reviewer",
+        "senior-dev-reviewer",
+        "devops-reviewer",
+        "architect-reviewer",
+    ],
+    "guided-review": [
         "security-reviewer",
         "dry-reviewer",
         "senior-dev-reviewer",
