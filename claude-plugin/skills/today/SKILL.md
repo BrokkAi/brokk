@@ -76,9 +76,11 @@ Based on the user's choice:
   gh issue list --state open --limit 20
   ```
 
-- **Search by keyword**: Ask the user for a search query, then:
+- **Search by keyword**: Ask the user for a search query. Sanitize
+  the query by stripping shell metacharacters before passing it:
   ```bash
-  gh issue list --search "<query>" --limit 20
+  SAFE_QUERY=$(printf '%s' "<query>" | tr -cd '[:alnum:][:space:].,_:-/')
+  gh issue list --search "$SAFE_QUERY" --limit 20
   ```
 
 - **Enter issue numbers directly**: Ask the user for a comma- or
@@ -111,7 +113,10 @@ Do NOT pick defaults. Do NOT proceed until the user has responded.
 
 When the user selects issues, accept a comma- or space-separated list
 (e.g. "1, 3, 5" referring to list positions, or "#42 #57" as raw
-issue numbers). Proceed to Step 3.
+issue numbers). If the user provides list positions, resolve them to
+actual GitHub issue numbers using the displayed list before proceeding.
+Only pass resolved, validated issue numbers (strictly numeric) to
+Step 3.
 
 When the user wants to write a new issue, run the `/write-issue` skill
 using the `Skill` tool (invoke with skill name `brokk:write-issue`).
@@ -130,15 +135,17 @@ After the issue is created, add it to the selected issues list and
 re-present the issue list so the user can continue. Keep looping
 until the user selects issues to work on.
 
-When the user closes or unassigns an issue, run the appropriate command:
+When the user closes or unassigns an issue, first validate that the
+issue number is strictly numeric (`^[0-9]+$`). Reject anything else.
+Then run the appropriate command:
 
 - **Close**:
   ```bash
-  gh issue close <number>
+  gh issue close <validated-number>
   ```
 - **Unassign**:
   ```bash
-  gh issue edit <number> --remove-assignee @me
+  gh issue edit <validated-number> --remove-assignee @me
   ```
 
 After a close or unassign, re-fetch the issue list and present the

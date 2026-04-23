@@ -113,10 +113,11 @@ wait for the user's reply**.
 
 ## Step 5 -- Create the Issue
 
-Sanitize the title and use a heredoc for the body:
+Sanitize the title (whitelist safe characters) and use a heredoc for
+the body:
 
 ```bash
-SAFE_TITLE=$(echo "<title>" | tr -d '"'"'"'$`')
+SAFE_TITLE=$(printf '%s' "<title>" | tr -cd '[:alnum:][:space:].,_:/-')
 gh issue create --title "$SAFE_TITLE" --body "$(cat <<'ISSUE_EOF'
 <enhanced body>
 ISSUE_EOF
