@@ -74,7 +74,7 @@ Then ask: `What commits touched BrokkCoreMcpServer.java in the last month?`
 ```
 /brokk:structured-data
 ```
-Then ask: `What dependencies are declared in build.gradle.kts? Use jq on the JSON config files.`
+Then ask: `What dependencies are declared in package.json?`
 
 **Workspace** -- Set which project the server analyzes:
 ```
