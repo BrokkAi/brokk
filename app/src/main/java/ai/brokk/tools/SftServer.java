@@ -249,11 +249,8 @@ public final class SftServer implements AutoCloseable {
             return;
         }
 
-        var request = SimpleHttpServer.parseJsonRequest(exchange, FormatWorkspaceRequest.class);
-        if (request == null) {
-            RouterUtil.sendValidationError(exchange, "Invalid JSON request body");
-            return;
-        }
+        var request = RouterUtil.parseJsonOr400(exchange, FormatWorkspaceRequest.class, "/v1/sft/format-workspace");
+        if (request == null) return;
 
         try {
             var result = format_workspace(
@@ -279,11 +276,8 @@ public final class SftServer implements AutoCloseable {
             return;
         }
 
-        var request = SimpleHttpServer.parseJsonRequest(exchange, FormatPatchRequest.class);
-        if (request == null) {
-            RouterUtil.sendValidationError(exchange, "Invalid JSON request body");
-            return;
-        }
+        var request = RouterUtil.parseJsonOr400(exchange, FormatPatchRequest.class, "/v1/sft/format-patch");
+        if (request == null) return;
 
         try {
             var result = format_patch(
