@@ -277,14 +277,8 @@ public class BrokkAcpAgent {
         var models = new ArrayList<AcpSchema.ModelInfo>();
         availableModels.keySet().stream().sorted().forEach(name -> {
             models.add(new AcpSchema.ModelInfo(name, name, null));
-
-            if (service.supportsReasoningEffort(name)) {
-                models.add(new AcpSchema.ModelInfo(name + "/low", name + " (low)", null));
-                models.add(new AcpSchema.ModelInfo(name + "/medium", name + " (medium)", null));
-                models.add(new AcpSchema.ModelInfo(name + "/high", name + " (high)", null));
-                if (service.supportsReasoningDisable(name)) {
-                    models.add(new AcpSchema.ModelInfo(name + "/disable", name + " (disable)", null));
-                }
+            for (var level : List.of("low", "medium", "high", "disable")) {
+                models.add(new AcpSchema.ModelInfo(name + "/" + level, name + " (" + level + ")", null));
             }
         });
 
