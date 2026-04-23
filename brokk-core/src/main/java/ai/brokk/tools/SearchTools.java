@@ -23,6 +23,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.ranking.ImportPageRanker;
+import ai.brokk.util.AlmostGrep;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import ai.brokk.util.PathExpander;
@@ -102,7 +103,6 @@ public class SearchTools {
     private static final int RELATED_CONTENT_LIMIT = 5;
 
     private static final int FILE_CONTENTS_CONTEXT_LINES_LIMIT = 5;
-    static final int FILE_CONTENTS_MATCHES_PER_FILE = 20;
     static final int FILE_CONTENTS_TOTAL_MATCH_LIMIT = 500;
 
     private static final int SEARCH_TOOLS_PARALLELISM =
@@ -181,19 +181,6 @@ public class SearchTools {
             ThreadLocal.withInitial(() -> Caffeine.newBuilder()
                     .maximumSize(4L * Runtime.getRuntime().availableProcessors())
                     .build());
-
-    static final class RegexMatchOverflowException extends RuntimeException {
-        private final String pattern;
-
-        RegexMatchOverflowException(String pattern, StackOverflowError cause) {
-            super("Regex '%s' caused StackOverflowError during matching".formatted(pattern), cause);
-            this.pattern = pattern;
-        }
-
-        String pattern() {
-            return pattern;
-        }
-    }
 
     private final ICodeIntelligence codeIntelligence;
     private final AtomicLong researchTokens = new AtomicLong(0);
@@ -1638,9 +1625,7 @@ public class SearchTools {
         return recordResearchTokens(msg);
     }
 
-    public record FindFilesContainingResult(Set<ProjectFile> matches, List<String> errors) {}
-
-    public static FindFilesContainingResult findFilesContainingPatterns(
+    public static AlmostGrep.FindFilesContainingResult findFilesContainingPatterns(
             List<Pattern> patterns, Set<ProjectFile> filesToSearch) throws InterruptedException {
         return AlmostGrep.findFilesContainingPatterns(patterns, filesToSearch);
     }
@@ -1794,33 +1779,6 @@ public class SearchTools {
         return new BatchResult<>(results, errors, truncated);
     }
 
-    enum FileContentSearchType {
-        DECLARATIONS("declarations"),
-        USAGES("usages"),
-        ALL("all");
-
-        private final String wireName;
-
-        FileContentSearchType(String wireName) {
-            this.wireName = wireName;
-        }
-
-        String wireName() {
-            return wireName;
-        }
-
-        static FileContentSearchType fromWireValue(String rawValue) {
-            return switch (rawValue.toLowerCase(Locale.ROOT)) {
-                case "declarations" -> DECLARATIONS;
-                case "usages" -> USAGES;
-                case "all" -> ALL;
-                default ->
-                    throw new IllegalArgumentException(
-                            "Invalid searchType '%s'. Expected one of: declarations, usages, all".formatted(rawValue));
-            };
-        }
-    }
-
     public String searchFileContents(
             List<String> patterns,
             String filepath,
@@ -1845,9 +1803,9 @@ public class SearchTools {
             throw new IllegalArgumentException("Cannot search file contents: patterns list is empty");
         }
 
-        final FileContentSearchType effectiveSearchType;
+        final AlmostGrep.FileContentSearchType effectiveSearchType;
         try {
-            effectiveSearchType = FileContentSearchType.fromWireValue(searchType);
+            effectiveSearchType = AlmostGrep.FileContentSearchType.fromWireValue(searchType);
         } catch (IllegalArgumentException e) {
             return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
@@ -1943,7 +1901,7 @@ public class SearchTools {
                                         file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
                                 if (res == null) return new IndexedResult<FileHit>(batchOffset + idx, null, null);
                                 return new IndexedResult<>(batchOffset + idx, new FileHit(file, res), null);
-                            } catch (RegexMatchOverflowException e) {
+                            } catch (AlmostGrep.RegexMatchOverflowException e) {
                                 String message =
                                         "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
                                 logger.warn("Regex stack overflow while searching file contents in {}", file, e);
@@ -2467,7 +2425,7 @@ public class SearchTools {
                     .filter(pf -> {
                         String filePath = toUnixPath(pf.toString());
                         for (Pattern pattern : compiledPatterns) {
-                            if (findWithOverflowGuard(pattern, filePath)) {
+                            if (AlmostGrep.findWithOverflowGuard(pattern, filePath)) {
                                 return true;
                             }
                         }
@@ -2475,7 +2433,7 @@ public class SearchTools {
                     })
                     .distinct()
                     .toList();
-        } catch (RegexMatchOverflowException e) {
+        } catch (AlmostGrep.RegexMatchOverflowException e) {
             logger.warn("Regex stack overflow while searching filenames with pattern {}", e.pattern(), e);
             return "Regex pattern '%s' caused StackOverflowError during filename search".formatted(e.pattern());
         }
@@ -2520,14 +2478,6 @@ public class SearchTools {
                     return "# " + groupPrefix + "\n" + groupFiles;
                 })
                 .collect(Collectors.joining("\n\n"));
-    }
-
-    private static boolean findWithOverflowGuard(Pattern pattern, String input) {
-        try {
-            return pattern.matcher(input).find();
-        } catch (StackOverflowError e) {
-            throw new RegexMatchOverflowException(pattern.pattern(), e);
-        }
     }
 
     private static String directoryPrefix(String path) {

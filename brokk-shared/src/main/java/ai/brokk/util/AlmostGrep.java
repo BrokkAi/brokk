@@ -1,6 +1,5 @@
-package ai.brokk.tools;
+package ai.brokk.util;
 
-import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static ai.brokk.util.Lines.truncateLine;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
@@ -29,13 +28,63 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-final class AlmostGrep {
+public final class AlmostGrep {
     private AlmostGrep() {}
 
     private static final Logger logger = LogManager.getLogger(AlmostGrep.class);
-    private static final int FILE_SEARCH_BATCH_SIZE = 2 * SearchTools.FILE_SEARCH_LIMIT;
+    private static final int FILE_SEARCH_LIMIT = 100;
+    public static final int FILE_CONTENTS_MATCHES_PER_FILE = 20;
+    private static final int FILE_SEARCH_BATCH_SIZE = 2 * FILE_SEARCH_LIMIT;
 
-    static List<ProjectFile> findProjectTextFilesByGlob(Set<ProjectFile> allFiles, String globPattern) {
+    private static String toUnixPath(String path) {
+        return path.replace('\\', '/');
+    }
+
+    public record FindFilesContainingResult(Set<ProjectFile> matches, List<String> errors) {}
+
+    public enum FileContentSearchType {
+        DECLARATIONS("declarations"),
+        USAGES("usages"),
+        ALL("all");
+
+        private final String wireName;
+
+        FileContentSearchType(String wireName) {
+            this.wireName = wireName;
+        }
+
+        public String wireName() {
+            return wireName;
+        }
+
+        public static FileContentSearchType fromWireValue(String rawValue) {
+            return switch (rawValue.toLowerCase(java.util.Locale.ROOT)) {
+                case "declarations" -> DECLARATIONS;
+                case "usages" -> USAGES;
+                case "all" -> ALL;
+                default ->
+                    throw new IllegalArgumentException(
+                            "Invalid searchType '%s'. Expected one of: declarations, usages, all".formatted(rawValue));
+            };
+        }
+    }
+
+    public static final class RegexMatchOverflowException extends RuntimeException {
+        private final String pattern;
+
+        public RegexMatchOverflowException(String pattern, StackOverflowError cause) {
+            super("Regex '%s' caused StackOverflowError during matching".formatted(pattern), cause);
+            this.pattern = pattern;
+        }
+
+        public String pattern() {
+            return pattern;
+        }
+    }
+
+    public record FileContentSearchResult(String output, int matches) {}
+
+    public static List<ProjectFile> findProjectTextFilesByGlob(Set<ProjectFile> allFiles, String globPattern) {
         PathMatcher matcher = compileGlobPathMatcher(globPattern);
         return allFiles.stream()
                 .filter(ProjectFile::isText)
@@ -48,10 +97,10 @@ final class AlmostGrep {
         return FileSystems.getDefault().getPathMatcher("glob:" + toUnixPath(pattern));
     }
 
-    static SearchTools.FindFilesContainingResult findFilesContainingPatterns(
+    public static FindFilesContainingResult findFilesContainingPatterns(
             List<Pattern> patterns, Set<ProjectFile> filesToSearch) throws InterruptedException {
         if (patterns.isEmpty()) {
-            return new SearchTools.FindFilesContainingResult(Set.of(), List.of());
+            return new FindFilesContainingResult(Set.of(), List.of());
         }
 
         var orderedFiles = filesToSearch.stream().sorted().toList();
@@ -82,7 +131,7 @@ final class AlmostGrep {
                                 boolean matched;
                                 try {
                                     matched = patterns.stream().anyMatch(p -> findWithOverflowGuard(p, fileContents));
-                                } catch (SearchTools.RegexMatchOverflowException e) {
+                                } catch (RegexMatchOverflowException e) {
                                     String message = "regex '%s' caused StackOverflowError".formatted(e.pattern());
                                     return new FilePatternSearchResult(null, file + ": " + message);
                                 }
@@ -105,10 +154,10 @@ final class AlmostGrep {
                 throw e;
             } catch (RuntimeException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                return new SearchTools.FindFilesContainingResult(Set.of(), List.of(message));
+                return new FindFilesContainingResult(Set.of(), List.of(message));
             } catch (ExecutionException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                return new SearchTools.FindFilesContainingResult(Set.of(), List.of(message));
+                return new FindFilesContainingResult(Set.of(), List.of(message));
             }
 
             results.addAll(batchResults);
@@ -129,15 +178,15 @@ final class AlmostGrep {
             logger.warn("Errors searching file contents: {}", errors);
         }
 
-        return new SearchTools.FindFilesContainingResult(matches, errors);
+        return new FindFilesContainingResult(matches, errors);
     }
 
-    static @Nullable FileContentSearchResult searchFileContentsInFile(
+    public static @Nullable FileContentSearchResult searchFileContentsInFile(
             ProjectFile file,
             List<Pattern> patterns,
             int contextLines,
             IAnalyzer analyzer,
-            SearchTools.FileContentSearchType searchType) {
+            FileContentSearchType searchType) {
         var contentOpt = file.read();
         if (contentOpt.isEmpty()) {
             return null;
@@ -173,11 +222,11 @@ final class AlmostGrep {
 
                     int lineNo = lineIdx + 1;
                     if (lineStates[lineNo] == 0) {
-                        if (matchesTaken < SearchTools.FILE_CONTENTS_MATCHES_PER_FILE) {
+                        if (matchesTaken < FILE_CONTENTS_MATCHES_PER_FILE) {
                             lineStates[lineNo] = 2;
                             matchesTaken++;
                             retainedMatchLines.add(lineNo);
-                            if (matchesTaken >= SearchTools.FILE_CONTENTS_MATCHES_PER_FILE) {
+                            if (matchesTaken >= FILE_CONTENTS_MATCHES_PER_FILE) {
                                 break;
                             }
                         } else {
@@ -186,7 +235,7 @@ final class AlmostGrep {
                     }
                 }
             } catch (StackOverflowError e) {
-                throw new SearchTools.RegexMatchOverflowException(pattern.pattern(), e);
+                throw new RegexMatchOverflowException(pattern.pattern(), e);
             }
         }
 
@@ -195,15 +244,14 @@ final class AlmostGrep {
         }
 
         boolean analyzedFile = analyzer.getAnalyzedFiles().contains(file);
-        SearchTools.FileContentSearchType effectiveSearchType =
-                analyzedFile ? searchType : SearchTools.FileContentSearchType.ALL;
+        FileContentSearchType effectiveSearchType = analyzedFile ? searchType : FileContentSearchType.ALL;
         String[] lineTexts = analyzedFile ? content.split("\\R", -1) : null;
         @Nullable
         MatchBuckets buckets = analyzedFile
                 ? classifyMatchLines(file, Objects.requireNonNull(lineTexts), analyzer, retainedMatchLines)
                 : null;
 
-        String output = effectiveSearchType == SearchTools.FileContentSearchType.ALL
+        String output = effectiveSearchType == FileContentSearchType.ALL
                 ? renderAllMatches(content, lineRefs, contextLines, retainedMatchLines, filePath, buckets)
                 : renderFilteredMatches(
                         content,
@@ -255,17 +303,17 @@ final class AlmostGrep {
             List<LineRef> lineRefs,
             int contextLines,
             String filePath,
-            SearchTools.FileContentSearchType searchType,
+            FileContentSearchType searchType,
             MatchBuckets buckets) {
-        Set<Integer> visibleLines = searchType == SearchTools.FileContentSearchType.DECLARATIONS
+        Set<Integer> visibleLines = searchType == FileContentSearchType.DECLARATIONS
                 ? buckets.declarations()
                 : buckets.usageBlocksByLine().keySet();
         if (visibleLines.isEmpty()) {
             return "";
         }
 
-        String heading = searchType == SearchTools.FileContentSearchType.DECLARATIONS ? "[DECLARATIONS]" : "[USAGES]";
-        String section = searchType == SearchTools.FileContentSearchType.DECLARATIONS
+        String heading = searchType == FileContentSearchType.DECLARATIONS ? "[DECLARATIONS]" : "[USAGES]";
+        String section = searchType == FileContentSearchType.DECLARATIONS
                 ? renderSimpleSection("matches", visibleLines, lineRefs, content, contextLines, heading)
                 : renderUsageSection(
                         "matches", buckets.usageBlocksByLine(), visibleLines, lineRefs, content, contextLines, heading);
@@ -529,11 +577,11 @@ final class AlmostGrep {
         return List.copyOf(refs);
     }
 
-    private static boolean findWithOverflowGuard(Pattern pattern, String input) {
+    public static boolean findWithOverflowGuard(Pattern pattern, String input) {
         try {
             return pattern.matcher(input).find();
         } catch (StackOverflowError e) {
-            throw new SearchTools.RegexMatchOverflowException(pattern.pattern(), e);
+            throw new RegexMatchOverflowException(pattern.pattern(), e);
         }
     }
 
@@ -543,8 +591,6 @@ final class AlmostGrep {
 
     private record MatchBuckets(
             Set<Integer> declarations, Map<Integer, EnclosingUsageBlock> usageBlocksByLine, Set<Integer> related) {}
-
-    record FileContentSearchResult(String output, int matches) {}
 
     private record FilePatternSearchResult(@Nullable ProjectFile match, @Nullable String error) {}
 }
