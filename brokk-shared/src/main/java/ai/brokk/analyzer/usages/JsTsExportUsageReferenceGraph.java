@@ -8,6 +8,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.JsTsAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.util.PathNormalizer;
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -673,7 +674,11 @@ public final class JsTsExportUsageReferenceGraph {
     }
 
     private static String qualifiedClassKey(ProjectFile file, String className) {
-        return file.getRelPath().normalize() + ":" + className;
+        return canonicalFileKey(file) + ":" + className;
+    }
+
+    private static String canonicalFileKey(ProjectFile file) {
+        return PathNormalizer.canonicalizeForProject(file.getRelPath().toString(), file.getRoot());
     }
 
     private static CodeUnit syntheticMember(

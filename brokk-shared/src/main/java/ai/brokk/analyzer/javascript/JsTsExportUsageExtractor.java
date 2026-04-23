@@ -28,6 +28,7 @@ import ai.brokk.analyzer.usages.ReceiverTargetRef;
 import ai.brokk.analyzer.usages.ReferenceCandidate;
 import ai.brokk.analyzer.usages.ReferenceKind;
 import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
+import ai.brokk.util.PathNormalizer;
 import com.google.common.base.Splitter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1671,7 +1672,11 @@ public final class JsTsExportUsageExtractor {
     }
 
     private static String qualifiedClassKey(ProjectFile file, String className) {
-        return file.getRelPath().normalize() + ":" + className;
+        return canonicalFileKey(file) + ":" + className;
+    }
+
+    private static String canonicalFileKey(ProjectFile file) {
+        return PathNormalizer.canonicalizeForProject(file.getRelPath().toString(), file.getRoot());
     }
 
     private static boolean isJsTs(ProjectFile file) {
