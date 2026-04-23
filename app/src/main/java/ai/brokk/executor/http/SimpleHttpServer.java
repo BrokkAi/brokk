@@ -12,7 +12,6 @@ import java.net.InetSocketAddress;
 import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Lightweight wrapper around JDK HttpServer with Bearer token authentication middleware
@@ -95,14 +94,12 @@ public final class SimpleHttpServer {
      * @param exchange The HTTP exchange
      * @param valueType The class to deserialize into
      * @param <T> The type parameter
-     * @return The deserialized object, or null if parsing fails
+     * @return The deserialized object
+     * @throws IOException If reading or parsing the request body fails
      */
-    public static <T> @Nullable T parseJsonRequest(HttpExchange exchange, Class<T> valueType) {
+    public static <T> T parseJsonRequest(HttpExchange exchange, Class<T> valueType) throws IOException {
         try (InputStream is = exchange.getRequestBody()) {
             return objectMapper.readValue(is, valueType);
-        } catch (Exception e) {
-            logger.warn("Failed to parse JSON request body", e);
-            return null;
         }
     }
 
