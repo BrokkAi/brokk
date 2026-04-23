@@ -474,7 +474,9 @@ public class UsageFragmentTest {
             assertTrue(normalizedText.contains("feature/header.component.ts"), "should list header component file");
             assertTrue(text.contains("HeaderComponent.constructor"), "should include constructor call site");
             assertEquals(
-                    target.source().getSyntaxStyle(), fragment.syntaxStyle().join(), "should use TS syntax style");
+                    ContextFragments.SYNTAX_STYLE_NONE,
+                    fragment.syntaxStyle().join(),
+                    "usage fragments should use plain-text syntax style");
             assertTrue(
                     fragment.sourceFiles().join().stream()
                             .noneMatch(pf -> pf.getRelPath().toString().equals("_unknown_")),
