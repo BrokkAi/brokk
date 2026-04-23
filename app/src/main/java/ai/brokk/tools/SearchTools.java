@@ -945,7 +945,8 @@ public class SearchTools {
             start += batchSize;
 
             List<CompletableFuture<FileSummaries>> futures = batch.stream()
-                    .map(file -> LoggingFuture.supplyVirtual(() -> new FileSummaries(file, analyzer.getSkeletons(file))))
+                    .map(file ->
+                            LoggingFuture.supplyVirtual(() -> new FileSummaries(file, analyzer.getSkeletons(file))))
                     .toList();
 
             try {
