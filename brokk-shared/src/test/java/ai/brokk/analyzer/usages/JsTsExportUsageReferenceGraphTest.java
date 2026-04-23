@@ -73,6 +73,57 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
     }
 
     @Test
+    public void duplicateOwnerNamesAcrossFiles_doNotCrossMatchMembers() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String other =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String b =
+                """
+                import { Foo } from "./a";
+                const value = new Foo();
+                value.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(other, "other.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            ProjectFile otherFile = projectFile(project.getAllFiles(), "other.ts");
+
+            CodeUnit aBar = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(aFile))
+                    .filter(cu -> cu.identifier().equals("bar"))
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit otherBar = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(otherFile))
+                    .filter(cu -> cu.identifier().equals("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var aResult = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "Foo", aBar, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+            var otherResult = JsTsExportUsageReferenceGraph.findExportUsages(
+                    otherFile, "Foo", otherBar, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+
+            assertEquals(1, aResult.hits().size());
+            assertTrue(aResult.hits().iterator().next().file().toString().endsWith("b.ts"));
+            assertTrue(otherResult.hits().isEmpty());
+        }
+    }
+
+    @Test
     public void reexportChain_isFollowed() throws Exception {
         String a = """
                 export const foo = 1;

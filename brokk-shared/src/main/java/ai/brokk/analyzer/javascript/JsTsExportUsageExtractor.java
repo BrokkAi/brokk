@@ -1622,11 +1622,56 @@ public final class JsTsExportUsageExtractor {
             }
             ExportIndex idx = jsTs.exportIndexOf(file);
             for (ExportIndex.HeritageEdge edge : idx.heritageEdges()) {
-                edges.computeIfAbsent(edge.childName(), ignored -> new LinkedHashSet<>())
-                        .add(edge.parentName());
+                for (String childKey : resolveHeritageClassKeys(jsTs, file, edge.childName())) {
+                    var parents =
+                            edges.computeIfAbsent(childKey, ignored -> new LinkedHashSet<String>());
+                    parents.addAll(resolveHeritageClassKeys(jsTs, file, edge.parentName()));
+                }
             }
         }
         return Map.copyOf(edges);
+    }
+
+    private static Set<String> resolveHeritageClassKeys(JsTsAnalyzer jsTs, ProjectFile file, String className) {
+        var resolved = new LinkedHashSet<String>();
+        jsTs.getDeclarations(file).stream()
+                .filter(cu -> cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS)
+                .filter(cu -> cu.identifier().equals(className))
+                .map(JsTsExportUsageExtractor::qualifiedClassKey)
+                .forEach(resolved::add);
+
+        ImportBinder.ImportBinding binding = jsTs.importBinderOf(file).bindings().get(className);
+        if (binding != null && binding.importedName() != null) {
+            JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
+            imported.resolved().ifPresent(importedFile -> {
+                if (binding.kind() == ImportBinder.ImportKind.DEFAULT) {
+                    resolved.addAll(jsTs.getDeclarations(importedFile).stream()
+                            .filter(cu -> cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS)
+                            .filter(cu -> "default".equals(cu.identifier()) || className.equals(cu.identifier()))
+                            .map(JsTsExportUsageExtractor::qualifiedClassKey)
+                            .toList());
+                } else {
+                    resolved.addAll(jsTs.getDeclarations(importedFile).stream()
+                            .filter(cu -> cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS)
+                            .filter(cu -> cu.identifier().equals(binding.importedName()))
+                            .map(JsTsExportUsageExtractor::qualifiedClassKey)
+                            .toList());
+                }
+            });
+        }
+
+        if (resolved.isEmpty()) {
+            resolved.add(qualifiedClassKey(file, className));
+        }
+        return Set.copyOf(resolved);
+    }
+
+    private static String qualifiedClassKey(ai.brokk.analyzer.CodeUnit codeUnit) {
+        return qualifiedClassKey(codeUnit.source(), codeUnit.identifier());
+    }
+
+    private static String qualifiedClassKey(ProjectFile file, String className) {
+        return file.getRelPath().normalize() + ":" + className;
     }
 
     private static boolean isJsTs(ProjectFile file) {

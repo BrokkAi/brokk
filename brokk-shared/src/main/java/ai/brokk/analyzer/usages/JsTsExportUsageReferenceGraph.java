@@ -185,9 +185,9 @@ public final class JsTsExportUsageReferenceGraph {
         if ((queryTarget.kind() == CodeUnitType.FIELD || queryTarget.kind() == CodeUnitType.FUNCTION)
                 && (resolvedTarget.kind() == CodeUnitType.FIELD || resolvedTarget.kind() == CodeUnitType.FUNCTION)
                 && normalizedMemberName(queryTarget).equals(normalizedMemberName(resolvedTarget))) {
-            String queryOwner = ownerNameOf(queryTarget);
-            String resolvedOwner = ownerNameOf(resolvedTarget);
-            if (queryTarget.source().equals(resolvedTarget.source()) && queryOwner.equals(resolvedOwner)) {
+            String queryOwner = qualifiedOwnerKey(queryTarget);
+            String resolvedOwner = qualifiedOwnerKey(resolvedTarget);
+            if (!queryOwner.isEmpty() && queryOwner.equals(resolvedOwner)) {
                 return true;
             }
             return ownerMatchesHeritage(queryOwner, resolvedOwner, heritageEdges);
@@ -195,10 +195,10 @@ public final class JsTsExportUsageReferenceGraph {
 
         // JS/TS polymorphism (v1): class inheritance only, flow-insensitive.
         if (queryTarget.kind() == CodeUnitType.CLASS && resolvedTarget.kind() == CodeUnitType.CLASS) {
-            String q = queryTarget.identifier();
+            String q = qualifiedClassKey(queryTarget);
             var queue = new ArrayDeque<String>();
             var visited = new HashSet<String>();
-            queue.add(resolvedTarget.identifier());
+            queue.add(qualifiedClassKey(resolvedTarget));
             while (!queue.isEmpty()) {
                 String current = queue.removeFirst();
                 if (!visited.add(current)) {
@@ -648,7 +648,7 @@ public final class JsTsExportUsageReferenceGraph {
 
     private static boolean isMemberTarget(CodeUnit target) {
         return (target.kind() == CodeUnitType.FIELD || target.kind() == CodeUnitType.FUNCTION)
-                && !ownerNameOf(target).isEmpty();
+                && !qualifiedOwnerKey(target).isEmpty();
     }
 
     private static String ownerNameOf(CodeUnit codeUnit) {
@@ -658,6 +658,22 @@ public final class JsTsExportUsageReferenceGraph {
             return "";
         }
         return shortName.substring(0, lastDot);
+    }
+
+    private static String qualifiedOwnerKey(CodeUnit codeUnit) {
+        String ownerName = ownerNameOf(codeUnit);
+        if (ownerName.isEmpty()) {
+            return "";
+        }
+        return qualifiedClassKey(codeUnit.source(), ownerName);
+    }
+
+    private static String qualifiedClassKey(CodeUnit codeUnit) {
+        return qualifiedClassKey(codeUnit.source(), codeUnit.identifier());
+    }
+
+    private static String qualifiedClassKey(ProjectFile file, String className) {
+        return file.getRelPath().normalize() + ":" + className;
     }
 
     private static CodeUnit syntheticMember(
