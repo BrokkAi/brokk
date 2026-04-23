@@ -1,6 +1,7 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
+import static ai.brokk.analyzer.rust.Constants.*;
+import static org.treesitter.RustNodeType.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.ICoreProject;
@@ -22,13 +23,10 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.*;
+import org.treesitter.RustNodeField;
 
 public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
-
-    private static final Set<String> COMMENT_NODE_TYPES = Set.of(LINE_COMMENT, BLOCK_COMMENT);
-    private static final Set<String> RUST_LOG_MACRO_NAMES = Set.of("trace", "debug", "info", "warn", "error");
-    private static final Set<String> RUST_PRINT_MACRO_NAMES = Set.of("println", "eprintln");
 
     private record AssertionSignal(
             String kind,
@@ -51,17 +49,22 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     private static final LanguageSyntaxProfile RS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM, MOD_ITEM),
-            Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),
-            Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT),
-            Set.of(ATTRIBUTE_ITEM), // Rust attributes like #[derive(...)]
+            Set.of(
+                    nodeType(IMPL_ITEM),
+                    nodeType(TRAIT_ITEM),
+                    nodeType(STRUCT_ITEM),
+                    nodeType(ENUM_ITEM),
+                    nodeType(MOD_ITEM)),
+            Set.of(nodeType(FUNCTION_ITEM), nodeType(FUNCTION_SIGNATURE_ITEM)),
+            Set.of(nodeType(FIELD_DECLARATION), nodeType(CONST_ITEM), nodeType(STATIC_ITEM), nodeType(ENUM_VARIANT)),
+            Set.of(nodeType(ATTRIBUTE_ITEM)), // Rust attributes like #[derive(...)]
             Set.of(),
-            CaptureNames.IMPORT_DECLARATION, // matches @import.declaration in imports.scm
-            "name", // Common field name for identifiers
-            "body", // e.g., function_item.body, impl_item.body
-            "parameters", // e.g., function_item.parameters
-            "return_type", // e.g., function_item.return_type
-            "type_parameters", // Rust generics
+            IMPORT_DECLARATION_CAPTURE, // matches @import.declaration in imports.scm
+            nodeField(RustNodeField.NAME), // identifier field name
+            nodeField(RustNodeField.BODY), // body field name
+            nodeField(RustNodeField.PARAMETERS), // parameters field name
+            nodeField(RustNodeField.RETURN_TYPE), // return type field name
+            nodeField(RustNodeField.TYPE_PARAMETERS), // type parameters field name
             Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.IMPL_DEFINITION, SkeletonType.CLASS_LIKE,
@@ -70,7 +73,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
                     CaptureNames.TYPEALIAS_DEFINITION, SkeletonType.ALIAS_LIKE),
             "",
-            Set.of(VISIBILITY_MODIFIER));
+            Set.of(nodeType(VISIBILITY_MODIFIER)));
 
     public RustAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
@@ -270,7 +273,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         // We check the first few children as its position can vary slightly (e.g. after attributes).
         int i = 0;
         for (TSNode child : node.getChildren()) {
-            if (VISIBILITY_MODIFIER.equals(child.getType())) {
+            if (nodeType(VISIBILITY_MODIFIER).equals(child.getType())) {
                 String text = sourceContent.substringFrom(child).strip();
                 return text + " ";
             }
@@ -344,64 +347,64 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
      */
     private Optional<String> extractCoreTypeName(@Nullable TSNode typeNode, SourceContent sourceContent) {
         if (typeNode == null) return Optional.empty();
-        String nodeType = typeNode.getType();
-        if (nodeType == null) return Optional.empty();
+        String typeName = typeNode.getType();
+        if (typeName == null) return Optional.empty();
 
-        return switch (nodeType) {
-            case TYPE_IDENTIFIER -> Optional.of(sourceContent.substringFrom(typeNode));
+        if (nodeType(TYPE_IDENTIFIER).equals(typeName)) {
+            return Optional.of(sourceContent.substringFrom(typeNode));
+        }
 
-            case SCOPED_TYPE_IDENTIFIER -> {
-                TSNode nameNode = typeNode.getChildByFieldName("name");
-                yield extractCoreTypeName(nameNode, sourceContent)
-                        .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
-            }
+        if (nodeType(SCOPED_TYPE_IDENTIFIER).equals(typeName)) {
+            TSNode nameNode = typeNode.getChildByFieldName(nodeField(RustNodeField.NAME));
+            return extractCoreTypeName(nameNode, sourceContent)
+                    .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
+        }
 
-            case GENERIC_TYPE, REFERENCE_TYPE, POINTER_TYPE -> {
-                TSNode innerType = typeNode.getChildByFieldName("type");
-                yield extractCoreTypeName(innerType, sourceContent)
-                        .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
-            }
+        if (nodeType(GENERIC_TYPE).equals(typeName)
+                || nodeType(REFERENCE_TYPE).equals(typeName)
+                || nodeType(POINTER_TYPE).equals(typeName)) {
+            TSNode innerType = typeNode.getChildByFieldName(nodeField(RustNodeField.TYPE));
+            return extractCoreTypeName(innerType, sourceContent)
+                    .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
+        }
 
-            case ARRAY_TYPE -> {
-                // Array/slice types like [T] or [T; N] have "element" field for the inner type
-                TSNode elementType = typeNode.getChildByFieldName("element");
-                yield extractCoreTypeName(elementType, sourceContent)
-                        .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
-            }
+        if (nodeType(ARRAY_TYPE).equals(typeName)) {
+            // Array/slice types like [T] or [T; N] have "element" field for the inner type
+            TSNode elementType = typeNode.getChildByFieldName(nodeField(RustNodeField.ELEMENT));
+            return extractCoreTypeName(elementType, sourceContent)
+                    .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
+        }
 
-            case TUPLE_TYPE -> {
-                // Tuple types like (A, B) - extract the first element for naming
-                // The tuple_type node has children that are the element types
-                if (typeNode.getChildCount() > 0) {
-                    for (int i = 0; i < typeNode.getChildCount(); i++) {
-                        TSNode child = typeNode.getChild(i);
-                        if (child != null) {
-                            String childType = child.getType();
-                            // Skip punctuation like '(' ',' ')'
-                            if (!"(".equals(childType) && !")".equals(childType) && !",".equals(childType)) {
-                                Optional<String> extracted = extractCoreTypeName(child, sourceContent);
-                                if (extracted.isPresent()) {
-                                    yield extracted;
-                                }
+        if (nodeType(TUPLE_TYPE).equals(typeName)) {
+            // Tuple types like (A, B) - extract the first element for naming
+            // The tuple_type node has children that are the element types
+            if (typeNode.getChildCount() > 0) {
+                for (int i = 0; i < typeNode.getChildCount(); i++) {
+                    TSNode child = typeNode.getChild(i);
+                    if (child != null) {
+                        String childType = child.getType();
+                        // Skip punctuation like '(' ',' ')'
+                        if (!"(".equals(childType) && !")".equals(childType) && !",".equals(childType)) {
+                            Optional<String> extracted = extractCoreTypeName(child, sourceContent);
+                            if (extracted.isPresent()) {
+                                return extracted;
                             }
                         }
                     }
                 }
-                yield Optional.of(sourceContent.substringFrom(typeNode));
             }
+            return Optional.of(sourceContent.substringFrom(typeNode));
+        }
 
-            default -> {
-                String text = sourceContent.substringFrom(typeNode);
-                log.debug("extractCoreTypeName: unhandled node type '{}', using full text '{}'", nodeType, text);
-                yield Optional.of(text);
-            }
-        };
+        String text = sourceContent.substringFrom(typeNode);
+        log.debug("extractCoreTypeName: unhandled node type '{}', using full text '{}'", typeName, text);
+        return Optional.of(text);
     }
 
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
-        if (IMPL_ITEM.equals(decl.getType())) {
-            TSNode typeNode = decl.getChildByFieldName("type");
+        if (nodeType(IMPL_ITEM).equals(decl.getType())) {
+            TSNode typeNode = decl.getChildByFieldName(nodeField(RustNodeField.TYPE));
             if (typeNode != null) {
                 Optional<String> name = extractCoreTypeName(typeNode, sourceContent);
                 if (name.isPresent()) {
@@ -472,7 +475,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     @Override
     protected Set<String> getLeadingMetadataNodeTypes() {
-        return Set.of(ATTRIBUTE_ITEM, INNER_ATTRIBUTE);
+        return Set.of(nodeType(ATTRIBUTE_ITEM), nodeType(INNER_ATTRIBUTE_ITEM));
     }
 
     @Override
@@ -726,13 +729,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         var findings = new ArrayList<SmellCandidate>();
 
         var matches = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(MATCH_EXPRESSION), matches);
+        collectNodesByType(root, Set.of(nodeType(MATCH_EXPRESSION)), matches);
         for (TSNode matchExpr : matches) {
             analyzeMatchHandlers(file, matchExpr, sourceContent, weights, findings);
         }
 
         var ifs = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(IF_EXPRESSION), ifs);
+        collectNodesByType(root, Set.of(nodeType(IF_EXPRESSION)), ifs);
         for (TSNode ifExpr : ifs) {
             analyzeIfLetErrHandler(file, ifExpr, sourceContent, weights).ifPresent(findings::add);
         }
@@ -752,19 +755,19 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         boolean isCatchUnwind = matchContainsCatchUnwindCall(matchExpr, sourceContent);
 
         var arms = new ArrayList<TSNode>();
-        collectNodesByType(matchExpr, Set.of(MATCH_ARM), arms);
+        collectNodesByType(matchExpr, Set.of(nodeType(MATCH_ARM)), arms);
         for (TSNode arm : arms) {
             if (!belongsToMatchExpression(arm, matchExpr)) {
                 continue;
             }
-            TSNode pattern = arm.getChildByFieldName("pattern");
+            TSNode pattern = arm.getChildByFieldName(nodeField(RustNodeField.PATTERN));
             if (pattern == null && arm.getNamedChildCount() > 0) {
                 pattern = arm.getNamedChild(0);
             }
             if (pattern == null || !patternContainsErr(pattern, sourceContent)) {
                 continue;
             }
-            TSNode body = arm.getChildByFieldName("value");
+            TSNode body = arm.getChildByFieldName(nodeField(RustNodeField.VALUE));
             if (body == null && arm.getNamedChildCount() > 0) {
                 body = arm.getNamedChild(arm.getNamedChildCount() - 1);
             }
@@ -780,7 +783,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     private static boolean belongsToMatchExpression(TSNode arm, TSNode matchExpr) {
         TSNode parent = arm.getParent();
-        while (parent != null && !MATCH_EXPRESSION.equals(parent.getType())) {
+        while (parent != null && !nodeType(MATCH_EXPRESSION).equals(parent.getType())) {
             parent = parent.getParent();
         }
         if (parent == null) {
@@ -791,7 +794,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     private static boolean matchContainsCatchUnwindCall(TSNode matchExpr, SourceContent sourceContent) {
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(matchExpr, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(matchExpr, Set.of(nodeType(CALL_EXPRESSION)), calls);
         for (TSNode call : calls) {
             if ("catch_unwind".equals(rustCallCalleeLastIdent(call, sourceContent))) {
                 return true;
@@ -804,13 +807,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             ProjectFile file, TSNode ifExpr, SourceContent sourceContent, ExceptionSmellWeights weights) {
         // Only inspect this `if`'s condition; do not search the whole subtree (which would
         // incorrectly attribute nested `if let Err(...)` conditions to an outer `if`).
-        TSNode condition = ifExpr.getChildByFieldName("condition");
+        TSNode condition = ifExpr.getChildByFieldName(nodeField(RustNodeField.CONDITION));
         if (condition == null || !patternContainsErr(condition, sourceContent)) {
             return Optional.empty();
         }
-        TSNode consequence = ifExpr.getChildByFieldName("consequence");
+        TSNode consequence = ifExpr.getChildByFieldName(nodeField(RustNodeField.CONSEQUENCE));
         if (consequence == null) {
-            consequence = findFirstNamedDescendant(ifExpr, BLOCK);
+            consequence = findFirstNamedDescendant(ifExpr, nodeType(BLOCK));
         }
         if (consequence == null) {
             return Optional.empty();
@@ -826,7 +829,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             ExceptionSmellWeights weights,
             int baseScore,
             String baseReason) {
-        TSNode block = BLOCK.equals(handlerNode.getType()) ? handlerNode : null;
+        TSNode block = nodeType(BLOCK).equals(handlerNode.getType()) ? handlerNode : null;
         int bodyStatements = block != null ? countHandlerStatements(block) : 1;
         String bodyText = sourceContent.substringFrom(handlerNode);
         boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
@@ -891,7 +894,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             if (node == null) {
                 continue;
             }
-            if (IDENTIFIER.equals(node.getType())
+            if (nodeType(IDENTIFIER).equals(node.getType())
                     && "Err".equals(sourceContent.substringFrom(node).strip())) {
                 return true;
             }
@@ -922,14 +925,14 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     private static boolean hasPanicLike(TSNode root, SourceContent sourceContent) {
         var macros = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(MACRO_INVOCATION), macros);
+        collectNodesByType(root, Set.of(nodeType(MACRO_INVOCATION)), macros);
         for (TSNode macro : macros) {
             if ("panic".equals(rustMacroLastIdent(macro, sourceContent))) {
                 return true;
             }
         }
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(root, Set.of(nodeType(CALL_EXPRESSION)), calls);
         for (TSNode call : calls) {
             if ("resume_unwind".equals(rustCallCalleeLastIdent(call, sourceContent))) {
                 return true;
@@ -940,13 +943,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     private static boolean isLikelyLogOnlyRust(TSNode handlerNode, SourceContent sourceContent) {
         TSNode node = handlerNode;
-        if (BLOCK.equals(handlerNode.getType())) {
+        if (nodeType(BLOCK).equals(handlerNode.getType())) {
             node = firstNonCommentNamedChild(handlerNode, COMMENT_NODE_TYPES);
             if (node == null) {
                 return false;
             }
         }
-        TSNode macro = findFirstNamedDescendant(node, MACRO_INVOCATION);
+        TSNode macro = findFirstNamedDescendant(node, nodeType(MACRO_INVOCATION));
         if (macro == null) {
             return false;
         }
@@ -957,19 +960,21 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     private static String rustMacroLastIdent(TSNode macroInvocation, SourceContent sourceContent) {
         TSNode path = macroInvocation.getNamedChildCount() > 0 ? macroInvocation.getNamedChild(0) : null;
         if (path == null) {
-            path = findFirstNamedDescendant(macroInvocation, PATH);
+            // Some Rust macro invocations use a `path` node for the callee. Our generated RustNodeType enum
+            // does not currently expose a PATH constant, so fall back to the raw node-type string.
+            path = findFirstNamedDescendant(macroInvocation, "path");
         }
         if (path == null) {
-            path = findFirstNamedDescendant(macroInvocation, SCOPED_IDENTIFIER);
+            path = findFirstNamedDescendant(macroInvocation, nodeType(SCOPED_IDENTIFIER));
         }
         if (path == null) {
-            path = findFirstNamedDescendant(macroInvocation, IDENTIFIER);
+            path = findFirstNamedDescendant(macroInvocation, nodeType(IDENTIFIER));
         }
         return path == null ? "" : lastIdentifierIn(path, sourceContent);
     }
 
     private static String rustCallCalleeLastIdent(TSNode call, SourceContent sourceContent) {
-        TSNode function = call.getChildByFieldName("function");
+        TSNode function = call.getChildByFieldName(nodeField(RustNodeField.FUNCTION));
         if (function == null && call.getNamedChildCount() > 0) {
             function = call.getNamedChild(0);
         }
@@ -984,7 +989,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 if (current == null) {
                     break;
                 }
-                if (IDENTIFIER.equals(current.getType())) {
+                if (nodeType(IDENTIFIER).equals(current.getType())) {
                     String text = sourceContent.substringFrom(current).strip();
                     if (!text.isEmpty()) {
                         last = text;
@@ -1030,7 +1035,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     private List<TestAssertionSmell> detectTestAssertionSmells(
             ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
         var functions = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(FUNCTION_ITEM), functions);
+        collectNodesByType(root, Set.of(nodeType(FUNCTION_ITEM)), functions);
         var testFunctions = rustFunctionsWithDirectTestAttribute(root, sourceContent);
 
         var candidates = new ArrayList<TestSmellCandidate>();
@@ -1109,7 +1114,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     private RustAssertionAnalysis analyzeRustAssertions(
             TSNode testFn, SourceContent sourceContent, TestAssertionWeights weights) {
         var macros = new ArrayList<TSNode>();
-        collectNodesByType(testFn, Set.of(MACRO_INVOCATION), macros);
+        collectNodesByType(testFn, Set.of(nodeType(MACRO_INVOCATION)), macros);
         if (macros.isEmpty()) return new RustAssertionAnalysis(0, 0, 0, List.of());
 
         var signals = new ArrayList<AssertionSignal>();
@@ -1193,13 +1198,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     private static String rustMacroName(TSNode macro, SourceContent sourceContent) {
         int tokenTreeStart = Integer.MAX_VALUE;
         var tokenTrees = new ArrayList<TSNode>();
-        collectNodesByType(macro, Set.of(TOKEN_TREE), tokenTrees);
+        collectNodesByType(macro, Set.of(nodeType(TOKEN_TREE)), tokenTrees);
         if (!tokenTrees.isEmpty()) {
             tokenTreeStart = tokenTrees.getFirst().getStartByte();
         }
 
         var ids = new ArrayList<TSNode>();
-        collectNodesByType(macro, Set.of(IDENTIFIER), ids);
+        collectNodesByType(macro, Set.of(nodeType(IDENTIFIER)), ids);
 
         TSNode best = null;
         for (TSNode id : ids) {
@@ -1219,7 +1224,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     private @Nullable AssertionSignal classifyRustEqLikeMacro(
             TSNode macro, SourceContent sourceContent, TestAssertionWeights weights) {
         List<TSNode> exprs = new ArrayList<>();
-        collectNodesByType(macro, Set.of(EXPRESSION), exprs);
+        collectNodesByType(macro, Set.of(nodeType(EXPRESSION)), exprs);
         if (exprs.size() < 2) {
             exprs = rustMacroArgumentNodes(macro);
         }
@@ -1284,7 +1289,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     private @Nullable AssertionSignal classifyRustAssertMacro(
             TSNode macro, SourceContent sourceContent, TestAssertionWeights weights) {
         List<TSNode> exprs = new ArrayList<>();
-        collectNodesByType(macro, Set.of(EXPRESSION), exprs);
+        collectNodesByType(macro, Set.of(nodeType(EXPRESSION)), exprs);
         if (exprs.isEmpty()) {
             exprs = rustMacroArgumentNodes(macro);
         }
@@ -1359,14 +1364,14 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         int childCount = macro.getChildCount();
         for (int i = 0; i < childCount; i++) {
             TSNode child = macro.getChild(i);
-            if (child != null && TOKEN_TREE.equals(child.getType())) {
+            if (child != null && nodeType(TOKEN_TREE).equals(child.getType())) {
                 tokenTree = child;
                 break;
             }
         }
         if (tokenTree == null) {
             var tokenTrees = new ArrayList<TSNode>();
-            collectNodesByType(macro, Set.of(TOKEN_TREE), tokenTrees);
+            collectNodesByType(macro, Set.of(nodeType(TOKEN_TREE)), tokenTrees);
             if (!tokenTrees.isEmpty()) {
                 tokenTree = tokenTrees.getFirst();
             }
@@ -1382,7 +1387,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             String type = child.getType();
             if (type == null) continue;
             // Keep argument-like nodes; ignore punctuation-like wrappers if present.
-            if (ATTRIBUTE_ITEM.equals(type)) continue;
+            if (nodeType(ATTRIBUTE_ITEM).equals(type)) continue;
             args.add(child);
         }
         return args;
@@ -1390,7 +1395,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     private static boolean containsLargeRustStringLiteral(TSNode root, SourceContent sourceContent, int threshold) {
         var stringLits = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(STRING_LITERAL), stringLits);
+        collectNodesByType(root, Set.of(nodeType(STRING_LITERAL)), stringLits);
         if (stringLits.isEmpty()) return false;
         for (TSNode lit : stringLits) {
             if (sourceContent.substringFrom(lit).length() >= threshold) {
@@ -1409,7 +1414,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
             // Shape 1: attribute_item is nested under the function_item.
             TSNode parent = attrItem.getParent();
-            if (parent != null && FUNCTION_ITEM.equals(parent.getType())) {
+            if (parent != null && nodeType(FUNCTION_ITEM).equals(parent.getType())) {
                 testFunctions.add(parent);
                 continue;
             }
@@ -1418,11 +1423,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             TSNode next = attrItem.getNextSibling();
             while (next != null) {
                 String nextType = next.getType();
-                if (ATTRIBUTE_ITEM.equals(nextType)) {
+                if (nodeType(ATTRIBUTE_ITEM).equals(nextType)) {
                     next = next.getNextSibling();
                     continue;
                 }
-                if (FUNCTION_ITEM.equals(nextType)) {
+                if (nodeType(FUNCTION_ITEM).equals(nextType)) {
                     testFunctions.add(next);
                 }
                 break;
@@ -1437,17 +1442,17 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     private static boolean isRustIsNoneMethodCall(TSNode expr, SourceContent sourceContent) {
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(expr, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(expr, Set.of(nodeType(CALL_EXPRESSION)), calls);
         if (calls.isEmpty()) return false;
 
         for (TSNode call : calls) {
             var fieldExprs = new ArrayList<TSNode>();
-            collectNodesByType(call, Set.of(FIELD_EXPRESSION), fieldExprs);
+            collectNodesByType(call, Set.of(nodeType(FIELD_EXPRESSION)), fieldExprs);
             if (fieldExprs.isEmpty()) continue;
 
             for (TSNode fieldExpr : fieldExprs) {
                 var idNodes = new ArrayList<TSNode>();
-                collectNodesByType(fieldExpr, Set.of(IDENTIFIER), idNodes);
+                collectNodesByType(fieldExpr, Set.of(nodeType(IDENTIFIER)), idNodes);
                 for (TSNode id : idNodes) {
                     if ("is_none".equals(sourceContent.substringFrom(id).strip())) {
                         return true;
@@ -1460,12 +1465,12 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     private static boolean isRustNoneEqualityOrInequality(TSNode expr, SourceContent sourceContent) {
         var bins = new ArrayList<TSNode>();
-        collectNodesByType(expr, Set.of(BINARY_EXPRESSION), bins);
+        collectNodesByType(expr, Set.of(nodeType(BINARY_EXPRESSION)), bins);
         if (bins.isEmpty()) return false;
 
         for (TSNode bin : bins) {
-            TSNode left = bin.getChildByFieldName("left");
-            TSNode right = bin.getChildByFieldName("right");
+            TSNode left = bin.getChildByFieldName(nodeField(RustNodeField.LEFT));
+            TSNode right = bin.getChildByFieldName(nodeField(RustNodeField.RIGHT));
             if (left == null || right == null) continue;
 
             String op = firstUnnamedChildType(bin);
@@ -1481,17 +1486,17 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     private static boolean isRustConstantExpr(TSNode expr, SourceContent sourceContent) {
         // `true`/`false` are represented by the named `boolean_literal` node in the Rust grammar.
         // `None` is an identifier (so we still need text-based matching).
-        if (hasDescendantOfType(expr, BOOLEAN_LITERAL)) {
+        if (hasDescendantOfType(expr, nodeType(BOOLEAN_LITERAL))) {
             return true;
         }
         if (isRustNoneExpr(expr, sourceContent)) {
             return true;
         }
-        return hasDescendantOfType(expr, STRING_LITERAL)
-                || hasDescendantOfType(expr, CHAR_LITERAL)
-                || hasDescendantOfType(expr, INTEGER_LITERAL)
-                || hasDescendantOfType(expr, FLOAT_LITERAL)
-                || hasDescendantOfType(expr, BOOLEAN_LITERAL);
+        return hasDescendantOfType(expr, nodeType(STRING_LITERAL))
+                || hasDescendantOfType(expr, nodeType(CHAR_LITERAL))
+                || hasDescendantOfType(expr, nodeType(INTEGER_LITERAL))
+                || hasDescendantOfType(expr, nodeType(FLOAT_LITERAL))
+                || hasDescendantOfType(expr, nodeType(BOOLEAN_LITERAL));
     }
 
     private List<TSNode> testAttributeItems(TSNode root, SourceContent sourceContent) {
@@ -1506,7 +1511,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                         while (cursor.nextMatch(match)) {
                             for (TSQueryCapture capture : match.getCaptures()) {
                                 String captureName = query.getCaptureNameForId(capture.getIndex());
-                                if (!TEST_MARKER.equals(captureName)) continue;
+                                if (!TEST_MARKER_CAPTURE.equals(captureName)) continue;
 
                                 TSNode attrItemNode = capture.getNode();
                                 if (attrItemNode == null) continue;
@@ -1543,7 +1548,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     private static List<String> rustAttributeIdentifiers(TSNode attrItemNode, SourceContent sourceContent) {
         var idNodes = new ArrayList<TSNode>();
-        collectNodesByType(attrItemNode, Set.of(IDENTIFIER), idNodes);
+        collectNodesByType(attrItemNode, Set.of(nodeType(IDENTIFIER)), idNodes);
         if (idNodes.isEmpty()) {
             return List.of();
         }
@@ -1571,11 +1576,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                     .strip()
                     .equals(sourceContent.substringFrom(r).strip());
         }
-        if (type.equals(BOOLEAN_LITERAL)
-                || type.equals(CHAR_LITERAL)
-                || type.equals(STRING_LITERAL)
-                || type.equals(INTEGER_LITERAL)
-                || type.equals(FLOAT_LITERAL)) {
+        if (type.equals(nodeType(BOOLEAN_LITERAL))
+                || type.equals(nodeType(CHAR_LITERAL))
+                || type.equals(nodeType(STRING_LITERAL))
+                || type.equals(nodeType(INTEGER_LITERAL))
+                || type.equals(nodeType(FLOAT_LITERAL))) {
             return sourceContent
                     .substringFrom(l)
                     .strip()
@@ -1608,10 +1613,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     private static boolean sameRustBinaryExpr(TSNode left, TSNode right, SourceContent sourceContent) {
-        TSNode lLeft = left.getChildByFieldName("left");
-        TSNode lRight = left.getChildByFieldName("right");
-        TSNode rLeft = right.getChildByFieldName("left");
-        TSNode rRight = right.getChildByFieldName("right");
+        TSNode lLeft = left.getChildByFieldName(nodeField(RustNodeField.LEFT));
+        TSNode lRight = left.getChildByFieldName(nodeField(RustNodeField.RIGHT));
+        TSNode rLeft = right.getChildByFieldName(nodeField(RustNodeField.LEFT));
+        TSNode rRight = right.getChildByFieldName(nodeField(RustNodeField.RIGHT));
         if (lLeft == null || lRight == null || rLeft == null || rRight == null) {
             return false;
         }
