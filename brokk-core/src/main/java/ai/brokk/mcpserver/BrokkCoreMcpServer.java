@@ -336,10 +336,10 @@ public class BrokkCoreMcpServer {
 
         specs.add(tool(
                 "findFilenames",
-                "Search for files by name pattern. Patterns are case-insensitive and match anywhere in the filename.",
+                "Search for files by name pattern. Accepts regex or literal strings; invalid regex is automatically treated as a literal match. Patterns are case-insensitive and match anywhere in the filename.",
                 schema(
                         Map.of(
-                                "patterns", arrayProp("Filename patterns to search for."),
+                                "patterns", arrayProp("Patterns to match against filenames (regex or literal string)."),
                                 "limit", intProp("Maximum results to return.")),
                         List.of("patterns", "limit")),
                 (exchange, request) -> withReadLock(() -> {
@@ -350,10 +350,11 @@ public class BrokkCoreMcpServer {
 
         specs.add(tool(
                 "findFilesContaining",
-                "Find files containing text matching the given regex patterns.",
+                "Find files containing text matching the given patterns. Accepts regex or literal strings; invalid regex is automatically treated as a literal match.",
                 schema(
                         Map.of(
-                                "patterns", arrayProp("Regex patterns to search for in file contents."),
+                                "patterns",
+                                        arrayProp("Patterns to search for in file contents (regex or literal string)."),
                                 "limit", intProp("Maximum results to return.")),
                         List.of("patterns", "limit")),
                 (exchange, request) -> withReadLock(() -> {
@@ -364,10 +365,10 @@ public class BrokkCoreMcpServer {
 
         specs.add(tool(
                 "searchFileContents",
-                "Search for regex patterns in file contents with context lines.",
+                "Search for patterns in file contents with context lines. Accepts regex or literal strings; invalid regex is automatically treated as a literal match.",
                 schema(
                         Map.of(
-                                "patterns", arrayProp("Regex patterns to search for."),
+                                "patterns", arrayProp("Patterns to search for (regex or literal string)."),
                                 "filepath", stringProp("File path or glob pattern to restrict search to."),
                                 "caseInsensitive", boolProp("Case-insensitive matching."),
                                 "multiline", boolProp("Enable multiline matching."),
