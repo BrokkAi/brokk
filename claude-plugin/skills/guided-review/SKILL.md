@@ -346,7 +346,7 @@ remaining" or "Done"), present a final summary:
 
 - **BLOCK** -- any CRITICAL findings remain unresolved (not fixed, not filed)
 - **APPROVE WITH CHANGES** -- HIGH or MEDIUM findings remain but no unresolved CRITICAL
-- **APPROVE** -- all CRITICAL/HIGH resolved, only LOW/MEDIUM remain or no findings
+- **APPROVE** -- only LOW findings remain or no findings at all
 
 ### Severity Definitions
 
