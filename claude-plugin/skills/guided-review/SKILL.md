@@ -288,7 +288,7 @@ If the user chooses to create an issue:
 
 ```bash
 SAFE_SUMMARY=$(printf '%s' "<finding title>" | tr -d "\"'\$\`")
-gh issue create --title "$SAFE_SUMMARY" --body "$(cat <<'EOF'
+gh issue create --title "$SAFE_SUMMARY" --body-file - <<'GUIDED_REVIEW_EOF'
 ## <finding title>
 
 **Severity**: <severity>
@@ -302,8 +302,7 @@ gh issue create --title "$SAFE_SUMMARY" --body "$(cat <<'EOF'
 <recommendation>
 
 Found during guided code review.
-EOF
-)"
+GUIDED_REVIEW_EOF
 ```
 
 Then move to the next finding.
