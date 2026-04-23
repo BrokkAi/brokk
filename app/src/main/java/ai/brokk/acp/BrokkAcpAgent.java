@@ -6,6 +6,7 @@ import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.util.Messages;
 import com.agentclientprotocol.sdk.agent.AcpSyncAgent;
 import com.agentclientprotocol.sdk.agent.SyncPromptContext;
 import com.agentclientprotocol.sdk.annotation.AcpAgent;
@@ -120,6 +121,8 @@ public class BrokkAcpAgent {
         var modelState = buildModelState(sessionId);
         var meta = buildVariantMeta(sessionId);
 
+        scheduleAvailableCommandsUpdate(sessionId);
+
         return new AcpSchema.NewSessionResponse(sessionId, modeState, modelState, meta);
     }
 
@@ -143,8 +146,9 @@ public class BrokkAcpAgent {
         var modelState = buildModelState(sessionId);
         var meta = buildVariantMeta(sessionId);
 
-        // Schedule conversation replay after response is sent
+        // Schedule conversation replay and commands advertisement after response is sent
         scheduleConversationReplay(sessionId);
+        scheduleAvailableCommandsUpdate(sessionId);
 
         return new AcpSchema.LoadSessionResponse(modeState, modelState, meta);
     }
@@ -160,6 +164,12 @@ public class BrokkAcpAgent {
 
         if (text == null || text.isBlank()) {
             promptContext.sendMessage("Error: empty prompt");
+            return AcpSchema.PromptResponse.endTurn();
+        }
+
+        // Handle slash commands
+        if (text.strip().toLowerCase(Locale.ROOT).startsWith("/context")) {
+            handleContextCommand(sessionId, promptContext);
             return AcpSchema.PromptResponse.endTurn();
         }
 
@@ -386,6 +396,73 @@ public class BrokkAcpAgent {
                 logger.info("Conversation replay complete for session {} ({} entries)", sessionId, taskHistory.size());
             } catch (Exception e) {
                 logger.warn("Conversation replay failed for session {}", sessionId, e);
+            }
+        });
+    }
+
+    // ---- Slash commands ----
+
+    private void handleContextCommand(String sessionId, SyncPromptContext promptContext) {
+        logger.info("ACP /context command for session {}", sessionId);
+        var live = cm.liveContext();
+        var fragments = live.getAllFragmentsInDisplayOrder();
+
+        record FragmentRow(String name, int tokens, double pct) {}
+
+        int totalTokens = 0;
+        var rows = new ArrayList<FragmentRow>();
+        for (var f : fragments) {
+            var name = f.shortDescription().renderNowOr("Unknown");
+            int tokens = f.isText() || f.getType().isOutput()
+                    ? Messages.getApproximateTokens(f.text().renderNowOr(""))
+                    : 0;
+            totalTokens += tokens;
+            rows.add(new FragmentRow(name, tokens, 0));
+        }
+
+        int base = totalTokens > 0 ? totalTokens : 1;
+        var withPct = rows.stream()
+                .map(r -> new FragmentRow(r.name, r.tokens, (r.tokens / (double) base) * 100))
+                .sorted((a, b) -> Double.compare(b.pct, a.pct))
+                .toList();
+
+        var top = new ArrayList<>(withPct.stream().limit(4).toList());
+        if (withPct.size() > 4) {
+            int otherTokens =
+                    withPct.stream().skip(4).mapToInt(FragmentRow::tokens).sum();
+            double otherPct =
+                    withPct.stream().skip(4).mapToDouble(FragmentRow::pct).sum();
+            top.add(new FragmentRow("(other)", otherTokens, otherPct));
+        }
+
+        var sb = new StringBuilder();
+        sb.append("| Fragment | Tokens | % Context |\n");
+        sb.append("|---|---:|---:|\n");
+        if (top.isEmpty()) {
+            sb.append("| (none) | 0 | 0.00% |\n");
+        } else {
+            for (var row : top) {
+                sb.append("| %s | %,d | %.2f%% |\n".formatted(row.name, row.tokens, row.pct));
+            }
+        }
+        sb.append("\n**Total Tokens:** %,d\n".formatted(totalTokens));
+
+        promptContext.sendMessage(sb.toString());
+    }
+
+    private void scheduleAvailableCommandsUpdate(String sessionId) {
+        var agent = this.syncAgent;
+        if (agent == null) {
+            return;
+        }
+        Thread.startVirtualThread(() -> {
+            try {
+                var commands =
+                        List.of(new AcpSchema.AvailableCommand("context", "Show current context snapshot", null));
+                agent.sendSessionUpdate(
+                        sessionId, new AcpSchema.AvailableCommandsUpdate("available_commands_update", commands));
+            } catch (Exception e) {
+                logger.warn("Failed to send available commands for session {}", sessionId, e);
             }
         });
     }
