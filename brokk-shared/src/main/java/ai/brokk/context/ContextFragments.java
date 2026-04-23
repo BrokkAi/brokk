@@ -1340,7 +1340,7 @@ public class ContextFragments {
                     contextManager,
                     "Uses of " + targetIdentifier,
                     "Uses of " + targetIdentifier,
-                    resolveUsageSyntaxStyle(targetIdentifier, contextManager),
+                    SYNTAX_STYLE_NONE,
                     snapshotText == null ? null : decodeFrozen(snapshotText, targetIdentifier, contextManager),
                     snapshotText == null
                             ? () -> computeSnapshotFor(targetIdentifier, includeTestFiles, mode, contextManager)
@@ -1467,13 +1467,6 @@ public class ContextFragments {
                 return Set.of();
             }
             return Set.of(codeUnitForFqName(fqName, files.iterator().next()));
-        }
-
-        private static String resolveUsageSyntaxStyle(String targetIdentifier, IContextManager contextManager) {
-            return contextManager.getAnalyzerUninterrupted().getDefinitions(targetIdentifier).stream()
-                    .findFirst()
-                    .map(cu -> cu.source().getSyntaxStyle())
-                    .orElse(SYNTAX_STYLE_NONE);
         }
 
         @Override
