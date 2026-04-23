@@ -10,6 +10,7 @@ from brokk_code.runtime_utils import find_dev_jar
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
 _MCP_CORE_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkCoreMcpServer"
+_ACP_SERVER_MAIN_CLASS = "ai.brokk.acp.AcpServerMain"
 
 
 def git_toplevel_for(path: Path) -> Optional[Path]:
@@ -210,6 +211,30 @@ def run_mcp_server(
         "brokk",
         "app",
         "",
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        passthrough_args=passthrough_args,
+    )
+
+
+def run_acp_server(
+    *,
+    workspace_dir: Path,
+    jar_path: Optional[Path],
+    executor_version: str | None,
+    passthrough_args: list[str] | None = None,
+) -> None:
+    """Launch the native Java ACP server (stdio JSON-RPC).
+
+    This replaces the Python ACP bridge with a direct Java process.
+    stdin/stdout are passed through to the Java ACP server via os.execvpe.
+    """
+    _run_mcp(
+        _ACP_SERVER_MAIN_CLASS,
+        "brokk",
+        "app",
+        "ACP",
         workspace_dir=workspace_dir,
         jar_path=jar_path,
         executor_version=executor_version,

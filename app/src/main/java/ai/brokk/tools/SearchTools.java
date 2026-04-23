@@ -500,9 +500,9 @@ public class SearchTools {
 
             if (node.isObject()) {
                 int enqueued = 0;
-                for (var fields = node.fields(); fields.hasNext(); ) {
+                for (var properties = node.properties().iterator(); properties.hasNext(); ) {
                     if (enqueued >= JSON_SKIM_MAX_CHILDREN_PER_CONTAINER) break;
-                    var e = fields.next();
+                    var e = properties.next();
                     q.add(new Item(jsonChildPath(it.path(), e.getKey()), e.getValue()));
                     enqueued++;
                 }
