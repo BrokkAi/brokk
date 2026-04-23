@@ -79,6 +79,21 @@ DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@
 if [ -z "$DEFAULT_BRANCH" ]; then
   DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | sed 's/.*: //')
 fi
+if [ -z "$DEFAULT_BRANCH" ]; then
+  for candidate in main master; do
+    if git rev-parse --verify "origin/$candidate" >/dev/null 2>&1; then
+      DEFAULT_BRANCH=$candidate
+      break
+    fi
+  done
+fi
+```
+
+If `DEFAULT_BRANCH` is still empty after all attempts, tell the user the
+default branch could not be detected and ask them to specify a base branch
+manually. Do NOT proceed with an empty value.
+
+```bash
 git diff "$DEFAULT_BRANCH"...HEAD
 git log "$DEFAULT_BRANCH"..HEAD --oneline
 ```
@@ -261,7 +276,7 @@ If the user chooses to fix:
 If the user chooses to create an issue:
 
 ```bash
-SAFE_SUMMARY=$(echo "<finding title>" | tr -d '"'"'"'$`')
+SAFE_SUMMARY=$(printf '%s' "<finding title>" | tr -d "\"'\$\`")
 gh issue create --title "$SAFE_SUMMARY" --body "$(cat <<'EOF'
 ## <finding title>
 
