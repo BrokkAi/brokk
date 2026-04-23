@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
+import static ai.brokk.analyzer.php.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.PhpAnalyzerCache;
@@ -20,10 +20,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             Set.of(), // constructorNodeTypes are just `function.definition` so we need to check name
             Set.of(ATTRIBUTE_LIST), // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
             IMPORT_DECLARATION,
-            "name", // identifierFieldName
-            "body", // bodyFieldName (applies to functions/methods, class body is declaration_list)
-            "parameters", // parametersFieldName
-            "return_type", // returnTypeFieldName (for return type declaration)
+            FIELD_NAME, // identifierFieldName
+            FIELD_BODY, // bodyFieldName (applies to functions/methods, class body is declaration_list)
+            FIELD_PARAMETERS, // parametersFieldName
+            FIELD_RETURN_TYPE, // returnTypeFieldName (for return type declaration)
             "", // typeParametersFieldName (PHP doesn't have generics)
             Map.of( // captureConfiguration
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
@@ -136,7 +136,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 if (!CaptureNames.ATTRIBUTE_DEFINITION.equals(captureName)
                         && !CaptureNames.NAMESPACE_DEFINITION.equals(captureName)
                         && // Main query's namespace.definition
-                        !"namespace.name".equals(captureName)) { // Main query's namespace.name
+                        !CAPTURE_NAMESPACE_NAME.equals(captureName)) { // Main query's namespace.name
                     log.debug(
                             "Ignoring capture in PhpAnalyzer: {} with name: {} and classChain: {}",
                             captureName,
@@ -168,7 +168,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
             if (cursor.nextMatch(match)) {
                 for (TSQueryCapture capture : match.getCaptures()) {
-                    if ("nsname".equals(query.getCaptureNameForId(capture.getIndex()))) {
+                    if (CAPTURE_NSNAME.equals(query.getCaptureNameForId(capture.getIndex()))) {
                         TSNode nameNode = capture.getNode();
                         if (nameNode != null) {
                             return sourceContent.substringFrom(nameNode).replace('\\', '.');
@@ -181,7 +181,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         int i = 0;
         for (TSNode current : rootNode.getChildren()) {
             if (NAMESPACE_DEFINITION.equals(current.getType())) {
-                TSNode nameNode = current.getChildByFieldName("name");
+                TSNode nameNode = current.getChildByFieldName(FIELD_NAME);
                 if (nameNode != null) {
                     return sourceContent.substringFrom(nameNode).replace('\\', '.');
                 }
@@ -282,7 +282,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     private Optional<SmellCandidate> analyzeCatchClause(
             ProjectFile file, TSNode catchClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
-        TSNode bodyNode = catchClause.getChildByFieldName("body");
+        TSNode bodyNode = catchClause.getChildByFieldName(FIELD_BODY);
         if (bodyNode == null) {
             bodyNode = firstNamedChildOfType(catchClause, COMPOUND_STATEMENT);
         }
@@ -385,7 +385,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static String extractCatchType(TSNode catchClause, SourceContent sourceContent) {
-        TSNode typeNode = catchClause.getChildByFieldName("type");
+        TSNode typeNode = catchClause.getChildByFieldName(FIELD_TYPE);
         if (typeNode != null) {
             String type = sourceContent.substringFrom(typeNode).strip();
             if (!type.isEmpty()) {
@@ -517,7 +517,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
         // Look for type information
         String typeText = "";
-        TSNode typeNode = fieldNode.getChildByFieldName("type");
+        TSNode typeNode = fieldNode.getChildByFieldName(FIELD_TYPE);
         if (typeNode != null) {
             typeText = sourceContent.substringFrom(typeNode).strip() + " ";
         }
@@ -525,14 +525,14 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // Look for initializers
         TSNode valueNode = null;
         if (isProperty) {
-            valueNode = elementNode.getChildByFieldName("default_value");
+            valueNode = elementNode.getChildByFieldName(FIELD_DEFAULT_VALUE);
             if (valueNode == null) {
                 if (elementNode.getNamedChildCount() > 1) {
                     valueNode = elementNode.getNamedChild(elementNode.getNamedChildCount() - 1);
                 }
             }
         } else {
-            valueNode = elementNode.getChildByFieldName("value");
+            valueNode = elementNode.getChildByFieldName(FIELD_VALUE);
             if (valueNode == null) {
                 if (elementNode.getNamedChildCount() > 1) {
                     valueNode = elementNode.getNamedChild(elementNode.getNamedChildCount() - 1);
@@ -681,7 +681,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // namespace.definition and namespace.name from the main query are ignored
         // as namespace processing is now handled by computeFilePackageName.
         // attribute.definition is handled by decorator logic in base class.
-        return Set.of(CaptureNames.NAMESPACE_DEFINITION, "namespace.name", CaptureNames.ATTRIBUTE_DEFINITION);
+        return Set.of(CaptureNames.NAMESPACE_DEFINITION, CAPTURE_NAMESPACE_NAME, CaptureNames.ATTRIBUTE_DEFINITION);
     }
 
     @Override
@@ -905,9 +905,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     private Optional<AssertionSignal> assertionSignal(
             TSNode call, SourceContent sourceContent, TestAssertionWeights weights) {
-        TSNode functionNode = call.getChildByFieldName("function");
+        TSNode functionNode = call.getChildByFieldName(FIELD_FUNCTION);
         if (functionNode == null) {
-            functionNode = call.getChildByFieldName("name");
+            functionNode = call.getChildByFieldName(FIELD_NAME);
         }
         if (functionNode == null && call.getNamedChildCount() > 0) {
             functionNode = call.getNamedChild(0);
@@ -1014,17 +1014,17 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             return sourceContent.substringFrom(functionNode).strip();
         }
 
-        TSNode nameNode = functionNode.getChildByFieldName(NAME);
+        TSNode nameNode = functionNode.getChildByFieldName(FIELD_NAME);
         if (nameNode != null) {
             return sourceContent.substringFrom(nameNode).strip();
         }
 
-        TSNode memberNode = functionNode.getChildByFieldName("member");
+        TSNode memberNode = functionNode.getChildByFieldName(FIELD_MEMBER);
         if (memberNode != null) {
             return sourceContent.substringFrom(memberNode).strip();
         }
 
-        TSNode propertyNode = functionNode.getChildByFieldName("property");
+        TSNode propertyNode = functionNode.getChildByFieldName(FIELD_PROPERTY);
         if (propertyNode != null) {
             return sourceContent.substringFrom(propertyNode).strip();
         }
@@ -1033,7 +1033,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static List<TSNode> callArgumentNodes(TSNode call) {
-        TSNode args = call.getChildByFieldName("arguments");
+        TSNode args = call.getChildByFieldName(FIELD_ARGUMENTS);
         if (args == null) {
             for (int i = 0; i < call.getNamedChildCount(); i++) {
                 TSNode child = call.getNamedChild(i);
@@ -1068,8 +1068,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         if (!type.endsWith(BINARY_EXPRESSION)) {
             return false;
         }
-        TSNode left = node.getChildByFieldName("left");
-        TSNode right = node.getChildByFieldName("right");
+        TSNode left = node.getChildByFieldName(FIELD_LEFT);
+        TSNode right = node.getChildByFieldName(FIELD_RIGHT);
         if ((left == null || right == null) && node.getNamedChildCount() >= 2) {
             left = node.getNamedChild(0);
             right = node.getNamedChild(1);

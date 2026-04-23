@@ -901,6 +901,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    acp_native_parser = subparsers.add_parser(
+        "acp-native", help="Run native Java ACP server (stdio JSON-RPC, no Python bridge)"
+    )
+    _add_common_runtime_args(acp_native_parser)
+
     mcp_parser = subparsers.add_parser("mcp", help="Run in MCP server mode", add_help=False)
     _add_common_runtime_args(mcp_parser)
 
@@ -924,6 +929,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "Only used for install targets nvim/neovim; when omitted, an interactive "
             "selection menu is shown in TTY sessions."
         ),
+    )
+    install_parser.add_argument(
+        "--native",
+        action="store_true",
+        default=False,
+        help="Use native Java ACP server instead of Python bridge (for zed/intellij targets)",
     )
     install_parser.add_argument(
         "--force",
@@ -1977,7 +1988,7 @@ def _main_dispatch(
                     executor_snapshot=args.executor_snapshot,
                 )
                 settings_path = configure_zed_acp_settings(
-                    force=args.force, uvx_command=uvx_command
+                    force=args.force, uvx_command=uvx_command, native=args.native
                 )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
@@ -1994,7 +2005,7 @@ def _main_dispatch(
                     executor_snapshot=args.executor_snapshot,
                 )
                 settings_path = configure_intellij_acp_settings(
-                    force=args.force, uvx_command=uvx_command
+                    force=args.force, uvx_command=uvx_command, native=args.native
                 )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
@@ -2313,6 +2324,20 @@ def _main_dispatch(
                 executor_snapshot=args.executor_snapshot,
                 vendor=args.vendor,
             )
+        )
+        return
+
+    if args.command == "acp-native":
+        from brokk_code.mcp_launcher import run_acp_server as run_native_acp
+
+        passthrough = ["--workspace-dir", str(workspace_path)]
+        if args.vendor:
+            passthrough.extend(["--vendor", args.vendor])
+        run_native_acp(
+            workspace_dir=workspace_path,
+            jar_path=jar_path,
+            executor_version=args.executor_version,
+            passthrough_args=passthrough,
         )
         return
 

@@ -471,7 +471,7 @@ def test_main_install_zed_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     captured: dict[str, Any] = {}
 
     def fake_configure_zed_acp_settings(
-        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None
+        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None, **_kw
     ):
         captured["force"] = force
         return tmp_path / ".config" / "zed" / "settings.json"
@@ -489,7 +489,7 @@ def test_main_install_zed_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
 
 def test_main_install_zed_conflict_exits_nonzero(monkeypatch) -> None:
     def fake_configure_zed_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path=None, uvx_command=None, **_kw
     ):
         raise main_module.ExistingBrokkCodeEntryError("exists")
 
@@ -505,7 +505,7 @@ def test_main_install_zed_conflict_exits_nonzero(monkeypatch) -> None:
 
 def test_main_install_zed_invalid_json_exits_nonzero(monkeypatch) -> None:
     def fake_configure_zed_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path=None, uvx_command=None, **_kw
     ):
         raise ValueError("Could not parse as JSON/JSONC")
 
@@ -523,7 +523,7 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
     captured: dict[str, Any] = {}
 
     def fake_configure_intellij_acp_settings(
-        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None
+        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None, **_kw
     ):
         captured["force"] = force
         return tmp_path / "intellij-config"
@@ -767,7 +767,7 @@ def test_main_install_verbose_prints_prefetch_command(monkeypatch, tmp_path, cap
     monkeypatch.setattr(main_module, "_run_install_prefetch", fake_run_install_prefetch)
 
     def fake_configure_zed_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path=None, uvx_command=None, **_kw
     ):
         return tmp_path / ".config" / "zed" / "settings.json"
 
@@ -785,7 +785,7 @@ def test_main_install_verbose_prints_prefetch_command(monkeypatch, tmp_path, cap
 
 def test_main_install_intellij_conflict_exits_nonzero(monkeypatch) -> None:
     def fake_configure_intellij_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path=None, uvx_command=None, **_kw
     ):
         raise main_module.ExistingBrokkCodeEntryError("exists")
 
@@ -803,7 +803,7 @@ def test_main_install_intellij_conflict_exits_nonzero(monkeypatch) -> None:
 
 def test_main_install_intellij_invalid_json_exits_nonzero(monkeypatch) -> None:
     def fake_configure_intellij_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path=None, uvx_command=None, **_kw
     ):
         raise ValueError("Could not parse as JSON")
 
@@ -3229,7 +3229,9 @@ def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
         ensure_called["n"] += 1
         return "/usr/bin/jbang"
 
-    def fake_configure_zed_acp_settings(*, force: bool = False, uvx_command: str | None = None):
+    def fake_configure_zed_acp_settings(
+        *, force: bool = False, uvx_command: str | None = None, **_kwargs
+    ):
         return tmp_path / "zed.json"
 
     monkeypatch.setattr(main_module, "ensure_jbang_ready", fake_ensure_jbang_ready)
@@ -3268,7 +3270,7 @@ def test_install_zed_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(
         main_module,
         "configure_zed_acp_settings",
-        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "zed.json",
+        lambda *, force=False, settings_path=None, uvx_command=None, **_kw: tmp_path / "zed.json",
     )
 
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
@@ -3292,12 +3294,12 @@ def test_install_mcp_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(
         main_module,
         "configure_claude_code_mcp_settings",
-        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "c.json",
+        lambda *, force=False, settings_path=None, uvx_command=None, **_kw: tmp_path / "c.json",
     )
     monkeypatch.setattr(
         main_module,
         "configure_codex_mcp_settings",
-        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "cx.toml",
+        lambda *, force=False, settings_path=None, uvx_command=None, **_kw: tmp_path / "cx.toml",
     )
     monkeypatch.setattr(
         main_module,
@@ -3449,7 +3451,7 @@ def test_install_continues_when_key_already_configured(monkeypatch, tmp_path, ca
     monkeypatch.setattr(
         main_module,
         "configure_zed_acp_settings",
-        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "z",
+        lambda *, force=False, settings_path=None, uvx_command=None, **_kw: tmp_path / "z",
     )
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
 

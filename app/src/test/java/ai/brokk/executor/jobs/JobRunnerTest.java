@@ -6,10 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
+import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.TestScriptedLanguageModel;
+import ai.brokk.cli.MemoryConsole;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.testutil.TestProject;
@@ -20,6 +22,7 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.OpenAiChatResponseMetadata;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -420,5 +423,76 @@ class JobRunnerTest {
         org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
             executor.runLutzFromSearchResult(fakeContext, null, mockModel);
         });
+    }
+
+    /**
+     * Verifies that runAsync with a custom IConsoleIO installs the custom console
+     * and does not NPE (regression test for the console field null issue).
+     */
+    @Test
+    void testRunAsyncWithCustomConsole_installsCustomConsoleAndDoesNotNPE() throws IOException {
+        var project = new TestProject(tempDir);
+        Service.Provider provider = new Service.Provider() {
+            private TestService svc = new TestService(project);
+
+            @Override
+            public ai.brokk.AbstractService get() {
+                return svc;
+            }
+
+            @Override
+            public void reinit(ai.brokk.project.IProject p) {
+                svc = new TestService(p);
+            }
+        };
+        try (var cm = new ContextManager(project, provider)) {
+            var jobStore = new JobStore(tempDir.resolve(".brokk-test"));
+            var jobRunner = new JobRunner(cm, jobStore);
+
+            // Create a custom console stub that tracks whether it was used
+            var notificationReceived = new AtomicBoolean(false);
+            IConsoleIO customConsole = new MemoryConsole() {
+                @Override
+                public void showNotification(NotificationRole role, String message) {
+                    notificationReceived.set(true);
+                }
+            };
+
+            // Spec with an invalid model name -- the job will fail with MODEL_UNAVAILABLE,
+            // but the key assertion is that it doesn't NPE when using the custom console.
+            var spec = JobSpec.of(
+                    "test prompt",
+                    false,
+                    false,
+                    "nonexistent-model",
+                    null,
+                    null,
+                    false,
+                    Map.of("mode", "ASK"),
+                    null,
+                    null,
+                    null);
+            var jobId = "test-custom-console-job";
+            jobStore.createOrGetJob(jobId, spec);
+
+            var future = jobRunner.runAsync(jobId, spec, customConsole);
+
+            // The job will fail due to invalid model, but should NOT throw NPE
+            try {
+                future.join();
+            } catch (Exception e) {
+                // Expected: job fails because the model is unavailable.
+                // The important thing is that it fails gracefully, not with NPE.
+            }
+
+            // Verify the custom console received the "Job started" notification
+            assertTrue(
+                    notificationReceived.get(), "Custom console should have received the 'Job started' notification");
+
+            // Verify the IO was restored after the job
+            assertNotNull(cm.getIo(), "ContextManager IO should be restored after job completes");
+
+            jobRunner.shutdown();
+        }
     }
 }

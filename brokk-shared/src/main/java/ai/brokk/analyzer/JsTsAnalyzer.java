@@ -816,18 +816,20 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             ProjectFile file, TSNode catchClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
         TSNode bodyNode = catchClause.getChildByFieldName("body");
         if (bodyNode == null) {
-            bodyNode = catchClause.getNamedChildren().stream()
-                    .filter(child -> STATEMENT_BLOCK.equals(child.getType()))
-                    .findFirst()
-                    .orElse(null);
+            for (int i = 0; i < catchClause.getNamedChildCount(); i++) {
+                TSNode child = catchClause.getNamedChild(i);
+                if (child != null && STATEMENT_BLOCK.equals(child.getType())) {
+                    bodyNode = child;
+                    break;
+                }
+            }
         }
         if (bodyNode == null) {
             return Optional.empty();
         }
 
         int bodyStatements = countBodyExpressions(bodyNode);
-        String bodyText = sourceContent.substringFrom(bodyNode);
-        boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
+        boolean hasAnyComment = hasDescendantOfAnyTypeInclusive(bodyNode, COMMENT_NODE_TYPES);
         boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
         boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
         boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
@@ -884,7 +886,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 score,
                 bodyStatements,
                 List.copyOf(reasons),
-                compactCatchExcerpt(sourceContent.substringFrom(catchClause))));
+                compactExcerptForTable(sourceContent.substringFrom(catchClause))));
     }
 
     private static int countBodyExpressions(TSNode bodyNode) {
@@ -943,14 +945,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 || JS_LOG_RECEIVER_NAMES.stream().anyMatch(name -> receiver.endsWith("." + name));
         boolean loggerLikeMethod = JS_LOG_METHOD_NAMES.contains(method);
         return loggerLikeReceiver && loggerLikeMethod;
-    }
-
-    private static String compactCatchExcerpt(String text) {
-        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
-        if (compact.length() <= 180) {
-            return compact;
-        }
-        return compact.substring(0, 180) + "...";
     }
 
     private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentLineBreakdown> counts) {

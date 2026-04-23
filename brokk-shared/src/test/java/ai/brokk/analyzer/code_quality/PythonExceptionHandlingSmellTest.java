@@ -90,6 +90,80 @@ public class PythonExceptionHandlingSmellTest {
         assertEquals(2, catches, "Expected both outer and inner except handlers to be reported");
     }
 
+    @Test
+    void parsesTupleExceptTypes() {
+        String code =
+                """
+                def run():
+                    try:
+                        work()
+                    except (ValueError, Exception):
+                        metrics()
+
+                def work():
+                    return 1
+
+                def metrics():
+                    return 0
+                """;
+        var findings = analyze(code);
+        assertTrue(findings.stream().anyMatch(f -> f.catchType().equals("ValueError, Exception")));
+        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("generic-catch:Exception")));
+    }
+
+    @Test
+    void logOnlyHandlerViaLoggerAttributeIsDetected() {
+        String code =
+                """
+                def run():
+                    try:
+                        work()
+                    except Exception:
+                        logger.exception("oops")
+
+                def work():
+                    return 1
+                """;
+        var findings = analyze(code);
+        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("log-only-body")));
+    }
+
+    @Test
+    void logOnlyHandlerViaLoggingGetLoggerAttributeChainIsDetected() {
+        String code =
+                """
+                def run():
+                    try:
+                        work()
+                    except Exception:
+                        logging.getLogger(__name__).exception("oops")
+
+                def work():
+                    return 1
+                """;
+        var findings = analyze(code);
+        assertTrue(findings.stream().anyMatch(f -> f.reasons().contains("log-only-body")));
+    }
+
+    @Test
+    void raiseSuppressesLogOnlyHeuristic() {
+        String code =
+                """
+                def run():
+                    try:
+                        work()
+                    except Exception:
+                        logger.exception("oops")
+                        raise
+
+                def work():
+                    return 1
+                """;
+        var findings = analyze(code);
+        assertFalse(findings.isEmpty());
+        assertFalse(findings.stream().anyMatch(f -> f.reasons().contains("log-only-body")));
+    }
+
     private List<IAnalyzer.ExceptionHandlingSmell> analyze(String source) {
         try (var testProject = InlineCoreProject.code(source, "pkg/test_mod.py").build()) {
             IAnalyzer analyzer = testProject.getAnalyzer();

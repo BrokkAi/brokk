@@ -118,14 +118,14 @@ val errorproneCompile by configurations.creating {
     isCanBeConsumed = false
 }
 
-// Force Jackson version alignment to prevent MCP SDK from pulling in unreleased versions
+// Force Jackson version alignment across all transitive dependencies
 configurations.all {
     resolutionStrategy {
-        force("com.fasterxml.jackson.core:jackson-databind:2.18.3")
-        force("com.fasterxml.jackson.core:jackson-core:2.18.3")
-        force("com.fasterxml.jackson.core:jackson-annotations:2.18.3")
-        force("com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.18.3")
-        force("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.3")
+        force("com.fasterxml.jackson.core:jackson-databind:2.19.2")
+        force("com.fasterxml.jackson.core:jackson-core:2.19.2")
+        force("com.fasterxml.jackson.core:jackson-annotations:2.19.2")
+        force("com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.19.2")
+        force("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.19.2")
     }
 }
 
@@ -156,6 +156,8 @@ dependencies {
     implementation(libs.disklrucache)
     implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
+    implementation(libs.acp.core)
+    implementation(libs.acp.agent.support)
     implementation(libs.pcollections)
     implementation(libs.caffeine)
     // For JSON serialization interfaces (used by CodeUnit)
@@ -770,6 +772,16 @@ tasks.register<JavaExec>("runHeadlessCli") {
     description = "Runs the HeadlessExecCli"
     mainClass.set("ai.brokk.tools.HeadlessExecCli")
     classpath = sourceSets.main.get().runtimeClasspath
+}
+
+tasks.register<JavaExec>("runAcpServer") {
+    group = "application"
+    description = "Runs the Brokk ACP Server (stdio JSON-RPC)"
+    mainClass.set("ai.brokk.acp.AcpServerMain")
+    classpath = sourceSets.main.get().runtimeClasspath
+
+    systemProperty("brokk.devmode", "false")
+    systemProperty("java.awt.headless", "true")
 }
 
 tasks.register<JavaExec>("runSftServer") {
