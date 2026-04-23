@@ -321,7 +321,46 @@ If the user wants more context, ask what they'd like to see:
 After showing the requested context, return to the action menu for this
 same finding.
 
-## Step 7 -- Final Summary
+## Step 7 -- Commit & Push (if fixes were applied)
+
+If any findings were fixed in Step 6, offer to commit and push the changes.
+Skip this step entirely if no fixes were applied.
+
+1. Run `git status` and present the list of modified files to the user.
+2. Check whether a remote tracking branch exists:
+   ```bash
+   git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null
+   ```
+
+3. Present the menu. If the `AskUserQuestion` tool is available, present
+   it as a menu. Otherwise, present this numbered list and **stop and wait
+   for the user's reply**:
+
+   1. **Commit and push** -- Stage, commit, and push all fixes
+   2. **Commit only** -- Stage and commit but do not push
+   3. **Skip** -- Leave changes uncommitted
+
+   Do NOT pick a default. Do NOT proceed until the user has chosen.
+
+4. If the user chose to commit (with or without push):
+   - Stage only the files that were modified as part of the fixes -- do NOT
+     use `git add -A`. Stage files explicitly by name.
+   - Commit with a descriptive message:
+     ```bash
+     git commit -m "Address review findings: <short summary of fixes>"
+     ```
+   - If the user also chose to push:
+     - If a remote tracking branch exists, push to it:
+       ```bash
+       git push
+       ```
+     - If no remote tracking branch exists, ask the user for the remote
+       branch name or offer to push to `origin` with the current branch name:
+       ```bash
+       git push -u origin $(git rev-parse --abbrev-ref HEAD)
+       ```
+
+## Step 8 -- Final Summary
 
 After all selected findings have been browsed (or the user chose "Skip
 remaining" or "Done"), present a final summary:
