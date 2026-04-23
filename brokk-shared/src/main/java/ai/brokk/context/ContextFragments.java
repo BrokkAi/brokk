@@ -37,7 +37,6 @@ import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -231,23 +230,6 @@ public class ContextFragments {
 
     private static LoggingExecutorService createFragmentExecutor() {
         return ExecutorsUtil.newVirtualThreadExecutor("brokk-cf-", 1_000);
-    }
-
-    private static String guessContentType(BrokkFile file) {
-        // Prefer OS-level sniffing, then filename-based guessing, and finally fall back to a safe default.
-        try {
-            if (file instanceof ProjectFile pf) {
-                var detected = Files.probeContentType(pf.absPath());
-                if (detected != null) {
-                    return detected;
-                }
-            }
-        } catch (IOException e) {
-            logger.debug("Failed probing content type for {}", file, e);
-        }
-
-        var guessed = URLConnection.guessContentTypeFromName(file.toString());
-        return guessed != null ? guessed : "application/octet-stream";
     }
 
     public sealed interface PathFragment extends ContextFragment
@@ -558,7 +540,7 @@ public class ContextFragments {
                     contextManager,
                     computeDescription(file),
                     file.getFileName(),
-                    guessContentType(file),
+                    file.getSyntaxStyle(),
                     snapshotText == null
                             ? null
                             : decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
@@ -627,7 +609,7 @@ public class ContextFragments {
                             FragmentType.GIT_FILE,
                             String.format("%s @%s", file.getFileName(), revision),
                             content,
-                            guessContentType(file),
+                            file.getSyntaxStyle(),
                             GitFileFragment.class.getName()));
         }
 
@@ -640,7 +622,7 @@ public class ContextFragments {
                     id,
                     computeDescription(file, revision),
                     "%s @%s".formatted(file.getFileName(), revision),
-                    guessContentType(file),
+                    file.getSyntaxStyle(),
                     ContentSnapshot.textSnapshot(content, Set.of(), Set.of(file)));
             if (file.getRelPath().normalize().getFileName() == null) {
                 throw new IllegalArgumentException("ProjectPathFragment relPath must not be empty");
@@ -729,7 +711,7 @@ public class ContextFragments {
                     contextManager,
                     file.toString(),
                     file.toString(),
-                    guessContentType(file),
+                    file.getSyntaxStyle(),
                     snapshotText == null ? null : decodeFrozen(snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file) : null);
             assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
@@ -1833,7 +1815,7 @@ public class ContextFragments {
                     contextManager,
                     computeDescription(file, startLine, endLine),
                     computeShortDescription(file, startLine, endLine),
-                    guessContentType(file),
+                    file.getSyntaxStyle(),
                     snapshotText == null ? null : ContentSnapshot.textSnapshot(snapshotText, Set.of(), Set.of(file)),
                     snapshotText == null ? () -> computeSnapshotFor(file, startLine, endLine) : null);
             if (startLine < 1) {
