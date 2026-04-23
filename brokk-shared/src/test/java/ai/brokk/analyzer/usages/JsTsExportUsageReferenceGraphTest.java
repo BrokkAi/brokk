@@ -2,6 +2,7 @@ package ai.brokk.analyzer.usages;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,7 +12,12 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypescriptAnalyzer;
 import ai.brokk.analyzer.javascript.TsConfigPathsResolver;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest {
@@ -375,7 +381,8 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
     public void instanceMember_onImportedClass_resolvesMemberUsage() throws Exception {
         String a =
                 """
-                export class Foo {
+                export class Base {}
+                export class Foo extends Base {
                   bar() {}
                 }
                 """;
@@ -1240,6 +1247,135 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
 
             assertEquals(1, result.hits().size());
             assertTrue(result.hits().iterator().next().file().toString().endsWith("src/b.ts"));
+        }
+    }
+
+    @Test
+    public void jsTsUsageCaches_areInvalidatedAcrossIncrementalUpdate() throws Exception {
+        String a =
+                """
+                export class Foo {
+                  bar() {}
+                }
+                """;
+        String index = """
+                export { Foo } from "./a";
+                """;
+        String b =
+                """
+                import { Foo } from "./index";
+                const x = new Foo();
+                x.bar();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(index, "index.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+            ProjectFile indexFile = projectFile(project.getAllFiles(), "index.ts");
+            ProjectFile bFile = projectFile(project.getAllFiles(), "b.ts");
+
+            var memberBefore = analyzer.memberResolutionIndex(aFile);
+            var reverseReexportBefore = analyzer.reverseReexportIndex();
+            var reverseSeedsBefore = analyzer.reverseExportSeedIndex();
+            var heritageBefore = analyzer.heritageIndex();
+            var exportBefore = analyzer.cachedExportResolution(
+                    indexFile,
+                    "Foo",
+                    JsTsExportUsageReferenceGraph.Limits.defaults().maxReexportDepth(),
+                    () -> new JsTsAnalyzer.ExportResolutionData(Set.of(), Set.of(indexFile), Set.of("before")));
+            analyzer.ensureImportReverseIndexPopulated();
+            assertTrue(analyzer.referencingFilesOf(indexFile).contains(bFile));
+
+            aFile.write(
+                    """
+                    export class RenamedBase {}
+                    export class Foo extends RenamedBase {
+                      baz() {}
+                    }
+                    """);
+            indexFile.write("""
+                    export { Foo as PublicFoo } from "./a";
+                    """);
+            bFile.write(
+                    """
+                    import { PublicFoo } from "./index";
+                    const x = new PublicFoo();
+                    x.baz();
+                    """);
+
+            analyzer = (TypescriptAnalyzer) analyzer.update(Set.of(aFile, indexFile, bFile));
+
+            var memberAfter = analyzer.memberResolutionIndex(aFile);
+            var reverseReexportAfter = analyzer.reverseReexportIndex();
+            var reverseSeedsAfter = analyzer.reverseExportSeedIndex();
+            var heritageAfter = analyzer.heritageIndex();
+            var exportAfter = analyzer.cachedExportResolution(
+                    indexFile,
+                    "PublicFoo",
+                    JsTsExportUsageReferenceGraph.Limits.defaults().maxReexportDepth(),
+                    () -> new JsTsAnalyzer.ExportResolutionData(Set.of(), Set.of(indexFile), Set.of("after")));
+
+            assertNotSame(memberBefore, memberAfter);
+            assertTrue(memberAfter.keySet().stream()
+                    .anyMatch(key -> key.memberName().equals("baz")));
+            assertFalse(memberAfter.keySet().stream()
+                    .anyMatch(key -> key.memberName().equals("bar")));
+
+            assertNotSame(reverseReexportBefore, reverseReexportAfter);
+            assertNotSame(reverseSeedsBefore, reverseSeedsAfter);
+            assertNotSame(heritageBefore, heritageAfter);
+            assertNotSame(exportBefore, exportAfter);
+            assertEquals(Set.of("after"), exportAfter.externalFrontier());
+            assertTrue(analyzer.referencingFilesOf(indexFile).contains(bFile));
+        }
+    }
+
+    @Test
+    public void tsConfigPathsResolver_isThreadSafeUnderConcurrentExpansion() throws Exception {
+        String tsconfig =
+                """
+                {
+                  "compilerOptions": {
+                    "baseUrl": ".",
+                    "paths": {
+                      "@/*": ["src/*"]
+                    }
+                  }
+                }
+                """;
+        String a = """
+                export const foo = 1;
+                """;
+        String b = """
+                import { foo } from "@/a";
+                console.log(foo);
+                """;
+
+        try (var project = InlineTestProjectCreator.code(tsconfig, "tsconfig.json")
+                .addFileContents(a, "src/a.ts")
+                .addFileContents(b, "src/b.ts")
+                .build()) {
+            ProjectFile bFile = projectFile(project.getAllFiles(), "src/b.ts");
+            TsConfigPathsResolver resolver = new TsConfigPathsResolver(project.getRoot());
+            try (var executor = Executors.newFixedThreadPool(8)) {
+                List<Callable<TsConfigPathsResolver.Expansion>> tasks = new ArrayList<>();
+                for (int i = 0; i < 100; i++) {
+                    tasks.add(() -> resolver.expand(bFile, "@/a"));
+                }
+                var futures = executor.invokeAll(tasks);
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+                for (var future : futures) {
+                    TsConfigPathsResolver.Expansion expansion = future.get();
+                    assertTrue(expansion.hadAnyMapping());
+                    assertTrue(expansion.candidates().stream()
+                            .map(s -> s.replace('\\', '/'))
+                            .anyMatch(s -> s.equals("src/a")));
+                }
+            }
         }
     }
 

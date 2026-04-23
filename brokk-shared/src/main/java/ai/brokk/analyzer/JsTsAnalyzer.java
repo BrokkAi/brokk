@@ -80,16 +80,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private final Cache<Path, TsConfigPathsResolver> tsConfigResolverCache =
             Caffeine.newBuilder().maximumSize(64).build();
-    private final Cache<ProjectFile, Map<MemberLookupKey, CodeUnit>> memberResolutionIndexCache =
-            Caffeine.newBuilder().maximumSize(10_000).build();
-    private final Cache<ExportResolutionKey, ExportResolutionData> exportResolutionCache =
-            Caffeine.newBuilder().maximumSize(20_000).build();
 
     private volatile @Nullable Set<Path> absoluteProjectPathsCache;
-    private volatile @Nullable Map<ProjectFile, Set<ProjectFile>> reverseReexportIndexCache;
-    private volatile @Nullable Map<ReverseExportSeedKey, Set<ExportSeed>> reverseExportSeedIndexCache;
-    private volatile @Nullable Map<String, Set<String>> heritageIndexCache;
-    private volatile boolean importReverseIndexPrimed;
 
     protected JsTsAnalyzer(ICoreProject project, Language language) {
         super(project, language);
@@ -212,7 +204,13 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     public Map<MemberLookupKey, CodeUnit> memberResolutionIndex(ProjectFile file) {
-        return memberResolutionIndexCache.get(file, this::buildMemberResolutionIndex);
+        Map<MemberLookupKey, CodeUnit> cached = cache().memberResolutionIndex().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        Map<MemberLookupKey, CodeUnit> computed = buildMemberResolutionIndex(file);
+        cache().memberResolutionIndex().put(file, computed);
+        return computed;
     }
 
     public ExportResolutionData cachedExportResolution(
@@ -220,51 +218,57 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             String exportName,
             int maxReexportDepth,
             java.util.function.Supplier<ExportResolutionData> supplier) {
-        return exportResolutionCache.get(
-                new ExportResolutionKey(definingFile, exportName, maxReexportDepth), ignored -> supplier.get());
+        ExportResolutionKey key = new ExportResolutionKey(definingFile, exportName, maxReexportDepth);
+        ExportResolutionData cached = cache().exportResolution().get(key);
+        if (cached != null) {
+            return cached;
+        }
+        ExportResolutionData computed = supplier.get();
+        cache().exportResolution().put(key, computed);
+        return computed;
     }
 
     public Map<ProjectFile, Set<ProjectFile>> reverseReexportIndex() {
-        Map<ProjectFile, Set<ProjectFile>> cached = reverseReexportIndexCache;
+        Map<ProjectFile, Set<ProjectFile>> cached = cache().reverseReexportIndex();
         if (cached != null) {
             return cached;
         }
         var computed = JsTsExportUsageExtractor.buildReverseReexportIndex(this);
-        reverseReexportIndexCache = computed;
+        cache().reverseReexportIndex(computed);
         return computed;
     }
 
     public Map<ReverseExportSeedKey, Set<ExportSeed>> reverseExportSeedIndex() {
-        Map<ReverseExportSeedKey, Set<ExportSeed>> cached = reverseExportSeedIndexCache;
+        Map<ReverseExportSeedKey, Set<ExportSeed>> cached = cache().reverseExportSeedIndex();
         if (cached != null) {
             return cached;
         }
         var computed = JsTsExportUsageExtractor.buildReverseExportSeedIndex(this);
-        reverseExportSeedIndexCache = computed;
+        cache().reverseExportSeedIndex(computed);
         return computed;
     }
 
     public Map<String, Set<String>> heritageIndex() {
-        Map<String, Set<String>> cached = heritageIndexCache;
+        Map<String, Set<String>> cached = cache().heritageIndex();
         if (cached != null) {
             return cached;
         }
         var computed = JsTsExportUsageExtractor.buildHeritageIndex(this);
-        heritageIndexCache = computed;
+        cache().heritageIndex(computed);
         return computed;
     }
 
     public void ensureImportReverseIndexPopulated() throws InterruptedException {
-        if (importReverseIndexPrimed) {
+        if (cache().importReverseIndexPrimed()) {
             return;
         }
         var providerOpt = as(ImportAnalysisProvider.class);
         if (providerOpt.isEmpty()) {
-            importReverseIndexPrimed = true;
+            cache().importReverseIndexPrimed(true);
             return;
         }
         JsTsExportUsageExtractor.ensureImportReverseIndexPopulated(this, providerOpt.orElseThrow());
-        importReverseIndexPrimed = true;
+        cache().importReverseIndexPrimed(true);
     }
 
     public boolean hasCachedReceiverCandidates(ProjectFile file) {

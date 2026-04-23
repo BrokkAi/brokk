@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -36,7 +37,7 @@ public final class TsConfigPathsResolver {
     private record ParsedConfig(Path tsconfigDir, @Nullable Path baseUrlRel, Map<String, List<String>> paths) {}
 
     private final Path projectRoot;
-    private final Map<Path, Optional<ParsedConfig>> configCache = new LinkedHashMap<>();
+    private final Map<Path, Optional<ParsedConfig>> configCache = new ConcurrentHashMap<>();
 
     public TsConfigPathsResolver(Path projectRoot) {
         this.projectRoot = projectRoot.normalize();
@@ -127,22 +128,10 @@ public final class TsConfigPathsResolver {
             return Optional.empty();
         }
 
-        var visited = new ArrayList<Path>();
         Path current = parent.normalize();
         while (current != null && current.startsWith(projectRoot)) {
-            Optional<ParsedConfig> cached = configCache.get(current);
-            if (cached != null) {
-                return cached;
-            }
-
-            visited.add(current);
-
-            Path tsconfigPath = current.resolve("tsconfig.json");
-            Optional<ParsedConfig> parsed = parseConfig(current, tsconfigPath);
+            Optional<ParsedConfig> parsed = configCache.computeIfAbsent(current, this::parseConfigForDir);
             if (parsed.isPresent()) {
-                for (Path v : visited) {
-                    configCache.put(v, parsed);
-                }
                 return parsed;
             }
 
@@ -152,11 +141,11 @@ public final class TsConfigPathsResolver {
             }
             current = next.normalize();
         }
-
-        for (Path v : visited) {
-            configCache.put(v, Optional.empty());
-        }
         return Optional.empty();
+    }
+
+    private Optional<ParsedConfig> parseConfigForDir(Path tsconfigDir) {
+        return parseConfig(tsconfigDir, tsconfigDir.resolve("tsconfig.json"));
     }
 
     private Optional<ParsedConfig> parseConfig(Path tsconfigDir, Path tsconfigPath) {
