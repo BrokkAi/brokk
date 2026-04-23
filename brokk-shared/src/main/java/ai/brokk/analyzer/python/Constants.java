@@ -12,6 +12,10 @@ public final class Constants {
 
     private Constants() {}
 
+    // Not all node types are present in node-types.json (and therefore in PythonNodeType).
+    // Keep a small set of string fallbacks for these cases.
+    public static final String KEYWORD_IDENTIFIER_NODE_TYPE = "keyword_identifier";
+
     public static String nodeType(PythonNodeType nodeType) {
         return requireNonNull(nodeType.getType());
     }
@@ -92,7 +96,8 @@ public final class Constants {
             "assert_has_calls",
             "assert_not_called");
 
-    public static final Set<String> CLONE_AST_IDENTIFIER_TYPES = Set.of(nodeType(PythonNodeType.IDENTIFIER));
+    public static final Set<String> CLONE_AST_IDENTIFIER_TYPES =
+            Set.of(nodeType(PythonNodeType.IDENTIFIER), KEYWORD_IDENTIFIER_NODE_TYPE);
 
     public static final Set<String> CLONE_AST_STRING_TYPES = Set.of(
             nodeType(PythonNodeType.STRING),
