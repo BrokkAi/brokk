@@ -379,6 +379,14 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(
     assert "security-reviewer" in guided_content
     assert "Embedded Agent Prompts" in guided_content
 
+    guided_review_skill = plugin_dir / "skills" / "guided-review" / "SKILL.md"
+    assert guided_review_skill.exists()
+    guided_review_content = guided_review_skill.read_text(encoding="utf-8")
+    assert "name: brokk-guided-review" in guided_review_content
+    assert "security-reviewer" in guided_review_content
+    assert "architect-reviewer" in guided_review_content
+    assert "Embedded Agent Prompts" in guided_review_content
+
 
 @patch("brokk_code.mcp_config._fetch_github_file", side_effect=_mock_fetch_github_file)
 def test_install_codex_local_plugin_preserves_existing_marketplace_entries(
