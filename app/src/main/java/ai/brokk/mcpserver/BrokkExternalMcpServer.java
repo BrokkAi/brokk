@@ -66,6 +66,7 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -518,9 +519,7 @@ public class BrokkExternalMcpServer {
                 break;
             }
 
-            var definitionOpt = analyzer.getDefinitions(name).stream()
-                    .filter(cu -> classMode ? cu.isClass() : cu.isFunction())
-                    .findFirst();
+            var definitionOpt = resolveUniqueCodeSourceUnit(analyzer, name, classMode);
             if (definitionOpt.isEmpty()) {
                 continue;
             }
@@ -561,6 +560,58 @@ public class BrokkExternalMcpServer {
         }
 
         return String.join("\n\n", blocks);
+    }
+
+    private static Optional<CodeUnit> resolveUniqueCodeSourceUnit(
+            IAnalyzer analyzer, String requestedName, boolean classMode) {
+        Predicate<CodeUnit> kindFilter = classMode ? CodeUnit::isClass : CodeUnit::isFunction;
+        var exactMatch = analyzer.getDefinitions(requestedName).stream()
+                .filter(kindFilter)
+                .findFirst();
+        if (exactMatch.isPresent()) {
+            return exactMatch;
+        }
+
+        Map<String, CodeUnit> matchesByFqName = new LinkedHashMap<>();
+        var declarations = analyzer.getAllDeclarations();
+        addRelaxedCodeSourceMatches(matchesByFqName, declarations, requestedName, kindFilter);
+        declarations.stream()
+                .filter(CodeUnit::isClass)
+                .forEach(cls -> addRelaxedCodeSourceMatches(
+                        matchesByFqName, analyzer.getMembersInClass(cls), requestedName, kindFilter));
+        return matchesByFqName.size() == 1
+                ? Optional.of(matchesByFqName.values().iterator().next())
+                : Optional.empty();
+    }
+
+    private static void addRelaxedCodeSourceMatches(
+            Map<String, CodeUnit> matchesByFqName,
+            Collection<CodeUnit> candidates,
+            String requestedName,
+            Predicate<CodeUnit> kindFilter) {
+        candidates.stream()
+                .filter(kindFilter)
+                .filter(cu -> matchesRelaxedCodeSourceName(cu, requestedName))
+                .forEach(cu -> matchesByFqName.putIfAbsent(cu.fqName(), cu));
+    }
+
+    private static boolean matchesRelaxedCodeSourceName(CodeUnit cu, String requestedName) {
+        String normalizedRequestedName = normalizeRelaxedCodeSourceName(requestedName.strip());
+        if (normalizedRequestedName.isEmpty()) {
+            return false;
+        }
+        String suffix = "." + normalizedRequestedName;
+        String normalizedFqName = normalizeRelaxedCodeSourceName(cu.fqName());
+        String normalizedShortName = normalizeRelaxedCodeSourceName(cu.shortName());
+        String normalizedIdentifier = normalizeRelaxedCodeSourceName(cu.identifier());
+        return normalizedFqName.equals(normalizedRequestedName)
+                || normalizedShortName.equals(normalizedRequestedName)
+                || normalizedIdentifier.equals(normalizedRequestedName)
+                || normalizedFqName.endsWith(suffix);
+    }
+
+    private static String normalizeRelaxedCodeSourceName(String name) {
+        return name.replace('$', '.');
     }
 
     private static String formatScanUsagesForMcp(Map<?, ?> args, String rawResultText, ContextManager cm) {

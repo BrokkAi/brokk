@@ -29,9 +29,29 @@ class BrokkExternalMcpServerMcpFormattingIntegrationTest {
     }
 
     @Test
+    void mcpGetClassSources_acceptsUniqueNonFqName() throws Exception {
+        try (var cm = contextManagerWithSampleJava()) {
+            String output = invokeTool(cm, "getClassSources", Map.of("classNames", List.of("Foo")));
+            assertTrue(output.matches("(?s).*```.*Foo\\.java\\R.*"), output);
+            assertTrue(output.contains("3: class Foo {"), output);
+            assertTrue(output.contains("4:     int inc(int x) {"), output);
+        }
+    }
+
+    @Test
     void mcpGetMethodSources_returnsRealFileLineNumbers() throws Exception {
         try (var cm = contextManagerWithSampleJava()) {
             String output = invokeTool(cm, "getMethodSources", Map.of("methodNames", List.of("com.example.Foo.inc")));
+            assertTrue(output.matches("(?s).*```.*Foo\\.java\\R.*"), output);
+            assertTrue(output.contains("4:     int inc(int x) {"), output);
+            assertTrue(output.contains("5:         return x + 1;"), output);
+        }
+    }
+
+    @Test
+    void mcpGetMethodSources_acceptsUniqueNonFqName() throws Exception {
+        try (var cm = contextManagerWithSampleJava()) {
+            String output = invokeTool(cm, "getMethodSources", Map.of("methodNames", List.of("inc")));
             assertTrue(output.matches("(?s).*```.*Foo\\.java\\R.*"), output);
             assertTrue(output.contains("4:     int inc(int x) {"), output);
             assertTrue(output.contains("5:         return x + 1;"), output);

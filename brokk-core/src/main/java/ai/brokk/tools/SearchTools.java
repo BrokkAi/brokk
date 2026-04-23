@@ -53,6 +53,7 @@ import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -93,6 +94,28 @@ public class SearchTools {
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
 
     private record SymbolSearchHit(String signature, int lineNumber) {}
+
+    private record RelaxedSourceLookup(@Nullable CodeUnit codeUnit, List<String> ambiguousFqNames) {
+        private static RelaxedSourceLookup resolved(CodeUnit codeUnit) {
+            return new RelaxedSourceLookup(codeUnit, List.of());
+        }
+
+        private static RelaxedSourceLookup ambiguous(List<String> ambiguousFqNames) {
+            return new RelaxedSourceLookup(null, List.copyOf(ambiguousFqNames));
+        }
+
+        private static RelaxedSourceLookup notFound() {
+            return new RelaxedSourceLookup(null, List.of());
+        }
+
+        private boolean isResolved() {
+            return codeUnit != null;
+        }
+
+        private boolean isAmbiguous() {
+            return !ambiguousFqNames.isEmpty();
+        }
+    }
 
     static final int FILE_SEARCH_LIMIT = 100;
     private static final int FILE_SKIM_LIMIT = 20;
@@ -287,6 +310,72 @@ public class SearchTools {
 
     private IAnalyzer getAnalyzer() {
         return codeIntelligence.getAnalyzer();
+    }
+
+    private RelaxedSourceLookup resolveRelaxedSourceLookup(
+            IAnalyzer analyzer, String requestedName, Predicate<CodeUnit> kindFilter) {
+        var exactMatch = analyzer.getDefinitions(requestedName).stream()
+                .filter(kindFilter)
+                .findFirst();
+        if (exactMatch.isPresent()) {
+            return RelaxedSourceLookup.resolved(exactMatch.get());
+        }
+
+        var fallbackMatches = findRelaxedSourceMatches(analyzer, requestedName, kindFilter);
+        if (fallbackMatches.size() == 1) {
+            return RelaxedSourceLookup.resolved(fallbackMatches.getFirst());
+        }
+        if (!fallbackMatches.isEmpty()) {
+            return RelaxedSourceLookup.ambiguous(
+                    fallbackMatches.stream().map(CodeUnit::fqName).sorted().toList());
+        }
+        return RelaxedSourceLookup.notFound();
+    }
+
+    private List<CodeUnit> findRelaxedSourceMatches(
+            IAnalyzer analyzer, String requestedName, Predicate<CodeUnit> kindFilter) {
+        Map<String, CodeUnit> matchesByFqName = new LinkedHashMap<>();
+        var declarations = analyzer.getAllDeclarations();
+        addRelaxedSourceMatches(matchesByFqName, declarations, requestedName, kindFilter);
+        declarations.stream()
+                .filter(CodeUnit::isClass)
+                .forEach(cls -> addRelaxedSourceMatches(
+                        matchesByFqName, analyzer.getMembersInClass(cls), requestedName, kindFilter));
+        return List.copyOf(matchesByFqName.values());
+    }
+
+    private static void addRelaxedSourceMatches(
+            Map<String, CodeUnit> matchesByFqName,
+            Collection<CodeUnit> candidates,
+            String requestedName,
+            Predicate<CodeUnit> kindFilter) {
+        candidates.stream()
+                .filter(kindFilter)
+                .filter(cu -> matchesRelaxedSourceName(cu, requestedName))
+                .forEach(cu -> matchesByFqName.putIfAbsent(cu.fqName(), cu));
+    }
+
+    private static boolean matchesRelaxedSourceName(CodeUnit cu, String requestedName) {
+        String normalizedRequestedName = normalizeRelaxedSourceName(requestedName.strip());
+        if (normalizedRequestedName.isEmpty()) {
+            return false;
+        }
+        String suffix = "." + normalizedRequestedName;
+        String normalizedFqName = normalizeRelaxedSourceName(cu.fqName());
+        String normalizedShortName = normalizeRelaxedSourceName(cu.shortName());
+        String normalizedIdentifier = normalizeRelaxedSourceName(cu.identifier());
+        return normalizedFqName.equals(normalizedRequestedName)
+                || normalizedShortName.equals(normalizedRequestedName)
+                || normalizedIdentifier.equals(normalizedRequestedName)
+                || normalizedFqName.endsWith(suffix);
+    }
+
+    private static String normalizeRelaxedSourceName(String name) {
+        return name.replace('$', '.');
+    }
+
+    private static String formatAmbiguousSourceMatch(String kind, String requestedName, List<String> matches) {
+        return "Ambiguous %s match for '%s':\n- %s".formatted(kind, requestedName, String.join("\n- ", matches));
     }
 
     // --- Helper Methods
@@ -1218,6 +1307,7 @@ public class SearchTools {
         Set<String> added = new HashSet<>();
         int processedCount = 0;
         boolean truncated = false;
+        List<String> ambiguousMatches = new ArrayList<>();
 
         var analyzer = getAnalyzer();
         List<String> distinctNames =
@@ -1228,33 +1318,43 @@ public class SearchTools {
                 truncated = true;
                 break;
             }
-            var cuOpt = analyzer.getDefinitions(className).stream()
-                    .filter(CodeUnit::isClass)
-                    .findFirst();
-            if (cuOpt.isPresent()) {
-                var cu = cuOpt.get();
-                if (added.add(cu.fqName())) {
-                    processedCount++;
-                    var sourceOpt = analyzer.getSource(cu, true);
-                    var text = sourceOpt
-                            .map(src -> "<class file=\"%s\">\n%s\n</class>"
-                                    .formatted(cu.source().toString(), src))
-                            .orElse("");
-                    if (!text.isEmpty()) {
-                        if (!result.isEmpty()) {
-                            result.append("\n\n");
-                        }
-                        result.append(text);
+            var lookup = resolveRelaxedSourceLookup(analyzer, className, CodeUnit::isClass);
+            if (lookup.isAmbiguous()) {
+                ambiguousMatches.add(formatAmbiguousSourceMatch("class", className, lookup.ambiguousFqNames()));
+                continue;
+            }
+            if (!lookup.isResolved()) {
+                continue;
+            }
+
+            var cu = requireNonNull(lookup.codeUnit());
+            if (added.add(cu.fqName())) {
+                processedCount++;
+                var sourceOpt = analyzer.getSource(cu, true);
+                var text = sourceOpt
+                        .map(src -> "<class file=\"%s\">\n%s\n</class>"
+                                .formatted(cu.source().toString(), src))
+                        .orElse("");
+                if (!text.isEmpty()) {
+                    if (!result.isEmpty()) {
+                        result.append("\n\n");
                     }
+                    result.append(text);
                 }
             }
         }
 
         if (result.isEmpty()) {
+            if (!ambiguousMatches.isEmpty()) {
+                return recordResearchTokens(String.join("\n\n", ambiguousMatches));
+            }
             return "No sources found for classes: " + String.join(", ", classNames);
         }
 
         String output = result.toString();
+        if (!ambiguousMatches.isEmpty()) {
+            output += "\n\n" + String.join("\n\n", ambiguousMatches);
+        }
         if (truncated) {
             output = "### WARNING: Result limit reached (max " + CLASS_COUNT_LIMIT + " classes). Showing first "
                     + CLASS_COUNT_LIMIT + " class sources. "
@@ -1310,31 +1410,43 @@ public class SearchTools {
 
         StringBuilder result = new StringBuilder();
         Set<String> added = new HashSet<>();
+        List<String> ambiguousMatches = new ArrayList<>();
 
         var analyzer = getAnalyzer();
         methodNames.stream().distinct().filter(s -> !s.isBlank()).forEach(methodName -> {
-            var cuOpt = analyzer.getDefinitions(methodName).stream()
-                    .filter(CodeUnit::isFunction)
-                    .findFirst();
-            if (cuOpt.isPresent()) {
-                var cu = cuOpt.get();
-                if (added.add(cu.fqName())) {
-                    Set<String> sources = analyzer.getSources(cu, true);
-                    if (!sources.isEmpty()) {
-                        if (!result.isEmpty()) {
-                            result.append("\n\n");
-                        }
-                        result.append(String.join("\n\n", sources));
+            var lookup = resolveRelaxedSourceLookup(analyzer, methodName, CodeUnit::isFunction);
+            if (lookup.isAmbiguous()) {
+                ambiguousMatches.add(formatAmbiguousSourceMatch("method", methodName, lookup.ambiguousFqNames()));
+                return;
+            }
+            if (!lookup.isResolved()) {
+                return;
+            }
+
+            var cu = requireNonNull(lookup.codeUnit());
+            if (added.add(cu.fqName())) {
+                Set<String> sources = analyzer.getSources(cu, true);
+                if (!sources.isEmpty()) {
+                    if (!result.isEmpty()) {
+                        result.append("\n\n");
                     }
+                    result.append(String.join("\n\n", sources));
                 }
             }
         });
 
         if (result.isEmpty()) {
+            if (!ambiguousMatches.isEmpty()) {
+                return recordResearchTokens(String.join("\n\n", ambiguousMatches));
+            }
             return "No sources found for methods: " + String.join(", ", methodNames);
         }
 
-        return recordResearchTokens(result.toString());
+        String output = result.toString();
+        if (!ambiguousMatches.isEmpty()) {
+            output += "\n\n" + String.join("\n\n", ambiguousMatches);
+        }
+        return recordResearchTokens(output);
     }
 
     public String getGitLog(String path, int limit) {

@@ -3,6 +3,8 @@ package ai.brokk.tools;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.DisabledAnalyzer;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.IAnalyzer.Range;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
@@ -25,8 +27,10 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.SequencedSet;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
@@ -255,6 +259,167 @@ public class SearchToolsTest {
         assertTrue(
                 result.indexOf("a-low.txt") < result.indexOf("z-high.txt"),
                 "Selected files should still render alphabetically");
+    }
+
+    @Test
+    void getClassSources_resolvesUniqueNonFqName() throws Exception {
+        Path customRoot = Files.createTempDirectory("brokk-app-search-class-");
+        try {
+            Files.createDirectories(customRoot.resolve("src/main/java/com/example"));
+            Files.writeString(customRoot.resolve("src/main/java/com/example/Foo.java"), "class Foo {}\n");
+
+            var project = new TestProject(customRoot, Languages.JAVA);
+            ProjectFile fooFile = new ProjectFile(customRoot, "src/main/java/com/example/Foo.java");
+            CodeUnit fooClass = CodeUnit.cls(fooFile, "com.example", "Foo");
+            IAnalyzer analyzer = new DisabledAnalyzer(project) {
+                @Override
+                public List<CodeUnit> getAllDeclarations() {
+                    return List.of(fooClass);
+                }
+
+                @Override
+                public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+                    SequencedSet<CodeUnit> results = new LinkedHashSet<>();
+                    if ("com.example.Foo".equals(fqName)) {
+                        results.add(fooClass);
+                    }
+                    return results;
+                }
+
+                @Override
+                public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+                    return codeUnit.equals(fooClass) ? Set.of("class Foo {}") : Set.of();
+                }
+            };
+            SearchTools tools =
+                    new SearchTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
+
+            String result = tools.getClassSources(List.of("Foo"));
+
+            assertTrue(result.contains("class Foo {}"), "Should resolve a unique simple class name. Result: " + result);
+        } finally {
+            deleteRecursively(customRoot);
+        }
+    }
+
+    @Test
+    void getClassSources_listsAmbiguousNonFqMatches() throws Exception {
+        Path customRoot = Files.createTempDirectory("brokk-app-search-class-ambiguous-");
+        try {
+            var project = new TestProject(customRoot, Languages.JAVA);
+            ProjectFile firstFile = new ProjectFile(customRoot, "src/main/java/com/example/Foo.java");
+            ProjectFile secondFile = new ProjectFile(customRoot, "src/main/java/org/example/Foo.java");
+            CodeUnit firstFoo = CodeUnit.cls(firstFile, "com.example", "Foo");
+            CodeUnit secondFoo = CodeUnit.cls(secondFile, "org.example", "Foo");
+            IAnalyzer analyzer = new DisabledAnalyzer(project) {
+                @Override
+                public List<CodeUnit> getAllDeclarations() {
+                    return List.of(firstFoo, secondFoo);
+                }
+            };
+            SearchTools tools =
+                    new SearchTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
+
+            String result = tools.getClassSources(List.of("Foo"));
+
+            assertTrue(result.contains("Ambiguous class match for 'Foo'"), result);
+            assertTrue(result.contains("com.example.Foo"), result);
+            assertTrue(result.contains("org.example.Foo"), result);
+        } finally {
+            deleteRecursively(customRoot);
+        }
+    }
+
+    @Test
+    void getMethodSources_resolvesUniqueNonFqName() throws Exception {
+        Path customRoot = Files.createTempDirectory("brokk-app-search-method-");
+        try {
+            Files.createDirectories(customRoot.resolve("src/main/java/com/example"));
+            Files.writeString(customRoot.resolve("src/main/java/com/example/Foo.java"), "class Foo {}\n");
+
+            var project = new TestProject(customRoot, Languages.JAVA);
+            ProjectFile fooFile = new ProjectFile(customRoot, "src/main/java/com/example/Foo.java");
+            CodeUnit fooClass = CodeUnit.cls(fooFile, "com.example", "Foo");
+            CodeUnit incMethod = CodeUnit.fn(fooFile, "com.example", "Foo.inc");
+            IAnalyzer analyzer = new DisabledAnalyzer(project) {
+                @Override
+                public List<CodeUnit> getAllDeclarations() {
+                    return List.of(fooClass);
+                }
+
+                @Override
+                public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+                    return classUnit.equals(fooClass) ? List.of(incMethod) : List.of();
+                }
+
+                @Override
+                public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+                    SequencedSet<CodeUnit> results = new LinkedHashSet<>();
+                    if ("com.example.Foo".equals(fqName)) {
+                        results.add(fooClass);
+                    } else if ("com.example.Foo.inc".equals(fqName)) {
+                        results.add(incMethod);
+                    }
+                    return results;
+                }
+
+                @Override
+                public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+                    return codeUnit.equals(incMethod) ? Set.of("int inc(int x) { return x + 1; }") : Set.of();
+                }
+            };
+            SearchTools tools =
+                    new SearchTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
+
+            String result = tools.getMethodSources(List.of("inc"));
+
+            assertTrue(
+                    result.contains("int inc(int x) { return x + 1; }"),
+                    "Should resolve a unique simple method name. Result: " + result);
+        } finally {
+            deleteRecursively(customRoot);
+        }
+    }
+
+    @Test
+    void getMethodSources_listsAmbiguousNonFqMatches() throws Exception {
+        Path customRoot = Files.createTempDirectory("brokk-app-search-method-ambiguous-");
+        try {
+            var project = new TestProject(customRoot, Languages.JAVA);
+            ProjectFile firstFile = new ProjectFile(customRoot, "src/main/java/com/example/Foo.java");
+            ProjectFile secondFile = new ProjectFile(customRoot, "src/main/java/org/example/Bar.java");
+            CodeUnit fooClass = CodeUnit.cls(firstFile, "com.example", "Foo");
+            CodeUnit barClass = CodeUnit.cls(secondFile, "org.example", "Bar");
+            CodeUnit firstMethod = CodeUnit.fn(firstFile, "com.example", "Foo.inc");
+            CodeUnit secondMethod = CodeUnit.fn(secondFile, "org.example", "Bar.inc");
+            IAnalyzer analyzer = new DisabledAnalyzer(project) {
+                @Override
+                public List<CodeUnit> getAllDeclarations() {
+                    return List.of(fooClass, barClass);
+                }
+
+                @Override
+                public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+                    if (classUnit.equals(fooClass)) {
+                        return List.of(firstMethod);
+                    }
+                    if (classUnit.equals(barClass)) {
+                        return List.of(secondMethod);
+                    }
+                    return List.of();
+                }
+            };
+            SearchTools tools =
+                    new SearchTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
+
+            String result = tools.getMethodSources(List.of("inc"));
+
+            assertTrue(result.contains("Ambiguous method match for 'inc'"), result);
+            assertTrue(result.contains("com.example.Foo.inc"), result);
+            assertTrue(result.contains("org.example.Bar.inc"), result);
+        } finally {
+            deleteRecursively(customRoot);
+        }
     }
 
     @Test
