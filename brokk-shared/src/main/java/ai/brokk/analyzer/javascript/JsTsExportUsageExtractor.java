@@ -1623,8 +1623,7 @@ public final class JsTsExportUsageExtractor {
             ExportIndex idx = jsTs.exportIndexOf(file);
             for (ExportIndex.HeritageEdge edge : idx.heritageEdges()) {
                 for (String childKey : resolveHeritageClassKeys(jsTs, file, edge.childName())) {
-                    var parents =
-                            edges.computeIfAbsent(childKey, ignored -> new LinkedHashSet<String>());
+                    var parents = edges.computeIfAbsent(childKey, ignored -> new LinkedHashSet<String>());
                     parents.addAll(resolveHeritageClassKeys(jsTs, file, edge.parentName()));
                 }
             }
@@ -1640,7 +1639,8 @@ public final class JsTsExportUsageExtractor {
                 .map(JsTsExportUsageExtractor::qualifiedClassKey)
                 .forEach(resolved::add);
 
-        ImportBinder.ImportBinding binding = jsTs.importBinderOf(file).bindings().get(className);
+        ImportBinder.ImportBinding binding =
+                jsTs.importBinderOf(file).bindings().get(className);
         if (binding != null && binding.importedName() != null) {
             JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
             imported.resolved().ifPresent(importedFile -> {
