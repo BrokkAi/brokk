@@ -100,6 +100,7 @@ public final class AcpServerMain {
             var agent = new BrokkAcpAgent(contextManager, jobRunner, jobStore);
             var transport = new StdioAcpAgentTransport(McpJsonDefaults.getMapper());
             var support = AcpAgentSupport.create(agent).transport(transport).build();
+            agent.setSyncAgent(support.getAgent());
 
             // Register shutdown hook -- close transport first (stop accepting requests),
             // then job infrastructure, then context manager
