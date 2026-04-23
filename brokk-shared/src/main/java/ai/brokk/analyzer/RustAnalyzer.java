@@ -831,8 +831,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             String baseReason) {
         TSNode block = nodeType(BLOCK).equals(handlerNode.getType()) ? handlerNode : null;
         int bodyStatements = block != null ? countHandlerStatements(block) : 1;
-        String bodyText = sourceContent.substringFrom(handlerNode);
-        boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
+        boolean hasAnyComment = hasDescendantOfAnyTypeInclusive(handlerNode, COMMENT_NODE_TYPES);
         boolean emptyBody = block != null && bodyStatements == 0 && !hasAnyComment;
         boolean commentOnlyBody = block != null && bodyStatements == 0 && hasAnyComment;
         boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
@@ -882,7 +881,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 score,
                 bodyStatements,
                 List.copyOf(reasons),
-                compactExcerpt(sourceContent.substringFrom(handlerNode)));
+                compactExcerptForTable(sourceContent.substringFrom(handlerNode)));
         return Optional.of(new SmellCandidate(smell, handlerNode.getStartByte()));
     }
 
@@ -1001,14 +1000,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             }
         }
         return last;
-    }
-
-    private static String compactExcerpt(String text) {
-        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
-        if (compact.length() <= 180) {
-            return compact;
-        }
-        return compact.substring(0, 180) + "...";
     }
 
     @Override
