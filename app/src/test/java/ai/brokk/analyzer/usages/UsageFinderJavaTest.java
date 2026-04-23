@@ -9,6 +9,8 @@ import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.testutil.UsageFinderTestUtil;
+import ai.brokk.usages.LlmUsageAnalyzer;
+import ai.brokk.usages.UsageFinder;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;

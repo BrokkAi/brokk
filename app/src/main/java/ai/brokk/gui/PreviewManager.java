@@ -3,12 +3,12 @@ package ai.brokk.gui;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.gui.components.PreviewTabbedPane;
@@ -26,7 +26,6 @@ import ai.brokk.util.FileUtil;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.ImageUtil;
 import com.formdev.flatlaf.util.SystemInfo;
-import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -528,7 +527,7 @@ public class PreviewManager {
         try {
             String initialTitle = computeInitialTitle(fragment);
 
-            if (fragment instanceof ContextFragments.OutputFragment of) {
+            if (fragment instanceof ContextOutputFragments.OutputFragment of) {
                 showOutputPreview(of, initialTitle);
             } else if (!fragment.isText()) {
                 showImagePreview(fragment, initialTitle);
@@ -547,15 +546,11 @@ public class PreviewManager {
         return (descNow != null && !descNow.isBlank()) ? "Preview: " + descNow : "Preview: Loading...";
     }
 
-    private void showOutputPreview(ContextFragments.OutputFragment of, String initialTitle) {
-        var combinedMessages = new ArrayList<ChatMessage>();
-        for (TaskEntry entry : of.entries()) {
-            combinedMessages.addAll(entry.mopMessages());
-        }
-
+    private void showOutputPreview(ContextOutputFragments.OutputFragment of, String initialTitle) {
+        String combinedMarkdown = String.join("\n\n", of.entryMarkdowns());
         var markdownPanel = new MarkdownOutputPanel();
         markdownPanel.setContextForLookups(cm, chrome);
-        markdownPanel.setMessages(combinedMessages);
+        markdownPanel.setStaticDocument(combinedMarkdown);
 
         JPanel contentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
         ContextFragment fragment = (of instanceof ContextFragment cf) ? cf : null;

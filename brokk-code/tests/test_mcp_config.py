@@ -1,5 +1,7 @@
 import json
 import tomllib
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -13,6 +15,13 @@ from brokk_code.mcp_config import (
     install_codex_mcp_workspace_skill,
 )
 from brokk_code.zed_config import ExistingBrokkCodeEntryError
+
+
+def _mock_fetch_github_file(path: str) -> str:
+    """Read files from the local claude-plugin directory instead of GitHub."""
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    local_path = repo_root / path
+    return local_path.read_text(encoding="utf-8")
 
 
 def test_configure_claude_code_mcp_settings_uses_claude_json(tmp_path, monkeypatch):
@@ -114,6 +123,8 @@ def test_configure_codex_mcp_settings_appends_to_codex_agents(tmp_path, monkeypa
     agents_md = tmp_path / ".codex" / "AGENTS.md"
 
     assert config_path.exists()
+    config_data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert config_data["mcp_servers"]["brokk"]["default_tools_approval_mode"] == "approve"
     assert agents_md.exists()
     content = agents_md.read_text()
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" in content
@@ -210,6 +221,7 @@ def test_configure_codex_mcp_settings_uses_uvx_command(tmp_path):
     data = tomllib.loads(config_path.read_text(encoding="utf-8"))
     assert data["mcp_servers"]["brokk"]["command"] == "/home/user/.local/bin/uvx"
     assert data["mcp_servers"]["brokk"]["args"] == ["brokk", "mcp"]
+    assert data["mcp_servers"]["brokk"]["default_tools_approval_mode"] == "approve"
 
 
 def test_configure_claude_code_mcp_settings_defaults_to_uvx(tmp_path):
@@ -316,7 +328,10 @@ def test_install_claude_mcp_summaries_skill_creates_expected_skill(monkeypatch, 
     assert "qualified symbol names" in content
 
 
-def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, tmp_path) -> None:
+@patch("brokk_code.mcp_config._fetch_github_file", side_effect=_mock_fetch_github_file)
+def test_install_codex_local_plugin_creates_plugin_and_marketplace(
+    mock_fetch, monkeypatch, tmp_path
+) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
 
     install_result = install_codex_local_plugin()
@@ -341,9 +356,16 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, 
     assert manifest_data["mcpServers"] == "./.mcp.json"
 
     mcp_data = json.loads(mcp_path.read_text(encoding="utf-8"))
-    assert mcp_data["mcpServers"]["brokk"]["type"] == "stdio"
     assert mcp_data["mcpServers"]["brokk"]["command"] == "uvx"
     assert mcp_data["mcpServers"]["brokk"]["args"] == ["brokk", "mcp-core"]
+
+    config_toml_path = tmp_path / ".codex" / "config.toml"
+    assert config_toml_path.exists()
+    config_data = tomllib.loads(config_toml_path.read_text(encoding="utf-8"))
+    brokk_server = config_data["mcp_servers"]["brokk"]
+    assert brokk_server["command"] == "uvx"
+    assert brokk_server["args"] == ["brokk", "mcp-core"]
+    assert brokk_server["default_tools_approval_mode"] == "approve"
 
     marketplace_data = json.loads(marketplace_path.read_text(encoding="utf-8"))
     assert marketplace_data["name"] == "brokk-local"
@@ -356,10 +378,30 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(monkeypatch, 
     assert "name: brokk-review-pr" in review_content
     assert "security-reviewer" in review_content
     assert "architect-reviewer" in review_content
-    assert "Embedded Reviewer Prompts" in review_content
+    assert "Embedded Agent Prompts" in review_content
+
+    guided_issue_skill = plugin_dir / "skills" / "guided-issue" / "SKILL.md"
+    assert guided_issue_skill.exists()
+    guided_content = guided_issue_skill.read_text(encoding="utf-8")
+    assert "name: brokk-guided-issue" in guided_content
+    assert "issue-diagnostician" in guided_content
+    assert "issue-planner" in guided_content
+    assert "security-reviewer" in guided_content
+    assert "Embedded Agent Prompts" in guided_content
+
+    guided_review_skill = plugin_dir / "skills" / "guided-review" / "SKILL.md"
+    assert guided_review_skill.exists()
+    guided_review_content = guided_review_skill.read_text(encoding="utf-8")
+    assert "name: brokk-guided-review" in guided_review_content
+    assert "security-reviewer" in guided_review_content
+    assert "architect-reviewer" in guided_review_content
+    assert "Embedded Agent Prompts" in guided_review_content
 
 
-def test_install_codex_local_plugin_preserves_existing_marketplace_entries(tmp_path) -> None:
+@patch("brokk_code.mcp_config._fetch_github_file", side_effect=_mock_fetch_github_file)
+def test_install_codex_local_plugin_preserves_existing_marketplace_entries(
+    mock_fetch, tmp_path
+) -> None:
     plugin_dir = tmp_path / ".codex" / "plugins" / "brokk"
     marketplace_path = tmp_path / ".agents" / "plugins" / "marketplace.json"
     marketplace_path.parent.mkdir(parents=True)
@@ -388,7 +430,10 @@ def test_install_codex_local_plugin_preserves_existing_marketplace_entries(tmp_p
     ]
 
 
-def test_install_codex_local_plugin_rejects_conflicting_marketplace_entry(tmp_path) -> None:
+@patch("brokk_code.mcp_config._fetch_github_file", side_effect=_mock_fetch_github_file)
+def test_install_codex_local_plugin_rejects_conflicting_marketplace_entry(
+    mock_fetch, tmp_path
+) -> None:
     plugin_dir = tmp_path / ".codex" / "plugins" / "brokk"
     marketplace_path = tmp_path / ".agents" / "plugins" / "marketplace.json"
     marketplace_path.parent.mkdir(parents=True)

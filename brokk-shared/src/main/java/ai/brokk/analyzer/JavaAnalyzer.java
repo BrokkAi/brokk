@@ -1,6 +1,7 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
+import static ai.brokk.analyzer.java.Constants.*;
+import static org.treesitter.JavaNodeType.*;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
@@ -12,6 +13,8 @@ import java.util.function.BiFunction;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
+import org.treesitter.JavaNodeField;
+import org.treesitter.JavaNodeType;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSQueryCapture;
@@ -25,19 +28,23 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         implements ImportAnalysisProvider, TypeHierarchyProvider, JvmBasedAnalyzer {
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
-    private static final Set<String> JAVA_COMMENT_NODE_TYPES = Set.of(LINE_COMMENT, BLOCK_COMMENT);
+    private static final Set<String> JAVA_COMMENT_NODE_TYPES = Set.of(nodeType(LINE_COMMENT), nodeType(BLOCK_COMMENT));
     private static final Set<String> LOG_RECEIVER_NAMES = Set.of("log", "logger");
-    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES =
-            Set.of(IDENTIFIER, TYPE_IDENTIFIER, SCOPED_IDENTIFIER, SCOPED_TYPE_IDENTIFIER);
-    private static final Set<String> CLONE_AST_STRING_TYPES = Set.of(STRING_LITERAL, CHARACTER_LITERAL);
+    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES = Set.of(
+            nodeType(IDENTIFIER),
+            nodeType(TYPE_IDENTIFIER),
+            nodeType(SCOPED_IDENTIFIER),
+            nodeType(SCOPED_TYPE_IDENTIFIER));
+    private static final Set<String> CLONE_AST_STRING_TYPES =
+            Set.of(nodeType(STRING_LITERAL), nodeType(CHARACTER_LITERAL));
     private static final Set<String> CLONE_AST_NUMBER_TYPES = Set.of(
-            DECIMAL_INTEGER_LITERAL,
-            HEX_INTEGER_LITERAL,
-            OCTAL_INTEGER_LITERAL,
-            BINARY_INTEGER_LITERAL,
-            DECIMAL_FLOATING_POINT_LITERAL,
-            HEX_FLOATING_POINT_LITERAL);
-    private static final Set<String> CLONE_AST_IGNORED_TYPES = Set.of(MODIFIERS, TYPE_PARAMETERS);
+            nodeType(DECIMAL_INTEGER_LITERAL),
+            nodeType(HEX_INTEGER_LITERAL),
+            nodeType(OCTAL_INTEGER_LITERAL),
+            nodeType(BINARY_INTEGER_LITERAL),
+            nodeType(DECIMAL_FLOATING_POINT_LITERAL),
+            nodeType(HEX_FLOATING_POINT_LITERAL));
+    private static final Set<String> CLONE_AST_IGNORED_TYPES = Set.of(nodeType(MODIFIERS), nodeType(TYPE_PARAMETERS));
 
     public JavaAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
@@ -83,21 +90,21 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
     private static final LanguageSyntaxProfile JAVA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(
-                    CLASS_DECLARATION,
-                    INTERFACE_DECLARATION,
-                    ENUM_DECLARATION,
-                    RECORD_DECLARATION,
-                    ANNOTATION_TYPE_DECLARATION),
-            Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
-            Set.of(FIELD_DECLARATION, ENUM_CONSTANT, CONSTANT_DECLARATION),
+                    nodeType(CLASS_DECLARATION),
+                    nodeType(INTERFACE_DECLARATION),
+                    nodeType(ENUM_DECLARATION),
+                    nodeType(RECORD_DECLARATION),
+                    nodeType(ANNOTATION_TYPE_DECLARATION)),
+            Set.of(nodeType(METHOD_DECLARATION), nodeType(CONSTRUCTOR_DECLARATION)),
+            Set.of(nodeType(FIELD_DECLARATION), nodeType(ENUM_CONSTANT), nodeType(CONSTANT_DECLARATION)),
             Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
-            Set.of(ANNOTATION, MARKER_ANNOTATION),
-            IMPORT_DECLARATION,
-            "name", // identifier field name
-            "body", // body field name
-            "parameters", // parameters field name
-            "type", // return type field name
-            "type_parameters", // type parameters field name
+            Set.of(nodeType(ANNOTATION), nodeType(MARKER_ANNOTATION)),
+            IMPORT_DECLARATION_CAPTURE,
+            nodeField(JavaNodeField.NAME), // identifier field name
+            nodeField(JavaNodeField.BODY), // body field name
+            nodeField(JavaNodeField.PARAMETERS), // parameters field name
+            nodeField(JavaNodeField.TYPE), // return type field name
+            nodeField(JavaNodeField.TYPE_PARAMETERS), // type parameters field name
             Map.ofEntries( // capture configuration
                     Map.entry(CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE),
                     Map.entry(CaptureNames.INTERFACE_DEFINITION, SkeletonType.CLASS_LIKE),
@@ -111,7 +118,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     Map.entry(CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE),
                     Map.entry(CaptureNames.PACKAGE_DEFINITION, SkeletonType.MODULE_STATEMENT)),
             "", // async keyword node type
-            Set.of("modifiers") // modifier node types
+            Set.of(nodeField(JavaNodeField.MODIFIERS)) // modifier node types
             );
 
     @Override
@@ -163,7 +170,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         return determineJvmPackageName(
                 rootNode,
                 sourceContent,
-                PACKAGE_DECLARATION,
+                nodeType(PACKAGE_DECLARATION),
                 JAVA_SYNTAX_PROFILE.classLikeNodeTypes(),
                 (node, sourceContent1) -> sourceContent1.substringFrom(node));
     }
@@ -189,7 +196,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             }
 
             // Skip annotations when searching for the package declaration
-            if (ANNOTATION.equals(type) || MARKER_ANNOTATION.equals(type)) {
+            if (nodeType(ANNOTATION).equals(type) || nodeType(MARKER_ANNOTATION).equals(type)) {
                 continue;
             }
 
@@ -204,7 +211,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             // We iterate through named children and skip annotations (blacklist approach).
             for (TSNode nameNode : maybeDeclaration.getNamedChildren()) {
                 String type = nameNode.getType();
-                if (ANNOTATION.equals(type) || MARKER_ANNOTATION.equals(type)) {
+                if (nodeType(ANNOTATION).equals(type)
+                        || nodeType(MARKER_ANNOTATION).equals(type)) {
                     continue;
                 }
                 String nsPart = textSlice.apply(nameNode, sourceContent);
@@ -296,7 +304,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         if (CLONE_AST_NUMBER_TYPES.contains(type)) {
             return "NUM";
         }
-        if (BOOLEAN_LITERAL.equals(type) || TRUE.equals(text) || FALSE.equals(text)) {
+        if ("boolean_literal".equals(type)
+                || nodeType(TRUE).equals(text)
+                || nodeType(FALSE).equals(text)) {
             return "BOOL";
         }
         if (CLONE_AST_IGNORED_TYPES.contains(type)) {
@@ -344,32 +354,37 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             String baseIndent,
             ProjectFile file) {
         String nodeType = fieldNode.getType();
-        if (ENUM_CONSTANT.equals(nodeType)) {
+        if (nodeType(ENUM_CONSTANT).equals(nodeType)) {
             return formatEnumConstant(fieldNode, signatureText, baseIndent);
         }
 
-        if (FIELD_DECLARATION.equals(nodeType) || CONSTANT_DECLARATION.equals(nodeType)) {
-            TSNode typeNode = fieldNode.getChildByFieldName("type");
+        if (nodeType(FIELD_DECLARATION).equals(nodeType)
+                || nodeType(CONSTANT_DECLARATION).equals(nodeType)) {
+            TSNode typeNode = fieldNode.getChildByFieldName(nodeField(JavaNodeField.TYPE));
             if (typeNode != null) {
                 String modifiers = getPrefixText(fieldNode, typeNode, sourceContent, Set.of("modifiers"));
                 String typeStr = sourceContent.substringFrom(typeNode).strip();
 
-                Optional<TSNode> declaratorOpt =
-                        findDeclarator(fieldNode, simpleName, sourceContent, VARIABLE_DECLARATOR, "name");
+                Optional<TSNode> declaratorOpt = findDeclarator(
+                        fieldNode,
+                        simpleName,
+                        sourceContent,
+                        nodeType(VARIABLE_DECLARATOR),
+                        nodeField(JavaNodeField.NAME));
                 if (declaratorOpt.isPresent()) {
                     TSNode declarator = declaratorOpt.get();
-                    TSNode nameNode = declarator.getChildByFieldName("name");
+                    TSNode nameNode = declarator.getChildByFieldName(nodeField(JavaNodeField.NAME));
                     String nameStr = sourceContent.substringFrom(nameNode).strip();
 
                     String suffix = ";";
-                    TSNode valueNode = declarator.getChildByFieldName("value");
+                    TSNode valueNode = declarator.getChildByFieldName(nodeField(JavaNodeField.VALUE));
                     if (valueNode != null) {
                         String valueType = valueNode.getType();
                         if (valueType != null
                                 && (valueType.endsWith("_literal")
-                                        || TRUE.equals(valueType)
-                                        || FALSE.equals(valueType)
-                                        || NULL.equals(valueType))) {
+                                        || nodeType(TRUE).equals(valueType)
+                                        || nodeType(FALSE).equals(valueType)
+                                        || NULL_KEYWORD.equals(valueType))) {
                             suffix = " = "
                                     + sourceContent.substringFrom(valueNode).strip() + ";";
                         }
@@ -401,7 +416,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     // Check if any subsequent named child is also an enum_constant
                     for (int j = i + 1; j < namedChildren.size(); j++) {
                         TSNode next = namedChildren.get(j);
-                        if (ENUM_CONSTANT.equals(next.getType())) {
+                        if (nodeType(ENUM_CONSTANT).equals(next.getType())) {
                             hasFollowingConstant = true;
                             break;
                         }
@@ -437,7 +452,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                         while (cursor.nextMatch(match)) {
                             for (TSQueryCapture capture : match.getCaptures()) {
                                 String captureName = query.getCaptureNameForId(capture.getIndex());
-                                if (TEST_MARKER.equals(captureName)) {
+                                if (TEST_MARKER_CAPTURE.equals(captureName)) {
                                     TSNode node = capture.getNode();
                                     String simpleName =
                                             sourceContent.substringFrom(node).strip();
@@ -585,7 +600,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         // Special handling for Java lambdas: synthesize a bytecode-style anonymous name
-        if (LAMBDA_EXPRESSION.equals(decl.getType())) {
+        if (nodeType(LAMBDA_EXPRESSION).equals(decl.getType())) {
             var enclosingMethod =
                     findEnclosingJavaMethodOrClassName(decl, sourceContent).orElse("lambda");
             int line = decl.getStartPoint().getRow();
@@ -601,8 +616,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         TSNode current = node.getParent();
         while (current != null) {
             String type = current.getType();
-            if (METHOD_DECLARATION.equals(type) || CONSTRUCTOR_DECLARATION.equals(type)) {
-                TSNode nameNode = current.getChildByFieldName("name");
+            if (nodeType(METHOD_DECLARATION).equals(type)
+                    || nodeType(CONSTRUCTOR_DECLARATION).equals(type)) {
+                TSNode nameNode = current.getChildByFieldName(nodeField(JavaNodeField.NAME));
                 if (nameNode != null) {
                     String name = sourceContent.substringFrom(nameNode).strip();
                     if (!name.isEmpty()) {
@@ -618,7 +634,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         current = node.getParent();
         while (current != null) {
             if (isClassLike(current)) {
-                TSNode nameNode = current.getChildByFieldName("name");
+                TSNode nameNode = current.getChildByFieldName(nodeField(JavaNodeField.NAME));
                 if (nameNode != null) {
                     String cls = sourceContent.substringFrom(nameNode).strip();
                     if (!cls.isEmpty()) {
@@ -851,7 +867,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                         if (parent != null) {
                             String pType = parent.getType();
                             if (DECLARATION_TYPES.contains(pType)) {
-                                TSNode nameNode = parent.getChildByFieldName("name");
+                                TSNode nameNode = parent.getChildByFieldName(nodeField(JavaNodeField.NAME));
                                 if (nameNode != null && nameNode.getStartByte() == startByte) {
                                     return false;
                                 }
@@ -866,16 +882,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     TSNode parent = node.getParent();
                     if (parent != null) {
                         String pType = parent.getType();
-                        if (FIELD_ACCESS.equals(pType)) {
+                        if (nodeType(FIELD_ACCESS).equals(pType)) {
                             // In tree-sitter-java, field_access has a "field" child for the member name
-                            TSNode fieldNode = parent.getChildByFieldName("field");
+                            TSNode fieldNode = parent.getChildByFieldName(nodeField(JavaNodeField.FIELD));
                             if (fieldNode != null && fieldNode.getStartByte() == node.getStartByte()) {
                                 return true;
                             }
                         }
-                        if (METHOD_INVOCATION.equals(pType)) {
+                        if (nodeType(METHOD_INVOCATION).equals(pType)) {
                             // In tree-sitter-java, method_invocation has a "name" child for the method name
-                            TSNode nameNode = parent.getChildByFieldName("name");
+                            TSNode nameNode = parent.getChildByFieldName(nodeField(JavaNodeField.NAME));
                             if (nameNode != null && nameNode.getStartByte() == node.getStartByte()) {
                                 return true;
                             }
@@ -1207,7 +1223,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             String nodeType = current.getType();
 
             // Check method/constructor parameters
-            if (METHOD_DECLARATION.equals(nodeType) || CONSTRUCTOR_DECLARATION.equals(nodeType)) {
+            if (nodeType(METHOD_DECLARATION).equals(nodeType)
+                    || nodeType(CONSTRUCTOR_DECLARATION).equals(nodeType)) {
                 var paramResult = checkFormalParameters(current, identifierName, sourceContent);
                 if (paramResult.isPresent()) return paramResult;
             }
@@ -1217,7 +1234,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             if (localResult.isPresent()) return localResult;
 
             // Check enhanced for loop variable
-            if (ENHANCED_FOR_STATEMENT.equals(nodeType)) {
+            if (nodeType(ENHANCED_FOR_STATEMENT).equals(nodeType)) {
                 var forResult = checkEnhancedForStatement(current, identifierName, sourceContent);
                 if (forResult.isPresent()) return forResult;
             }
@@ -1226,7 +1243,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             if ("catch_clause".equals(nodeType)) {
                 // catch_formal_parameter is a direct named child, not accessed via field name
                 for (TSNode child : current.getNamedChildren()) {
-                    if (CATCH_FORMAL_PARAMETER.equals(child.getType())) {
+                    if (nodeType(CATCH_FORMAL_PARAMETER).equals(child.getType())) {
                         var catchResult = checkCatchFormalParameter(child, identifierName, sourceContent);
                         if (catchResult.isPresent()) return catchResult;
                         break;
@@ -1236,7 +1253,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
             // Check try-with-resources
             if ("try_with_resources_statement".equals(nodeType)) {
-                TSNode resourceSpec = current.getChildByFieldName("resources");
+                TSNode resourceSpec = current.getChildByFieldName(nodeField(JavaNodeField.RESOURCES));
                 if (resourceSpec != null) {
                     var resourceResult = checkResourceSpecification(resourceSpec, identifierName, sourceContent);
                     if (resourceResult.isPresent()) return resourceResult;
@@ -1244,13 +1261,13 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             }
 
             // Check lambda parameters
-            if (LAMBDA_EXPRESSION.equals(nodeType)) {
+            if (nodeType(LAMBDA_EXPRESSION).equals(nodeType)) {
                 var lambdaResult = checkLambdaParameters(current, identifierName, sourceContent);
                 if (lambdaResult.isPresent()) return lambdaResult;
             }
 
             // Check instanceof pattern variable (Java 16+)
-            if (INSTANCEOF_EXPRESSION.equals(nodeType)) {
+            if (nodeType(INSTANCEOF_EXPRESSION).equals(nodeType)) {
                 var patternResult = checkInstanceofPattern(current, identifierName, sourceContent);
                 if (patternResult.isPresent()) return patternResult;
             }
@@ -1263,12 +1280,12 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
     private Optional<DeclarationInfo> checkFormalParameters(
             TSNode methodOrConstructor, String identifierName, SourceContent sourceContent) {
-        TSNode params = methodOrConstructor.getChildByFieldName("parameters");
+        TSNode params = methodOrConstructor.getChildByFieldName(nodeField(JavaNodeField.PARAMETERS));
         if (params == null) return Optional.empty();
 
         for (TSNode param : params.getNamedChildren()) {
-            if (FORMAL_PARAMETER.equals(param.getType())) {
-                TSNode nameNode = param.getChildByFieldName("name");
+            if (nodeType(FORMAL_PARAMETER).equals(param.getType())) {
+                TSNode nameNode = param.getChildByFieldName(nodeField(JavaNodeField.NAME));
                 if (nameNode != null) {
                     String name = sourceContent.substringFrom(nameNode).strip();
                     if (identifierName.equals(name)) {
@@ -1290,10 +1307,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         for (TSNode sibling : parent.getNamedChildren()) {
             if (sibling.getEndByte() > current.getStartByte()) break;
 
-            if (LOCAL_VARIABLE_DECLARATION.equals(sibling.getType())) {
+            if (nodeType(LOCAL_VARIABLE_DECLARATION).equals(sibling.getType())) {
                 for (TSNode child : sibling.getNamedChildren()) {
-                    if (VARIABLE_DECLARATOR.equals(child.getType())) {
-                        TSNode nameNode = child.getChildByFieldName("name");
+                    if (nodeType(VARIABLE_DECLARATOR).equals(child.getType())) {
+                        TSNode nameNode = child.getChildByFieldName(nodeField(JavaNodeField.NAME));
                         if (nameNode != null) {
                             String name = sourceContent.substringFrom(nameNode).strip();
                             if (identifierName.equals(name)) {
@@ -1310,7 +1327,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     private Optional<DeclarationInfo> checkEnhancedForStatement(
             TSNode enhancedFor, String identifierName, SourceContent sourceContent) {
         // enhanced_for_statement has a "name" field for the loop variable
-        TSNode nameNode = enhancedFor.getChildByFieldName("name");
+        TSNode nameNode = enhancedFor.getChildByFieldName(nodeField(JavaNodeField.NAME));
         if (nameNode != null) {
             String name = sourceContent.substringFrom(nameNode).strip();
             if (identifierName.equals(name)) {
@@ -1322,7 +1339,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
     private Optional<DeclarationInfo> checkCatchFormalParameter(
             TSNode catchParam, String identifierName, SourceContent sourceContent) {
-        TSNode nameNode = catchParam.getChildByFieldName("name");
+        TSNode nameNode = catchParam.getChildByFieldName(nodeField(JavaNodeField.NAME));
         if (nameNode != null) {
             String name = sourceContent.substringFrom(nameNode).strip();
             if (identifierName.equals(name)) {
@@ -1336,8 +1353,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             TSNode resourceSpec, String identifierName, SourceContent sourceContent) {
         // resource_specification contains resource children
         for (TSNode resource : resourceSpec.getNamedChildren()) {
-            if (RESOURCE.equals(resource.getType())) {
-                TSNode nameNode = resource.getChildByFieldName("name");
+            if (nodeType(RESOURCE).equals(resource.getType())) {
+                TSNode nameNode = resource.getChildByFieldName(nodeField(JavaNodeField.NAME));
                 if (nameNode != null) {
                     String name = sourceContent.substringFrom(nameNode).strip();
                     if (identifierName.equals(name)) {
@@ -1351,16 +1368,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
     private Optional<DeclarationInfo> checkLambdaParameters(
             TSNode lambda, String identifierName, SourceContent sourceContent) {
-        TSNode params = lambda.getChildByFieldName("parameters");
+        TSNode params = lambda.getChildByFieldName(nodeField(JavaNodeField.PARAMETERS));
         if (params == null) return Optional.empty();
 
         String paramsType = params.getType();
 
         // formal_parameters case (typed lambda: (String x) -> ...)
-        if (FORMAL_PARAMETERS.equals(paramsType)) {
+        if (nodeType(FORMAL_PARAMETERS).equals(paramsType)) {
             for (TSNode param : params.getNamedChildren()) {
-                if (FORMAL_PARAMETER.equals(param.getType())) {
-                    TSNode nameNode = param.getChildByFieldName("name");
+                if (nodeType(FORMAL_PARAMETER).equals(param.getType())) {
+                    TSNode nameNode = param.getChildByFieldName(nodeField(JavaNodeField.NAME));
                     if (nameNode != null) {
                         String name = sourceContent.substringFrom(nameNode).strip();
                         if (identifierName.equals(name)) {
@@ -1372,7 +1389,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         }
 
         // inferred_parameters case (untyped lambda: (x, y) -> ...)
-        if (INFERRED_PARAMETERS.equals(paramsType)) {
+        if (nodeType(INFERRED_PARAMETERS).equals(paramsType)) {
             for (TSNode param : params.getNamedChildren()) {
                 String name = sourceContent.substringFrom(param).strip();
                 if (identifierName.equals(name)) {
@@ -1395,9 +1412,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     private Optional<DeclarationInfo> checkInstanceofPattern(
             TSNode instanceofExpr, String identifierName, SourceContent sourceContent) {
         // instanceof_expression may have a pattern child with a name field (Java 16+)
-        TSNode pattern = instanceofExpr.getChildByFieldName("pattern");
+        TSNode pattern = instanceofExpr.getChildByFieldName(nodeField(JavaNodeField.PATTERN));
         if (pattern != null) {
-            TSNode nameNode = pattern.getChildByFieldName("name");
+            TSNode nameNode = pattern.getChildByFieldName(nodeField(JavaNodeField.NAME));
             if (nameNode != null) {
                 String name = sourceContent.substringFrom(nameNode).strip();
                 if (identifierName.equals(name)) {
@@ -1445,9 +1462,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         for (TSNode param : parametersNode.getNamedChildren()) {
             String paramType = param.getType();
             TSNode typeNode = null;
-            if (FORMAL_PARAMETER.equals(paramType)) {
-                typeNode = param.getChildByFieldName("type");
-            } else if (SPREAD_PARAMETER.equals(paramType)) {
+            if (nodeType(FORMAL_PARAMETER).equals(paramType)) {
+                typeNode = param.getChildByFieldName(nodeField(JavaNodeField.TYPE));
+            } else if (nodeType(SPREAD_PARAMETER).equals(paramType)) {
                 // In tree-sitter-java, spread_parameter doesn't have a 'type' field.
                 // The type node is the first named child that isn't 'modifiers'.
                 for (TSNode child : param.getNamedChildren()) {
@@ -1462,7 +1479,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 String typeText = sourceContent.substringFrom(typeNode).strip();
 
                 // Varargs are arrays at bytecode level; normalize to array notation for signature distinction.
-                boolean isVarargsParam = SPREAD_PARAMETER.equals(paramType)
+                boolean isVarargsParam = nodeType(SPREAD_PARAMETER).equals(paramType)
                         || sourceContent.substringFrom(param).contains("...")
                         || typeText.endsWith("...");
 
@@ -1538,63 +1555,63 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     @Override
     public int computeCyclomaticComplexity(CodeUnit cu) {
         if (!cu.isFunction()) return 0;
+        int fallbackComplexity = super.computeCyclomaticComplexity(cu);
 
-        return getSource(cu, false)
-                .map(source -> {
-                    try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
-                        TSNode root = tree.getRootNode();
-                        if (root == null) return 1;
-
-                        SourceContent content = SourceContent.of(source);
-                        int complexity = 1; // Base complexity
-
-                        Deque<TSNode> stack = new ArrayDeque<>();
-                        stack.push(root);
-
-                        while (!stack.isEmpty()) {
-                            TSNode node = stack.pop();
-                            String type = node.getType();
-                            if (type == null) {
-                                continue;
+        Integer result = withTreeOf(
+                cu.source(),
+                tree -> withSource(
+                        cu.source(),
+                        content -> {
+                            TSNode cuNode = primaryNodeForCodeUnit(tree, cu);
+                            if (cuNode == null) {
+                                return 1;
                             }
 
-                            switch (type) {
-                                case IF_STATEMENT,
-                                        FOR_STATEMENT,
-                                        ENHANCED_FOR_STATEMENT,
-                                        WHILE_STATEMENT,
-                                        DO_STATEMENT,
-                                        CATCH_CLAUSE,
-                                        CONDITIONAL_EXPRESSION -> complexity++;
-                                case SWITCH_LABEL -> {
-                                    // Only count if not the 'default' case
-                                    if (!content.substringFrom(node).contains("default")) {
-                                        complexity++;
+                            int complexity = 1;
+                            Deque<TSNode> stack = new ArrayDeque<>();
+                            stack.push(cuNode);
+
+                            while (!stack.isEmpty()) {
+                                TSNode node = stack.pop();
+                                String type = node.getType();
+                                if (type == null) {
+                                    continue;
+                                }
+
+                                switch (JavaNodeType.fromType(type)) {
+                                    case IF_STATEMENT,
+                                            FOR_STATEMENT,
+                                            ENHANCED_FOR_STATEMENT,
+                                            WHILE_STATEMENT,
+                                            DO_STATEMENT,
+                                            CATCH_CLAUSE,
+                                            TERNARY_EXPRESSION -> complexity++;
+                                    case SWITCH_LABEL -> {
+                                        if (!content.substringFrom(node).contains("default")) {
+                                            complexity++;
+                                        }
+                                    }
+                                    case BINARY_EXPRESSION -> {
+                                        String operator = content.substringFrom(node);
+                                        if (operator.contains("&&") || operator.contains("||")) {
+                                            complexity++;
+                                        }
+                                    }
+                                    default -> {}
+                                }
+
+                                for (int i = 0; i < node.getNamedChildCount(); i++) {
+                                    TSNode child = node.getNamedChild(i);
+                                    if (child != null) {
+                                        stack.push(child);
                                     }
                                 }
-                                case BINARY_EXPRESSION -> {
-                                    // Check for && or ||
-                                    String operator = content.substringFrom(node);
-                                    if (operator.contains("&&") || operator.contains("||")) {
-                                        complexity++;
-                                    }
-                                }
                             }
-
-                            for (int i = 0; i < node.getNamedChildCount(); i++) {
-                                TSNode child = node.getNamedChild(i);
-                                if (child != null) {
-                                    stack.push(child);
-                                }
-                            }
-                        }
-                        return complexity;
-                    } catch (Exception e) {
-                        log.warn("Failed to compute complexity for {} using AST; falling back", cu.fqName(), e);
-                        return super.computeCyclomaticComplexity(cu);
-                    }
-                })
-                .orElse(0);
+                            return complexity;
+                        },
+                        fallbackComplexity),
+                fallbackComplexity);
+        return result != null ? result : fallbackComplexity;
     }
 
     @Override
@@ -1639,7 +1656,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     private List<TestAssertionSmell> detectTestAssertionSmells(
             ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
         var testMethods = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(METHOD_DECLARATION), testMethods);
+        collectNodesByType(root, Set.of(nodeType(METHOD_DECLARATION)), testMethods);
         var anonymousShapeCounts = anonymousTestDoubleShapeCounts(testMethods, sourceContent);
         var findings = new ArrayList<TestSmellCandidate>();
         for (TSNode method : testMethods) {
@@ -1660,12 +1677,12 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             SourceContent sourceContent,
             TestAssertionWeights weights,
             List<TestSmellCandidate> out) {
-        TSNode body = method.getChildByFieldName("body");
+        TSNode body = method.getChildByFieldName(nodeField(JavaNodeField.BODY));
         if (body == null) {
             return;
         }
         var invocations = new ArrayList<TSNode>();
-        collectNodesByType(body, Set.of(METHOD_INVOCATION), invocations);
+        collectNodesByType(body, Set.of(nodeType(METHOD_INVOCATION)), invocations);
         List<AssertionSignal> assertions = invocations.stream()
                 .map(invocation -> assertionSignal(invocation, sourceContent, weights))
                 .flatMap(Optional::stream)
@@ -1736,7 +1753,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             Map<String, Integer> anonymousShapeCounts,
             List<TestSmellCandidate> out) {
         var creations = new ArrayList<TSNode>();
-        collectNodesByType(method, Set.of(OBJECT_CREATION_EXPRESSION), creations);
+        collectNodesByType(method, Set.of(nodeType(OBJECT_CREATION_EXPRESSION)), creations);
         String enclosing = enclosingCodeUnit(
                         file,
                         method.getStartPoint().getRow(),
@@ -1744,8 +1761,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 .map(CodeUnit::fqName)
                 .orElse(file.toString());
         for (TSNode creation : creations) {
-            TSNode classBody = firstNamedChildOfType(creation, CLASS_BODY);
-            TSNode typeNode = creation.getChildByFieldName("type");
+            TSNode classBody = firstNamedChildOfType(creation, nodeType(CLASS_BODY));
+            TSNode typeNode = creation.getChildByFieldName(nodeField(JavaNodeField.TYPE));
             if (classBody == null || typeNode == null) {
                 continue;
             }
@@ -1807,8 +1824,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
         if ((ASSERT_TRUE.equals(methodName) || ASSERT_FALSE.equals(methodName)) && !args.isEmpty()) {
             TSNode arg = args.getLast();
-            boolean constantTruth = (ASSERT_TRUE.equals(methodName) && TRUE.equals(arg.getType()))
-                    || (ASSERT_FALSE.equals(methodName) && FALSE.equals(arg.getType()));
+            boolean constantTruth = (ASSERT_TRUE.equals(methodName)
+                            && nodeType(TRUE).equals(arg.getType()))
+                    || (ASSERT_FALSE.equals(methodName) && nodeType(FALSE).equals(arg.getType()));
             if (constantTruth) {
                 score += weights.constantTruthWeight();
                 reasons.add(TEST_ASSERTION_KIND_CONSTANT_TRUTH);
@@ -1891,8 +1909,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         }
         if ((IS_TRUE.equals(methodName) || IS_FALSE.equals(methodName)) && assertThatArg.isPresent()) {
             TSNode arg = assertThatArg.get();
-            boolean constantTruth = (IS_TRUE.equals(methodName) && TRUE.equals(arg.getType()))
-                    || (IS_FALSE.equals(methodName) && FALSE.equals(arg.getType()));
+            boolean constantTruth =
+                    (IS_TRUE.equals(methodName) && nodeType(TRUE).equals(arg.getType()))
+                            || (IS_FALSE.equals(methodName) && nodeType(FALSE).equals(arg.getType()));
             if (constantTruth) {
                 score += weights.constantTruthWeight();
                 reasons.add(TEST_ASSERTION_KIND_CONSTANT_TRUTH);
@@ -1916,25 +1935,25 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     private static boolean isTestMethod(TSNode method, SourceContent sourceContent) {
-        TSNode modifiers = firstNamedChildOfType(method, MODIFIERS);
+        TSNode modifiers = firstNamedChildOfType(method, nodeType(MODIFIERS));
         if (modifiers == null) {
             return false;
         }
         var annotations = new ArrayList<TSNode>();
-        collectNodesByType(modifiers, Set.of(ANNOTATION, MARKER_ANNOTATION), annotations);
+        collectNodesByType(modifiers, Set.of(nodeType(ANNOTATION), nodeType(MARKER_ANNOTATION)), annotations);
         return annotations.stream()
                 .map(annotation -> annotationName(annotation, sourceContent))
                 .anyMatch(TEST_ANNOTATIONS::contains);
     }
 
     private static String methodInvocationName(TSNode invocation, SourceContent sourceContent) {
-        TSNode nameNode = invocation.getChildByFieldName("name");
+        TSNode nameNode = invocation.getChildByFieldName(nodeField(JavaNodeField.NAME));
         return nameNode == null ? "" : sourceContent.substringFrom(nameNode).strip();
     }
 
     private static List<TSNode> argumentNodes(TSNode invocation) {
-        TSNode arguments = invocation.getChildByFieldName("arguments");
-        if (arguments == null || !ARGUMENT_LIST.equals(arguments.getType())) {
+        TSNode arguments = invocation.getChildByFieldName(nodeField(JavaNodeField.ARGUMENTS));
+        if (arguments == null || !nodeType(ARGUMENT_LIST).equals(arguments.getType())) {
             return List.of();
         }
         var args = new ArrayList<TSNode>();
@@ -1955,26 +1974,27 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     private static Optional<TSNode> assertThatArgument(TSNode invocation, SourceContent sourceContent) {
-        TSNode candidate = invocation.getChildByFieldName("object");
-        while (candidate != null && METHOD_INVOCATION.equals(candidate.getType())) {
-            TSNode nameNode = candidate.getChildByFieldName("name");
+        TSNode candidate = invocation.getChildByFieldName(nodeField(JavaNodeField.OBJECT));
+        while (candidate != null && nodeType(METHOD_INVOCATION).equals(candidate.getType())) {
+            TSNode nameNode = candidate.getChildByFieldName(nodeField(JavaNodeField.NAME));
             if (nameNode != null
                     && ASSERT_THAT.equals(sourceContent.substringFrom(nameNode).strip())) {
                 return argumentNodes(candidate).stream().findFirst();
             }
-            candidate = candidate.getChildByFieldName("object");
+            candidate = candidate.getChildByFieldName(nodeField(JavaNodeField.OBJECT));
         }
         return Optional.empty();
     }
 
     private static boolean isSelfComparison(TSNode node, SourceContent sourceContent) {
-        if (BINARY_EXPRESSION.equals(node.getType())) {
-            TSNode left = node.getChildByFieldName("left");
-            TSNode right = node.getChildByFieldName("right");
+        if (nodeType(BINARY_EXPRESSION).equals(node.getType())) {
+            TSNode left = node.getChildByFieldName(nodeField(JavaNodeField.LEFT));
+            TSNode right = node.getChildByFieldName(nodeField(JavaNodeField.RIGHT));
             return left != null && right != null && sameExpression(left, right, sourceContent);
         }
-        if (METHOD_INVOCATION.equals(node.getType()) && EQUALS.equals(methodInvocationName(node, sourceContent))) {
-            TSNode objectNode = node.getChildByFieldName("object");
+        if (nodeType(METHOD_INVOCATION).equals(node.getType())
+                && EQUALS.equals(methodInvocationName(node, sourceContent))) {
+            TSNode objectNode = node.getChildByFieldName(nodeField(JavaNodeField.OBJECT));
             return objectNode != null
                     && argumentNodes(node).stream()
                             .findFirst()
@@ -1996,7 +2016,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     private static boolean isStringLiteral(TSNode node) {
-        return STRING_LITERAL.equals(node.getType());
+        return nodeType(STRING_LITERAL).equals(node.getType());
     }
 
     private static boolean containsOverspecifiedLiteral(
@@ -2016,7 +2036,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     private static String annotationName(TSNode annotation, SourceContent sourceContent) {
-        TSNode nameNode = annotation.getChildByFieldName("name");
+        TSNode nameNode = annotation.getChildByFieldName(nodeField(JavaNodeField.NAME));
         String rawName = nameNode == null
                 ? sourceContent.substringFrom(annotation).strip()
                 : sourceContent.substringFrom(nameNode).strip();
@@ -2065,23 +2085,23 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 .filter(method -> isTestMethod(method, sourceContent))
                 .flatMap(method -> {
                     var creations = new ArrayList<TSNode>();
-                    collectNodesByType(method, Set.of(OBJECT_CREATION_EXPRESSION), creations);
+                    collectNodesByType(method, Set.of(nodeType(OBJECT_CREATION_EXPRESSION)), creations);
                     return creations.stream()
-                            .filter(creation -> firstNamedChildOfType(creation, CLASS_BODY) != null)
+                            .filter(creation -> firstNamedChildOfType(creation, nodeType(CLASS_BODY)) != null)
                             .map(creation -> anonymousTestDoubleShape(creation, sourceContent));
                 })
                 .collect(Collectors.toMap(shape -> shape, shape -> 1, Integer::sum));
     }
 
     private static String anonymousTestDoubleShape(TSNode creation, SourceContent sourceContent) {
-        TSNode typeNode = creation.getChildByFieldName("type");
+        TSNode typeNode = creation.getChildByFieldName(nodeField(JavaNodeField.TYPE));
         String type = typeNode == null
                 ? "<unknown>"
                 : sourceContent.substringFrom(typeNode).strip();
         var methods = new ArrayList<TSNode>();
-        collectNodesByType(creation, Set.of(METHOD_DECLARATION), methods);
+        collectNodesByType(creation, Set.of(nodeType(METHOD_DECLARATION)), methods);
         String methodNames = methods.stream()
-                .map(method -> method.getChildByFieldName("name"))
+                .map(method -> method.getChildByFieldName(nodeField(JavaNodeField.NAME)))
                 .filter(Objects::nonNull)
                 .map(sourceContent::substringFrom)
                 .collect(Collectors.joining(","));
@@ -2107,7 +2127,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         if (node == null) {
             return;
         }
-        if (CATCH_CLAUSE.equals(node.getType())) {
+        if (nodeType(CATCH_CLAUSE).equals(node.getType())) {
             analyzeCatchClause(file, node, sourceContent, weights).ifPresent(out::add);
         }
         for (int i = 0; i < node.getChildCount(); i++) {
@@ -2122,7 +2142,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             ProjectFile file, TSNode catchNode, SourceContent sourceContent, ExceptionSmellWeights weights) {
         TSNode catchParam = null;
         for (TSNode child : catchNode.getNamedChildren()) {
-            if (CATCH_FORMAL_PARAMETER.equals(child.getType())) {
+            if (nodeType(CATCH_FORMAL_PARAMETER).equals(child.getType())) {
                 catchParam = child;
                 break;
             }
@@ -2131,10 +2151,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             return Optional.empty();
         }
 
-        TSNode typeNode = catchParam.getChildByFieldName("type");
+        TSNode typeNode = catchParam.getChildByFieldName(nodeField(JavaNodeField.TYPE));
         String catchType = sourceContent.substringFrom(typeNode).strip();
         if (catchType.isEmpty()) {
-            TSNode nameNode = catchParam.getChildByFieldName("name");
+            TSNode nameNode = catchParam.getChildByFieldName(nodeField(JavaNodeField.NAME));
             String paramText = sourceContent.substringFrom(catchParam).strip();
             if (nameNode != null) {
                 String name = sourceContent.substringFrom(nameNode).strip();
@@ -2151,10 +2171,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             return Optional.empty();
         }
 
-        TSNode bodyNode = catchNode.getChildByFieldName("body");
+        TSNode bodyNode = catchNode.getChildByFieldName(nodeField(JavaNodeField.BODY));
         if (bodyNode == null) {
             bodyNode = catchNode.getNamedChildren().stream()
-                    .filter(child -> BLOCK.equals(child.getType()))
+                    .filter(child -> nodeType(BLOCK).equals(child.getType()))
                     .findFirst()
                     .orElse(null);
         }
@@ -2167,7 +2187,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
         boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
         boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
-        boolean throwPresent = hasDescendantOfType(bodyNode, THROW_STATEMENT);
+        boolean throwPresent = hasDescendantOfType(bodyNode, nodeType(THROW_STATEMENT));
         boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !throwPresent;
 
         int score = 0;
@@ -2232,7 +2252,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 continue;
             }
             String type = child.getType();
-            if (LINE_COMMENT.equals(type) || BLOCK_COMMENT.equals(type)) {
+            if (nodeType(LINE_COMMENT).equals(type) || nodeType(BLOCK_COMMENT).equals(type)) {
                 continue;
             }
             if (CATCH_BODY_MEANINGFUL_STATEMENT_TYPES.contains(type)) {
@@ -2244,14 +2264,14 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
     private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
         TSNode statement = firstNonCommentNamedChild(bodyNode, JAVA_COMMENT_NODE_TYPES);
-        if (statement == null || !EXPRESSION_STATEMENT.equals(statement.getType())) {
+        if (statement == null || !nodeType(EXPRESSION_STATEMENT).equals(statement.getType())) {
             return false;
         }
-        TSNode invocation = findFirstNamedDescendant(statement, METHOD_INVOCATION);
+        TSNode invocation = findFirstNamedDescendant(statement, nodeType(METHOD_INVOCATION));
         if (invocation == null) {
             return false;
         }
-        TSNode objectNode = invocation.getChildByFieldName("object");
+        TSNode objectNode = invocation.getChildByFieldName(nodeField(JavaNodeField.OBJECT));
         if (objectNode == null) {
             return false;
         }
@@ -2424,7 +2444,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             return;
         }
         String t = node.getType();
-        if (LINE_COMMENT.equals(t) || BLOCK_COMMENT.equals(t)) {
+        if (nodeType(LINE_COMMENT).equals(t) || nodeType(BLOCK_COMMENT).equals(t)) {
             out.add(node);
             return;
         }

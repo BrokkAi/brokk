@@ -11,6 +11,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.gui.dialogs.AttachContextDialog;
 import ai.brokk.gui.dialogs.SymbolSelectionDialog;
 import ai.brokk.prompts.CopyExternalPrompts;
@@ -164,13 +165,12 @@ public class ContextActionsHandler {
                         .ifPresent(projectFile ->
                                 list.add(WorkspaceAction.VIEW_HISTORY.createFileAction(actions, projectFile)));
             } else if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
-                var cf = (ContextFragments.HistoryFragment) fragment;
-                var uncompressedExists = cf.entries().stream().anyMatch(entry -> !entry.isCompressed());
-                if (uncompressedExists) {
+                var cf = (ContextOutputFragments.HistoryOutputFragment) fragment;
+                var hasEntries = !cf.entryMarkdowns().isEmpty();
+                if (hasEntries) {
                     list.add(WorkspaceAction.COMPRESS_HISTORY.createAction(actions));
                 } else {
-                    list.add(WorkspaceAction.COMPRESS_HISTORY.createDisabledAction(
-                            "No uncompressed history to compress"));
+                    list.add(WorkspaceAction.COMPRESS_HISTORY.createDisabledAction("No history to compress"));
                 }
             } else {
                 list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction(

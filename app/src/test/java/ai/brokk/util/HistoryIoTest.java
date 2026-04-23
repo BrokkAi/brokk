@@ -46,9 +46,9 @@ public class HistoryIoTest {
         Context context = new Context(contextManager);
         for (int i = 0; i < 3; i++) {
             var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
-            var taskFragment = new ContextFragments.TaskFragment(msgs, "Task " + i);
             var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, new AbstractService.ModelConfig("test-model"));
-            context = context.addHistoryEntry(taskFragment, meta);
+            var md = Messages.format(msgs);
+            context = context.addHistoryEntry(new ai.brokk.TaskEntry(i, "Task " + i, md, md, null, meta));
         }
         history.pushContext(context);
 

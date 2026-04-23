@@ -2,8 +2,8 @@ package ai.brokk.gui.tests;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ExecutorsUtil;
@@ -230,7 +230,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             if (!records.isEmpty()) {
                 int count = Math.min(records.size(), maxRuns);
                 List<CompletedEntry> entries = new ArrayList<>(count);
-                IContextManager cm = chrome.getContextManager();
+                IAppContextManager cm = chrome.getContextManager();
 
                 for (int i = 0; i < count; i++) {
                     var r = records.get(i);
@@ -515,7 +515,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        IContextManager cm = chrome.getContextManager();
+        IAppContextManager cm = chrome.getContextManager();
         String command = BuildTools.getBuildLintSomeCommand(cm, details, testFiles);
         if (command.isBlank()) {
             chrome.toolError("Could not determine test command for the selected files.", "Run Tests");

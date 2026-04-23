@@ -348,7 +348,7 @@ public class AnalyzerUtil {
      * @return an Optional containing either {@link ContextFragments.ProjectPathFragment} or
      *         {@link ContextFragments.SummaryFragment}; empty if the file is not part of the project
      */
-    public static Optional<ContextFragment> selectFileFragment(IContextManager cm, String input, boolean summarize) {
+    public static Optional<ContextFragment> selectFileFragment(IAppContextManager cm, String input, boolean summarize) {
         ProjectFile chosenFromInput = cm.toFile(input);
         return cm.getProject()
                 .getFileByRelPath(chosenFromInput.getRelPath())
@@ -372,7 +372,7 @@ public class AnalyzerUtil {
      * @return an ordered Set of fragments (one per file) or an empty set if no files matched
      */
     public static Set<ContextFragment> selectFolderFragments(
-            IContextManager cm, String input, boolean includeSubfolders, boolean summarize) {
+            IAppContextManager cm, String input, boolean includeSubfolders, boolean summarize) {
         if (input.trim().isEmpty()) {
             return Set.of();
         }
@@ -436,7 +436,7 @@ public class AnalyzerUtil {
      *         empty if no matching class is found
      */
     public static Set<ContextFragment> selectClassFragment(
-            IAnalyzer analyzer, IContextManager cm, String input, boolean summarize) {
+            IAnalyzer analyzer, IAppContextManager cm, String input, boolean summarize) {
 
         Set<CodeUnit> matches = analyzer.getDefinitions(input).stream()
                 .filter(CodeUnit::isClass)
@@ -499,7 +499,7 @@ public class AnalyzerUtil {
      *         empty if no matching method is found
      */
     public static Set<ContextFragment> selectMethodFragment(
-            IAnalyzer analyzer, IContextManager cm, String input, boolean summarize) {
+            IAnalyzer analyzer, IAppContextManager cm, String input, boolean summarize) {
 
         // 1) Exact definition by fully qualified name
         Set<CodeUnit> matches = analyzer.getDefinitions(input).stream()
@@ -576,7 +576,7 @@ public class AnalyzerUtil {
      * blank
      */
     public static Optional<ContextFragment> selectUsageFragment(
-            IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles) {
+            IAnalyzer analyzer, IAppContextManager cm, String input, boolean includeTestFiles) {
         return selectUsageFragment(analyzer, cm, input, includeTestFiles, ContextFragments.UsageMode.FULL);
     }
 
@@ -596,7 +596,7 @@ public class AnalyzerUtil {
      */
     public static Optional<ContextFragment> selectUsageFragment(
             IAnalyzer analyzer,
-            IContextManager cm,
+            IAppContextManager cm,
             String input,
             boolean includeTestFiles,
             ContextFragments.UsageMode mode) {

@@ -1,9 +1,9 @@
 package ai.brokk.testutil;
 
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
+import ai.brokk.usages.UsageFinder;
 import java.util.Collection;
 import java.util.Set;
 import java.util.stream.Collectors;

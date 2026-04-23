@@ -1,6 +1,6 @@
 package ai.brokk.executor.agents;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -18,10 +18,10 @@ import org.apache.logging.log4j.Logger;
 public class CustomAgentTools {
     private static final Logger logger = LogManager.getLogger(CustomAgentTools.class);
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final StreamingChatModel model;
 
-    public CustomAgentTools(IContextManager cm, StreamingChatModel model) {
+    public CustomAgentTools(IAppContextManager cm, StreamingChatModel model) {
         this.cm = cm;
         this.model = model;
     }

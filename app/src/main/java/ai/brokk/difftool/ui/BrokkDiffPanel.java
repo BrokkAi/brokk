@@ -3,6 +3,7 @@ package ai.brokk.difftool.ui;
 import ai.brokk.*;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.difftool.doc.AbstractBufferDocument;
 import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.node.JMDiffNode;
@@ -695,7 +696,9 @@ public class BrokkDiffPanel extends JPanel
         // Build resulting Context by adding any changed files that are not already editable in the top context
         var resultingCtx = currentContext
                 .addFragments(contextManager.toPathFragments(changedFiles))
-                .addHistoryEntry(new ContextFragments.TaskFragment(messages, actionDescription), null);
+                .addHistoryEntry(
+                        new ContextOutputFragments.TaskOutputFragment(actionDescription, Messages.format(messages)),
+                        null);
 
         var result = TaskResult.from(resultingCtx, TaskResult.StopReason.SUCCESS);
 

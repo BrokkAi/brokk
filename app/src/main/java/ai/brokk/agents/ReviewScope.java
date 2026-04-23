@@ -1,6 +1,6 @@
 package ai.brokk.agents;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.SessionManager;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
@@ -73,7 +73,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
      * </ul>
      */
     @Blocking
-    public static ReviewScope fromDefaultBranch(IContextManager cm) {
+    public static ReviewScope fromDefaultBranch(IAppContextManager cm) {
         if (!cm.getProject().hasGit()) {
             throw new IllegalStateException("ReviewScope requires a git repository");
         }
@@ -121,7 +121,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
      * returns a ReviewContext for changes from ($fromRef..HEAD]
      */
     @Blocking
-    public static ReviewScope fromBaseline(IContextManager cm, String fromRef) {
+    public static ReviewScope fromBaseline(IAppContextManager cm, String fromRef) {
         return fromBaseline(cm, fromRef, "HEAD");
     }
 
@@ -130,7 +130,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
      * so you probably shouldn't use this otherwise.
      */
     @Blocking
-    public static ReviewScope fromBaseline(IContextManager cm, String fromRef, String endRef) {
+    public static ReviewScope fromBaseline(IAppContextManager cm, String fromRef, String endRef) {
         if (!cm.getProject().hasGit()) {
             throw new IllegalStateException("ReviewScope requires a git repository");
         }
@@ -188,7 +188,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
     }
 
     @Blocking
-    public static ReviewScope fromContext(IContextManager cm, Context context) throws ReviewLoadException {
+    public static ReviewScope fromContext(IAppContextManager cm, Context context) throws ReviewLoadException {
         var metadataFragment = context.getSpecial(SpecialTextType.REVIEW_METADATA);
         var diffFragment = context.getSpecial(SpecialTextType.REVIEW_DIFF);
 
@@ -291,7 +291,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
 
     @Blocking
     public static SessionContext extractSessionContext(
-            IContextManager cm, List<UUID> sessionIds, Set<ProjectFile> editedFiles) {
+            IAppContextManager cm, List<UUID> sessionIds, Set<ProjectFile> editedFiles) {
         if (sessionIds.isEmpty()) {
             return new SessionContext(List.of(), List.of());
         }
@@ -343,7 +343,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
     }
 
     @Blocking
-    public static List<UUID> findOverlappingSessions(IContextManager cm, List<CommitInfo> commits) {
+    public static List<UUID> findOverlappingSessions(IAppContextManager cm, List<CommitInfo> commits) {
         if (commits.isEmpty()) {
             return List.of();
         }

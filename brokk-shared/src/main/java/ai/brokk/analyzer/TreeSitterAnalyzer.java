@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -73,6 +74,45 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         int score() {
             return smell.score();
         }
+    }
+
+    protected static String compactExcerptForTable(String text) {
+        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        if (compact.length() <= 180) {
+            return compact;
+        }
+        return compact.substring(0, 180) + "...";
+    }
+
+    protected static <T> int testMeaningfulAssertionCredit(
+            List<T> assertions, TestAssertionWeights weights, Predicate<T> predicate) {
+        long count = assertions.stream().filter(predicate).count();
+        int creditable = Math.min((int) count, Math.max(0, weights.meaningfulAssertionCreditCap()));
+        return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
+    }
+
+    protected static void addTestSmellCandidate(
+            ProjectFile file,
+            String enclosing,
+            String assertionKind,
+            int score,
+            int assertionCount,
+            List<String> reasons,
+            String excerptSource,
+            int startByte,
+            List<TestSmellCandidate> out) {
+        if (score <= 0 || reasons.isEmpty()) {
+            return;
+        }
+        var smell = new TestAssertionSmell(
+                file,
+                enclosing,
+                assertionKind,
+                score,
+                assertionCount,
+                List.copyOf(reasons),
+                compactExcerptForTable(excerptSource));
+        out.add(new TestSmellCandidate(smell, startByte));
     }
 
     protected record SmellCandidate(ExceptionHandlingSmell smell, int startByte) {
@@ -1111,6 +1151,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 defaultValue);
     }
 
+    protected @Nullable TSNode primaryNodeForCodeUnit(TSTree tree, CodeUnit cu) {
+        List<Range> ranges = rangesOf(cu);
+        if (ranges.isEmpty()) {
+            return null;
+        }
+
+        TSNode root = tree.getRootNode();
+        if (root == null) {
+            return null;
+        }
+
+        Range primary = ranges.getFirst();
+        return root.getDescendantForByteRange(primary.startByte(), primary.endByte());
+    }
+
     // ---------- IAnalyzer ----------
     @Override
     public Set<Language> languages() {
@@ -1534,16 +1589,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // For classes, expect one primary definition range (already expanded with comments)
         var range = ranges.getFirst();
-
-        var scOpt = SourceContent.read(cu.source());
-        if (scOpt.isEmpty()) {
+        String extractedSource = withSource(
+                cu.source(),
+                sc -> {
+                    // Choose start byte based on includeComments parameter
+                    int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+                    return sc.substringFromBytes(extractStartByte, range.endByte());
+                },
+                "");
+        if (extractedSource.isEmpty()) {
             return Optional.empty();
         }
-
-        // Choose start byte based on includeComments parameter
-        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
-        var extractedSource = scOpt.get().substringFromBytes(extractStartByte, range.endByte());
-
         return Optional.of(extractedSource);
     }
 
@@ -1558,38 +1614,40 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return Collections.emptySet();
         }
 
-        var scOpt = SourceContent.read(cu.source());
-        if (scOpt.isEmpty()) {
-            log.warn("Could not read source for CU {} (fqName {}): {}", cu, cu.fqName(), "unreadable");
-            return Collections.emptySet();
-        }
+        return withSource(
+                cu.source(),
+                sc -> {
+                    // Sort ranges by startByte to ensure they appear in source order (important for function overloads)
+                    // Always sort by the actual code start byte, not the comment start byte, to maintain source order
+                    var sortedRanges = rangesForOverloads.stream()
+                            .sorted(Comparator.comparingInt(Range::startByte))
+                            .toList();
 
-        // Sort ranges by startByte to ensure they appear in source order (important for function overloads)
-        // Always sort by the actual code start byte, not the comment start byte, to maintain source order
-        var sortedRanges = rangesForOverloads.stream()
-                .sorted(Comparator.comparingInt(Range::startByte))
-                .toList();
-
-        var methodSources = new LinkedHashSet<String>();
-        for (Range range : sortedRanges) {
-            // Choose start byte based on includeComments parameter
-            int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
-            String methodSource = scOpt.get().substringFromBytes(extractStartByte, range.endByte());
-            if (!methodSource.isEmpty()) {
-                methodSources.add(methodSource);
-            } else {
-                log.warn(
-                        "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
-                        extractStartByte,
-                        range.endByte(),
-                        cu,
-                        cu.fqName());
-            }
-        }
-        if (methodSources.isEmpty()) {
-            log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, cu.fqName());
-        }
-        return Collections.unmodifiableSequencedSet(methodSources);
+                    var methodSources = new LinkedHashSet<String>();
+                    for (Range range : sortedRanges) {
+                        // Choose start byte based on includeComments parameter
+                        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+                        String methodSource = sc.substringFromBytes(extractStartByte, range.endByte());
+                        if (!methodSource.isEmpty()) {
+                            methodSources.add(methodSource);
+                        } else {
+                            log.warn(
+                                    "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
+                                    extractStartByte,
+                                    range.endByte(),
+                                    cu,
+                                    cu.fqName());
+                        }
+                    }
+                    if (methodSources.isEmpty()) {
+                        log.warn(
+                                "After processing ranges, no valid method sources found for CU {} (fqName {}).",
+                                cu,
+                                cu.fqName());
+                    }
+                    return Collections.unmodifiableSequencedSet(methodSources);
+                },
+                Collections.emptySet());
     }
 
     @Override

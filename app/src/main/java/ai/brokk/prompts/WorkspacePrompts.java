@@ -1,7 +1,5 @@
 package ai.brokk.prompts;
 
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
@@ -161,26 +159,17 @@ public final class WorkspacePrompts {
                 .filter(e -> !e.isCompressed())
                 .filter(e -> entryMatchesType(e, includedTypes))
                 .forEach(e -> {
-                    var entryRawMessages = castNonNull(e.llmLog()).messages();
-                    if (entryRawMessages.isEmpty()) {
+                    var fragment = e.llmLog();
+                    if (fragment == null) {
+                        return;
+                    }
+                    String entryMarkdown = fragment.text().join();
+                    if (entryMarkdown.isBlank()) {
                         return;
                     }
 
-                    // Determine the messages to include from the entry
-                    var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
-                            ? entryRawMessages
-                            : entryRawMessages.subList(0, entryRawMessages.size() - 1);
-
-                    var entryMeta = e.meta();
-
-                    var currentPrimaryModel = currentMeta.primaryModel();
-                    var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
-
-                    // Redact tool calls if the primary models differ
-                    boolean redactToolCalls = entryPrimaryModel != null
-                            && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
-
-                    messages.addAll(CodePrompts.redactHistoryMessages(relevantEntryMessages, redactToolCalls));
+                    messages.add(new UserMessage("<tasklog>%s</tasklog>".formatted(entryMarkdown)));
+                    messages.add(new AiMessage("Ok, I see the log."));
                 });
 
         return messages;

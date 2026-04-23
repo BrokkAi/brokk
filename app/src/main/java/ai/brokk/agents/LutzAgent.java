@@ -3,8 +3,8 @@ package ai.brokk.agents;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
@@ -112,7 +112,7 @@ public class LutzAgent {
     }
 
     private static final int MAX_TOTAL_TURNS = 20;
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final StreamingChatModel model;
     private final ContextManager.TaskScope scope;
     private final Llm llm;
@@ -480,7 +480,7 @@ public class LutzAgent {
      */
     public static SetupContextResult setupContext(Context initialContext, String goal, boolean prune)
             throws InterruptedException {
-        IContextManager cm = initialContext.getContextManager();
+        IAppContextManager cm = initialContext.getContextManager();
 
         // async referenceagent
         CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
@@ -490,7 +490,7 @@ public class LutzAgent {
         CompletableFuture<Context> pruneFuture;
         if (prune) {
             pruneFuture = LoggingFuture.supplyCallableAsync(() -> {
-                IContextManager cm1 = initialContext.getContextManager();
+                IAppContextManager cm1 = initialContext.getContextManager();
                 var janitor = new JanitorAgent(cm1, cm1.getIo(), goal, initialContext);
                 return janitor.execute().context();
             });

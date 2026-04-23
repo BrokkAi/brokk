@@ -1,7 +1,7 @@
 package ai.brokk.gui;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
@@ -32,7 +32,7 @@ public class CommitDialog extends BaseThemedDialog {
     private final MaterialButton commitButton;
     private final MaterialButton cancelButton;
     private final MaterialButton regenerateButton;
-    private final transient IContextManager contextManager;
+    private final transient IAppContextManager contextManager;
     private final transient GitWorkflow workflowService;
     private final transient Collection<ProjectFile> filesToCommit;
     private final transient Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback;
@@ -41,7 +41,7 @@ public class CommitDialog extends BaseThemedDialog {
     public CommitDialog(
             @Nullable Window owner,
             Chrome chrome,
-            IContextManager contextManager,
+            IAppContextManager contextManager,
             Collection<ProjectFile> filesToCommit,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
         this(owner, chrome, contextManager, filesToCommit, null, onCommitSuccessCallback);
@@ -50,7 +50,7 @@ public class CommitDialog extends BaseThemedDialog {
     public CommitDialog(
             @Nullable Window owner,
             Chrome chrome,
-            IContextManager contextManager,
+            IAppContextManager contextManager,
             Collection<ProjectFile> filesToCommit,
             @Nullable String prefilledMessage,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {

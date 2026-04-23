@@ -73,6 +73,22 @@ class AgentDefinitionTest {
     }
 
     @Test
+    void validate_codeQualityTools_secretAndTestSmellTools_areKnown() {
+        var def = new AgentDefinition(
+                "test",
+                "desc",
+                List.of("reportSecretLikeCode", "reportTestAssertionSmells"),
+                null,
+                "prompt",
+                "project");
+        assertTrue(def.validate().isEmpty(), "Expected no errors but got: " + def.validate());
+        assertTrue(AgentDefinition.READ_ONLY_TOOL_NAMES.contains("reportSecretLikeCode"));
+        assertTrue(AgentDefinition.READ_ONLY_TOOL_NAMES.contains("reportTestAssertionSmells"));
+        assertTrue(AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES.contains("reportSecretLikeCode"));
+        assertTrue(AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES.contains("reportTestAssertionSmells"));
+    }
+
+    @Test
     void validate_negativeMaxTurns_returnsError() {
         var def = new AgentDefinition("test", "desc", null, -1, "prompt", "project");
         var errors = def.validate();

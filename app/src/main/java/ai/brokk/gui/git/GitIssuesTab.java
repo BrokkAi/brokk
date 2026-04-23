@@ -3,7 +3,7 @@ package ai.brokk.gui.git;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
-import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.gui.AutoScalingHtmlPane;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
@@ -33,6 +33,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ImageUtil;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.awt.*;
@@ -1233,7 +1234,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 IssueDetails details = issueService.loadDetails(header.id());
 
                 List<ChatMessage> issueTextMessages = buildIssueTextContentFromDetails(details);
-                ContextFragments.TaskFragment issueTextFragment =
+                ContextOutputFragments.TaskOutputFragment issueTextFragment =
                         createIssueTextFragmentFromDetails(details, issueTextMessages);
                 contextManager.addFragments(issueTextFragment);
 
@@ -1289,11 +1290,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         return List.of(UserMessage.from(header.author(), content));
     }
 
-    private ContextFragments.TaskFragment createIssueTextFragmentFromDetails(
+    private ContextOutputFragments.TaskOutputFragment createIssueTextFragmentFromDetails(
             IssueDetails details, List<ChatMessage> messages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: %s", header.id(), header.title());
-        return new ContextFragments.TaskFragment(messages, description, false);
+        return new ContextOutputFragments.TaskOutputFragment(description, Messages.format(messages), false);
     }
 
     private List<ChatMessage> buildChatMessagesFromDtoComments(List<Comment> dtoComments) {
@@ -1310,11 +1311,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         return chatMessages;
     }
 
-    private ContextFragments.TaskFragment createCommentsFragmentFromDetails(
+    private ContextOutputFragments.TaskOutputFragment createCommentsFragmentFromDetails(
             IssueDetails details, List<ChatMessage> commentMessages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: Comments", header.id());
-        return new ContextFragments.TaskFragment(commentMessages, description, false);
+        return new ContextOutputFragments.TaskOutputFragment(description, Messages.format(commentMessages), false);
     }
 
     private int processAndCaptureImagesFromDetails(IssueDetails details) {

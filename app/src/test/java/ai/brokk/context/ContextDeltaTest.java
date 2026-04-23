@@ -2,12 +2,13 @@ package ai.brokk.context;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -24,7 +25,7 @@ class ContextDeltaTest {
     @TempDir
     Path tempDir;
 
-    private IContextManager contextManager;
+    private IAppContextManager contextManager;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -94,8 +95,8 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager);
 
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(msgs, "task");
-        var entry = new TaskEntry(1, taskFrag, null);
+        var md = Messages.format(msgs);
+        var entry = new TaskEntry(1, "task", md, md, null, null);
         var ctx2 = ctx1.addHistoryEntryInternal(entry);
 
         var delta = ContextDelta.between(ctx1, ctx2).join();
@@ -115,8 +116,8 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager).addFragments(List.of(frag));
 
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(msgs, "task");
-        var entry = new TaskEntry(1, taskFrag, null);
+        var md = Messages.format(msgs);
+        var entry = new TaskEntry(1, "task", md, md, null, null);
         var ctxWithHistory = ctx1.addHistoryEntryInternal(entry);
         var ctxCleared = ctxWithHistory.clearHistory();
 
@@ -133,8 +134,8 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager);
         // Create an uncompressed entry (no summary, has log)
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(msgs, "task");
-        var entry1 = new TaskEntry(1, taskFrag, null);
+        var md = Messages.format(msgs);
+        var entry1 = new TaskEntry(1, "task", md, md, null, null);
         assertFalse(entry1.isCompressed());
         var ctx2 = ctx1.withHistory(List.of(entry1));
 
@@ -314,7 +315,7 @@ class ContextDeltaTest {
 
     @Test
     void testDelta_findWithSameSource_usageFragment() {
-        var frag1 = new ContextFragments.UsageFragment(contextManager, "com.example.MyClass.myMethod");
+        var frag1 = new ContextFragments.UsageFragment(contextManager, "com.example.MyClass.myMethod", true);
         var frag2 = new ContextFragments.UsageFragment(contextManager, "com.example.MyClass.myMethod");
 
         var ctx1 = new Context(contextManager).addFragments(List.of(frag1));
@@ -351,20 +352,20 @@ class ContextDeltaTest {
     void testDelta_mixedHistoryChanges_tasksAddedAndCompressed() {
         // Start with uncompressed entries
         List<ChatMessage> msgs1 = List.of(UserMessage.from("User1"), AiMessage.from("AI1"));
-        var taskFrag1 = new ContextFragments.TaskFragment(msgs1, "task1");
-        var entry1 = new TaskEntry(1, taskFrag1, null);
+        var md1 = Messages.format(msgs1);
+        var entry1 = new TaskEntry(1, "task1", md1, md1, null, null);
 
         List<ChatMessage> msgs2 = List.of(UserMessage.from("User2"), AiMessage.from("AI2"));
-        var taskFrag2 = new ContextFragments.TaskFragment(msgs2, "task2");
-        var entry2 = new TaskEntry(2, taskFrag2, null);
+        var md2 = Messages.format(msgs2);
+        var entry2 = new TaskEntry(2, "task2", md2, md2, null, null);
 
         var ctx1 = new Context(contextManager).withHistory(List.of(entry1, entry2));
 
         // Compress first entry and add a new one
         var entry1Compressed = TaskEntry.fromCompressed(1, "Compressed task1");
         List<ChatMessage> msgs3 = List.of(UserMessage.from("User3"), AiMessage.from("AI3"));
-        var taskFrag3 = new ContextFragments.TaskFragment(msgs3, "task3");
-        var entry3 = new TaskEntry(3, taskFrag3, null);
+        var md3 = Messages.format(msgs3);
+        var entry3 = new TaskEntry(3, "task3", md3, md3, null, null);
 
         var ctx2 = ctx1.withHistory(List.of(entry1Compressed, entry2, entry3));
 

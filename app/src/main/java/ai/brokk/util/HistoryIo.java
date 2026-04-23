@@ -1,7 +1,6 @@
 package ai.brokk.util;
 
-import ai.brokk.IContextManager;
-import ai.brokk.TaskEntry;
+import ai.brokk.IAppContextManager;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.ContentDtos.ContentMetadataDto;
 import ai.brokk.context.ContentDtos.DiffContentMetadataDto;
@@ -10,6 +9,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
 import ai.brokk.tasks.TaskList;
@@ -310,7 +310,7 @@ public final class HistoryIo {
         return countSessionStats(zip).aiResponses();
     }
 
-    public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
+    public static ContextHistory readZip(Path zip, IAppContextManager mgr) throws IOException {
         boolean isV4 = false;
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
@@ -328,11 +328,11 @@ public final class HistoryIo {
         throw new InvalidObjectException("History zip file " + zip + " is not in a recognized format");
     }
 
-    private static ContextHistory readZipV4(Path zip, IContextManager mgr) throws IOException {
+    private static ContextHistory readZipV4(Path zip, IAppContextManager mgr) throws IOException {
         return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
     }
 
-    private static ContextHistory readZipWithFragmentsFile(Path zip, IContextManager mgr, String fragmentsFilename)
+    private static ContextHistory readZipWithFragmentsFile(Path zip, IAppContextManager mgr, String fragmentsFilename)
             throws IOException {
         AllFragmentsDto allFragmentsDto = null;
         var compactContextDtoLines = new ArrayList<String>();
@@ -531,7 +531,7 @@ public final class HistoryIo {
                 }
             });
             ctx.allFragments().filter(f -> !f.getType().isPath()).forEach(vf -> {
-                if (vf instanceof ContextFragments.TaskFragment taskFragment) {
+                if (vf instanceof ContextOutputFragments.TaskOutputFragment taskFragment) {
                     if (!collectedTaskDtos.containsKey(taskFragment.id())) {
                         collectedTaskDtos.put(taskFragment.id(), DtoMapper.toTaskFragmentDto(taskFragment, writer));
                     }
@@ -545,24 +545,15 @@ public final class HistoryIo {
                         }
                     }
 
-                    if (vf instanceof ContextFragments.HistoryFragment hf) {
-                        hf.entries().stream()
-                                .map(TaskEntry::mopLog)
-                                .filter(Objects::nonNull)
-                                .forEach(log -> {
-                                    if (!collectedTaskDtos.containsKey(log.id())) {
-                                        collectedTaskDtos.put(log.id(), DtoMapper.toTaskFragmentDto(log, writer));
-                                    }
-                                });
-                    }
+                    // HistoryOutputFragment carries only markdown; no additional task fragment refs to collect.
                 }
             });
             ctx.getTaskHistory().forEach(te -> {
-                ContextFragments.TaskFragment mop = te.mopLog();
+                ContextOutputFragments.TaskOutputFragment mop = te.mopLog();
                 if (mop != null && !collectedTaskDtos.containsKey(mop.id())) {
                     collectedTaskDtos.put(mop.id(), DtoMapper.toTaskFragmentDto(mop, writer));
                 }
-                ContextFragments.TaskFragment llm = te.llmLog();
+                ContextOutputFragments.TaskOutputFragment llm = te.llmLog();
                 if (llm != null && !collectedTaskDtos.containsKey(llm.id())) {
                     collectedTaskDtos.put(llm.id(), DtoMapper.toTaskFragmentDto(llm, writer));
                 }

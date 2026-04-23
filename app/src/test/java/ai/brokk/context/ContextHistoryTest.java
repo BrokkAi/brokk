@@ -8,6 +8,7 @@ import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -211,8 +212,9 @@ public class ContextHistoryTest {
         var history = new ContextHistory(initialContext);
 
         // Add task history only; no file changes
-        var taskFragment = new ContextFragments.TaskFragment(List.of(new UserMessage("Test task")), "Test Session");
-        var taskEntry = new TaskEntry(1, taskFragment, null);
+        var msgs = List.<ChatMessage>of(new UserMessage("Test task"));
+        var md = ai.brokk.util.Messages.format(msgs);
+        var taskEntry = new TaskEntry(1, "Test Session", md, md, null, null);
         CompletableFuture.completedFuture("Action");
         var contextWithHistory = initialContext.addHistoryEntryInternal(taskEntry);
         history.pushContext(contextWithHistory);

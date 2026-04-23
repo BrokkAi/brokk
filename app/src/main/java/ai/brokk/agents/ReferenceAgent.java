@@ -1,6 +1,6 @@
 package ai.brokk.agents;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
@@ -43,9 +43,9 @@ import org.jetbrains.annotations.Blocking;
 public class ReferenceAgent {
     private static final Logger logger = LogManager.getLogger(ReferenceAgent.class);
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
 
-    public ReferenceAgent(IContextManager cm) {
+    public ReferenceAgent(IAppContextManager cm) {
         this.cm = cm;
     }
 

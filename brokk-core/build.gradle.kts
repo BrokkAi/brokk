@@ -155,8 +155,16 @@ tasks.shadowJar {
 tasks.shadowJar {
     enabled = project.hasProperty("enableShadowJar") ||
               System.getenv("CI") == "true" ||
+              System.getenv("GITHUB_ACTIONS") == "true" ||
               gradle.startParameter.taskNames.any {
-                  it.contains("shadowJar") || it.contains("deployCoreMcpShadowJar")
+                  it.contains("shadowJar") ||
+                  it.contains("deployCoreMcpShadowJar") ||
+                  // These tasks (from :brokk-shared) read brokk-core/build/libs/brokk-core-<version>.jar.
+                  // Ensure the shaded jar is produced when they run in CI/dependency-analysis workflows.
+                  it.contains("discoverDuplicationFor") ||
+                  it.contains("explodeByteCodeSource") ||
+                  it.contains("artifactsReport") ||
+                  it.contains("synthesizeProjectView")
               }
 }
 

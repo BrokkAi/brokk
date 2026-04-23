@@ -9,7 +9,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -179,7 +179,7 @@ public class SearchTools {
         }
     }
 
-    private final IContextManager contextManager; // Needed for file operations
+    private final IAppContextManager contextManager; // Needed for file operations
     private final AtomicLong researchTokens = new AtomicLong(0);
     private final Cache<FileRankingCacheKey, List<ProjectFile>> prioritizedFilesCache =
             Caffeine.newBuilder().maximumSize(64).build();
@@ -188,7 +188,7 @@ public class SearchTools {
     private final Cache<String, List<ProjectFile>> changedFilesByCommitCache =
             Caffeine.newBuilder().maximumSize(2048).build();
 
-    public SearchTools(IContextManager contextManager) {
+    public SearchTools(IAppContextManager contextManager) {
         this.contextManager = contextManager;
     }
 

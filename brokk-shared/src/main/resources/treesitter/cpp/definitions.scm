@@ -89,3 +89,14 @@
 
 ; Access specifiers
 (access_specifier) @access.specifier
+
+; Test markers (GoogleTest/Catch2 style test macro invocations)
+(call_expression
+  function: (identifier) @test.marker
+  (#match? @test.marker "^(TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE|SCENARIO|BOOST_AUTO_TEST_CASE|BOOST_FIXTURE_TEST_CASE|BOOST_DATA_TEST_CASE|TEST_CLASS|TEST_METHOD)$"))
+
+; Fallback capture: require invocation structure, not a bare identifier.
+; Some parser shapes expose macro names as bare identifiers. Structure is validated
+; in CppAnalyzer before accepting a marker (must map to invocation/body context).
+((identifier) @test.marker
+  (#match? @test.marker "^(TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE|SCENARIO|BOOST_AUTO_TEST_CASE|BOOST_FIXTURE_TEST_CASE|BOOST_DATA_TEST_CASE|TEST_CLASS|TEST_METHOD)$"))

@@ -15,15 +15,14 @@ class TestProjectGetAllFilesTest {
 
     @Test
     void bareSystemTempRoot_throws() {
-        var project = new TestProject(Path.of(System.getProperty("java.io.tmpdir")), Languages.NONE);
+        var project = new TestProject(SystemTempDir.root(), Languages.NONE);
         IllegalStateException ex = assertThrows(IllegalStateException.class, project::getAllFiles);
         assertTrue(ex.getMessage().contains("@TempDir"));
     }
 
     @Test
     void bareSystemTempRoot_withAllFiles_doesNotThrow() {
-        var project =
-                new TestProject(Path.of(System.getProperty("java.io.tmpdir")), Languages.NONE).withAllFiles(Set.of());
+        var project = new TestProject(SystemTempDir.root(), Languages.NONE).withAllFiles(Set.of());
         assertTrue(project.getAllFiles().isEmpty());
     }
 

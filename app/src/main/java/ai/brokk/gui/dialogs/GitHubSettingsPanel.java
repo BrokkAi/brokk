@@ -1,7 +1,7 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.GitHubAuth;
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.github.BackgroundGitHubAuth;
@@ -24,7 +24,7 @@ import org.jetbrains.annotations.Nullable;
 public class GitHubSettingsPanel extends JPanel implements SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(GitHubSettingsPanel.class);
 
-    private final IContextManager contextManager;
+    private final IAppContextManager contextManager;
     private final Component parentComponent;
 
     @Nullable
@@ -71,7 +71,7 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
 
     private boolean browserOpenedForCurrentCode = false;
 
-    public GitHubSettingsPanel(IContextManager contextManager, Component parentComponent) {
+    public GitHubSettingsPanel(IAppContextManager contextManager, Component parentComponent) {
         this.contextManager = contextManager;
         this.parentComponent = parentComponent;
         setLayout(new GridBagLayout());

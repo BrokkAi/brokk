@@ -247,7 +247,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                 .orElse(file.toString());
         int assertionCount = signals.size();
         if (assertionCount == 0) {
-            addTestSmell(
+            addTestSmellCandidate(
                     file,
                     enclosing,
                     TEST_ASSERTION_KIND_NO_ASSERTIONS,
@@ -262,7 +262,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         signals.stream()
                 .filter(signal -> signal.baseScore() > 0)
-                .forEach(signal -> addTestSmell(
+                .forEach(signal -> addTestSmellCandidate(
                         file,
                         enclosing,
                         signal.kind(),
@@ -276,9 +276,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         boolean allShallow = signals.stream().allMatch(AssertionSignal::shallow);
         if (allShallow) {
             int score = weights.shallowAssertionOnlyWeight()
-                    - meaningfulAssertionCredit(signals, weights, AssertionSignal::meaningful);
+                    - testMeaningfulAssertionCredit(signals, weights, AssertionSignal::meaningful);
             if (score > 0) {
-                addTestSmell(
+                addTestSmellCandidate(
                         file,
                         enclosing,
                         TEST_ASSERTION_KIND_SHALLOW_ONLY,
@@ -564,15 +564,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                         && sourceContent.substringFrom(arg).length() >= weights.largeLiteralLengthThreshold());
     }
 
-    private static int meaningfulAssertionCredit(
-            List<AssertionSignal> assertions,
-            TestAssertionWeights weights,
-            java.util.function.Predicate<AssertionSignal> predicate) {
-        long count = assertions.stream().filter(predicate).count();
-        int creditable = Math.min((int) count, Math.max(0, weights.meaningfulAssertionCreditCap()));
-        return Math.max(0, weights.meaningfulAssertionCredit()) * creditable;
-    }
-
     private static @Nullable TSNode firstNamedChild(TSNode node) {
         for (int i = 0; i < node.getNamedChildCount(); i++) {
             TSNode child = node.getNamedChild(i);
@@ -591,30 +582,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             }
         }
         return null;
-    }
-
-    private static void addTestSmell(
-            ProjectFile file,
-            String enclosing,
-            String assertionKind,
-            int score,
-            int assertionCount,
-            List<String> reasons,
-            String excerptSource,
-            int startByte,
-            List<TestSmellCandidate> out) {
-        if (score <= 0 || reasons.isEmpty()) {
-            return;
-        }
-        var smell = new TestAssertionSmell(
-                file,
-                enclosing,
-                assertionKind,
-                score,
-                assertionCount,
-                List.copyOf(reasons),
-                compactCatchExcerpt(excerptSource));
-        out.add(new TestSmellCandidate(smell, startByte));
     }
 
     private record AssertionSignal(
@@ -815,56 +782,57 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public int computeCyclomaticComplexity(CodeUnit cu) {
         if (!cu.isFunction()) return 0;
+        int fallbackComplexity = super.computeCyclomaticComplexity(cu);
 
-        return getSource(cu, false)
-                .map(source -> {
-                    try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
-                        TSNode root = tree.getRootNode();
-                        if (root == null) return 1;
-
-                        SourceContent content = SourceContent.of(source);
-                        int complexity = 1; // Base complexity
-
-                        Deque<TSNode> stack = new ArrayDeque<>();
-                        stack.push(root);
-
-                        while (!stack.isEmpty()) {
-                            TSNode node = stack.pop();
-                            String type = node.getType();
-                            if (type == null) {
-                                continue;
+        Integer result = withTreeOf(
+                cu.source(),
+                tree -> withSource(
+                        cu.source(),
+                        content -> {
+                            TSNode cuNode = primaryNodeForCodeUnit(tree, cu);
+                            if (cuNode == null) {
+                                return 1;
                             }
 
-                            switch (type) {
-                                case IF_STATEMENT,
-                                        ELIF_CLAUSE,
-                                        FOR_STATEMENT,
-                                        WHILE_STATEMENT,
-                                        EXCEPT_CLAUSE,
-                                        CONDITIONAL_EXPRESSION,
-                                        CASE_CLAUSE -> complexity++;
-                                case BOOLEAN_OPERATOR -> {
-                                    String op = content.substringFrom(node);
-                                    if (op.contains("and") || op.contains("or")) {
-                                        complexity++;
+                            int complexity = 1;
+                            Deque<TSNode> stack = new ArrayDeque<>();
+                            stack.push(cuNode);
+
+                            while (!stack.isEmpty()) {
+                                TSNode node = stack.pop();
+                                String type = node.getType();
+                                if (type == null) {
+                                    continue;
+                                }
+
+                                switch (type) {
+                                    case IF_STATEMENT,
+                                            ELIF_CLAUSE,
+                                            FOR_STATEMENT,
+                                            WHILE_STATEMENT,
+                                            EXCEPT_CLAUSE,
+                                            CONDITIONAL_EXPRESSION,
+                                            CASE_CLAUSE -> complexity++;
+                                    case BOOLEAN_OPERATOR -> {
+                                        String op = content.substringFrom(node);
+                                        if (op.contains("and") || op.contains("or")) {
+                                            complexity++;
+                                        }
+                                    }
+                                }
+
+                                for (int i = 0; i < node.getNamedChildCount(); i++) {
+                                    TSNode child = node.getNamedChild(i);
+                                    if (child != null) {
+                                        stack.push(child);
                                     }
                                 }
                             }
-
-                            for (int i = 0; i < node.getNamedChildCount(); i++) {
-                                TSNode child = node.getNamedChild(i);
-                                if (child != null) {
-                                    stack.push(child);
-                                }
-                            }
-                        }
-                        return complexity;
-                    } catch (Exception e) {
-                        log.warn("Failed to compute complexity for {} using AST; falling back", cu.fqName(), e);
-                        return super.computeCyclomaticComplexity(cu);
-                    }
-                })
-                .orElse(0);
+                            return complexity;
+                        },
+                        fallbackComplexity),
+                fallbackComplexity);
+        return result != null ? result : fallbackComplexity;
     }
 
     @Override

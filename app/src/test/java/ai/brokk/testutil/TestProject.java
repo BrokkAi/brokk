@@ -291,8 +291,7 @@ public class TestProject implements IProject {
      * {@link #withAllFiles} or {@link #withAllFilesSupplier}.
      */
     private static boolean isBareSystemTempDirectory(Path root) {
-        Path tmp =
-                Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
+        Path tmp = SystemTempDir.root().toAbsolutePath().normalize();
         Path r = root.toAbsolutePath().normalize();
         if (r.equals(tmp)) {
             return true;
@@ -314,7 +313,7 @@ public class TestProject implements IProject {
         }
         if (isBareSystemTempDirectory(root)) {
             throw new IllegalStateException(
-                    "TestProject root must not be the JVM system temp directory (java.io.tmpdir); that would scan the "
+                    "TestProject root must not be the JVM system temp directory; that would scan the "
                             + "entire temp tree. Use a dedicated directory, for example JUnit 5 @TempDir, or supply "
                             + "files with withAllFiles(...) / withAllFilesSupplier(...).");
         }

@@ -3,8 +3,8 @@ package ai.brokk.gui.terminal;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.gui.BorderUtils;
@@ -37,7 +37,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
-public class TaskListPanel extends JPanel implements ThemeAware, IContextManager.ContextListener {
+public class TaskListPanel extends JPanel implements ThemeAware, IAppContextManager.ContextListener {
 
     private static final Logger logger = LogManager.getLogger(TaskListPanel.class);
     private final ContextManager cm;

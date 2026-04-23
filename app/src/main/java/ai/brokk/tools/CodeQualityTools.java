@@ -1,7 +1,7 @@
 package ai.brokk.tools;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CommentDensityStats;
 import ai.brokk.analyzer.IAnalyzer;
@@ -37,9 +37,9 @@ public class CodeQualityTools {
     private static final int DEFAULT_SECRET_MAX_FINDINGS = 100;
     private static final int DEFAULT_SECRET_MAX_COMMITS = 2000;
 
-    private final IContextManager contextManager;
+    private final IAppContextManager contextManager;
 
-    public CodeQualityTools(IContextManager contextManager) {
+    public CodeQualityTools(IAppContextManager contextManager) {
         this.contextManager = contextManager;
     }
 
@@ -151,12 +151,14 @@ public class CodeQualityTools {
             ProjectFile file = contextManager.toFile(path);
             if (!file.exists()) {
                 lines.add("- Missing file (skipped): `" + path + "`");
+                filesShown++;
                 continue;
             }
             if (!"java".equals(file.extension())) {
                 lines.add("### `" + path + "`");
                 lines.add("(not a Java file; skipped)");
                 lines.add("");
+                filesShown++;
                 continue;
             }
             List<CommentDensityStats> stats = analyzer.commentDensityByTopLevel(file);
@@ -327,7 +329,8 @@ public class CodeQualityTools {
             String left = finding.file() + "#" + finding.enclosingFqName();
             String right = finding.peerFile() + "#" + finding.peerEnclosingFqName();
             String key = left.compareTo(right) <= 0 ? left + "||" + right : right + "||" + left;
-            deduped.putIfAbsent(key, finding);
+            deduped.merge(
+                    key, finding, (existing, incoming) -> incoming.score() > existing.score() ? incoming : existing);
         }
         var filtered = deduped.values().stream()
                 .filter(f -> f.score() >= threshold)

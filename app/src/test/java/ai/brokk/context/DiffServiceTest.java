@@ -2,7 +2,7 @@ package ai.brokk.context;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
@@ -59,7 +59,7 @@ class DiffServiceTest {
     @TempDir
     Path tempDir;
 
-    private IContextManager contextManager;
+    private IAppContextManager contextManager;
 
     @BeforeEach
     void setup() {
@@ -202,7 +202,7 @@ class DiffServiceTest {
 
             SlowFragment(
                     String id,
-                    IContextManager cm,
+                    IAppContextManager cm,
                     @Nullable ContextFragments.ContentSnapshot snapshot,
                     @Nullable Callable<ContextFragments.ContentSnapshot> task,
                     ContextFragment.FragmentType type) {

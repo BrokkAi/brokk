@@ -1,11 +1,11 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.analyzer.DependencyImportable;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Language.DependencyCandidate;
 import ai.brokk.analyzer.Language.DependencyKind;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.gui.dependencies.importing.DependencyImporter;
 import java.awt.BorderLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -43,7 +43,8 @@ public class ImportLanguagePanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(ImportLanguagePanel.class);
 
     private final Chrome chrome;
-    private final DependencyImportable language;
+    private final Language language;
+    private final DependencyImporter importer;
 
     private final JTextField searchField = new JTextField();
 
@@ -72,10 +73,11 @@ public class ImportLanguagePanel extends JPanel {
 
     private final List<DependencyCandidate> currentRows = new ArrayList<>();
 
-    public ImportLanguagePanel(Chrome chrome, DependencyImportable language) {
+    public ImportLanguagePanel(Chrome chrome, Language language, DependencyImporter importer) {
         super(new BorderLayout(5, 5));
         this.chrome = chrome;
         this.language = language;
+        this.importer = importer;
         initUi();
         loadPackages();
     }
@@ -103,7 +105,7 @@ public class ImportLanguagePanel extends JPanel {
     public boolean initiateImport() {
         var selected = getSelectedPackage();
         if (selected == null) return false;
-        return language.importDependency(chrome, selected, lifecycleListener);
+        return importer.importDependency(chrome, language, selected, lifecycleListener);
     }
 
     private void initUi() {
@@ -142,7 +144,7 @@ public class ImportLanguagePanel extends JPanel {
         add(scroll, BorderLayout.CENTER);
 
         // Show "Kind" column only for fine-grained support
-        if (language.getDependencyImportSupport() != Language.ImportSupport.FINE_GRAINED) {
+        if (importer.getImportSupport(language) != Language.ImportSupport.FINE_GRAINED) {
             var cm = table.getColumnModel();
             var kindCol = cm.getColumn(1);
             kindCol.setMinWidth(0);
@@ -192,7 +194,7 @@ public class ImportLanguagePanel extends JPanel {
     private void loadPackages() {
         chrome.getContextManager().submitBackgroundTask("Discovering " + language.name() + " dependencies", () -> {
             try {
-                var pkgs = language.listDependencyPackages(chrome.getProject());
+                var pkgs = importer.listDependencyPackages(chrome.getProject(), language);
                 SwingUtilities.invokeLater(() -> populate(pkgs));
             } catch (Exception ex) {
                 logger.warn("Failed to discover {} dependencies", language.name(), ex);

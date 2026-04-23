@@ -131,6 +131,26 @@ public class Languages {
             }
             return Language.super.getSearchPatterns(type);
         }
+
+        @Override
+        public ImportSupport getDependencyImportSupport() {
+            return ImportSupport.FINE_GRAINED;
+        }
+
+        @Override
+        public List<Path> getDependencyCandidates(ICoreProject project) {
+            return NodeJsDependencyHelper.getDependencyCandidates(project);
+        }
+
+        @Override
+        public List<DependencyCandidate> listDependencyPackages(ICoreProject project) {
+            return NodeJsDependencyHelper.listDependencyPackages(project);
+        }
+
+        @Override
+        public boolean isAnalyzed(ICoreProject project, Path pathToImport) {
+            return NodeJsDependencyHelper.isAnalyzed(project, pathToImport);
+        }
     };
     public static final Language PYTHON = new PythonLanguage();
     public static final Language C_CPP = new CppLanguage();
@@ -404,6 +424,26 @@ public class Languages {
         @Override
         public String toString() {
             return name();
+        }
+
+        @Override
+        public ImportSupport getDependencyImportSupport() {
+            return ImportSupport.FINE_GRAINED;
+        }
+
+        @Override
+        public List<Path> getDependencyCandidates(ICoreProject project) {
+            return NodeJsDependencyHelper.getDependencyCandidates(project);
+        }
+
+        @Override
+        public List<DependencyCandidate> listDependencyPackages(ICoreProject project) {
+            return NodeJsDependencyHelper.listDependencyPackages(project);
+        }
+
+        @Override
+        public boolean isAnalyzed(ICoreProject project, Path pathToImport) {
+            return NodeJsDependencyHelper.isAnalyzed(project, pathToImport);
         }
     };
 

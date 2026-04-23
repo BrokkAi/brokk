@@ -1,6 +1,6 @@
 package ai.brokk.gui;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.SessionManager;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
@@ -41,7 +41,7 @@ import org.jetbrains.annotations.Nullable;
 public final class ContextExplorer extends JFrame {
     private static final Logger logger = LogManager.getLogger(ContextExplorer.class);
     private final SessionManager sessionManager;
-    private final IContextManager contextManager; // A minimal stub for history loading
+    private final IAppContextManager contextManager; // A minimal stub for history loading
     private final Path sessionsDir;
 
     // Pane 1: Sessions Table (Left) - sortable with 3 columns
@@ -819,7 +819,7 @@ public final class ContextExplorer extends JFrame {
 
     // Minimal, self-contained context manager for history loading and previewing.
     // Provides a stub analyzer and a simple project root based on the current working directory.
-    private static final class MinimalContextManager implements IContextManager {
+    private static final class MinimalContextManager implements IAppContextManager {
         private final IProject project;
         private final IAnalyzer analyzer = new DisabledAnalyzer() {};
 

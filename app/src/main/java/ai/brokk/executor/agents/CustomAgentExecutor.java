@@ -1,7 +1,7 @@
 package ai.brokk.executor.agents;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
@@ -50,7 +50,7 @@ public class CustomAgentExecutor {
     private static final Set<String> TERMINAL_TOOL_NAMES = Set.of("answer", "abortSearch");
     private static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES = AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES;
 
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final AgentDefinition agentDef;
     private final Llm llm;
     private final SearchTools searchTools;
@@ -58,11 +58,12 @@ public class CustomAgentExecutor {
 
     private Context context;
 
-    public CustomAgentExecutor(IContextManager cm, AgentDefinition agentDef, StreamingChatModel model) {
+    public CustomAgentExecutor(IAppContextManager cm, AgentDefinition agentDef, StreamingChatModel model) {
         this(cm, agentDef, model, cm.getIo());
     }
 
-    public CustomAgentExecutor(IContextManager cm, AgentDefinition agentDef, StreamingChatModel model, IConsoleIO io) {
+    public CustomAgentExecutor(
+            IAppContextManager cm, AgentDefinition agentDef, StreamingChatModel model, IConsoleIO io) {
         this.cm = cm;
         this.agentDef = agentDef;
         this.io = io;

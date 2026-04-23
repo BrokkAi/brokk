@@ -4,8 +4,8 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
+import ai.brokk.IAppContextManager.AnalyzerCallback;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager.AnalyzerCallback;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.ReviewAgent;

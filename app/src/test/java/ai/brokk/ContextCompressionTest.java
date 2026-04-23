@@ -2,11 +2,11 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.context.ContextFragments;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -99,8 +99,8 @@ public class ContextCompressionTest {
         List<ChatMessage> messages = List.of(
                 UserMessage.from("What is the capital of France?"), AiMessage.from("The capital of France is Paris."));
 
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Geography Question");
-        var originalEntry = new TaskEntry(1, taskFragment, null);
+        var md = Messages.format(messages);
+        var originalEntry = new TaskEntry(1, "Geography Question", md, md, null, null);
 
         // Verify initial state: has log, no summary
         assertTrue(originalEntry.hasLog(), "Original entry should have log");
@@ -108,13 +108,11 @@ public class ContextCompressionTest {
 
         // Create a compressed entry (simulating what compressHistory does)
         String compressedSummary = "The user asked about France's capital, and AI responded with Paris.";
-        var compressedEntry = new TaskEntry(1, originalEntry.mopLog(), null, compressedSummary, null);
+        var compressedEntry = originalEntry.withSummary(compressedSummary);
 
         // Verify compressed state: still has log, now also has summary
         assertTrue(compressedEntry.hasLog(), "Compressed entry should preserve original log");
-        assertSame(originalEntry.mopLog(), compressedEntry.mopLog(), "Log instance should be identical");
-        assertEquals(
-                messages.size(), compressedEntry.mopLog().messages().size(), "Log should have same number of messages");
+        assertEquals(originalEntry.mopMarkdown(), compressedEntry.mopMarkdown(), "Log should be identical");
 
         assertTrue(compressedEntry.isCompressed(), "Compressed entry should now have summary");
         assertEquals(compressedSummary, compressedEntry.summary(), "Summary should match");
@@ -125,14 +123,15 @@ public class ContextCompressionTest {
     @Test
     void testCompressionPreservesSequenceAndMetadata() {
         List<ChatMessage> messages = List.of(UserMessage.from("Test"));
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Test");
+        var md = Messages.format(messages);
         var meta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE,
                 new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
-        var originalEntry = new TaskEntry(42, taskFragment, taskFragment, null, meta);
+        var originalEntry = new TaskEntry(42, "Test", md, md, null, meta);
 
         String summary = "Test summary";
-        var compressedEntry = new TaskEntry(42, originalEntry.mopLog(), null, summary, originalEntry.meta());
+        var compressedEntry = new TaskEntry(
+                42, originalEntry.description(), originalEntry.mopMarkdown(), null, summary, originalEntry.meta());
 
         assertEquals(42, compressedEntry.sequence(), "Sequence should be preserved");
         assertNotNull(compressedEntry.meta(), "Metadata should be preserved");
@@ -145,10 +144,10 @@ public class ContextCompressionTest {
         // If an entry is already summarized (has both log and summary),
         // it should be treated as already compressed and returned unchanged
         List<ChatMessage> messages = List.of(UserMessage.from("Test"));
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Test");
+        var md = Messages.format(messages);
         String summary = "Test summary";
 
-        var alreadyCompressed = new TaskEntry(1, taskFragment, summary);
+        var alreadyCompressed = new TaskEntry(1, "Test", md, md, summary, null);
         assertTrue(alreadyCompressed.isCompressed(), "Entry should be marked as compressed");
         assertTrue(alreadyCompressed.hasLog(), "Entry should have log");
         assertTrue(alreadyCompressed.isCompressed(), "Entry should have summary");
@@ -163,8 +162,8 @@ public class ContextCompressionTest {
         // Entry with only log, no summary: indicates it needs compression
         List<ChatMessage> messages = List.of(UserMessage.from("Hello"), AiMessage.from("Hi there!"));
 
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Greeting");
-        var logOnlyEntry = new TaskEntry(1, taskFragment, null);
+        var md = Messages.format(messages);
+        var logOnlyEntry = new TaskEntry(1, "Greeting", md, md, null, null);
 
         assertTrue(logOnlyEntry.hasLog(), "Should have log");
         assertFalse(logOnlyEntry.isCompressed(), "Should not have summary");
@@ -189,16 +188,17 @@ public class ContextCompressionTest {
         List<ChatMessage> messages =
                 List.of(UserMessage.from("Refactor this code"), AiMessage.from("Here's the refactored version..."));
 
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Code Refactor");
+        var md = Messages.format(messages);
         var meta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE,
                 new Service.ModelConfig("gpt-4", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
 
-        var originalEntry = new TaskEntry(5, taskFragment, taskFragment, null, meta);
+        var originalEntry = new TaskEntry(5, "Code Refactor", md, md, null, meta);
 
         // Simulate compression
         String summary = "User requested code refactoring; AI provided refactored version.";
-        var compressedEntry = new TaskEntry(5, originalEntry.mopLog(), null, summary, originalEntry.meta());
+        var compressedEntry = new TaskEntry(
+                5, originalEntry.description(), originalEntry.mopMarkdown(), null, summary, originalEntry.meta());
 
         // Verify all metadata is preserved
         assertEquals(5, compressedEntry.sequence());
@@ -214,7 +214,8 @@ public class ContextCompressionTest {
 
         // Verify messages are intact
         assertTrue(compressedEntry.hasLog());
-        assertEquals(2, compressedEntry.mopLog().messages().size());
+        assertNotNull(compressedEntry.mopMarkdown());
+        assertTrue(compressedEntry.mopMarkdown().contains("Refactor this code"));
 
         // Verify summary is attached
         assertEquals(summary, compressedEntry.summary());
@@ -226,9 +227,9 @@ public class ContextCompressionTest {
         // (not the full messages, which are only for the UI)
         List<ChatMessage> messages = List.of(UserMessage.from("Question"), AiMessage.from("Answer"));
 
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Q&A");
+        var md = Messages.format(messages);
         String summary = "Q&A interaction";
-        var compressedEntry = new TaskEntry(1, taskFragment, summary);
+        var compressedEntry = new TaskEntry(1, "Q&A", md, md, summary, null);
 
         String str = compressedEntry.toString();
 
@@ -245,16 +246,16 @@ public class ContextCompressionTest {
     @Test
     void testCompressionStateTransitions() {
         List<ChatMessage> messages = List.of(UserMessage.from("Test"));
-        var taskFragment = new ContextFragments.TaskFragment(messages, "Test");
+        var md = Messages.format(messages);
 
         // State 1: Log only (needs compression)
-        var logOnly = new TaskEntry(1, taskFragment, null);
+        var logOnly = new TaskEntry(1, "Test", md, md, null, null);
         assertFalse(logOnly.isCompressed());
         assertTrue(logOnly.hasLog());
 
         // State 2: Both log and summary (compressed, AI uses summary)
         String summary = "Summary";
-        var withBoth = new TaskEntry(1, logOnly.mopLog(), summary);
+        var withBoth = new TaskEntry(1, logOnly.mopMarkdown(), summary);
         assertTrue(withBoth.isCompressed());
         assertTrue(withBoth.hasLog());
 

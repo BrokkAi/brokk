@@ -8,7 +8,7 @@ import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -28,8 +28,8 @@ import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.ToolContext;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -53,6 +53,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -1497,8 +1498,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         pendingHistory = null;
 
         // Set an explicit empty main TaskEntry (new-task placeholder) and display the staged history
-        var emptyMainFragment = new ContextFragments.TaskFragment(List.of(), "");
-        var emptyMainTask = new TaskEntry(-1, emptyMainFragment, null);
+        var emptyMainTask = new TaskEntry(-1, "(stream)", "", "", null, null);
         llmStreamArea.setMainThenHistoryAsync(emptyMainTask, history);
     }
 
@@ -1633,18 +1633,26 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private void openOutputWindowFromContext(Context context) {
         var taskHistory = context.getTaskHistory();
         if (!taskHistory.isEmpty()) {
-            var fragment = new ContextFragments.HistoryFragment(contextManager, taskHistory);
+            var entryMarkdowns = taskHistory.stream()
+                    .map(te -> te.isCompressed() ? te.summary() : te.mopMarkdown())
+                    .filter(Objects::nonNull)
+                    .toList();
+            var fragment = new ContextOutputFragments.HistoryOutputFragment(entryMarkdowns);
             chrome.openFragmentPreview(fragment);
         }
     }
 
     private void openOutputWindowStreaming() {
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
-        var tempFragment = new ContextFragments.TaskFragment(currentMessages, "Streaming Output...");
+        String currentMarkdown = Messages.format(currentMessages);
         var history = new ArrayList<>(contextManager.liveContext().getTaskHistory());
-        history.add(new TaskEntry(-1, tempFragment, null));
+        history.add(new TaskEntry(-1, "Streaming Output...", currentMarkdown, currentMarkdown, null, null));
 
-        var fragment = new ContextFragments.HistoryFragment(contextManager, history);
+        var entryMarkdowns = history.stream()
+                .map(te -> te.isCompressed() ? te.summary() : te.mopMarkdown())
+                .filter(Objects::nonNull)
+                .toList();
+        var fragment = new ContextOutputFragments.HistoryOutputFragment(entryMarkdowns);
         chrome.openFragmentPreview(fragment);
     }
 
@@ -1899,18 +1907,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        // Extract the final AI message from the TaskFragment
-        var messages = log.messages();
-        String reviewMarkdown = null;
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            var msg = messages.get(i);
-            if (msg.type() == ChatMessageType.AI) {
-                if (msg instanceof AiMessage aiMsg) {
-                    reviewMarkdown = aiMsg.text();
-                    break;
-                }
-            }
-        }
+        String reviewMarkdown = lastEntry.llmMarkdown();
 
         if (reviewMarkdown == null || reviewMarkdown.isBlank()) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review content found in context.");

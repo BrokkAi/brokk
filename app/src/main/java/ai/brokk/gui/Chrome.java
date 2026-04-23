@@ -5,8 +5,8 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
@@ -71,7 +71,7 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class Chrome
-        implements AutoCloseable, IConsoleIO, IContextManager.ContextListener, IContextManager.AnalyzerCallback {
+        implements AutoCloseable, IConsoleIO, IAppContextManager.ContextListener, IAppContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
     // Track open Chrome instances for window cascading
@@ -963,7 +963,7 @@ public class Chrome
         });
 
         // 2. Analyzer Callbacks
-        contextManager.addAnalyzerCallback(new IContextManager.AnalyzerCallback() {
+        contextManager.addAnalyzerCallback(new IAppContextManager.AnalyzerCallback() {
             @Override
             public void onAnalyzerReady() {
                 getProject().getMainProject().getDependencyUpdateScheduler().onAnalyzerReady();

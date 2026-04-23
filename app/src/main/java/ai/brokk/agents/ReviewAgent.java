@@ -5,8 +5,8 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 import ai.brokk.AbstractService;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
@@ -14,6 +14,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TestFileHeuristics;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
@@ -91,7 +92,7 @@ public class ReviewAgent {
 
     private final AbstractService.ModelConfig modelConfig;
     private final boolean optimizeForLatency;
-    private final IContextManager cm;
+    private final IAppContextManager cm;
     private final PrReviewService.Severity severityThreshold;
     private @Nullable Context contextBeingBuilt;
     private boolean isComplex = false;
@@ -109,7 +110,7 @@ public class ReviewAgent {
             ReviewScope scope,
             AbstractService.ModelConfig modelConfig,
             boolean optimizeForLatency,
-            IContextManager cm) {
+            IAppContextManager cm) {
         this(scope, modelConfig, optimizeForLatency, cm, PrReviewService.Severity.HIGH);
     }
 
@@ -117,7 +118,7 @@ public class ReviewAgent {
             ReviewScope scope,
             AbstractService.ModelConfig modelConfig,
             boolean optimizeForLatency,
-            IContextManager cm,
+            IAppContextManager cm,
             PrReviewService.Severity severityThreshold) {
         this.changes = scope.changes();
         this.metadata = scope.metadata();
@@ -128,7 +129,7 @@ public class ReviewAgent {
     }
 
     @TestOnly
-    ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm) {
+    ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IAppContextManager cm) {
         this(
                 new ReviewScope(changes, new ReviewScope.Metadata("HEAD~1", "HEAD", sessionIds)),
                 ModelType.ARCHITECT.defaultConfig(),
@@ -381,7 +382,10 @@ public class ReviewAgent {
         }
 
         // Fallback
-        var testFiles = cm.getTestFiles();
+        var analyzer = cm.getAnalyzerUninterrupted();
+        var testFiles = cm.getProject().getAllFiles().stream()
+                .filter(pf -> TestFileHeuristics.isTestFile(pf, analyzer))
+                .collect(Collectors.toSet());
         var filesToContext = changes.perFileChanges().stream()
                 .filter(fd -> {
                     var file = fd.newFile() != null ? fd.newFile() : fd.oldFile();

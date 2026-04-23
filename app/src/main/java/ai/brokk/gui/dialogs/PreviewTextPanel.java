@@ -1058,9 +1058,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             throws ExecutionException, InterruptedException {
         var sessionResult = future.get(); // might throw InterruptedException or ExecutionException
         var stopDetails = sessionResult.stopDetails();
-        quickEditMessages = new ArrayList<>(sessionResult
-                .output()
-                .messages()); // Create mutable copy to avoid UnsupportedOperationException on clear()
+        String outputMarkdown = sessionResult.output().text().join();
+        quickEditMessages = new ArrayList<>(List.of(new AiMessage(outputMarkdown)));
 
         // If the LLM itself was not successful, return the error
         if (stopDetails.reason() != TaskResult.StopReason.SUCCESS) {
@@ -1071,7 +1070,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         }
 
         // LLM call succeeded; try to parse a snippet
-        var response = sessionResult.output().messages().getLast();
+        var response = quickEditMessages.getLast();
         if (!(response instanceof AiMessage)) {
             throw new IllegalStateException(
                     "Expected AiMessage but got: " + response.getClass().getSimpleName());

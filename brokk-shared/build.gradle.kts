@@ -2,6 +2,7 @@ import net.ltgt.gradle.errorprone.errorprone
 
 plugins {
     `java-library`
+    `java-test-fixtures`
     alias(libs.plugins.errorprone)
     alias(libs.plugins.spotless)
 }
@@ -81,6 +82,13 @@ dependencies {
     testImplementation(libs.bundles.junit)
     testImplementation(libs.jupiter.iface)
     testRuntimeOnly(libs.bundles.junit.runtime)
+    testImplementation(testFixtures(project(":brokk-shared")))
+    testImplementation(project(":brokk-core"))
+
+    // Test fixtures (shared between modules)
+    testFixturesImplementation(platform(libs.junit.bom))
+    testFixturesImplementation(libs.bundles.junit)
+    testFixturesImplementation(libs.jupiter.iface)
 }
 
 tasks.withType<JavaCompile> {
@@ -106,5 +114,22 @@ tasks.withType<Test> {
     useJUnitPlatform()
     filter {
         isFailOnNoMatchingTests = false
+    }
+}
+
+// In CI, :brokk-core disables :jar and produces the module artifact via :shadowJar instead.
+// Some :brokk-shared test + dependency-analysis tasks read the resulting jar from
+// brokk-core/build/libs/, so we must make the relationship explicit to satisfy Gradle's
+// validation rules (implicit task dependency).
+tasks.withType<Test>().configureEach {
+    dependsOn(":brokk-core:shadowJar")
+}
+tasks.configureEach {
+    if (name.contains("discoverDuplicationFor") ||
+        name.contains("explodeByteCodeSource") ||
+        name.contains("artifactsReport") ||
+        name.contains("synthesizeProjectView") ||
+        name.contains("serviceLoader")) {
+        dependsOn(":brokk-core:shadowJar")
     }
 }

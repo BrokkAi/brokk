@@ -4,8 +4,8 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
+import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.Llm.StreamingResult;
 import ai.brokk.LlmOutputMeta;
@@ -244,18 +244,18 @@ public class CodeAgent {
 
     private final boolean allowPromotion;
 
-    final IContextManager contextManager;
+    final IAppContextManager contextManager;
     private final StreamingChatModel model;
     private final IConsoleIO io;
 
     // A "global" for current task Context. Updated mid-task with new files and build status.
     Context context;
 
-    public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
+    public CodeAgent(IAppContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
     }
 
-    public CodeAgent(IContextManager contextManager, StreamingChatModel model, IConsoleIO io) {
+    public CodeAgent(IAppContextManager contextManager, StreamingChatModel model, IConsoleIO io) {
         this.contextManager = contextManager;
         var service = contextManager.getService();
         this.model = service.withReasoning(model, AbstractService.ReasoningLevel.DISABLE);

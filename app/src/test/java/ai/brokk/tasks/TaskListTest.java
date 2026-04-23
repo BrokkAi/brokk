@@ -2,7 +2,7 @@ package ai.brokk.tasks;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.context.Context;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
  */
 public class TaskListTest {
 
-    private IContextManager cm;
+    private IAppContextManager cm;
     private Context context;
 
     @BeforeEach
