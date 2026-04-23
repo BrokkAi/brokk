@@ -611,40 +611,41 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     private Optional<ExceptionHandlingSmell> analyzeExceptClause(
             ProjectFile file, TSNode exceptClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
-        TSNode bodyNode = exceptClause.getNamedChildren().stream()
-                .filter(child -> nodeType(BLOCK).equals(child.getType()))
-                .findFirst()
-                .orElse(null);
+        TSNode bodyNode = null;
+        for (int i = 0; i < exceptClause.getNamedChildCount(); i++) {
+            TSNode child = exceptClause.getNamedChild(i);
+            if (child == null) {
+                continue;
+            }
+            if (nodeType(BLOCK).equals(child.getType())) {
+                bodyNode = child;
+                break;
+            }
+        }
         if (bodyNode == null) {
             return Optional.empty();
         }
 
         int bodyStatements = countBodyExpressions(bodyNode);
-        String bodyText = sourceContent.substringFrom(bodyNode);
-        boolean hasAnyComment = bodyText.contains("#");
-        boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
-        boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
+        boolean emptyBody = bodyStatements == 0;
         boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
         boolean raisePresent = hasDescendantOfType(bodyNode, nodeType(RAISE_STATEMENT));
         boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !raisePresent;
 
-        String catchType = extractExceptType(exceptClause, sourceContent);
+        ExceptTypeInfo exceptTypeInfo = extractExceptTypeInfo(exceptClause, bodyNode, sourceContent);
+        String catchType = exceptTypeInfo.catchType();
         int score = 0;
         var reasons = new ArrayList<String>();
-        if (catchType.equals("<bare>") || catchType.contains("BaseException")) {
+        if (catchType.equals("<bare>") || exceptTypeInfo.terminalNames().contains("BaseException")) {
             score += weights.genericThrowableWeight();
             reasons.add("generic-catch:BaseException");
-        } else if (catchType.contains("Exception")) {
+        } else if (exceptTypeInfo.terminalNames().contains("Exception")) {
             score += weights.genericExceptionWeight();
             reasons.add("generic-catch:Exception");
         }
         if (emptyBody) {
             score += weights.emptyBodyWeight();
             reasons.add("empty-body");
-        }
-        if (commentOnlyBody) {
-            score += weights.commentOnlyBodyWeight();
-            reasons.add("comment-only-body");
         }
         if (smallBody) {
             score += weights.smallBodyWeight();
@@ -678,7 +679,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                 score,
                 bodyStatements,
                 List.copyOf(reasons),
-                compactCatchExcerpt(sourceContent.substringFrom(exceptClause))));
+                compactExcerptForTable(sourceContent.substringFrom(exceptClause))));
     }
 
     private static int countBodyExpressions(TSNode bodyNode) {
@@ -695,19 +696,62 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         return expressions;
     }
 
-    private static String extractExceptType(TSNode exceptClause, SourceContent sourceContent) {
-        String text = sourceContent.substringFrom(exceptClause).strip();
-        if (!text.startsWith("except")) {
-            return "<unknown>";
+    private record ExceptTypeInfo(String catchType, Set<String> terminalNames) {}
+
+    private static ExceptTypeInfo extractExceptTypeInfo(
+            TSNode exceptClause, TSNode bodyNode, SourceContent sourceContent) {
+        int headerStart = exceptClause.getStartByte();
+        int headerEnd = Math.max(headerStart, bodyNode.getStartByte());
+        String header = sourceContent.substringFromBytes(headerStart, headerEnd).strip();
+        if (!header.startsWith("except")) {
+            return new ExceptTypeInfo("<unknown>", Set.of());
         }
-        int colonIdx = text.indexOf(':');
-        String head = colonIdx >= 0 ? text.substring(0, colonIdx) : text;
-        String remainder = head.substring("except".length()).strip();
+
+        String remainder = header.substring("except".length()).strip();
+        int colonIdx = remainder.indexOf(':');
+        if (colonIdx >= 0) {
+            remainder = remainder.substring(0, colonIdx).strip();
+        }
         if (remainder.isEmpty()) {
-            return "<bare>";
+            return new ExceptTypeInfo("<bare>", Set.of());
         }
         int asIdx = remainder.indexOf(" as ");
-        return (asIdx >= 0 ? remainder.substring(0, asIdx) : remainder).strip();
+        if (asIdx >= 0) {
+            remainder = remainder.substring(0, asIdx).strip();
+        }
+
+        String typesPart = remainder;
+        if (typesPart.startsWith("(") && typesPart.endsWith(")") && typesPart.length() > 2) {
+            typesPart = typesPart.substring(1, typesPart.length() - 1).strip();
+        }
+
+        var typeNames = new ArrayList<String>();
+        int start = 0;
+        for (int i = 0; i <= typesPart.length(); i++) {
+            if (i == typesPart.length() || typesPart.charAt(i) == ',') {
+                String trimmed = typesPart.substring(start, i).strip();
+                if (!trimmed.isEmpty()) {
+                    typeNames.add(trimmed);
+                }
+                start = i + 1;
+            }
+        }
+        if (typeNames.isEmpty()) {
+            return new ExceptTypeInfo("<bare>", Set.of());
+        }
+
+        var terminals = new LinkedHashSet<String>();
+        for (String name : typeNames) {
+            terminals.add(terminalIdentifier(name));
+        }
+        return new ExceptTypeInfo(String.join(", ", typeNames), Set.copyOf(terminals));
+    }
+
+    private static String terminalIdentifier(String reference) {
+        String trimmed = reference.strip();
+        int dot = trimmed.lastIndexOf('.');
+        String last = dot >= 0 ? trimmed.substring(dot + 1) : trimmed;
+        return last.strip();
     }
 
     private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
@@ -735,21 +779,83 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         if (objectNode == null || attributeNode == null) {
             return false;
         }
-        String receiver = sourceContent.substringFrom(objectNode).strip().toLowerCase(Locale.ROOT);
         String method = sourceContent.substringFrom(attributeNode).strip().toLowerCase(Locale.ROOT);
-        boolean loggerLikeReceiver = PYTHON_LOG_RECEIVER_NAMES.contains(receiver)
-                || PYTHON_LOG_RECEIVER_NAMES.stream().anyMatch(name -> receiver.endsWith("." + name))
-                || PYTHON_LOG_RECEIVER_EXTRA_SUFFIXES.stream().anyMatch(receiver::endsWith);
+        boolean loggerLikeReceiver = isLoggerLikeReceiver(objectNode, sourceContent);
         boolean loggerLikeMethod = PYTHON_LOG_METHOD_NAMES.contains(method);
         return loggerLikeReceiver && loggerLikeMethod;
     }
 
-    private static String compactCatchExcerpt(String text) {
-        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
-        if (compact.length() <= 180) {
-            return compact;
+    private static boolean isLoggerLikeReceiver(TSNode receiverNode, SourceContent sourceContent) {
+        var dottedParts = dottedNameParts(receiverNode, sourceContent);
+        if (!dottedParts.isEmpty()) {
+            String last = dottedParts.getLast();
+            if (PYTHON_LOG_RECEIVER_NAMES.contains(last)) {
+                return true;
+            }
+            if (PYTHON_LOG_RECEIVER_EXTRA_SUFFIXES.contains(last)) {
+                return true;
+            }
         }
-        return compact.substring(0, 180) + "...";
+        return nodeType(CALL).equals(receiverNode.getType()) && isLoggingGetLoggerCall(receiverNode, sourceContent);
+    }
+
+    private static boolean isLoggingGetLoggerCall(TSNode callNode, SourceContent sourceContent) {
+        TSNode functionNode = callNode.getChildByFieldName(nodeField(PythonNodeField.FUNCTION));
+        if (functionNode == null) {
+            return false;
+        }
+        if (nodeType(ATTRIBUTE).equals(functionNode.getType())) {
+            TSNode objectNode = functionNode.getChildByFieldName(nodeField(PythonNodeField.OBJECT));
+            TSNode attributeNode = functionNode.getChildByFieldName(nodeField(PythonNodeField.ATTRIBUTE));
+            if (objectNode == null || attributeNode == null) {
+                return false;
+            }
+            var objectParts = dottedNameParts(objectNode, sourceContent);
+            if (objectParts.size() != 1 || !"logging".equals(objectParts.getFirst())) {
+                return false;
+            }
+            String attr = sourceContent.substringFrom(attributeNode).strip();
+            return "getLogger".equals(attr);
+        }
+        if (nodeType(IDENTIFIER).equals(functionNode.getType())) {
+            String bare = sourceContent.substringFrom(functionNode).strip();
+            return "getLogger".equals(bare);
+        }
+        return false;
+    }
+
+    private static List<String> dottedNameParts(TSNode node, SourceContent sourceContent) {
+        String type = node.getType();
+        if (type == null) {
+            return List.of();
+        }
+        if (nodeType(IDENTIFIER).equals(type)) {
+            String name = sourceContent.substringFrom(node).strip();
+            if (name.isEmpty()) {
+                return List.of();
+            }
+            return List.of(name.toLowerCase(Locale.ROOT));
+        }
+        if (nodeType(ATTRIBUTE).equals(type)) {
+            TSNode objectNode = node.getChildByFieldName(nodeField(PythonNodeField.OBJECT));
+            TSNode attributeNode = node.getChildByFieldName(nodeField(PythonNodeField.ATTRIBUTE));
+            if (objectNode == null || attributeNode == null) {
+                return List.of();
+            }
+            var left = dottedNameParts(objectNode, sourceContent);
+            String right = sourceContent.substringFrom(attributeNode).strip();
+            if (right.isEmpty()) {
+                return left;
+            }
+            if (left.isEmpty()) {
+                return List.of(right.toLowerCase(Locale.ROOT));
+            }
+            var combined = new ArrayList<String>(left.size() + 1);
+            combined.addAll(left);
+            combined.add(right.toLowerCase(Locale.ROOT));
+            return List.copyOf(combined);
+        }
+        return List.of();
     }
 
     private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentLineBreakdown> counts) {
