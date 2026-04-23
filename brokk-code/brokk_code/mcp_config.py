@@ -263,26 +263,27 @@ _CODEX_SKILL_NAMES: list[str] = [
     "structured-data",
     "workspace",
     "review-pr",
+    "guided-review",
     "guided-issue",
+]
+
+# Shared list of reviewer agents used by multiple skills
+_REVIEW_AGENTS = [
+    "security-reviewer",
+    "dry-reviewer",
+    "senior-dev-reviewer",
+    "devops-reviewer",
+    "architect-reviewer",
 ]
 
 # Map of skill name -> list of agent files to concatenate
 _SKILL_AGENT_DEPS: dict[str, list[str]] = {
-    "review-pr": [
-        "security-reviewer",
-        "dry-reviewer",
-        "senior-dev-reviewer",
-        "devops-reviewer",
-        "architect-reviewer",
-    ],
+    "review-pr": _REVIEW_AGENTS,
+    "guided-review": _REVIEW_AGENTS,
     "guided-issue": [
         "issue-diagnostician",
         "issue-planner",
-        "security-reviewer",
-        "dry-reviewer",
-        "senior-dev-reviewer",
-        "devops-reviewer",
-        "architect-reviewer",
+        *_REVIEW_AGENTS,
     ],
 }
 
