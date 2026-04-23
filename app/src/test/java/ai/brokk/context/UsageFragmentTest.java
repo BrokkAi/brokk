@@ -468,9 +468,10 @@ public class UsageFragmentTest {
 
             var fragment = new ContextFragments.UsageFragment(cm, target.fqName(), true);
             String text = fragment.text().join();
+            String normalizedText = text.replace('\\', '/');
 
             assertFalse(text.contains("No relevant usages found"), "should resolve TypeScript usage fragment");
-            assertTrue(text.contains("feature/header.component.ts"), "should list header component file");
+            assertTrue(normalizedText.contains("feature/header.component.ts"), "should list header component file");
             assertTrue(text.contains("HeaderComponent.constructor"), "should include constructor call site");
             assertEquals(
                     target.source().getSyntaxStyle(), fragment.syntaxStyle().join(), "should use TS syntax style");

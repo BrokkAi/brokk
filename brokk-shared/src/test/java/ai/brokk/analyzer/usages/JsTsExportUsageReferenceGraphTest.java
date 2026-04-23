@@ -1536,6 +1536,35 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
     }
 
     @Test
+    public void destructuringPropertyKey_doesNotShadowImportedBinding() throws Exception {
+        String a = """
+                export function foo() {}
+                """;
+        String b =
+                """
+                import { foo } from "./a";
+                const source = { foo: "value" };
+                const { foo: renamed } = source;
+                foo();
+                """;
+
+        try (var project = InlineTestProjectCreator.code(a, "a.ts")
+                .addFileContents(b, "b.ts")
+                .build()) {
+            var analyzer = new TypescriptAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "a.ts");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    aFile, "foo", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+
+            assertEquals(1, result.hits().size());
+            assertEquals(
+                    ReferenceKind.METHOD_CALL, result.hits().iterator().next().kind());
+            assertTrue(result.hits().iterator().next().file().toString().endsWith("b.ts"));
+        }
+    }
+
+    @Test
     public void externalModuleReexport_isFrontier_notAnalyzed() throws Exception {
         String tsconfig =
                 """
@@ -1563,6 +1592,51 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
 
             assertEquals(0, result.hits().size());
             assertTrue(result.externalFrontierSpecifiers().contains("~/lib"));
+        }
+    }
+
+    @Test
+    public void tsConfigPathsResolver_inheritsBaseUrlAndPathsFromExtendedConfig() throws Exception {
+        String baseConfig =
+                """
+                {
+                  "compilerOptions": {
+                    "baseUrl": ".",
+                    "paths": {
+                      "@shared/*": ["src/shared/*"]
+                    }
+                  }
+                }
+                """;
+        String leafConfig =
+                """
+                {
+                  "extends": "../tsconfig.base.json"
+                }
+                """;
+        String shared = """
+                export const foo = 1;
+                """;
+        String consumer =
+                """
+                import { foo } from "@shared/foo";
+                console.log(foo);
+                """;
+
+        try (var project = InlineTestProjectCreator.code(baseConfig, "packages/tsconfig.base.json")
+                .addFileContents(leafConfig, "packages/app/tsconfig.json")
+                .addFileContents(shared, "packages/src/shared/foo.ts")
+                .addFileContents(consumer, "packages/app/main.ts")
+                .build()) {
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "packages/app/main.ts");
+            TsConfigPathsResolver resolver = new TsConfigPathsResolver(project.getRoot());
+
+            TsConfigPathsResolver.Expansion expansion = resolver.expand(consumerFile, "@shared/foo");
+
+            assertTrue(expansion.hadAnyMapping());
+            assertTrue(expansion.candidates().stream()
+                    .map(s -> s.replace('\\', '/'))
+                    .anyMatch(s -> s.equals("packages/src/shared/foo")));
         }
     }
 }

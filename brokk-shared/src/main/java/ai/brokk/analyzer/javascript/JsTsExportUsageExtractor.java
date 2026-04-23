@@ -83,11 +83,13 @@ public final class JsTsExportUsageExtractor {
     private static final String MEMBER_EXPRESSION = "member_expression";
     private static final String OBJECT_PATTERN = "object_pattern";
     private static final String ARRAY_PATTERN = "array_pattern";
+    private static final String PAIR = "pair";
     private static final String PAIR_PATTERN = "pair_pattern";
     private static final String SHORTHAND_PROPERTY_IDENTIFIER_PATTERN = "shorthand_property_identifier_pattern";
     private static final String STATEMENT_BLOCK = "statement_block";
     private static final String FORMAL_PARAMETERS = "formal_parameters";
     private static final String OBJECT = "object";
+    private static final String KEY = "key";
     private static final String PROPERTY = "property";
     private static final String CONSTRUCTOR = "constructor";
     private static final String FUNCTION = "function";
@@ -506,7 +508,10 @@ public final class JsTsExportUsageExtractor {
         }
 
         String identifier = sc.substringFrom(node).strip();
-        if (!bindings.containsKey(identifier) || isWithinImportStatement(node) || isDeclarationIdentifier(node)) {
+        if (!bindings.containsKey(identifier)
+                || isWithinImportStatement(node)
+                || isDeclarationIdentifier(node)
+                || isPropertyKeyIdentifier(node)) {
             return;
         }
         if (isShadowed(node, identifier, shadowingIndex)) {
@@ -1140,21 +1145,7 @@ public final class JsTsExportUsageExtractor {
     }
 
     private static void collectBoundNames(TSNode node, SourceContent sc, Set<String> localNames) {
-        if (node == null) {
-            return;
-        }
-        if (isIdentifierLike(node)) {
-            String localName = sc.substringFrom(node).strip();
-            if (!localName.isEmpty()) {
-                localNames.add(localName);
-            }
-            return;
-        }
-        for (TSNode child : node.getNamedChildren()) {
-            if (child != null) {
-                collectBoundNames(child, sc, localNames);
-            }
-        }
+        collectDeclaredLocalNames(node, sc, localNames);
     }
 
     private static boolean isShadowed(TSNode node, String identifierName, ShadowingIndex shadowingIndex) {
@@ -1436,6 +1427,22 @@ public final class JsTsExportUsageExtractor {
             return true;
         }
         return false;
+    }
+
+    private static boolean isPropertyKeyIdentifier(TSNode node) {
+        TSNode parent = node.getParent();
+        if (parent == null) {
+            return false;
+        }
+        String type = parent.getType();
+        if (!PAIR.equals(type) && !PAIR_PATTERN.equals(type)) {
+            return false;
+        }
+        TSNode keyNode = parent.getChildByFieldName(KEY);
+        if (keyNode == null && parent.getNamedChildCount() > 0) {
+            keyNode = parent.getNamedChild(0);
+        }
+        return node.equals(keyNode);
     }
 
     private static boolean isTypeReferenceNode(TSNode node) {
