@@ -14,6 +14,7 @@ import ai.brokk.agents.ContextAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.RelaxedSourceLookupResolver;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.cli.MemoryConsole;
@@ -66,7 +67,6 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -509,7 +509,10 @@ public class BrokkExternalMcpServer {
 
         var analyzer = cm.getAnalyzerUninterrupted();
         List<String> blocks = new ArrayList<>();
+        List<String> ambiguousMessages = new ArrayList<>();
         Set<String> added = new HashSet<>();
+        var lookups = RelaxedSourceLookupResolver.resolveLookups(
+                analyzer, names, classMode ? CodeUnit::isClass : CodeUnit::isFunction);
 
         int processedCount = 0;
         int maxCount = 10;
@@ -519,12 +522,19 @@ public class BrokkExternalMcpServer {
                 break;
             }
 
-            var definitionOpt = resolveUniqueCodeSourceUnit(analyzer, name, classMode);
-            if (definitionOpt.isEmpty()) {
+            var lookup = lookups.get(name);
+            if (lookup == null) {
+                continue;
+            }
+            if (lookup.isAmbiguous()) {
+                ambiguousMessages.add(lookup.ambiguityMessage(classMode ? "class" : "method", name));
+                continue;
+            }
+            if (!lookup.isResolved()) {
                 continue;
             }
 
-            var cu = definitionOpt.get();
+            var cu = requireNonNull(lookup.codeUnit());
             if (!added.add(cu.fqName())) {
                 continue;
             }
@@ -556,62 +566,17 @@ public class BrokkExternalMcpServer {
         }
 
         if (blocks.isEmpty()) {
+            if (!ambiguousMessages.isEmpty()) {
+                return String.join("\n\n", ambiguousMessages);
+            }
             return rawResultText;
         }
 
-        return String.join("\n\n", blocks);
-    }
-
-    private static Optional<CodeUnit> resolveUniqueCodeSourceUnit(
-            IAnalyzer analyzer, String requestedName, boolean classMode) {
-        Predicate<CodeUnit> kindFilter = classMode ? CodeUnit::isClass : CodeUnit::isFunction;
-        var exactMatch = analyzer.getDefinitions(requestedName).stream()
-                .filter(kindFilter)
-                .findFirst();
-        if (exactMatch.isPresent()) {
-            return exactMatch;
+        String formatted = String.join("\n\n", blocks);
+        if (!ambiguousMessages.isEmpty()) {
+            formatted += "\n\n" + String.join("\n\n", ambiguousMessages);
         }
-
-        Map<String, CodeUnit> matchesByFqName = new LinkedHashMap<>();
-        var declarations = analyzer.getAllDeclarations();
-        addRelaxedCodeSourceMatches(matchesByFqName, declarations, requestedName, kindFilter);
-        declarations.stream()
-                .filter(CodeUnit::isClass)
-                .forEach(cls -> addRelaxedCodeSourceMatches(
-                        matchesByFqName, analyzer.getMembersInClass(cls), requestedName, kindFilter));
-        return matchesByFqName.size() == 1
-                ? Optional.of(matchesByFqName.values().iterator().next())
-                : Optional.empty();
-    }
-
-    private static void addRelaxedCodeSourceMatches(
-            Map<String, CodeUnit> matchesByFqName,
-            Collection<CodeUnit> candidates,
-            String requestedName,
-            Predicate<CodeUnit> kindFilter) {
-        candidates.stream()
-                .filter(kindFilter)
-                .filter(cu -> matchesRelaxedCodeSourceName(cu, requestedName))
-                .forEach(cu -> matchesByFqName.putIfAbsent(cu.fqName(), cu));
-    }
-
-    private static boolean matchesRelaxedCodeSourceName(CodeUnit cu, String requestedName) {
-        String normalizedRequestedName = normalizeRelaxedCodeSourceName(requestedName.strip());
-        if (normalizedRequestedName.isEmpty()) {
-            return false;
-        }
-        String suffix = "." + normalizedRequestedName;
-        String normalizedFqName = normalizeRelaxedCodeSourceName(cu.fqName());
-        String normalizedShortName = normalizeRelaxedCodeSourceName(cu.shortName());
-        String normalizedIdentifier = normalizeRelaxedCodeSourceName(cu.identifier());
-        return normalizedFqName.equals(normalizedRequestedName)
-                || normalizedShortName.equals(normalizedRequestedName)
-                || normalizedIdentifier.equals(normalizedRequestedName)
-                || normalizedFqName.endsWith(suffix);
-    }
-
-    private static String normalizeRelaxedCodeSourceName(String name) {
-        return name.replace('$', '.');
+        return formatted;
     }
 
     private static String formatScanUsagesForMcp(Map<?, ?> args, String rawResultText, ContextManager cm) {

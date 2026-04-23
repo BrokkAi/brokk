@@ -13,6 +13,8 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.RelaxedSourceLookupResolver;
+import ai.brokk.analyzer.RelaxedSourceLookupResolver.RelaxedSourceLookup;
 import ai.brokk.analyzer.TestDetectionProvider;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.CommitInfo;
@@ -53,7 +55,6 @@ import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
-import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -94,28 +95,6 @@ public class SearchTools {
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
 
     private record SymbolSearchHit(String signature, int lineNumber) {}
-
-    private record RelaxedSourceLookup(@Nullable CodeUnit codeUnit, List<String> ambiguousFqNames) {
-        private static RelaxedSourceLookup resolved(CodeUnit codeUnit) {
-            return new RelaxedSourceLookup(codeUnit, List.of());
-        }
-
-        private static RelaxedSourceLookup ambiguous(List<String> ambiguousFqNames) {
-            return new RelaxedSourceLookup(null, List.copyOf(ambiguousFqNames));
-        }
-
-        private static RelaxedSourceLookup notFound() {
-            return new RelaxedSourceLookup(null, List.of());
-        }
-
-        private boolean isResolved() {
-            return codeUnit != null;
-        }
-
-        private boolean isAmbiguous() {
-            return !ambiguousFqNames.isEmpty();
-        }
-    }
 
     static final int FILE_SEARCH_LIMIT = 100;
     private static final int FILE_SKIM_LIMIT = 20;
@@ -310,72 +289,6 @@ public class SearchTools {
 
     private IAnalyzer getAnalyzer() {
         return codeIntelligence.getAnalyzer();
-    }
-
-    private RelaxedSourceLookup resolveRelaxedSourceLookup(
-            IAnalyzer analyzer, String requestedName, Predicate<CodeUnit> kindFilter) {
-        var exactMatch = analyzer.getDefinitions(requestedName).stream()
-                .filter(kindFilter)
-                .findFirst();
-        if (exactMatch.isPresent()) {
-            return RelaxedSourceLookup.resolved(exactMatch.get());
-        }
-
-        var fallbackMatches = findRelaxedSourceMatches(analyzer, requestedName, kindFilter);
-        if (fallbackMatches.size() == 1) {
-            return RelaxedSourceLookup.resolved(fallbackMatches.getFirst());
-        }
-        if (!fallbackMatches.isEmpty()) {
-            return RelaxedSourceLookup.ambiguous(
-                    fallbackMatches.stream().map(CodeUnit::fqName).sorted().toList());
-        }
-        return RelaxedSourceLookup.notFound();
-    }
-
-    private List<CodeUnit> findRelaxedSourceMatches(
-            IAnalyzer analyzer, String requestedName, Predicate<CodeUnit> kindFilter) {
-        Map<String, CodeUnit> matchesByFqName = new LinkedHashMap<>();
-        var declarations = analyzer.getAllDeclarations();
-        addRelaxedSourceMatches(matchesByFqName, declarations, requestedName, kindFilter);
-        declarations.stream()
-                .filter(CodeUnit::isClass)
-                .forEach(cls -> addRelaxedSourceMatches(
-                        matchesByFqName, analyzer.getMembersInClass(cls), requestedName, kindFilter));
-        return List.copyOf(matchesByFqName.values());
-    }
-
-    private static void addRelaxedSourceMatches(
-            Map<String, CodeUnit> matchesByFqName,
-            Collection<CodeUnit> candidates,
-            String requestedName,
-            Predicate<CodeUnit> kindFilter) {
-        candidates.stream()
-                .filter(kindFilter)
-                .filter(cu -> matchesRelaxedSourceName(cu, requestedName))
-                .forEach(cu -> matchesByFqName.putIfAbsent(cu.fqName(), cu));
-    }
-
-    private static boolean matchesRelaxedSourceName(CodeUnit cu, String requestedName) {
-        String normalizedRequestedName = normalizeRelaxedSourceName(requestedName.strip());
-        if (normalizedRequestedName.isEmpty()) {
-            return false;
-        }
-        String suffix = "." + normalizedRequestedName;
-        String normalizedFqName = normalizeRelaxedSourceName(cu.fqName());
-        String normalizedShortName = normalizeRelaxedSourceName(cu.shortName());
-        String normalizedIdentifier = normalizeRelaxedSourceName(cu.identifier());
-        return normalizedFqName.equals(normalizedRequestedName)
-                || normalizedShortName.equals(normalizedRequestedName)
-                || normalizedIdentifier.equals(normalizedRequestedName)
-                || normalizedFqName.endsWith(suffix);
-    }
-
-    private static String normalizeRelaxedSourceName(String name) {
-        return name.replace('$', '.');
-    }
-
-    private static String formatAmbiguousSourceMatch(String kind, String requestedName, List<String> matches) {
-        return "Ambiguous %s match for '%s':\n- %s".formatted(kind, requestedName, String.join("\n- ", matches));
     }
 
     // --- Helper Methods
@@ -1312,15 +1225,17 @@ public class SearchTools {
         var analyzer = getAnalyzer();
         List<String> distinctNames =
                 classNames.stream().distinct().filter(s -> !s.isBlank()).toList();
+        Map<String, RelaxedSourceLookup> lookups =
+                RelaxedSourceLookupResolver.resolveLookups(analyzer, distinctNames, CodeUnit::isClass);
 
         for (String className : distinctNames) {
             if (processedCount >= CLASS_COUNT_LIMIT) {
                 truncated = true;
                 break;
             }
-            var lookup = resolveRelaxedSourceLookup(analyzer, className, CodeUnit::isClass);
+            var lookup = requireNonNull(lookups.get(className));
             if (lookup.isAmbiguous()) {
-                ambiguousMatches.add(formatAmbiguousSourceMatch("class", className, lookup.ambiguousFqNames()));
+                ambiguousMatches.add(lookup.ambiguityMessage("class", className));
                 continue;
             }
             if (!lookup.isResolved()) {
@@ -1413,10 +1328,14 @@ public class SearchTools {
         List<String> ambiguousMatches = new ArrayList<>();
 
         var analyzer = getAnalyzer();
-        methodNames.stream().distinct().filter(s -> !s.isBlank()).forEach(methodName -> {
-            var lookup = resolveRelaxedSourceLookup(analyzer, methodName, CodeUnit::isFunction);
+        List<String> distinctNames =
+                methodNames.stream().distinct().filter(s -> !s.isBlank()).toList();
+        Map<String, RelaxedSourceLookup> lookups =
+                RelaxedSourceLookupResolver.resolveLookups(analyzer, distinctNames, CodeUnit::isFunction);
+        distinctNames.forEach(methodName -> {
+            var lookup = requireNonNull(lookups.get(methodName));
             if (lookup.isAmbiguous()) {
-                ambiguousMatches.add(formatAmbiguousSourceMatch("method", methodName, lookup.ambiguousFqNames()));
+                ambiguousMatches.add(lookup.ambiguityMessage("method", methodName));
                 return;
             }
             if (!lookup.isResolved()) {

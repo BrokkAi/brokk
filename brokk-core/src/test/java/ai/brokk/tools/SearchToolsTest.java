@@ -341,6 +341,58 @@ class SearchToolsTest {
     }
 
     @Test
+    void getMethodSources_scansFallbackDeclarationsOncePerCall() throws Exception {
+        Path projectRoot = initRepo();
+        project = new CoreProject(projectRoot);
+        ProjectFile firstFile = new ProjectFile(projectRoot, "src/main/java/com/example/Foo.java");
+        ProjectFile secondFile = new ProjectFile(projectRoot, "src/main/java/org/example/Bar.java");
+        CodeUnit fooClass = CodeUnit.cls(firstFile, "com.example", "Foo");
+        CodeUnit barClass = CodeUnit.cls(secondFile, "org.example", "Bar");
+        CodeUnit firstMethod = CodeUnit.fn(firstFile, "com.example", "Foo.inc");
+        CodeUnit secondMethod = CodeUnit.fn(secondFile, "org.example", "Bar.dec");
+        AtomicInteger allDeclarationsCalls = new AtomicInteger();
+        AtomicInteger memberLookupCalls = new AtomicInteger();
+        IAnalyzer analyzer = new DisabledAnalyzer(project) {
+            @Override
+            public List<CodeUnit> getAllDeclarations() {
+                allDeclarationsCalls.incrementAndGet();
+                return List.of(fooClass, barClass);
+            }
+
+            @Override
+            public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+                memberLookupCalls.incrementAndGet();
+                if (classUnit.equals(fooClass)) {
+                    return List.of(firstMethod);
+                }
+                if (classUnit.equals(barClass)) {
+                    return List.of(secondMethod);
+                }
+                return List.of();
+            }
+
+            @Override
+            public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+                if (codeUnit.equals(firstMethod)) {
+                    return Set.of("int inc(int x) { return x + 1; }");
+                }
+                if (codeUnit.equals(secondMethod)) {
+                    return Set.of("int dec(int x) { return x - 1; }");
+                }
+                return Set.of();
+            }
+        };
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
+
+        String result = tools.getMethodSources(List.of("inc", "dec"));
+
+        assertTrue(result.contains("int inc(int x) { return x + 1; }"), result);
+        assertTrue(result.contains("int dec(int x) { return x - 1; }"), result);
+        assertEquals(1, allDeclarationsCalls.get(), "Fallback declaration scan should happen once per call");
+        assertEquals(2, memberLookupCalls.get(), "Member lookup should happen once per top-level class");
+    }
+
+    @Test
     void searchFileContents_SearchTypeClassifiesAnalyzedFiles() throws Exception {
         Path projectRoot = initRepo();
         Path filePath = projectRoot.resolve("src/main/java/com/example/Foo.java");
