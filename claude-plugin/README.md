@@ -39,29 +39,52 @@ The plugin adds the following skills to Claude Code:
 
 ## Skill usage examples
 
+### Tool-guidance skills
+
+These skills load tool-selection tips and usage guidance into the conversation.
+Claude also invokes them automatically when your request matches -- for example,
+asking "show me the SearchTools class" triggers `code-reading` behind the scenes.
+You can invoke them explicitly to prime the context before asking your question.
+
 **Code Navigation** -- Find where symbols are defined and who calls them:
 ```
 /brokk:code-navigation
-Find all implementations of the IAnalyzer interface
 ```
+Then ask: `Find all implementations of the IAnalyzer interface`
 
 **Code Reading** -- Read source code at the right level of detail:
 ```
 /brokk:code-reading
-Show me the full source of the SearchTools class
 ```
+Then ask: `Show me the full source of the SearchTools class`
 
 **Codebase Search** -- Text search and file discovery:
 ```
 /brokk:codebase-search
-Find all files containing "TODO" in the brokk-core module
 ```
+Then ask: `Find all files containing "TODO" in the brokk-core module`
 
 **Git Exploration** -- Understand change history:
 ```
 /brokk:git-exploration
-What commits touched BrokkCoreMcpServer.java in the last month?
 ```
+Then ask: `What commits touched BrokkCoreMcpServer.java in the last month?`
+
+**Structured Data** -- Query JSON and XML/HTML files:
+```
+/brokk:structured-data
+```
+Then ask: `What dependencies are declared in build.gradle.kts? Use jq on the JSON config files.`
+
+**Workspace** -- Set which project the server analyzes:
+```
+/brokk:workspace
+```
+Then ask: `Activate the workspace at /home/user/projects/my-app`
+
+### Workflow skills
+
+These skills drive multi-step processes and accept arguments directly.
 
 **Guided Issue** -- End-to-end issue resolution workflow:
 ```
@@ -78,27 +101,14 @@ What commits touched BrokkCoreMcpServer.java in the last month?
 /brokk:review-pr 42
 ```
 
-**Structured Data** -- Query JSON and XML/HTML files:
-```
-/brokk:structured-data
-What dependencies are declared in build.gradle.kts? Use jq on the JSON config files.
-```
-
 **Today** -- Daily planning with GitHub issues:
 ```
 /brokk:today
 ```
 
-**Workspace** -- Set which project the server analyzes:
-```
-/brokk:workspace
-Activate the workspace at /home/user/projects/my-app
-```
-
 **Write Issue** -- Draft a GitHub issue with code references:
 ```
-/brokk:write-issue
-Draft an issue about the missing error handling in parseJsonRequest
+/brokk:write-issue Draft an issue about the missing error handling in parseJsonRequest
 ```
 
 ## Agents
