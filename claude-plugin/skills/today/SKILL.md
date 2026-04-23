@@ -82,7 +82,7 @@ Based on the user's choice:
   the query by stripping shell metacharacters before passing it:
   ```bash
   SAFE_QUERY=$(printf '%s' "<query>" | tr -cd '[:alnum:][:space:].,_:/-')
-  gh issue list --search "$SAFE_QUERY" --limit 20
+  gh issue list --search "$SAFE_QUERY" --state open --limit 20 --json number,title,labels,assignees
   ```
 
 - **Enter issue numbers directly**: Ask the user for a comma- or
@@ -121,7 +121,7 @@ Only pass resolved, validated issue numbers (strictly numeric) to
 Step 3.
 
 When the user wants to write a new issue, run the `/write-issue` skill
-using the `Skill` tool (invoke with skill name `brokk:write-issue`).
+using the `Skill` tool (invoke with skill name `brokk-write-issue`).
 If the `Skill` tool is NOT available, perform the write-issue workflow
 inline:
 1. Ask for a title and rough description.
