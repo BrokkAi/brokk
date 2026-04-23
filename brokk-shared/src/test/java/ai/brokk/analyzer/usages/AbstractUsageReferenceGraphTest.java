@@ -12,4 +12,8 @@ abstract class AbstractUsageReferenceGraphTest {
                 .findFirst()
                 .orElseThrow();
     }
+
+    protected static boolean endsWithPath(ProjectFile file, String suffix) {
+        return file.toString().replace('\\', '/').endsWith(suffix.replace('\\', '/'));
+    }
 }

@@ -44,7 +44,7 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
 
             assertEquals(1, result.hits().size());
             var hit = result.hits().iterator().next();
-            assertTrue(hit.file().toString().endsWith("b.ts"));
+            assertTrue(endsWithPath(hit.file(), "b.ts"));
             assertEquals("foo", hit.resolved().identifier());
         }
     }
@@ -118,7 +118,7 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                     otherFile, "Foo", otherBar, analyzer, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
 
             assertEquals(1, aResult.hits().size());
-            assertTrue(aResult.hits().iterator().next().file().toString().endsWith("b.ts"));
+            assertTrue(endsWithPath(aResult.hits().iterator().next().file(), "b.ts"));
             assertTrue(otherResult.hits().isEmpty());
         }
     }
@@ -149,7 +149,7 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                     aFile, "foo", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
 
             assertEquals(1, result.hits().size());
-            assertTrue(result.hits().iterator().next().file().toString().endsWith("b.ts"));
+            assertTrue(endsWithPath(result.hits().iterator().next().file(), "b.ts"));
         }
     }
 
@@ -180,10 +180,8 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                     serviceFile, "LayoutService", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
 
             assertEquals(2, result.hits().size());
-            assertTrue(
-                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("index.ts")));
-            assertTrue(
-                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("consumer.ts")));
+            assertTrue(result.hits().stream().anyMatch(hit -> endsWithPath(hit.file(), "index.ts")));
+            assertTrue(result.hits().stream().anyMatch(hit -> endsWithPath(hit.file(), "consumer.ts")));
         }
     }
 
@@ -214,10 +212,8 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                     serviceFile, "LayoutService", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
 
             assertEquals(2, result.hits().size());
-            assertTrue(
-                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("index.ts")));
-            assertTrue(
-                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("consumer.ts")));
+            assertTrue(result.hits().stream().anyMatch(hit -> endsWithPath(hit.file(), "index.ts")));
+            assertTrue(result.hits().stream().anyMatch(hit -> endsWithPath(hit.file(), "consumer.ts")));
         }
     }
 
@@ -252,10 +248,8 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                     serviceFile, "LayoutService", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
 
             assertEquals(2, result.hits().size());
-            assertTrue(
-                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("index.ts")));
-            assertTrue(
-                    result.hits().stream().anyMatch(hit -> hit.file().toString().endsWith("consumer.ts")));
+            assertTrue(result.hits().stream().anyMatch(hit -> endsWithPath(hit.file(), "index.ts")));
+            assertTrue(result.hits().stream().anyMatch(hit -> endsWithPath(hit.file(), "consumer.ts")));
         }
     }
 
@@ -397,7 +391,7 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
 
             assertEquals(2, result.hits().size());
             assertTrue(result.hits().stream()
-                    .anyMatch(hit -> hit.file().toString().endsWith("feature/header.component.ts")
+                    .anyMatch(hit -> endsWithPath(hit.file(), "feature/header.component.ts")
                             && hit.kind() == ReferenceKind.TYPE_REFERENCE));
         }
     }
@@ -1211,7 +1205,7 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                     aFile, "default", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
 
             assertEquals(1, result.hits().size());
-            assertTrue(result.hits().iterator().next().file().toString().endsWith("b.ts"));
+            assertTrue(endsWithPath(result.hits().iterator().next().file(), "b.ts"));
         }
     }
 
@@ -1239,7 +1233,7 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                     aFile, "default", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
 
             assertEquals(1, result.hits().size());
-            assertTrue(result.hits().iterator().next().file().toString().endsWith("b.ts"));
+            assertTrue(endsWithPath(result.hits().iterator().next().file(), "b.ts"));
         }
     }
 
@@ -1297,7 +1291,7 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                     aFile, "foo", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
 
             assertEquals(1, result.hits().size());
-            assertTrue(result.hits().iterator().next().file().toString().endsWith("src/b.ts"));
+            assertTrue(endsWithPath(result.hits().iterator().next().file(), "src/b.ts"));
         }
     }
 
@@ -1476,7 +1470,7 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
                     aFile, "foo", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
 
             assertEquals(1, result.hits().size());
-            assertTrue(result.hits().iterator().next().file().toString().endsWith("src/b.ts"));
+            assertTrue(endsWithPath(result.hits().iterator().next().file(), "src/b.ts"));
         }
     }
 
@@ -1560,7 +1554,7 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
             assertEquals(1, result.hits().size());
             assertEquals(
                     ReferenceKind.METHOD_CALL, result.hits().iterator().next().kind());
-            assertTrue(result.hits().iterator().next().file().toString().endsWith("b.ts"));
+            assertTrue(endsWithPath(result.hits().iterator().next().file(), "b.ts"));
         }
     }
 

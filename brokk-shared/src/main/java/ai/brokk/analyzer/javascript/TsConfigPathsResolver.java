@@ -2,6 +2,7 @@ package ai.brokk.analyzer.javascript;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.Json;
+import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -37,7 +38,7 @@ public final class TsConfigPathsResolver {
         }
     }
 
-    private record ParsedConfig(Path tsconfigDir, @Nullable Path baseUrlAbs, Map<String, List<Path>> paths) {}
+    private record ParsedConfig(Path tsconfigDir, @Nullable Path baseUrlAbs, Map<String, List<String>> paths) {}
 
     private final Path projectRoot;
     private final Map<Path, Optional<ParsedConfig>> configCache = new ConcurrentHashMap<>();
@@ -77,13 +78,13 @@ public final class TsConfigPathsResolver {
 
     private List<String> expandViaPaths(ParsedConfig cfg, String specifier) {
         // Exact match first
-        List<Path> exact = cfg.paths().get(specifier);
+        List<String> exact = cfg.paths().get(specifier);
         if (exact != null && !exact.isEmpty()) {
             return resolveTargets(exact, null);
         }
 
         // Single-wildcard patterns
-        for (Map.Entry<String, List<Path>> e : cfg.paths().entrySet()) {
+        for (Map.Entry<String, List<String>> e : cfg.paths().entrySet()) {
             String pattern = e.getKey();
             int star = pattern.indexOf('*');
             if (star < 0 || pattern.indexOf('*', star + 1) >= 0) {
@@ -98,7 +99,7 @@ public final class TsConfigPathsResolver {
                 continue;
             }
             String captured = specifier.substring(prefix.length(), specifier.length() - suffix.length());
-            List<Path> targets = e.getValue();
+            List<String> targets = e.getValue();
             if (targets == null || targets.isEmpty()) continue;
             return resolveTargets(targets, captured);
         }
@@ -106,11 +107,10 @@ public final class TsConfigPathsResolver {
         return List.of();
     }
 
-    private List<String> resolveTargets(List<Path> targets, @Nullable String starCapture) {
+    private List<String> resolveTargets(List<String> targets, @Nullable String starCapture) {
         var out = new ArrayList<String>();
-        for (Path target : targets) {
-            String mapped =
-                    starCapture == null ? target.toString() : target.toString().replace("*", starCapture);
+        for (String target : targets) {
+            String mapped = starCapture == null ? target : target.replace("*", starCapture);
             Path candidateAbs = Path.of(mapped).normalize();
             if (candidateAbs.startsWith(projectRoot)) {
                 out.add(projectRoot.relativize(candidateAbs).toString());
@@ -177,7 +177,7 @@ public final class TsConfigPathsResolver {
                         .normalize();
             }
 
-            Map<String, List<Path>> paths = new LinkedHashMap<>();
+            Map<String, List<String>> paths = new LinkedHashMap<>();
             parent.ifPresent(cfg -> paths.putAll(cfg.paths()));
             JsonNode pathsNode = compilerOptions.path("paths");
             if (pathsNode.isObject()) {
@@ -188,10 +188,10 @@ public final class TsConfigPathsResolver {
                     if (!arr.isArray()) {
                         return;
                     }
-                    var vals = new ArrayList<Path>();
+                    var vals = new ArrayList<String>();
                     arr.forEach(n -> {
                         if (n != null && n.isTextual()) {
-                            vals.add(resolutionBase.resolve(Path.of(n.asText())).normalize());
+                            vals.add(resolveTemplateAgainstBase(resolutionBase, n.asText()));
                         }
                     });
                     if (!vals.isEmpty()) {
@@ -227,6 +227,19 @@ public final class TsConfigPathsResolver {
             resolved = Path.of(resolved + ".json").normalize();
         }
         return Files.exists(resolved) ? Optional.of(resolved) : Optional.empty();
+    }
+
+    private static String resolveTemplateAgainstBase(Path base, String template) {
+        String baseText = PathNormalizer.canonicalizeEnvPathValue(base.toString());
+        String candidate = looksAbsoluteTemplate(template) ? template : baseText + "/" + template;
+        return PathNormalizer.canonicalizeEnvPathValue(candidate);
+    }
+
+    private static boolean looksAbsoluteTemplate(String path) {
+        return path.startsWith("/")
+                || path.startsWith("//")
+                || path.matches("^[A-Za-z]:/.*")
+                || path.matches("^[A-Za-z]:\\\\.*");
     }
 
     // Intentionally does not validate against project file-set membership; callers perform "in-project" filtering
