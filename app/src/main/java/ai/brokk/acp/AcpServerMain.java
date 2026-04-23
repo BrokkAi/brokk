@@ -8,6 +8,7 @@ import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
 import com.agentclientprotocol.sdk.agent.support.AcpAgentSupport;
 import com.agentclientprotocol.sdk.agent.transport.StdioAcpAgentTransport;
+import io.modelcontextprotocol.json.McpJsonDefaults;
 import java.nio.file.Path;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
@@ -97,7 +98,7 @@ public final class AcpServerMain {
 
             // Create and start ACP agent
             var agent = new BrokkAcpAgent(contextManager, jobRunner, jobStore);
-            var transport = new StdioAcpAgentTransport();
+            var transport = new StdioAcpAgentTransport(McpJsonDefaults.getMapper());
             var support = AcpAgentSupport.create(agent).transport(transport).build();
 
             // Register shutdown hook -- close transport first (stop accepting requests),
