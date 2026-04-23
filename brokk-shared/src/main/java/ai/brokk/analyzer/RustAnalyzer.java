@@ -960,6 +960,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     private static String rustMacroLastIdent(TSNode macroInvocation, SourceContent sourceContent) {
         TSNode path = macroInvocation.getNamedChildCount() > 0 ? macroInvocation.getNamedChild(0) : null;
         if (path == null) {
+            // Some Rust macro invocations use a `path` node for the callee. Our generated RustNodeType enum
+            // does not currently expose a PATH constant, so fall back to the raw node-type string.
+            path = findFirstNamedDescendant(macroInvocation, "path");
+        }
+        if (path == null) {
             path = findFirstNamedDescendant(macroInvocation, nodeType(SCOPED_IDENTIFIER));
         }
         if (path == null) {
