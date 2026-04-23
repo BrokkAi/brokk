@@ -191,13 +191,17 @@ public class BrokkAcpAgent {
         var tags = new HashMap<String, String>();
         tags.put("mode", mode);
 
+        // Fall back to planner model if default code model is not available
+        var availableModels = cm.getService().getAvailableModels();
+        var codeModel = availableModels.containsKey(DEFAULT_CODE_MODEL) ? DEFAULT_CODE_MODEL : model;
+
         var spec = new JobSpec(
                 text, // taskInput
                 true, // autoCommit
                 true, // autoCompress
                 model, // plannerModel
                 null, // scanModel
-                DEFAULT_CODE_MODEL, // codeModel
+                codeModel, // codeModel
                 false, // preScan
                 tags, // tags
                 null, // sourceBranch
