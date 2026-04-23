@@ -25,7 +25,9 @@ then stop.
 
 ### If issue numbers are provided as arguments (e.g. `/today 42 57 101`)
 
-Skip browsing entirely. Go straight to **Step 3** using those numbers.
+Validate that every argument is strictly numeric (`^[0-9]+$`). Reject
+any argument that is not. Then skip browsing and go straight to
+**Step 3** using those validated numbers.
 
 ### If no arguments are provided
 
@@ -68,18 +70,18 @@ Based on the user's choice:
 
 - **Issues assigned to me only**:
   ```bash
-  gh issue list --state open --assignee @me --limit 20
+  gh issue list --state open --assignee @me --limit 20 --json number,title,labels,assignees
   ```
 
 - **Recent open issues only**:
   ```bash
-  gh issue list --state open --limit 20
+  gh issue list --state open --limit 20 --json number,title,labels,assignees
   ```
 
 - **Search by keyword**: Ask the user for a search query. Sanitize
   the query by stripping shell metacharacters before passing it:
   ```bash
-  SAFE_QUERY=$(printf '%s' "<query>" | tr -cd '[:alnum:][:space:].,_:-/')
+  SAFE_QUERY=$(printf '%s' "<query>" | tr -cd '[:alnum:][:space:].,_:/-')
   gh issue list --search "$SAFE_QUERY" --limit 20
   ```
 
