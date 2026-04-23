@@ -23,29 +23,99 @@ claude --plugin-dir ./claude-plugin
 
 The plugin adds the following skills to Claude Code:
 
-| Skill | Description |
-|-------|-------------|
-| Code Navigation | Symbol searching, usage scanning, class skeleton navigation |
-| Code Reading | Reading source code at different detail levels |
-| Codebase Search | Text search, file discovery, directory listing |
-| Git Exploration | Git commit history exploration |
-| Workspace | Workspace activation and management |
-| Structured Data | JSON and XML/HTML querying |
-| PR Review | Adversarial multi-agent PR review with security, DRY, intent, devops, and architecture analysis |
-| Guided Review | Interactive guided code review: run parallel agents, then walk through findings one-by-one with code context and triage |
+| Skill | Invocation | Description |
+|-------|------------|-------------|
+| Code Navigation | `/brokk:code-navigation` | Symbol searching, usage scanning, class skeleton navigation |
+| Code Reading | `/brokk:code-reading` | Reading source code at different detail levels |
+| Codebase Search | `/brokk:codebase-search` | Text search, file discovery, directory listing |
+| Git Exploration | `/brokk:git-exploration` | Git commit history exploration |
+| Guided Issue | `/brokk:guided-issue` | End-to-end issue resolution: select a GitHub issue, diagnose the codebase, plan changes, implement in an isolated branch, review with specialist agents, and open a pull request |
+| Guided Review | `/brokk:guided-review` | Interactive guided code review: run parallel agents, then walk through findings one-by-one with code context and triage |
+| PR Review | `/brokk:review-pr` | Adversarial multi-agent PR review with security, DRY, intent, devops, and architecture analysis |
+| Structured Data | `/brokk:structured-data` | JSON and XML/HTML querying |
+| Today | `/brokk:today` | Suggest GitHub issues to work on today, pick which ones, and generate a Slack-ready summary |
+| Workspace | `/brokk:workspace` | Workspace activation and management |
+| Write Issue | `/brokk:write-issue` | Draft a new GitHub issue with an AI-enhanced description referencing real source code, affected components, and suggested starting points |
+
+## Skill usage examples
+
+**Code Navigation** -- Find where symbols are defined and who calls them:
+```
+/brokk:code-navigation
+Find all implementations of the IAnalyzer interface
+```
+
+**Code Reading** -- Read source code at the right level of detail:
+```
+/brokk:code-reading
+Show me the full source of the SearchTools class
+```
+
+**Codebase Search** -- Text search and file discovery:
+```
+/brokk:codebase-search
+Find all files containing "TODO" in the brokk-core module
+```
+
+**Git Exploration** -- Understand change history:
+```
+/brokk:git-exploration
+What commits touched BrokkCoreMcpServer.java in the last month?
+```
+
+**Guided Issue** -- End-to-end issue resolution workflow:
+```
+/brokk:guided-issue 3349
+```
+
+**Guided Review** -- Interactive guided code review with triage:
+```
+/brokk:guided-review
+```
+
+**PR Review** -- Adversarial multi-agent review of a pull request:
+```
+/brokk:review-pr 42
+```
+
+**Structured Data** -- Query JSON and XML/HTML files:
+```
+/brokk:structured-data
+What dependencies are declared in build.gradle.kts? Use jq on the JSON config files.
+```
+
+**Today** -- Daily planning with GitHub issues:
+```
+/brokk:today
+```
+
+**Workspace** -- Set which project the server analyzes:
+```
+/brokk:workspace
+Activate the workspace at /home/user/projects/my-app
+```
+
+**Write Issue** -- Draft a GitHub issue with code references:
+```
+/brokk:write-issue
+Draft an issue about the missing error handling in parseJsonRequest
+```
 
 ## Agents
 
-The plugin includes specialist agents used by the PR Review and Guided Review skills:
+The plugin includes specialist agents used by the review and issue resolution skills:
 
 | Agent | Description |
 |-------|-------------|
-| security-reviewer | Hunts for injection, auth bypasses, data leaks, backdoors, and CVEs |
-| dry-reviewer | Searches for code duplication and reimplemented functionality |
-| senior-dev-reviewer | Verifies intent, catches smuggled changes, checks test coverage |
-| devops-reviewer | Reviews infrastructure, CI/CD, and operational concerns |
 | architect-reviewer | Evaluates coupling, cohesion, SOLID principles, and design quality |
+| devops-reviewer | Reviews infrastructure, CI/CD, and operational concerns |
+| dry-reviewer | Searches for code duplication and reimplemented functionality |
+| issue-diagnostician | Explores codebase to diagnose a GitHub issue: identifies affected files, traces code paths, and forms a root cause hypothesis |
+| issue-enhancer | Enhances a draft GitHub issue with relevant source code references, affected components, and technical context |
+| issue-planner | Takes a diagnosis and produces an ordered list of concrete code changes with specific file paths, method names, and descriptions |
+| security-reviewer | Hunts for injection, auth bypasses, data leaks, backdoors, and CVEs |
+| senior-dev-reviewer | Verifies intent, catches smuggled changes, checks test coverage |
 
 ## Additional prerequisites
 
-The PR Review and Guided Review skills require [gh](https://cli.github.com/) (GitHub CLI) installed and authenticated for reviewing PRs by number.
+The PR Review, Guided Review, Guided Issue, Today, and Write Issue skills require [gh](https://cli.github.com/) (GitHub CLI) installed and authenticated.
