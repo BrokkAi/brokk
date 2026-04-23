@@ -250,7 +250,7 @@ class InstalledCodexPlugin:
 
 
 _GITHUB_RAW_BASE = "https://raw.githubusercontent.com/BrokkAi/brokk"
-_CLAUDE_PLUGIN_VERSION = "0.4.0"
+_CLAUDE_PLUGIN_VERSION = "0.4.1"
 
 _log = logging.getLogger(__name__)
 
