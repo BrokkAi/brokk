@@ -77,11 +77,62 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected static String compactExcerptForTable(String text) {
-        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        String compact = compactWhitespaceForExcerpt(text);
         if (compact.length() <= 180) {
             return compact;
         }
         return compact.substring(0, 180) + "...";
+    }
+
+    protected static String compactWhitespaceForExcerpt(String text) {
+        char[] out = new char[text.length()];
+        int outLen = 0;
+        boolean seenNonWhitespace = false;
+        boolean pendingSpace = false;
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (Character.isWhitespace(ch)) {
+                if (seenNonWhitespace) {
+                    pendingSpace = true;
+                }
+                continue;
+            }
+            if (pendingSpace && outLen > 0) {
+                out[outLen++] = ' ';
+            }
+            out[outLen++] = ch;
+            pendingSpace = false;
+            seenNonWhitespace = true;
+        }
+        if (outLen > 0 && out[outLen - 1] == ' ') {
+            outLen--;
+        }
+        return new String(out, 0, outLen);
+    }
+
+    protected static boolean hasDescendantOfAnyTypeInclusive(TSNode root, Set<String> targetTypes) {
+        String rootType = root.getType();
+        if (rootType != null && targetTypes.contains(rootType)) {
+            return true;
+        }
+        try (var cursor = new TSTreeCursor(root)) {
+            if (!gotoNextDepthFirst(cursor, true)) {
+                return false;
+            }
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return false;
+                }
+                String type = current.getType();
+                if (type != null && targetTypes.contains(type)) {
+                    return true;
+                }
+                if (!gotoNextDepthFirst(cursor, true)) {
+                    return false;
+                }
+            }
+        }
     }
 
     protected static <T> int testMeaningfulAssertionCredit(
