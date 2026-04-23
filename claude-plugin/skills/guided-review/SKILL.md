@@ -254,18 +254,22 @@ After showing the finding and its code context, include the recommendation:
 <actionable, step-by-step instructions for fixing the issue>
 ```
 
-Then present the action menu. If the `AskUserQuestion` tool is available,
-present it as a menu. Otherwise, present this numbered list and **stop and
-wait for the user's reply**:
+Then present the action menu **as a separate section** with a clear heading.
+The recommendation above may contain its own numbered steps; the action menu
+MUST use **letters (a-f)**, not numbers, so the user can distinguish action
+choices from recommendation steps. If the `AskUserQuestion` tool is
+available, present it as a menu. Otherwise, present this lettered list and
+**stop and wait for the user's reply**:
 
-1. **Next** -- Move to the next finding
-2. **Fix it now** -- Apply the recommended fix (use Edit/Write/Bash tools)
-3. **Create GitHub issue** -- File a new issue for this finding
-4. **Show more code context** -- Use Brokk tools to explore related code
-   (ask the user what they want to see: callers, class hierarchy, related
-   files, etc.)
-5. **Skip remaining** -- Jump to the summary
-6. **Done** -- End the review
+```
+### What would you like to do?
+a. **Next** -- Move to the next finding
+b. **Fix it now** -- Apply the recommended fix (use Edit/Write/Bash tools)
+c. **Create GitHub issue** -- File a new issue for this finding
+d. **Show more code context** -- Use Brokk tools to explore related code
+e. **Skip remaining** -- Jump to the summary
+f. **Done** -- End the review
+```
 
 Do NOT pick a default. Do NOT proceed until the user has chosen.
 
