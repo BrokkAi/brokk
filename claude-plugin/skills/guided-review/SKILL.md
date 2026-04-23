@@ -128,6 +128,12 @@ Each reviewer prompt MUST include:
 - The PR title and description
 - The list of changed files
 - An instruction to use Brokk MCP tools for deep analysis beyond the diff
+- **CRITICAL scoping instruction**: Only report issues that are **introduced
+  or worsened by the changes in this diff**. Do NOT flag pre-existing issues
+  in unchanged code. Surrounding code may be read for context, but findings
+  must trace back to lines added or modified in the diff. If the same pattern
+  existed before this diff and the diff did not make it worse, it is out of
+  scope.
 
 | Reviewer Name | Focus |
 |---------------|-------|
@@ -142,18 +148,23 @@ Each reviewer prompt MUST include:
 After all reviewers return their findings:
 
 1. **Collect** all findings from all reviewers.
-2. **Deduplicate** -- if multiple reviewers flagged the same issue from
+2. **Filter out pre-existing issues** -- Discard any finding that describes
+   a problem in code that was NOT added or modified by this diff. If a
+   reviewer flagged something in surrounding/unchanged code, drop it unless
+   the diff directly interacts with that code in a way that creates a new
+   problem (e.g., calling an existing unsafe function from new code).
+3. **Deduplicate** -- if multiple reviewers flagged the same issue from
    different angles, merge them into a single finding and note which
    reviewers identified it.
-3. **Categorize** each finding into one of these groups:
+4. **Categorize** each finding into one of these groups:
    - **Design** -- architectural concerns, coupling, abstraction problems
    - **Tactical** -- local bugs, edge cases, error handling gaps
    - **Security** -- injection, auth bypass, data leaks, cryptographic issues
    - **Duplication** -- reimplemented logic, copy-paste patterns
    - **Infrastructure** -- CI/CD, config, operational concerns
    - **Tests** -- missing test coverage, weak assertions
-4. **Assign severity**: CRITICAL, HIGH, MEDIUM, LOW.
-5. **Sort** by severity within each category: CRITICAL first, then HIGH,
+5. **Assign severity**: CRITICAL, HIGH, MEDIUM, LOW.
+6. **Sort** by severity within each category: CRITICAL first, then HIGH,
    MEDIUM, LOW.
 
 Build an internal findings list. Each finding should have:
