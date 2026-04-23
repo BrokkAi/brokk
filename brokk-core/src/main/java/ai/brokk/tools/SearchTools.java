@@ -92,6 +92,8 @@ public class SearchTools {
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
 
+    private record SymbolSearchHit(String signature, int lineNumber) {}
+
     static final int FILE_SEARCH_LIMIT = 100;
     private static final int FILE_SKIM_LIMIT = 20;
     private static final int CLASS_COUNT_LIMIT = 10;
@@ -1099,11 +1101,19 @@ public class SearchTools {
                 if (symbols != null && !symbols.isEmpty()) {
                     result.append("[").append(kind).append("]\n");
                     symbols.stream()
-                            .flatMap(cu -> analyzer.getDisplaySignatures(cu).stream())
-                            .distinct()
-                            .sorted(String.CASE_INSENSITIVE_ORDER)
-                            .forEach(signature ->
-                                    result.append("- ").append(signature).append("\n"));
+                            .flatMap(cu -> analyzer.getDisplaySignatures(cu).stream()
+                                    .map(signature -> new SymbolSearchHit(signature, displayLineNumber(analyzer, cu))))
+                            .collect(Collectors.toMap(
+                                    SymbolSearchHit::signature,
+                                    hit -> hit,
+                                    SearchTools::earlierSymbolSearchHit,
+                                    LinkedHashMap::new))
+                            .values()
+                            .stream()
+                            .sorted(SearchTools::compareSymbolSearchHits)
+                            .forEach(hit -> result.append("- ")
+                                    .append(formatSymbolSearchHit(hit))
+                                    .append("\n"));
                 }
             });
 
@@ -1111,6 +1121,35 @@ public class SearchTools {
         });
 
         return recordResearchTokens(appendRelatedContent(result.toString(), filesToRender));
+    }
+
+    private static int displayLineNumber(IAnalyzer analyzer, CodeUnit codeUnit) {
+        return analyzer.rangesOf(codeUnit).stream()
+                .mapToInt(range -> range.startLine() + 1)
+                .min()
+                .orElse(0);
+    }
+
+    private static SymbolSearchHit earlierSymbolSearchHit(SymbolSearchHit left, SymbolSearchHit right) {
+        int leftLine = normalizedLineNumber(left.lineNumber());
+        int rightLine = normalizedLineNumber(right.lineNumber());
+        return leftLine <= rightLine ? left : right;
+    }
+
+    private static int compareSymbolSearchHits(SymbolSearchHit left, SymbolSearchHit right) {
+        int signatureComparison = String.CASE_INSENSITIVE_ORDER.compare(left.signature(), right.signature());
+        if (signatureComparison != 0) {
+            return signatureComparison;
+        }
+        return Integer.compare(normalizedLineNumber(left.lineNumber()), normalizedLineNumber(right.lineNumber()));
+    }
+
+    private static int normalizedLineNumber(int lineNumber) {
+        return lineNumber > 0 ? lineNumber : Integer.MAX_VALUE;
+    }
+
+    private static String formatSymbolSearchHit(SymbolSearchHit hit) {
+        return hit.lineNumber() > 0 ? "%d: %s".formatted(hit.lineNumber(), hit.signature()) : hit.signature();
     }
 
     public String scanUsages(List<String> symbols, boolean includeTests) {

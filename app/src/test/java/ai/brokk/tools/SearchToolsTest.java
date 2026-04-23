@@ -700,7 +700,14 @@ public class SearchToolsTest {
     void testSearchSymbols_RendersDisplaySignatures() throws IOException, InterruptedException {
         Path aJava = projectRoot.resolve("src/main/java/com/example/A.java");
         Files.createDirectories(aJava.getParent());
-        Files.writeString(aJava, "class A {}");
+        Files.writeString(
+                aJava,
+                """
+                class A extends Base {
+                    public void bar(int x, int y) {}
+                }
+                """
+                        .stripIndent());
         ProjectFile pf = new ProjectFile(projectRoot, "src/main/java/com/example/A.java");
         mockProjectFiles.add(pf);
 
@@ -711,6 +718,8 @@ public class SearchToolsTest {
         analyzer.addDeclaration(method);
         analyzer.setDisplaySignatures(cls, List.of("class A extends Base"));
         analyzer.setDisplaySignatures(method, List.of("public void bar(int x, int y)"));
+        analyzer.setRanges(cls, List.of(new Range(0, 0, 0, 30, 0)));
+        analyzer.setRanges(method, List.of(new Range(0, 0, 1, 39, 0)));
 
         TestContextManager ctx = new TestContextManager(
                 new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
@@ -722,9 +731,9 @@ public class SearchToolsTest {
 
         String result = tools.searchSymbols(List.of(".*A.*"), false, 200);
 
-        assertTrue(result.contains("- class A extends Base"), "Should render class signature. Result: " + result);
+        assertTrue(result.contains("- 1: class A extends Base"), "Should render class signature. Result: " + result);
         assertTrue(
-                result.contains("- public void bar(int x, int y)"),
+                result.contains("- 2: public void bar(int x, int y)"),
                 "Should render method signature. Result: " + result);
         assertFalse(result.contains("com.example.A.bar"), "Should not render raw method FQN. Result: " + result);
     }

@@ -117,12 +117,22 @@ class SearchToolsTest {
         Path projectRoot = initRepo();
         Path filePath = projectRoot.resolve("src/main/java/com/example/A.java");
         Files.createDirectories(filePath.getParent());
-        Files.writeString(filePath, "class A {}");
+        Files.writeString(
+                filePath,
+                """
+                class A extends Base {
+                    public void bar(int x, int y) {}
+                }
+                """
+                        .stripIndent());
 
         project = new CoreProject(projectRoot);
         ProjectFile aFile = new ProjectFile(projectRoot, "src/main/java/com/example/A.java");
         CodeUnit aClass = CodeUnit.cls(aFile, "com.example", "A");
         CodeUnit aMethod = CodeUnit.fn(aFile, "com.example", "A.bar");
+        Map<CodeUnit, List<Range>> ranges = Map.of(
+                aClass, List.of(new Range(0, 0, 0, 30, 0)),
+                aMethod, List.of(new Range(0, 0, 1, 39, 0)));
         IAnalyzer analyzer = new DisabledAnalyzer(project) {
             @Override
             public Set<CodeUnit> searchDefinitions(String pattern) {
@@ -139,14 +149,19 @@ class SearchToolsTest {
                 }
                 return super.getDisplaySignatures(codeUnit);
             }
+
+            @Override
+            public List<Range> rangesOf(CodeUnit codeUnit) {
+                return ranges.getOrDefault(codeUnit, List.of());
+            }
         };
         SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
 
         String result = tools.searchSymbols(List.of(".*A.*"), false, 200);
 
-        assertTrue(result.contains("- class A extends Base"), "Should render class signature. Result: " + result);
+        assertTrue(result.contains("- 1: class A extends Base"), "Should render class signature. Result: " + result);
         assertTrue(
-                result.contains("- public void bar(int x, int y)"),
+                result.contains("- 2: public void bar(int x, int y)"),
                 "Should render method signature. Result: " + result);
         assertFalse(result.contains("com.example.A.bar"), "Should not render raw method FQN. Result: " + result);
     }

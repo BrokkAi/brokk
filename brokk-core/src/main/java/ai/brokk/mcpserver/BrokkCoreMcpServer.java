@@ -273,7 +273,7 @@ public class BrokkCoreMcpServer {
         specs.add(tool(
                 "searchSymbols",
                 "Find where classes, functions, fields, and modules are defined. "
-                        + "Returns human-readable declaration signatures grouped by file and kind. "
+                        + "Returns human-readable declaration signatures with line numbers grouped by file and kind. "
                         + "Patterns are case-insensitive regex with implicit ^ and $, so use wildcarding: "
                         + ".*Foo.*, Abstract.*, [a-z]*DAO.",
                 schema(
