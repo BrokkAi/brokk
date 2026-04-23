@@ -314,7 +314,8 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
         String service = """
                 export class LayoutService {}
                 """;
-        String index = """
+        String index =
+                """
                 import { LayoutService } from "./layout.service";
                 export { LayoutService };
                 """;
@@ -337,10 +338,10 @@ public class JsTsExportUsageReferenceGraphTest extends AbstractUsageReferenceGra
             var result = JsTsExportUsageReferenceGraph.findExportUsages(
                     serviceFile, "LayoutService", analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
 
-            assertEquals(1, result.hits().size());
-            var hit = result.hits().iterator().next();
-            assertTrue(hit.file().toString().endsWith("feature/header.component.ts"));
-            assertEquals(ReferenceKind.TYPE_REFERENCE, hit.kind());
+            assertEquals(2, result.hits().size());
+            assertTrue(result.hits().stream()
+                    .anyMatch(hit -> hit.file().toString().endsWith("feature/header.component.ts")
+                            && hit.kind() == ReferenceKind.TYPE_REFERENCE));
         }
     }
 

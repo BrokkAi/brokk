@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * JS/TS usages implementation backed by the exported-symbol reference graph.
@@ -20,6 +22,7 @@ import org.jetbrains.annotations.Nullable;
  * for usages of exported symbols that can be inferred from the defining file's {@link ExportIndex}.
  */
 public final class JsTsExportUsageGraphStrategy implements UsageAnalyzer {
+    private static final Logger log = LoggerFactory.getLogger(JsTsExportUsageGraphStrategy.class);
 
     private final IAnalyzer analyzer;
     private final JsTsExportUsageReferenceGraph.Limits limits;
@@ -37,7 +40,9 @@ public final class JsTsExportUsageGraphStrategy implements UsageAnalyzer {
         if (!(analyzer instanceof JsTsAnalyzer jsTs)) {
             return false;
         }
-        return !inferQuerySeeds(jsTs, target).isEmpty();
+        Set<QuerySeed> seeds = inferQuerySeeds(jsTs, target);
+        log.debug("JS/TS graph canHandle {} -> {} seeds {}", target.fqName(), seeds.size(), seeds);
+        return !seeds.isEmpty();
     }
 
     @Override
@@ -54,8 +59,15 @@ public final class JsTsExportUsageGraphStrategy implements UsageAnalyzer {
 
         Set<QuerySeed> querySeeds = inferQuerySeeds(jsTs, target);
         if (querySeeds.isEmpty()) {
+            log.debug("JS/TS graph found no query seeds for {}", target.fqName());
             return new FuzzyResult.Success(Map.of(target, Set.of()));
         }
+
+        log.debug(
+                "JS/TS graph analyzing {} with seeds {} over {} candidate files",
+                target.fqName(),
+                querySeeds,
+                candidateFiles.size());
 
         Set<UsageHit> hits = new LinkedHashSet<>();
         for (QuerySeed querySeed : querySeeds) {
@@ -81,6 +93,7 @@ public final class JsTsExportUsageGraphStrategy implements UsageAnalyzer {
             }
         }
         hits = hits.stream().limit(maxUsages).collect(Collectors.toCollection(LinkedHashSet::new));
+        log.debug("JS/TS graph produced {} hits for {}", hits.size(), target.fqName());
 
         return new FuzzyResult.Success(Map.of(target, Set.copyOf(hits)));
     }

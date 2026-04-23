@@ -1130,8 +1130,7 @@ public final class JsTsExportUsageExtractor {
                 continue;
             }
             String type = child.getType();
-            if (TYPE_ANNOTATION.equals(type)
-                    || TypeScriptTreeSitterNodeTypes.ACCESSIBILITY_MODIFIER.equals(type)) {
+            if (TYPE_ANNOTATION.equals(type) || TypeScriptTreeSitterNodeTypes.ACCESSIBILITY_MODIFIER.equals(type)) {
                 continue;
             }
             return child;

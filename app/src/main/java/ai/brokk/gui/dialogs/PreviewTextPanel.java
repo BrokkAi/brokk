@@ -7,6 +7,8 @@ import ai.brokk.agents.CodeAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -41,6 +43,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -532,9 +535,57 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         }
                     }
 
+                    var matchedUnits = resolveClickedIdentifierUnits(clickedIdentifier, unit, analyzer);
                     var items = new ArrayList<JMenuItem>();
-                    addMenuItemsForCodeUnit(items, clickedIdentifier, unit, analyzer);
+                    for (CodeUnit matchedUnit : matchedUnits) {
+                        addMenuItemsForCodeUnit(items, clickedIdentifier, matchedUnit, analyzer);
+                    }
                     return items;
+                }
+
+                private List<CodeUnit> resolveClickedIdentifierUnits(
+                        String clickedIdentifier, CodeUnit enclosingUnit, IAnalyzer analyzer) {
+                    var matches = Stream.concat(
+                                    analyzer.searchDefinitions(clickedIdentifier).stream(), Stream.of(enclosingUnit))
+                            .filter(candidate -> identifierMatchesCodeUnit(clickedIdentifier, candidate))
+                            .distinct()
+                            .sorted(Comparator.<CodeUnit>comparingInt(
+                                            candidate -> definitionPriority(candidate, enclosingUnit))
+                                    .thenComparing(candidate -> sameSourcePriority(candidate, enclosingUnit))
+                                    .thenComparing(CodeUnit::shortName))
+                            .toList();
+                    return matches.isEmpty() ? List.of(enclosingUnit) : matches;
+                }
+
+                private int definitionPriority(CodeUnit unit, CodeUnit enclosingUnit) {
+                    return switch (unit.kind()) {
+                        case CLASS -> 0;
+                        case FIELD -> 1;
+                        case FUNCTION -> isConstructorLike(unit, enclosingUnit) ? 3 : 2;
+                        case MODULE -> 4;
+                    };
+                }
+
+                private int sameSourcePriority(CodeUnit unit, CodeUnit enclosingUnit) {
+                    return unit.source().equals(enclosingUnit.source()) ? 0 : 1;
+                }
+
+                private boolean isConstructorLike(CodeUnit unit, CodeUnit enclosingUnit) {
+                    return unit.kind() == CodeUnitType.FUNCTION
+                            && unit.source().equals(enclosingUnit.source())
+                            && unit.identifier().equals(clickedIdentifierFromUnit(enclosingUnit));
+                }
+
+                private String clickedIdentifierFromUnit(CodeUnit unit) {
+                    return unit.identifier();
+                }
+
+                private boolean identifierMatchesCodeUnit(String clickedIdentifier, CodeUnit unit) {
+                    if (unit.identifier().equals(clickedIdentifier)) {
+                        return true;
+                    }
+                    var parts = Arrays.stream(unit.identifier().split("[$.]")).toList();
+                    return !parts.isEmpty() && parts.getLast().equals(clickedIdentifier);
                 }
 
                 private List<JMenuItem> createStringMatchingMenuItems(
@@ -619,8 +670,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                             CodeUnitType.FUNCTION,
                             codeUnit.packageName(),
                             codeUnit.shortName() + "." + identifier);
+                    Language lang = Languages.fromExtension(codeUnit.source().extension());
                     var hasConstructorSourceCode = codeUnit.isClass()
                             && analyzer != null
+                            && lang.contains(Languages.JAVA)
                             && SourceCaptureUtil.isSourceCaptureAvailable(constructorCu, analyzer);
 
                     if (hasConstructorSourceCode) {

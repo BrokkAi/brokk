@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * JS/TS v1: flow-insensitive exported-symbol usages.
@@ -23,6 +25,7 @@ import org.jetbrains.annotations.Nullable;
  * so that other languages can plug into the same orchestration later.
  */
 public final class JsTsExportUsageReferenceGraph {
+    private static final Logger log = LoggerFactory.getLogger(JsTsExportUsageReferenceGraph.class);
 
     private JsTsExportUsageReferenceGraph() {}
 
@@ -82,7 +85,16 @@ public final class JsTsExportUsageReferenceGraph {
         Set<CodeUnit> targets = queryTarget != null ? Set.of(queryTarget) : resolution.targets();
         Set<ProjectFile> frontier = new LinkedHashSet<>(resolution.frontier());
 
+        log.debug(
+                "JS/TS reference graph resolving {}:{} -> {} targets, {} frontier files, queryTarget={}",
+                definingFile,
+                exportName,
+                targets.size(),
+                frontier.size(),
+                queryTarget != null ? queryTarget.fqName() : "<none>");
+
         if (targets.isEmpty()) {
+            log.debug("JS/TS reference graph found no targets for {}:{}", definingFile, exportName);
             return new ReferenceGraphResult(Set.of(), Set.copyOf(frontier), Set.copyOf(externalFrontier));
         }
 
@@ -95,6 +107,13 @@ public final class JsTsExportUsageReferenceGraph {
         filesToAnalyze = Set.copyOf(expandedFilesToAnalyze);
         boolean shouldResolveReceiverCandidates =
                 targets.stream().anyMatch(JsTsExportUsageReferenceGraph::isMemberTarget);
+
+        log.debug(
+                "JS/TS reference graph analyzing {} files for {}:{} (receiverCandidates={})",
+                filesToAnalyze.size(),
+                definingFile,
+                exportName,
+                shouldResolveReceiverCandidates);
 
         Map<String, Set<String>> heritageEdges =
                 targets.stream().allMatch(target -> target.kind() != CodeUnitType.CLASS && !isMemberTarget(target))
@@ -153,6 +172,7 @@ public final class JsTsExportUsageReferenceGraph {
             }
         }
 
+        log.debug("JS/TS reference graph produced {} hits for {}:{}", hits.size(), definingFile, exportName);
         return new ReferenceGraphResult(Set.copyOf(hits), Set.copyOf(frontier), Set.copyOf(externalFrontier));
     }
 
