@@ -47,6 +47,7 @@ public class BrokkAcpAgent {
     // Per-session state
     private final Map<String, String> modeBySession = new ConcurrentHashMap<>();
     private final Map<String, String> modelBySession = new ConcurrentHashMap<>();
+    private final Map<String, String> activeJobBySession = new ConcurrentHashMap<>();
 
     public BrokkAcpAgent(ContextManager cm, JobRunner jobRunner, JobStore jobStore) {
         this.cm = cm;
@@ -91,14 +92,13 @@ public class BrokkAcpAgent {
         logger.info("ACP load session {}", request.sessionId());
         var sessionId = request.sessionId();
 
-        // Try to switch to the requested session
+        // Switch to the requested session, or fail if it doesn't exist
         var sessions = cm.getProject().getSessionManager().listSessions();
         var target = sessions.stream()
                 .filter(s -> s.id().toString().equals(sessionId))
-                .findFirst();
-        if (target.isPresent()) {
-            cm.switchSessionAsync(target.get().id()).join();
-        }
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown session: " + sessionId));
+        cm.switchSessionAsync(target.id()).join();
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
 
@@ -121,6 +121,17 @@ public class BrokkAcpAgent {
             promptContext.sendMessage("Error: empty prompt");
             return AcpSchema.PromptResponse.endTurn();
         }
+
+        // Switch to the requested session so the job executes against the correct state
+        var sessions = cm.getProject().getSessionManager().listSessions();
+        var target = sessions.stream()
+                .filter(s -> s.id().toString().equals(sessionId))
+                .findFirst();
+        if (target.isEmpty()) {
+            promptContext.sendMessage("Error: unknown session " + sessionId);
+            return AcpSchema.PromptResponse.endTurn();
+        }
+        cm.switchSessionAsync(target.get().id()).join();
 
         // Build JobSpec
         var mode = modeBySession.getOrDefault(sessionId, "LUTZ");
@@ -149,6 +160,7 @@ public class BrokkAcpAgent {
         // Create console adapter and run the job
         var acpConsole = new AcpConsoleIO(promptContext);
         var jobId = UUID.randomUUID().toString();
+        activeJobBySession.put(sessionId, jobId);
 
         try {
             // Create job in store
@@ -159,6 +171,8 @@ public class BrokkAcpAgent {
         } catch (Exception e) {
             logger.error("Job execution failed", e);
             promptContext.sendMessage("\n**Error:** " + e.getMessage() + "\n");
+        } finally {
+            activeJobBySession.remove(sessionId, jobId);
         }
 
         return AcpSchema.PromptResponse.endTurn();
@@ -191,9 +205,14 @@ public class BrokkAcpAgent {
 
     @Cancel
     public void cancel(AcpSchema.CancelNotification notification) {
-        logger.info("ACP cancel session={}", notification.sessionId());
-        // Delegate to JobRunner's single source of truth for active job tracking
-        jobRunner.cancelActive();
+        var sessionId = notification.sessionId();
+        logger.info("ACP cancel session={}", sessionId);
+        var jobId = activeJobBySession.get(sessionId);
+        if (jobId != null) {
+            jobRunner.cancel(jobId);
+        } else {
+            logger.info("ACP cancel: no active job for session {}", sessionId);
+        }
     }
 
     private AcpSchema.SessionModelState buildModelState(String sessionId) {
