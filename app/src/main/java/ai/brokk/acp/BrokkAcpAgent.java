@@ -64,7 +64,7 @@ public class BrokkAcpAgent {
                 new AcpSchema.PromptCapabilities(null, true, null), // embeddedContext = true
                 Map.of("brokk", Map.of("context", true, "completions", true, "costs", true)));
         return new AcpSchema.InitializeResponse(
-                null,
+                AcpSchema.LATEST_PROTOCOL_VERSION,
                 capabilities,
                 List.of(),
                 new AcpSchema.Implementation("brokk", BuildInfo.version, "Brokk Code Intelligence"),
