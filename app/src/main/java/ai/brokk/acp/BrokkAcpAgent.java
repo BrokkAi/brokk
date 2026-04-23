@@ -34,6 +34,8 @@ import org.apache.logging.log4j.Logger;
 public class BrokkAcpAgent {
     private static final Logger logger = LogManager.getLogger(BrokkAcpAgent.class);
 
+    private static final String DEFAULT_CODE_MODEL = "gemini-3-flash-preview";
+
     private static final List<AcpSchema.SessionMode> AVAILABLE_MODES = List.of(
             new AcpSchema.SessionMode("LUTZ", "LUTZ", "Agentic loop with task list"),
             new AcpSchema.SessionMode("CODE", "CODE", "Code changes only"),
@@ -145,7 +147,7 @@ public class BrokkAcpAgent {
                 true, // autoCompress
                 model, // plannerModel
                 null, // scanModel
-                null, // codeModel
+                DEFAULT_CODE_MODEL, // codeModel
                 false, // preScan
                 tags, // tags
                 null, // sourceBranch
