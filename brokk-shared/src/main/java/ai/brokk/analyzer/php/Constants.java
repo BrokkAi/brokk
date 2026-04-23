@@ -2,8 +2,8 @@ package ai.brokk.analyzer.php;
 
 import ai.brokk.analyzer.CommonTreeSitterNodeTypes;
 
-/** Constants for PHP TreeSitter node type names. */
-public final class PhpTreeSitterNodeTypes {
+/** Tree-sitter-related constants for PHP analysis (node types, field names, query capture names). */
+public final class Constants {
 
     // ===== COMMON TYPES (imported from CommonTreeSitterNodeTypes) =====
     // Class-like declarations
@@ -66,6 +66,25 @@ public final class PhpTreeSitterNodeTypes {
     // Import declarations
     public static final String IMPORT_DECLARATION = "namespace_use_declaration";
 
+    // ===== TREE-SITTER FIELD NAMES =====
+    public static final String FIELD_NAME = "name";
+    public static final String FIELD_BODY = "body";
+    public static final String FIELD_PARAMETERS = "parameters";
+    public static final String FIELD_RETURN_TYPE = "return_type";
+    public static final String FIELD_TYPE = "type";
+    public static final String FIELD_DEFAULT_VALUE = "default_value";
+    public static final String FIELD_VALUE = "value";
+    public static final String FIELD_FUNCTION = "function";
+    public static final String FIELD_MEMBER = "member";
+    public static final String FIELD_PROPERTY = "property";
+    public static final String FIELD_ARGUMENTS = "arguments";
+    public static final String FIELD_LEFT = "left";
+    public static final String FIELD_RIGHT = "right";
+
+    // ===== QUERY CAPTURE NAMES =====
+    public static final String CAPTURE_NSNAME = "nsname";
+    public static final String CAPTURE_NAMESPACE_NAME = "namespace.name";
+
     // Common leaf node types used by analyzers/queries
     public static final String NAME = "name";
     public static final String COMMENT = "comment";
@@ -80,5 +99,5 @@ public final class PhpTreeSitterNodeTypes {
     public static final String TEST_MARKER = "test_marker";
     public static final String TEST_TAG_AT_TEST = "@test";
 
-    private PhpTreeSitterNodeTypes() {}
+    private Constants() {}
 }
