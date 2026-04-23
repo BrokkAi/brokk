@@ -13,6 +13,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.CandidateFileProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
+import ai.brokk.analyzer.usages.JsTsExportUsageGraphStrategy;
 import ai.brokk.analyzer.usages.UsageAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
@@ -39,7 +40,8 @@ public final class UsageFinder {
     private final UsageAnalyzer fallbackUsageAnalyzer;
     private final @Nullable Predicate<ProjectFile> fileFilter;
 
-    private record Configuration(CandidateFileProvider candidateProvider, UsageAnalyzer usageAnalyzer) {}
+    private record Configuration(
+            CandidateFileProvider candidateProvider, UsageAnalyzer usageAnalyzer, boolean allowFallback) {}
 
     public static UsageFinder create(IAppContextManager cm) {
         return create(cm, null);
@@ -68,11 +70,26 @@ public final class UsageFinder {
     }
 
     private Configuration getConfiguration(CodeUnit target) {
-        Language lang = Languages.fromExtension(target.source().extension());
-        if (!FUZZY_USAGES_ONLY && lang.contains(Languages.JAVA)) {
-            return new Configuration(new TextSearchCandidateProvider(), new JdtUsageAnalyzerStrategy(project));
+        if (FUZZY_USAGES_ONLY) {
+            log.debug("Usage lookup for {} forced to fuzzy path by BRK_FUZZY_USAGES_ONLY", target.fqName());
+            return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
         }
-        return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer);
+        Language lang = Languages.fromExtension(target.source().extension());
+        if (lang.contains(Languages.JAVASCRIPT) || lang.contains(Languages.TYPESCRIPT)) {
+            var graphStrategy = new JsTsExportUsageGraphStrategy(analyzer);
+            if (graphStrategy.canHandle(target)) {
+                log.debug("Usage lookup for {} routed to JS/TS export graph", target.fqName());
+                return new Configuration(createDefaultProvider(), graphStrategy, true);
+            }
+            log.debug("Usage lookup for {} not seedable by JS/TS export graph, using fuzzy fallback", target.fqName());
+            return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
+        }
+        if (lang.contains(Languages.JAVA)) {
+            log.debug("Usage lookup for {} routed to JDT strategy", target.fqName());
+            return new Configuration(new TextSearchCandidateProvider(), new JdtUsageAnalyzerStrategy(project), true);
+        }
+        log.debug("Usage lookup for {} using default fallback strategy", target.fqName());
+        return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
     }
 
     public static CandidateFileProvider createDefaultProvider() {
@@ -111,10 +128,19 @@ public final class UsageFinder {
         var candidateFiles = query.candidateFiles();
         var result = query.result();
 
-        boolean suspiciouslyEmpty =
-                result instanceof FuzzyResult.Success success && success.hits().isEmpty() && !candidateFiles.isEmpty();
+        log.debug(
+                "Primary usage analysis for {} via {} considered {} candidate files and produced {}",
+                target.fqName(),
+                config.usageAnalyzer().getClass().getSimpleName(),
+                candidateFiles.size(),
+                summarizeResult(result));
 
-        if ((result instanceof FuzzyResult.Failure || suspiciouslyEmpty)
+        boolean suspiciouslyEmpty = result instanceof FuzzyResult.Success success
+                && success.hits().isEmpty()
+                && (!candidateFiles.isEmpty() || config.usageAnalyzer() instanceof JsTsExportUsageGraphStrategy);
+
+        if (config.allowFallback()
+                && (result instanceof FuzzyResult.Failure || suspiciouslyEmpty)
                 && config.usageAnalyzer().getClass() != fallbackUsageAnalyzer.getClass()) {
             log.warn(
                     "Primary usage analysis {} for {}, falling back to fuzzy analyzer",
@@ -126,6 +152,16 @@ public final class UsageFinder {
         }
 
         return result;
+    }
+
+    private static String summarizeResult(FuzzyResult result) {
+        return switch (result) {
+            case FuzzyResult.Success success -> success.hits().size() + " hits";
+            case FuzzyResult.Ambiguous ambiguous ->
+                "ambiguous(" + ambiguous.candidateTargets().size() + ")";
+            case FuzzyResult.TooManyCallsites tooMany -> "too-many(" + tooMany.totalCallsites() + ")";
+            case FuzzyResult.Failure failure -> "failure(" + failure.reason() + ")";
+        };
     }
 
     public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) throws InterruptedException {

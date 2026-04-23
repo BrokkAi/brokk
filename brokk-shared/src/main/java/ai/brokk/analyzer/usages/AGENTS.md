@@ -1,0 +1,129 @@
+# JS/TS Exported-Symbol Usages (Flow-Insensitive)
+
+This package contains the "usages" infrastructure. For JS/TS, we are adding a language-agnostic reference-graph
+representation and a small orchestration layer that can answer "where is this exported symbol used?" better than grep.
+
+## Goals
+
+- Language-agnostic IR (`ReferenceCandidate`, `ReferenceHit`) that other languages can plug into.
+- Flow-insensitive resolution with confidence scoring.
+- Scalable orchestration bounded to `ProjectFile` compilation units, with on-demand frontier expansion.
+- JS/TS v1 focuses on ESM imports/exports including re-exports (`export * from`, `export {x as y} from`).
+
+## Non-goals (v1)
+
+- CommonJS: `require()`, `module.exports`, `exports.*`.
+- Full TypeScript type-checker inference / structural typing.
+- Control flow, data flow, or CFG/SSA.
+
+## IR
+
+- `ReferenceCandidate`: a syntactic outgoing reference with local context (identifier, optional qualifier, kind, range, enclosing unit).
+- `ReferenceHit`: a resolved edge (usage site -> resolved `CodeUnit`) with confidence.
+
+## JS/TS approach (v1)
+
+We build and cache two per-file indexes:
+
+- `ExportIndex`: what a file exports (direct exports + re-exports + `export *`), plus a minimal class `extends` edge list
+  to support class-inheritance-only polymorphism.
+- `ImportBinder`: what local binding names are introduced by imports, including aliases and namespace imports.
+
+Resolution proceeds by:
+
+1) Resolving a module specifier to a `ProjectFile` using the existing JS/TS module resolution logic in `JsTsAnalyzer`.
+2) Resolving exported names by consulting the target file's `ExportIndex`, following re-export chains transitively.
+3) Extracting usage candidates from importing files by matching identifier/member expressions against the `ImportBinder`.
+
+The orchestration runs as a fixed-point expansion over `ProjectFile`s, stopping on budget and returning a frontier of
+additional files needed to continue resolution.
+
+## Implementation notes
+
+- JS/TS extraction logic intentionally lives outside `JsTsAnalyzer` in
+  `ai.brokk.analyzer.javascript.JsTsExportUsageExtractor` so the analyzer stays compositional.
+- `ImportBinder` is derived from the existing `importInfoOf(...)` pipeline (structured `ImportInfo`),
+  so the same import analysis drives both import-graph resolution and export-usage binding.
+- Local receiver inference should be a separate reusable stage:
+  - language-specific extraction emits local seed/alias/receiver-access facts
+  - a language-agnostic local-inference engine manages scoped symbol tables, bounded propagation, and confidence
+  - cross-file/export resolution consumes the inferred receiver candidates after local inference completes
+- False-positive guardrails for local inference are mandatory:
+  - cap possible targets per local symbol
+  - prefer import-derived / explicit-provenance targets
+  - stop propagating once ambiguity exceeds the cap
+  - do not fan out to every class with a matching member name
+- JS/TS performance architecture should cache the expensive middle layers:
+  - per-file member-resolution indexes keyed by owner/member/static-vs-instance
+  - export-resolution results keyed by defining file + export name (+ depth budget when relevant)
+  - reverse export seed discovery keyed by underlying source file + exported name so barrel files like `index.ts`
+    (`import { Foo } from "./foo"; export { Foo };`) can seed the graph without rescanning the whole project
+  - receiver inference should only run for member queries, not plain exported symbol lookups
+- Barrel/local re-exports should be modeled from structured export/import state, not grep:
+  - `export { Foo } from "./a"` is a direct reverse-export edge
+  - `import { Foo } from "./a"; export { Foo as Bar }` is also a reverse-export edge and must resolve back through
+    the import binding during export resolution
+- Keep the local-inference model reusable for Python and other dynamic languages by expressing it in generic fact/event
+  records rather than JS/TS-specific AST state.
+- Minimum test expectations for receiver inference changes:
+  - add reusable-engine unit tests for `LocalUsageInference`
+  - add JS/TS extractor/integration tests for scope, shadowing, and ambiguity boundaries
+  - add false-positive guardrail tests for unknown receivers and object-literal collisions
+  - only assert confidence ordering where it is intentionally contractual at a coarse level
+
+## Follow-ups / Roadmap
+
+- Module resolution: `node:` built-ins, package imports, and `tsconfig` paths/aliases.
+- CommonJS interop: `require(...)`, `module.exports`, `exports.*`.
+- Richer member resolution: `import()` dynamic, destructuring patterns, and non-identifier property access.
+- Preferred next capability work:
+  - declaration-backed member identity rather than only owner/name matching
+  - bounded destructuring and same-file wrapper propagation
+  - explicit TS type-space constructs such as `typeof` and interface/member inheritance
+  - same-file `this` receiver support where it can be kept bounded and declaration-backed
+- TS-only: type-only exports/imports coverage gaps and `export type { ... }`.
+
+## Continued non-goals
+
+- CFG or branch-sensitive narrowing.
+- Interprocedural search beyond bounded same-file wrappers.
+- Speculative widening to all matching member names in the project.
+- Full TypeScript typechecker semantics.
+
+## App wiring
+
+- JS/TS exported-symbol reference-graph usage analysis is the default app-layer behavior in
+  `ai.brokk.usages.UsageFinder` for JavaScript and TypeScript unless `BRK_FUZZY_USAGES_ONLY=1`
+  is set.
+- In that default mode, JS/TS usage results are graph-only (no LLM fallback). Frontier is
+  tracked but not yet surfaced in the UI.
+
+## Python follow-up (planned)
+
+Goal: support Python exported-symbol usages without duplicating orchestration logic.
+
+Proposed design:
+
+- Introduce a language-plugin seam for exported-symbol usage graphs:
+  - `ExportUsageGraphLanguageAdapter` (new interface) with hooks:
+    - `boolean supports(ProjectFile)` (or `Language supportedLanguage()`)
+    - `ExportIndex exportIndexOf(ProjectFile)`
+    - `ImportBinder importBinderOf(ProjectFile)`
+    - `Set<ReferenceCandidate> usageCandidatesOf(ProjectFile, ImportBinder)`
+    - `ResolutionOutcome resolveModule(ProjectFile importingFile, String moduleSpecifier)` returning
+      `{resolvedInProject?: ProjectFile, externalFrontier?: String}`
+    - optional: `Set<CodeUnit> polymorphicMatches(CodeUnit target, IAnalyzer analyzer)` (default empty)
+- Move the fixed-point orchestration into a reusable base:
+  - `AbstractExportUsageReferenceGraph` (or a generic static helper) that implements:
+    - fixed-point traversal over `ProjectFile`s, limits, cycle detection
+    - optional `candidateFiles` restriction (`@Nullable Set<ProjectFile> candidateFiles`)
+    - frontier + external-frontier accumulation, returned as `ReferenceGraphResult`
+- JS/TS becomes a small adapter implementation of the interface.
+- Python support becomes a second adapter that only implements extraction + module resolution:
+  - exports: treat top-level `def`/`class` and `__all__` (best-effort) as exports
+  - imports: `from mod import x as y`, `import mod as m`
+  - resolution: in-project module resolution only; external modules go to external frontier
+- For receiver inference reuse, the adapter should also expose:
+  - local seed facts (imports, annotations, constructor facts)
+  - local transfer facts (same-scope aliases / simple destructuring)
+  - receiver access sites (`obj.foo`, `obj.foo()`)

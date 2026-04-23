@@ -1,11 +1,19 @@
 package ai.brokk.analyzer.cache;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.JsTsAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceContent;
+import ai.brokk.analyzer.usages.ExportIndex;
+import ai.brokk.analyzer.usages.ImportBinder;
+import ai.brokk.analyzer.usages.ReferenceCandidate;
+import ai.brokk.analyzer.usages.ReferenceHit;
+import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Composes all analyzer-specific caches into a single helper object.
@@ -21,6 +29,17 @@ public class AnalyzerCache {
     private final SimpleCache<CodeUnit, List<String>> rawSupertypes;
     private final BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports;
     private final BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy;
+    private final SimpleCache<ProjectFile, ExportIndex> exportIndex;
+    private final SimpleCache<ProjectFile, ImportBinder> importBinder;
+    private final SimpleCache<ProjectFile, Set<ReferenceCandidate>> references;
+    private final SimpleCache<ProjectFile, Set<ResolvedReceiverCandidate>> receiverCandidates;
+    private final SimpleCache<CodeUnit, Set<ReferenceHit>> usages;
+    private final SimpleCache<ProjectFile, Map<JsTsAnalyzer.MemberLookupKey, CodeUnit>> memberResolutionIndex;
+    private final SimpleCache<JsTsAnalyzer.ExportResolutionKey, JsTsAnalyzer.ExportResolutionData> exportResolution;
+    private @Nullable Map<ProjectFile, Set<ProjectFile>> reverseReexportIndex;
+    private @Nullable Map<JsTsAnalyzer.ReverseExportSeedKey, Set<JsTsAnalyzer.ExportSeed>> reverseExportSeedIndex;
+    private @Nullable Map<String, Set<String>> heritageIndex;
+    private boolean importReverseIndexPrimed;
 
     public AnalyzerCache() {
         this.sources = new CaffeineSimpleCache<>(1000);
@@ -38,6 +57,13 @@ public class AnalyzerCache {
                     // Logic for reverse population is handled by the caller during resolve
                 },
                 Collections::emptyList);
+        this.exportIndex = new CaffeineSimpleCache<>(10_000);
+        this.importBinder = new CaffeineSimpleCache<>(10_000);
+        this.references = new CaffeineSimpleCache<>(10_000);
+        this.receiverCandidates = new CaffeineSimpleCache<>(10_000);
+        this.usages = new CaffeineSimpleCache<>(10_000);
+        this.memberResolutionIndex = new CaffeineSimpleCache<>(10_000);
+        this.exportResolution = new CaffeineSimpleCache<>(20_000);
     }
 
     /**
@@ -82,6 +108,55 @@ public class AnalyzerCache {
                 this.typeHierarchy.putForward(cu, List.copyOf(supers));
             }
         });
+
+        previous.exportIndex.forEach((file, idx) -> {
+            if (!changedFiles.contains(file)) {
+                this.exportIndex.put(file, idx);
+            }
+        });
+
+        previous.importBinder.forEach((file, binder) -> {
+            if (!changedFiles.contains(file)) {
+                this.importBinder.put(file, binder);
+            }
+        });
+
+        previous.references.forEach((file, refs) -> {
+            if (!changedFiles.contains(file)) {
+                this.references.put(file, Set.copyOf(refs));
+            }
+        });
+
+        previous.receiverCandidates.forEach((file, resolved) -> {
+            if (!changedFiles.contains(file)) {
+                this.receiverCandidates.put(file, Set.copyOf(resolved));
+            }
+        });
+
+        previous.memberResolutionIndex.forEach((file, index) -> {
+            if (!changedFiles.contains(file)) {
+                this.memberResolutionIndex.put(file, Map.copyOf(index));
+            }
+        });
+
+        previous.exportResolution.forEach((key, data) -> {
+            if (!changedFiles.contains(key.definingFile())) {
+                this.exportResolution.put(key, data);
+            }
+        });
+
+        previous.usages.forEach((cu, hits) -> {
+            if (!changedFiles.contains(cu.source())) {
+                this.usages.put(cu, Set.copyOf(hits));
+            }
+        });
+
+        if (changedFiles.isEmpty()) {
+            this.reverseReexportIndex = previous.reverseReexportIndex;
+            this.reverseExportSeedIndex = previous.reverseExportSeedIndex;
+            this.heritageIndex = previous.heritageIndex;
+            this.importReverseIndexPrimed = previous.importReverseIndexPrimed;
+        }
     }
 
     public SimpleCache<ProjectFile, SourceContent> sources() {
@@ -104,6 +179,67 @@ public class AnalyzerCache {
         return typeHierarchy;
     }
 
+    public SimpleCache<ProjectFile, ExportIndex> exportIndex() {
+        return exportIndex;
+    }
+
+    public SimpleCache<ProjectFile, ImportBinder> importBinder() {
+        return importBinder;
+    }
+
+    public SimpleCache<ProjectFile, Set<ReferenceCandidate>> references() {
+        return references;
+    }
+
+    public SimpleCache<ProjectFile, Set<ResolvedReceiverCandidate>> receiverCandidates() {
+        return receiverCandidates;
+    }
+
+    public SimpleCache<CodeUnit, Set<ReferenceHit>> usages() {
+        return usages;
+    }
+
+    public SimpleCache<ProjectFile, Map<JsTsAnalyzer.MemberLookupKey, CodeUnit>> memberResolutionIndex() {
+        return memberResolutionIndex;
+    }
+
+    public SimpleCache<JsTsAnalyzer.ExportResolutionKey, JsTsAnalyzer.ExportResolutionData> exportResolution() {
+        return exportResolution;
+    }
+
+    public @Nullable Map<ProjectFile, Set<ProjectFile>> reverseReexportIndex() {
+        return reverseReexportIndex;
+    }
+
+    public void reverseReexportIndex(@Nullable Map<ProjectFile, Set<ProjectFile>> reverseReexportIndex) {
+        this.reverseReexportIndex = reverseReexportIndex;
+    }
+
+    public @Nullable Map<JsTsAnalyzer.ReverseExportSeedKey, Set<JsTsAnalyzer.ExportSeed>> reverseExportSeedIndex() {
+        return reverseExportSeedIndex;
+    }
+
+    public void reverseExportSeedIndex(
+            @Nullable Map<JsTsAnalyzer.ReverseExportSeedKey, Set<JsTsAnalyzer.ExportSeed>> reverseExportSeedIndex) {
+        this.reverseExportSeedIndex = reverseExportSeedIndex;
+    }
+
+    public @Nullable Map<String, Set<String>> heritageIndex() {
+        return heritageIndex;
+    }
+
+    public void heritageIndex(@Nullable Map<String, Set<String>> heritageIndex) {
+        this.heritageIndex = heritageIndex;
+    }
+
+    public boolean importReverseIndexPrimed() {
+        return importReverseIndexPrimed;
+    }
+
+    public void importReverseIndexPrimed(boolean importReverseIndexPrimed) {
+        this.importReverseIndexPrimed = importReverseIndexPrimed;
+    }
+
     /**
      * Returns true only if ALL caches are empty.
      */
@@ -112,14 +248,41 @@ public class AnalyzerCache {
                 && typeIdentifiers.isEmpty()
                 && rawSupertypes.isEmpty()
                 && imports.isEmpty()
-                && typeHierarchy.isEmpty();
+                && typeHierarchy.isEmpty()
+                && exportIndex.isEmpty()
+                && importBinder.isEmpty()
+                && references.isEmpty()
+                && receiverCandidates.isEmpty()
+                && usages.isEmpty()
+                && memberResolutionIndex.isEmpty()
+                && exportResolution.isEmpty()
+                && reverseReexportIndex == null
+                && reverseExportSeedIndex == null
+                && heritageIndex == null
+                && !importReverseIndexPrimed;
     }
 
     /**
      * Returns a snapshot of the current state of all caches.
      */
     public CacheSnapshot snapshot() {
-        return new CacheSnapshot(sources, typeIdentifiers, rawSupertypes, imports, typeHierarchy);
+        return new CacheSnapshot(
+                sources,
+                typeIdentifiers,
+                rawSupertypes,
+                imports,
+                typeHierarchy,
+                exportIndex,
+                importBinder,
+                references,
+                receiverCandidates,
+                usages,
+                memberResolutionIndex,
+                exportResolution,
+                reverseReexportIndex,
+                reverseExportSeedIndex,
+                heritageIndex,
+                importReverseIndexPrimed);
     }
 
     /**
@@ -130,5 +293,16 @@ public class AnalyzerCache {
             SimpleCache<ProjectFile, Set<String>> typeIdentifiers,
             SimpleCache<CodeUnit, List<String>> rawSupertypes,
             BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports,
-            BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy) {}
+            BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy,
+            SimpleCache<ProjectFile, ExportIndex> exportIndex,
+            SimpleCache<ProjectFile, ImportBinder> importBinder,
+            SimpleCache<ProjectFile, Set<ReferenceCandidate>> references,
+            SimpleCache<ProjectFile, Set<ResolvedReceiverCandidate>> receiverCandidates,
+            SimpleCache<CodeUnit, Set<ReferenceHit>> usages,
+            SimpleCache<ProjectFile, Map<JsTsAnalyzer.MemberLookupKey, CodeUnit>> memberResolutionIndex,
+            SimpleCache<JsTsAnalyzer.ExportResolutionKey, JsTsAnalyzer.ExportResolutionData> exportResolution,
+            @Nullable Map<ProjectFile, Set<ProjectFile>> reverseReexportIndex,
+            @Nullable Map<JsTsAnalyzer.ReverseExportSeedKey, Set<JsTsAnalyzer.ExportSeed>> reverseExportSeedIndex,
+            @Nullable Map<String, Set<String>> heritageIndex,
+            boolean importReverseIndexPrimed) {}
 }

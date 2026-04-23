@@ -3,7 +3,13 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.javascript.JsTsExportUsageExtractor;
+import ai.brokk.analyzer.javascript.TsConfigPathsResolver;
 import ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes;
+import ai.brokk.analyzer.usages.ExportIndex;
+import ai.brokk.analyzer.usages.ImportBinder;
+import ai.brokk.analyzer.usages.ReferenceCandidate;
+import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import ai.brokk.project.ICoreProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -23,6 +29,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
+import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSTree;
 import org.treesitter.TSTreeCursor;
@@ -34,6 +41,17 @@ import org.treesitter.TSTreeCursor;
 public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
 
     protected record ModulePathKey(ProjectFile importingFile, String modulePath) {}
+
+    public record MemberLookupKey(String ownerClassName, String memberName, boolean instanceReceiver) {}
+
+    public record ExportResolutionKey(ProjectFile definingFile, String exportName, int maxReexportDepth) {}
+
+    public record ExportSeed(ProjectFile file, String exportName) {}
+
+    public record ReverseExportSeedKey(ProjectFile sourceFile, String sourceExportName) {}
+
+    public record ExportResolutionData(
+            Set<CodeUnit> targets, Set<ProjectFile> frontier, Set<String> externalFrontier) {}
 
     protected static final List<String> KNOWN_EXTENSIONS = List.of(".js", ".jsx", ".ts", ".tsx");
 
@@ -60,6 +78,11 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
 
+    private final Cache<Path, TsConfigPathsResolver> tsConfigResolverCache =
+            Caffeine.newBuilder().maximumSize(64).build();
+
+    private volatile @Nullable Set<Path> absoluteProjectPathsCache;
+
     protected JsTsAnalyzer(ICoreProject project, Language language) {
         super(project, language);
     }
@@ -79,6 +102,263 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             ProgressListener listener,
             @Nullable AnalyzerCache cache) {
         super(project, language, state, listener, cache);
+    }
+
+    public TSLanguage tsLanguage() {
+        return getTSLanguage();
+    }
+
+    @Override
+    public List<ImportInfo> importInfoOf(ProjectFile file) {
+        return super.importInfoOf(file);
+    }
+
+    /**
+     * Computes and caches an index of exports for the given file, including ESM re-exports.
+     */
+    public ExportIndex exportIndexOf(ProjectFile file) {
+        ExportIndex cached = cache().exportIndex().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        ExportIndex computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return ExportIndex.empty();
+                    }
+                    return withSource(
+                            file,
+                            sc -> JsTsExportUsageExtractor.computeExportIndex(this, root, sc),
+                            ExportIndex.empty());
+                },
+                ExportIndex.empty());
+
+        cache().exportIndex().put(file, computed);
+        return computed;
+    }
+
+    /**
+     * Computes and caches a mapping of local import bindings for the given file.
+     */
+    public ImportBinder importBinderOf(ProjectFile file) {
+        ImportBinder cached = cache().importBinder().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        ImportBinder computed = JsTsExportUsageExtractor.computeImportBinder(importInfoOf(file));
+        cache().importBinder().put(file, computed);
+        return computed;
+    }
+
+    /**
+     * Extracts flow-insensitive candidates for exported-symbol usage analysis, based on the given import binder.
+     */
+    public Set<ReferenceCandidate> exportUsageCandidatesOf(ProjectFile file, ImportBinder binder) {
+        Set<ReferenceCandidate> cached = cache().references().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        Set<ReferenceCandidate> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) return Set.<ReferenceCandidate>of();
+                    return withSource(
+                            file,
+                            sc -> JsTsExportUsageExtractor.computeExportUsageCandidates(this, file, root, sc, binder),
+                            Set.<ReferenceCandidate>of());
+                },
+                Set.<ReferenceCandidate>of());
+
+        cache().references().put(file, computed);
+        return computed;
+    }
+
+    public Set<ResolvedReceiverCandidate> resolvedReceiverCandidatesOf(ProjectFile file, ImportBinder binder) {
+        Set<ResolvedReceiverCandidate> cached = cache().receiverCandidates().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        Set<ResolvedReceiverCandidate> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Set.<ResolvedReceiverCandidate>of();
+                    }
+                    return withSource(
+                            file,
+                            sc -> JsTsExportUsageExtractor.computeResolvedReceiverCandidates(
+                                    this, file, root, sc, binder),
+                            Set.<ResolvedReceiverCandidate>of());
+                },
+                Set.<ResolvedReceiverCandidate>of());
+        cache().receiverCandidates().put(file, computed);
+        return computed;
+    }
+
+    public Map<MemberLookupKey, CodeUnit> memberResolutionIndex(ProjectFile file) {
+        Map<MemberLookupKey, CodeUnit> cached = cache().memberResolutionIndex().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        Map<MemberLookupKey, CodeUnit> computed = buildMemberResolutionIndex(file);
+        cache().memberResolutionIndex().put(file, computed);
+        return computed;
+    }
+
+    public ExportResolutionData cachedExportResolution(
+            ProjectFile definingFile,
+            String exportName,
+            int maxReexportDepth,
+            java.util.function.Supplier<ExportResolutionData> supplier) {
+        ExportResolutionKey key = new ExportResolutionKey(definingFile, exportName, maxReexportDepth);
+        ExportResolutionData cached = cache().exportResolution().get(key);
+        if (cached != null) {
+            return cached;
+        }
+        ExportResolutionData computed = supplier.get();
+        cache().exportResolution().put(key, computed);
+        return computed;
+    }
+
+    public Map<ProjectFile, Set<ProjectFile>> reverseReexportIndex() {
+        Map<ProjectFile, Set<ProjectFile>> cached = cache().reverseReexportIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = JsTsExportUsageExtractor.buildReverseReexportIndex(this);
+        cache().reverseReexportIndex(computed);
+        return computed;
+    }
+
+    public Map<ReverseExportSeedKey, Set<ExportSeed>> reverseExportSeedIndex() {
+        Map<ReverseExportSeedKey, Set<ExportSeed>> cached = cache().reverseExportSeedIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = JsTsExportUsageExtractor.buildReverseExportSeedIndex(this);
+        cache().reverseExportSeedIndex(computed);
+        return computed;
+    }
+
+    public Map<String, Set<String>> heritageIndex() {
+        Map<String, Set<String>> cached = cache().heritageIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = JsTsExportUsageExtractor.buildHeritageIndex(this);
+        cache().heritageIndex(computed);
+        return computed;
+    }
+
+    public void ensureImportReverseIndexPopulated() throws InterruptedException {
+        if (cache().importReverseIndexPrimed()) {
+            return;
+        }
+        var providerOpt = as(ImportAnalysisProvider.class);
+        if (providerOpt.isEmpty()) {
+            cache().importReverseIndexPrimed(true);
+            return;
+        }
+        JsTsExportUsageExtractor.ensureImportReverseIndexPopulated(this, providerOpt.orElseThrow());
+        cache().importReverseIndexPrimed(true);
+    }
+
+    public boolean hasCachedReceiverCandidates(ProjectFile file) {
+        return cache().receiverCandidates().get(file) != null;
+    }
+
+    private Map<MemberLookupKey, CodeUnit> buildMemberResolutionIndex(ProjectFile file) {
+        var index = new java.util.HashMap<MemberLookupKey, CodeUnit>();
+        for (CodeUnit declaration : getAllDeclarations()) {
+            if (!declaration.source().equals(file)) {
+                continue;
+            }
+            if (declaration.kind() != CodeUnitType.FIELD && declaration.kind() != CodeUnitType.FUNCTION) {
+                continue;
+            }
+            String ownerName = ownerNameOf(declaration);
+            if (ownerName.isEmpty()) {
+                continue;
+            }
+            index.putIfAbsent(
+                    new MemberLookupKey(ownerName, normalizedMemberName(declaration), !isStaticMember(declaration)),
+                    declaration);
+        }
+        return Map.copyOf(index);
+    }
+
+    private static String ownerNameOf(CodeUnit codeUnit) {
+        String shortName = codeUnit.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return "";
+        }
+        return shortName.substring(0, lastDot);
+    }
+
+    private static String normalizedMemberName(CodeUnit codeUnit) {
+        String identifier = codeUnit.identifier();
+        int marker = identifier.indexOf('$');
+        return marker >= 0 ? identifier.substring(0, marker) : identifier;
+    }
+
+    private static boolean isStaticMember(CodeUnit codeUnit) {
+        return codeUnit.fqName().contains("$static");
+    }
+
+    /**
+     * Best-effort module resolution for JS/TS ESM specifiers.
+     */
+    public Optional<ProjectFile> resolveEsmModule(ProjectFile importingFile, String moduleSpecifier) {
+        return resolveEsmModuleOutcome(importingFile, moduleSpecifier).resolved();
+    }
+
+    public record ResolutionOutcome(Optional<ProjectFile> resolved, Optional<String> externalFrontier) {
+        public static ResolutionOutcome resolved(ProjectFile file) {
+            return new ResolutionOutcome(Optional.of(file), Optional.empty());
+        }
+
+        public static ResolutionOutcome external(String specifier) {
+            return new ResolutionOutcome(Optional.empty(), Optional.of(specifier));
+        }
+
+        public static ResolutionOutcome empty() {
+            return new ResolutionOutcome(Optional.empty(), Optional.empty());
+        }
+    }
+
+    public ResolutionOutcome resolveEsmModuleOutcome(ProjectFile importingFile, String moduleSpecifier) {
+        Path root = getProject().getRoot().normalize();
+        Set<Path> absolutePaths = absoluteProjectPaths();
+
+        if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
+            Path parentDir = importingFile.absPath().getParent();
+            ProjectFile pf = resolveModulePathFromBase(root, absolutePaths, parentDir, moduleSpecifier);
+            return pf != null ? ResolutionOutcome.resolved(pf) : ResolutionOutcome.empty();
+        }
+
+        TsConfigPathsResolver resolver = tsConfigResolverCache.get(root, TsConfigPathsResolver::new);
+        TsConfigPathsResolver.Expansion expansion = resolver.expand(importingFile, moduleSpecifier);
+        if (!expansion.hadAnyMapping()) {
+            return ResolutionOutcome.external(moduleSpecifier);
+        }
+
+        for (String candidate : expansion.candidates()) {
+            ProjectFile pf = resolveModulePathFromBase(root, absolutePaths, root, candidate);
+            if (pf != null) {
+                return ResolutionOutcome.resolved(pf);
+            }
+        }
+
+        return ResolutionOutcome.external(moduleSpecifier);
     }
 
     @Override
@@ -740,10 +1020,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         TSNode importNode = capturedNodesForMatch.get(CaptureNames.IMPORT_DECLARATION);
 
         if (importNode != null) {
-            String rawSnippet = sourceContent.substringFrom(importNode).strip();
-            if (!rawSnippet.isEmpty()) {
-                localImportInfos.add(new ImportInfo(rawSnippet, false, null, null));
-            }
+            localImportInfos.addAll(JsTsExportUsageExtractor.extractImportInfos(this, importNode, sourceContent));
         }
 
         // CommonJS require extraction
@@ -787,23 +1064,42 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        Path root = getProject().getRoot();
-        Set<Path> absolutePaths =
-                getProject().getAllFiles().stream().map(ProjectFile::absPath).collect(Collectors.toSet());
+        Path root = getProject().getRoot().normalize();
+        Set<Path> absolutePaths = absoluteProjectPaths();
 
-        return importStatements.stream()
+        var resolved = importStatements.stream()
                 .map(JsTsAnalyzer::extractModulePathFromImport)
                 .flatMap(Optional::stream)
-                .map(path -> moduleResolutionCache.get(
-                        new ModulePathKey(file, path),
-                        key -> Optional.ofNullable(resolveJavaScriptLikeModulePath(root, absolutePaths, file, path))))
-                .flatMap(Optional::stream)
-                .flatMap(resolvedFile -> getDeclarations(resolvedFile).stream())
+                .flatMap(path -> resolveImportModule(file, path, root, absolutePaths).stream())
+                .flatMap(resolvedFile -> {
+                    Set<CodeUnit> decls = getDeclarations(resolvedFile);
+                    if (!decls.isEmpty()) {
+                        return decls.stream();
+                    }
+                    // Preserve module dependency edges for barrel files / re-export-only modules.
+                    return Stream.of(CodeUnit.module(resolvedFile, "", resolvedFile.getFileName())
+                            .withSynthetic(true));
+                })
                 .collect(Collectors.toSet());
+
+        return Set.copyOf(resolved);
+    }
+
+    private Optional<ProjectFile> resolveImportModule(
+            ProjectFile importingFile, String moduleSpecifier, Path root, Set<Path> absolutePaths) {
+        if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
+            return moduleResolutionCache.get(
+                    new ModulePathKey(importingFile, moduleSpecifier),
+                    key -> Optional.ofNullable(
+                            resolveJavaScriptLikeModulePath(root, absolutePaths, importingFile, moduleSpecifier)));
+        }
+
+        ResolutionOutcome out = resolveEsmModuleOutcome(importingFile, moduleSpecifier);
+        return out.resolved();
     }
 
     @Override
-    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
         for (ImportInfo imp : imports) {
             Optional<String> modulePathOpt = extractModulePathFromImport(imp.rawSnippet());
             if (modulePathOpt.isEmpty()) {
@@ -812,13 +1108,52 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
             String modulePath = modulePathOpt.get();
 
-            // External/node_modules imports (not starting with . or ..) cannot be project files
-            if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
+            if (modulePath.startsWith("./") || modulePath.startsWith("../")) {
+                if (couldModulePathMatchTarget(modulePath, target)) {
+                    return true;
+                }
                 continue;
             }
 
-            if (couldModulePathMatchTarget(modulePath, target)) {
+            // TSConfig paths/baseUrl expansion: use actual module resolution to avoid false negatives.
+            ResolutionOutcome out = resolveEsmModuleOutcome(sourceFile, modulePath);
+            if (out.resolved().isPresent() && out.resolved().get().equals(target)) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<Path> absoluteProjectPaths() {
+        Set<Path> cached = absoluteProjectPathsCache;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (this) {
+            cached = absoluteProjectPathsCache;
+            if (cached == null) {
+                cached = getProject().getAllFiles().stream()
+                        .map(ProjectFile::absPath)
+                        .collect(Collectors.toSet());
+                absoluteProjectPathsCache = cached;
+            }
+            return cached;
+        }
+    }
+
+    @Override
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        // Prefer the 3-arg variant so we can use TSConfig context; keep this as a conservative fallback.
+        for (ImportInfo imp : imports) {
+            Optional<String> modulePathOpt = extractModulePathFromImport(imp.rawSnippet());
+            if (modulePathOpt.isEmpty()) {
+                continue;
+            }
+            String modulePath = modulePathOpt.get();
+            if (modulePath.startsWith("./") || modulePath.startsWith("../")) {
+                if (couldModulePathMatchTarget(modulePath, target)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -897,7 +1232,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         return false;
     }
 
-    protected static Optional<String> extractModulePathFromImport(String importStatement) {
+    public static Optional<String> extractModulePathFromImport(String importStatement) {
         Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
         if (es6Matcher.find()) return Optional.of(es6Matcher.group(1));
 
@@ -915,11 +1250,17 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
             return null;
         }
-
         Path parentDir = importingFile.absPath().getParent();
-        if (parentDir == null) return null;
+        return resolveModulePathFromBase(projectRoot, absolutePaths, parentDir, modulePath);
+    }
 
-        Path resolvedPath = parentDir.resolve(modulePath).normalize();
+    protected static @Nullable ProjectFile resolveModulePathFromBase(
+            Path projectRoot, Set<Path> absolutePaths, @Nullable Path baseDir, String modulePath) {
+        if (baseDir == null) {
+            return null;
+        }
+
+        Path resolvedPath = baseDir.resolve(modulePath).normalize();
         String fileName = resolvedPath.getFileName().toString();
 
         if (KNOWN_EXTENSIONS.stream().anyMatch(fileName::endsWith)) {

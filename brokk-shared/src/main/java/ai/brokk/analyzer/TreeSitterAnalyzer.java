@@ -806,6 +806,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         lastUpdateEpochNanos.set(initNowNanos);
     }
 
+    protected final AnalyzerCache cache() {
+        return cache;
+    }
+
     protected TreeSitterAnalyzer(ICoreProject project, Language language, AnalyzerState prebuiltState) {
         this(project, language, prebuiltState, ProgressListener.NOOP, null);
     }
@@ -2598,6 +2602,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
                         List<String> localImportStatements = localImportInfos.stream()
                                 .map(ImportInfo::rawSnippet)
+                                .distinct()
                                 .toList();
 
                         // Register modules from imports
