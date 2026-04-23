@@ -24,11 +24,15 @@ then stop.
 
 ## Step 2 -- Gather the Draft
 
+These are free-text inputs. Do NOT use `AskUserQuestion` here -- it
+requires menu options and does not support open-ended text entry.
+Instead, ask the user in plain text and **stop and wait for their
+reply** before proceeding.
+
 ### If a title is provided as argument (e.g. `/write-issue Add rate limiting`)
 
-Use the argument as the draft title and ask the user for a rough
-description of the issue. If the `AskUserQuestion` tool is NOT
-available, **stop and wait for the user's reply** before proceeding.
+Use the argument as the draft title. Ask the user for a rough
+description of the issue and **stop and wait for their reply**.
 
 ### If no argument is provided
 
@@ -37,8 +41,7 @@ Ask the user for:
 2. A rough **description** -- this can be brief or detailed; the
    enhancement step will fill in the technical context
 
-If the `AskUserQuestion` tool is NOT available, **stop and wait for
-the user's reply** before proceeding. Do NOT proceed until the user
+**Stop and wait for the user's reply.** Do NOT proceed until the user
 has provided both a title and a description.
 
 ## Step 3 -- Enhance with Code Context

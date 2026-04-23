@@ -157,23 +157,30 @@ Collect the number, title, and URL for each issue.
 
 ## Step 4 -- Generate Slack Summary
 
-Produce the summary in this exact format and display it to the user:
+Output the summary as plain text in a fenced code block so the user
+can copy it easily. Use letter footnotes to keep the list scannable
+with links collected at the bottom.
+
+Use this exact format:
 
 ```
 Today:
-  - <title> (#<number>) <url>
-  - <title> (#<number>) <url>
+- <title> [a]
+- <title> [b]
+
+[a] <url>
+[b] <url>
 ```
 
 Rules for the output:
-- One issue per line, indented with two spaces and a dash.
-- The title comes first, as-is from GitHub (do not modify casing).
-- The issue number is parenthesized with a `#` prefix.
-- The URL follows directly after a space.
+- Start with `Today:` on its own line.
+- One issue per line as a plain text bullet (`-`).
+- Each bullet has the title followed by a letter footnote `[a]`,
+  `[b]`, `[c]`, etc.
+- The title comes from GitHub as-is (do not modify casing).
+- After a blank line, list the footnotes with matching URLs.
+- Use lowercase letters sequentially starting from `a`.
 - No trailing punctuation on any line.
-
-Present the formatted text in a fenced code block so the user can
-copy it easily.
 
 After displaying the summary, tell the user they can copy and paste
 it into Slack or wherever they share their daily plan.
