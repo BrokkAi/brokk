@@ -6,6 +6,8 @@ use clap::Parser;
 mod agent;
 mod llm_client;
 mod session;
+mod tool_loop;
+mod tools;
 
 /// Brokk ACP Server -- Rust-based Agent Client Protocol server
 /// with Ollama/OpenAI-compatible LLM backend.

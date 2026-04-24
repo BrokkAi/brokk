@@ -1,0 +1,173 @@
+use super::{ToolResult, ToolStatus, safe_resolve, safe_resolve_for_write};
+use regex::Regex;
+use std::path::Path;
+use walkdir::WalkDir;
+
+pub fn read_file(cwd: &Path, path: &str) -> ToolResult {
+    let resolved = match safe_resolve(cwd, path) {
+        Ok(p) => p,
+        Err(e) => return ToolResult { status: ToolStatus::RequestError, output: e },
+    };
+    match std::fs::read_to_string(&resolved) {
+        Ok(content) => ToolResult {
+            status: ToolStatus::Success,
+            output: content,
+        },
+        Err(e) => ToolResult {
+            status: ToolStatus::RequestError,
+            output: format!("Failed to read '{}': {}", path, e),
+        },
+    }
+}
+
+pub fn write_file(cwd: &Path, path: &str, content: &str) -> ToolResult {
+    let resolved = match safe_resolve_for_write(cwd, path) {
+        Ok(p) => p,
+        Err(e) => return ToolResult { status: ToolStatus::RequestError, output: e },
+    };
+    // Create parent directories if needed
+    if let Some(parent) = resolved.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return ToolResult {
+                status: ToolStatus::InternalError,
+                output: format!("Failed to create directories for '{}': {}", path, e),
+            };
+        }
+    }
+    match std::fs::write(&resolved, content) {
+        Ok(()) => ToolResult {
+            status: ToolStatus::Success,
+            output: format!("Written {} bytes to '{}'", content.len(), path),
+        },
+        Err(e) => ToolResult {
+            status: ToolStatus::RequestError,
+            output: format!("Failed to write '{}': {}", path, e),
+        },
+    }
+}
+
+pub fn list_directory(cwd: &Path, path: &str) -> ToolResult {
+    let resolved = match safe_resolve(cwd, path) {
+        Ok(p) => p,
+        Err(e) => return ToolResult { status: ToolStatus::RequestError, output: e },
+    };
+    let entries = match std::fs::read_dir(&resolved) {
+        Ok(e) => e,
+        Err(e) => {
+            return ToolResult {
+                status: ToolStatus::RequestError,
+                output: format!("Failed to list '{}': {}", path, e),
+            }
+        }
+    };
+
+    let mut lines: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir {
+            lines.push(format!("{}/", name));
+        } else {
+            lines.push(name);
+        }
+    }
+    lines.sort();
+    ToolResult {
+        status: ToolStatus::Success,
+        output: lines.join("\n"),
+    }
+}
+
+pub fn search_file_contents(
+    cwd: &Path,
+    pattern: &str,
+    glob_filter: Option<&str>,
+    max_results: usize,
+) -> ToolResult {
+    let re = match Regex::new(pattern) {
+        Ok(r) => r,
+        Err(e) => {
+            return ToolResult {
+                status: ToolStatus::RequestError,
+                output: format!("Invalid regex '{}': {}", pattern, e),
+            }
+        }
+    };
+
+    let glob_re = glob_filter.and_then(|g| {
+        // Convert simple glob to regex: *.rs -> .*\.rs$, **/*.java -> .*\.java$
+        let re_str = g
+            .replace('.', "\\.")
+            .replace("**", "<<GLOBSTAR>>")
+            .replace('*', "[^/]*")
+            .replace("<<GLOBSTAR>>", ".*");
+        Regex::new(&format!("{}$", re_str)).ok()
+    });
+
+    let cwd_canonical = match cwd.canonicalize() {
+        Ok(c) => c,
+        Err(e) => {
+            return ToolResult {
+                status: ToolStatus::InternalError,
+                output: format!("Cannot resolve cwd: {}", e),
+            }
+        }
+    };
+
+    let mut results = Vec::new();
+    for entry in WalkDir::new(cwd)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            // Skip hidden dirs and common noise
+            !name.starts_with('.') && name != "node_modules" && name != "target" && name != "__pycache__"
+        })
+        .flatten()
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let rel = path
+            .strip_prefix(&cwd_canonical)
+            .or_else(|_| path.strip_prefix(cwd))
+            .unwrap_or(path);
+        let rel_str = rel.to_string_lossy();
+
+        if let Some(glob_re) = &glob_re {
+            if !glob_re.is_match(&rel_str) {
+                continue;
+            }
+        }
+
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue, // skip binary or unreadable files
+        };
+
+        for (line_num, line) in content.lines().enumerate() {
+            if re.is_match(line) {
+                results.push(format!("{}:{}: {}", rel_str, line_num + 1, line.trim()));
+                if results.len() >= max_results {
+                    results.push(format!("... truncated at {} results", max_results));
+                    return ToolResult {
+                        status: ToolStatus::Success,
+                        output: results.join("\n"),
+                    };
+                }
+            }
+        }
+    }
+
+    if results.is_empty() {
+        ToolResult {
+            status: ToolStatus::Success,
+            output: format!("No matches found for '{}'", pattern),
+        }
+    } else {
+        ToolResult {
+            status: ToolStatus::Success,
+            output: results.join("\n"),
+        }
+    }
+}
