@@ -107,8 +107,7 @@ public final class SearchToolSupport {
         return computed;
     }
 
-    public List<ProjectFile> getCachedChangedFilesForCommit(IGitRepo gitRepo, String commitId)
-            throws GitAPIException {
+    public List<ProjectFile> getCachedChangedFilesForCommit(IGitRepo gitRepo, String commitId) throws GitAPIException {
         var cached = changedFilesByCommitCache.getIfPresent(commitId);
         if (cached != null) {
             return cached;
@@ -122,10 +121,7 @@ public final class SearchToolSupport {
     }
 
     private List<ProjectFile> getMostRelevantFilesForResults(
-            Collection<ProjectFile> resultFiles,
-            int topK,
-            IAnalyzer analyzer,
-            @Nullable IGitRepo gitRepo) {
+            Collection<ProjectFile> resultFiles, int topK, IAnalyzer analyzer, @Nullable IGitRepo gitRepo) {
         if (topK <= 0) {
             return List.of();
         }
@@ -159,7 +155,10 @@ public final class SearchToolSupport {
             int remaining = topK - relevantFiles.size();
             var importResults = ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
             filterResults(
-                            importResults.stream().map(IAnalyzer.FileRelevance::file).toList(), ineligibleSources)
+                            importResults.stream()
+                                    .map(IAnalyzer.FileRelevance::file)
+                                    .toList(),
+                            ineligibleSources)
                     .stream()
                     .filter(file -> !relevantFiles.contains(file))
                     .limit(remaining)
@@ -169,7 +168,10 @@ public final class SearchToolSupport {
         return List.copyOf(relevantFiles);
     }
 
-    private static List<ProjectFile> filterResults(Collection<ProjectFile> results, Set<ProjectFile> ineligibleSources) {
-        return results.stream().filter(file -> !ineligibleSources.contains(file)).toList();
+    private static List<ProjectFile> filterResults(
+            Collection<ProjectFile> results, Set<ProjectFile> ineligibleSources) {
+        return results.stream()
+                .filter(file -> !ineligibleSources.contains(file))
+                .toList();
     }
 }

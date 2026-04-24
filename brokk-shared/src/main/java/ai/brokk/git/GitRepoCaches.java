@@ -73,12 +73,14 @@ public final class GitRepoCaches {
     }
 
     public @Nullable GitCanonicalizer getCanonicalizer(String headCommitId, List<CommitInfo> commits) {
-        return canonicalizerCache.getIfPresent(
-                new CanonicalizerCacheKey(headCommitId, commits.stream().map(CommitInfo::id).toList()));
+        return canonicalizerCache.getIfPresent(new CanonicalizerCacheKey(
+                headCommitId, commits.stream().map(CommitInfo::id).toList()));
     }
 
     public void putCanonicalizer(String headCommitId, List<CommitInfo> commits, GitCanonicalizer canonicalizer) {
         canonicalizerCache.put(
-                new CanonicalizerCacheKey(headCommitId, commits.stream().map(CommitInfo::id).toList()), canonicalizer);
+                new CanonicalizerCacheKey(
+                        headCommitId, commits.stream().map(CommitInfo::id).toList()),
+                canonicalizer);
     }
 }

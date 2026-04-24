@@ -288,8 +288,7 @@ public interface IGitRepo {
         throw new UnsupportedOperationException("getFileHistories not implemented");
     }
 
-    default GitCanonicalizer buildCanonicalizer(List<CommitInfo> commits)
-            throws GitAPIException, InterruptedException {
+    default GitCanonicalizer buildCanonicalizer(List<CommitInfo> commits) throws GitAPIException, InterruptedException {
         throw new UnsupportedOperationException("buildCanonicalizer not implemented");
     }
 

@@ -142,7 +142,8 @@ class SearchToolsTest {
                 relPath -> countedFile.getRelPath().equals(relPath)
                         ? Optional.of(countedFile)
                         : project.getFileByRelPath(relPath));
-        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(countingProject, new DisabledAnalyzer(project)));
+        SearchTools tools =
+                new SearchTools(new StandaloneCodeIntelligence(countingProject, new DisabledAnalyzer(project)));
 
         String result = tools.searchFileContents(List.of("MATCH"), "counted.txt", false, false, 0, 200);
 
@@ -293,15 +294,9 @@ class SearchToolsTest {
     void searchSymbols_UsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
         Path projectRoot = initRepo();
         commitTrackedFiles(
-                projectRoot,
-                Map.of("a-low.java", "class A {}\n"),
-                Instant.parse("2020-01-01T00:00:00Z"),
-                "Add A");
+                projectRoot, Map.of("a-low.java", "class A {}\n"), Instant.parse("2020-01-01T00:00:00Z"), "Add A");
         commitTrackedFiles(
-                projectRoot,
-                Map.of("z-high.java", "class Z {}\n"),
-                Instant.parse("2025-01-01T00:00:00Z"),
-                "Add Z");
+                projectRoot, Map.of("z-high.java", "class Z {}\n"), Instant.parse("2025-01-01T00:00:00Z"), "Add Z");
         commitTrackedFiles(
                 projectRoot,
                 Map.of("z-high.java", "class Z { int value; }\n"),
@@ -313,7 +308,8 @@ class SearchToolsTest {
         ProjectFile zHigh = new ProjectFile(projectRoot, "z-high.java");
         assertEquals(
                 zHigh,
-                GitDistance.sortByImportance(List.of(aLow, zHigh), project.getRepo()).getFirst(),
+                GitDistance.sortByImportance(List.of(aLow, zHigh), project.getRepo())
+                        .getFirst(),
                 "Test setup should give z-high.java a higher Git rank");
 
         CodeUnit aClass = CodeUnit.cls(aLow, "", "A");
@@ -341,15 +337,9 @@ class SearchToolsTest {
     void findFilesContaining_UsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
         Path projectRoot = initRepo();
         commitTrackedFiles(
-                projectRoot,
-                Map.of("a-low.txt", "MATCH low\n"),
-                Instant.parse("2020-01-01T00:00:00Z"),
-                "Add low");
+                projectRoot, Map.of("a-low.txt", "MATCH low\n"), Instant.parse("2020-01-01T00:00:00Z"), "Add low");
         commitTrackedFiles(
-                projectRoot,
-                Map.of("z-high.txt", "MATCH high\n"),
-                Instant.parse("2025-01-01T00:00:00Z"),
-                "Add high");
+                projectRoot, Map.of("z-high.txt", "MATCH high\n"), Instant.parse("2025-01-01T00:00:00Z"), "Add high");
         commitTrackedFiles(
                 projectRoot,
                 Map.of("z-high.txt", "MATCH high again\n"),
@@ -361,7 +351,8 @@ class SearchToolsTest {
         ProjectFile zHigh = new ProjectFile(projectRoot, "z-high.txt");
         assertEquals(
                 zHigh,
-                GitDistance.sortByImportance(List.of(aLow, zHigh), project.getRepo()).getFirst(),
+                GitDistance.sortByImportance(List.of(aLow, zHigh), project.getRepo())
+                        .getFirst(),
                 "Test setup should give z-high.txt a higher Git rank");
 
         SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, new DisabledAnalyzer(project)));
@@ -760,11 +751,13 @@ class SearchToolsTest {
         AtomicInteger getAllFilesCalls = new AtomicInteger();
         ProjectFile source = new ProjectFile(projectRoot, "A.java");
         CodeUnit classUnit = CodeUnit.cls(source, "", "A");
-        ICoreProject countingProject =
-                overridingProject(project, () -> {
+        ICoreProject countingProject = overridingProject(
+                project,
+                () -> {
                     getAllFilesCalls.incrementAndGet();
                     return Set.of(source);
-                }, project::getFileByRelPath);
+                },
+                project::getFileByRelPath);
 
         IAnalyzer analyzer = new DisabledAnalyzer(countingProject) {
             @Override

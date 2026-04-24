@@ -51,8 +51,7 @@ public final class GitDistance {
     }
 
     private static List<IAnalyzer.FileRelevance> computeConditionalScores(
-            IGitRepo repo, Map<ProjectFile, Double> seedWeights, int k)
-            throws GitAPIException, InterruptedException {
+            IGitRepo repo, Map<ProjectFile, Double> seedWeights, int k) throws GitAPIException, InterruptedException {
         var baselineCommits = repo.listCommitsDetailed(repo.getCurrentBranch(), COMMITS_TO_PROCESS);
         final int n = baselineCommits.size();
         if (n == 0) {

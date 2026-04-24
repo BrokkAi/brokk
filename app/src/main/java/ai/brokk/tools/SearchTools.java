@@ -18,7 +18,6 @@ import ai.brokk.analyzer.RelaxedSourceLookupResolver.RelaxedSourceLookup;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
-import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
@@ -97,7 +96,8 @@ public class SearchTools {
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
 
-    private record SymbolSearchHit(String signature, String fqName, @Nullable String codeUnitSignature, int lineNumber) {}
+    private record SymbolSearchHit(
+            String signature, String fqName, @Nullable String codeUnitSignature, int lineNumber) {}
 
     private static final int FILE_SKIM_LIMIT = 20;
     private static final int CLASS_COUNT_LIMIT = 10;
@@ -193,7 +193,8 @@ public class SearchTools {
     private String appendRelatedContent(String output, Collection<ProjectFile> resultFiles) {
         var repo = contextManager.getRepo();
         if (repo != null) {
-            return searchToolSupport.appendRelatedContent(output, resultFiles, RELATED_CONTENT_LIMIT, getAnalyzer(), repo);
+            return searchToolSupport.appendRelatedContent(
+                    output, resultFiles, RELATED_CONTENT_LIMIT, getAnalyzer(), repo);
         }
         return searchToolSupport.appendRelatedContent(output, resultFiles, RELATED_CONTENT_LIMIT, getAnalyzer(), null);
     }
@@ -1642,8 +1643,7 @@ public class SearchTools {
         return searchToolSupport.getCachedCommitSearchResult(gitRepo, pattern, limit);
     }
 
-    private List<ProjectFile> getCachedChangedFilesForCommit(IGitRepo gitRepo, String commitId)
-            throws GitAPIException {
+    private List<ProjectFile> getCachedChangedFilesForCommit(IGitRepo gitRepo, String commitId) throws GitAPIException {
         return searchToolSupport.getCachedChangedFilesForCommit(gitRepo, commitId);
     }
 
@@ -1803,9 +1803,8 @@ public class SearchTools {
                     : prioritizeFilesForSelection(files);
             batchResult = batchProcessFiles(filesToSearch, effectiveMaxFiles, (file, idx) -> {
                 try {
-                    var res =
-                            AlmostGrep.searchFileContentsInFile(
-                                    file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
+                    var res = AlmostGrep.searchFileContentsInFile(
+                            file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
                     if (res == null) return new IndexedResult<>(idx, null, null);
                     return new IndexedResult<>(idx, new FileHit(file, res), null);
                 } catch (AlmostGrep.RegexMatchOverflowException e) {

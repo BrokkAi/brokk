@@ -33,8 +33,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.SequencedSet;
 import java.util.Set;
-import java.util.stream.Stream;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.jetbrains.annotations.Nullable;
@@ -254,7 +254,8 @@ public class SearchToolsTest {
         String mainSection = mainResultSection(result);
 
         assertTrue(mainSection.contains("a-low.txt"), "Alphabetically first file should be retained when limit is hit");
-        assertFalse(mainSection.contains("z-high.txt"), "Later files should be truncated even if Git ranks them higher");
+        assertFalse(
+                mainSection.contains("z-high.txt"), "Later files should be truncated even if Git ranks them higher");
     }
 
     @Test
@@ -649,8 +650,7 @@ public class SearchToolsTest {
             getAllFilesCalls.incrementAndGet();
             return Set.of(source);
         });
-        TestContextManager ctx =
-                new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, repo);
+        TestContextManager ctx = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, repo);
 
         SearchTools tools = new SearchTools(ctx);
         String result = tools.getSummaries(List.of("A"));
@@ -995,8 +995,8 @@ public class SearchToolsTest {
         ProjectFile pf = new ProjectFile(projectRoot, "src/main/java/com/example/A.java");
         mockProjectFiles.add(pf);
 
-        CodeUnit intOverload =
-                new ai.brokk.analyzer.CodeUnit(pf, ai.brokk.analyzer.CodeUnitType.FUNCTION, "com.example", "A.bar", "(int)");
+        CodeUnit intOverload = new ai.brokk.analyzer.CodeUnit(
+                pf, ai.brokk.analyzer.CodeUnitType.FUNCTION, "com.example", "A.bar", "(int)");
         CodeUnit stringOverload = new ai.brokk.analyzer.CodeUnit(
                 pf, ai.brokk.analyzer.CodeUnitType.FUNCTION, "com.example", "A.bar", "(String)");
         TestAnalyzer analyzer = new TestAnalyzer();
