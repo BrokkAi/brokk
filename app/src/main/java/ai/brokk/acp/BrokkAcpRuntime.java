@@ -21,8 +21,7 @@ final class BrokkAcpRuntime implements AutoCloseable {
     BrokkAcpRuntime(AcpAgentTransport transport, BrokkAcpAgent agent) {
         this.transport = transport;
         this.agent = agent;
-        this.session = new AcpAgentSession(
-                Duration.ofMinutes(5), transport, requestHandlers(), notificationHandlers());
+        this.session = new AcpAgentSession(Duration.ofMinutes(5), transport, requestHandlers(), notificationHandlers());
         agent.setSessionUpdateSender(
                 (sessionId, update) -> AcpRequestContext.sendSessionUpdate(session, sessionId, update));
     }

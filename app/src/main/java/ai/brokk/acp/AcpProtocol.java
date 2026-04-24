@@ -87,8 +87,7 @@ final class AcpProtocol {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record CloseSessionRequest(
-            @JsonProperty("sessionId") String sessionId,
-            @JsonProperty("_meta") @Nullable Map<String, Object> meta) {}
+            @JsonProperty("sessionId") String sessionId, @JsonProperty("_meta") @Nullable Map<String, Object> meta) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record CloseSessionResponse(@JsonProperty("_meta") @Nullable Map<String, Object> meta) {}

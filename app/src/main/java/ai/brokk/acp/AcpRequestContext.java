@@ -19,8 +19,7 @@ final class AcpRequestContext implements SyncPromptContext {
     private final String sessionId;
     private final @Nullable NegotiatedCapabilities clientCapabilities;
 
-    AcpRequestContext(
-            AcpAgentSession session, String sessionId, @Nullable NegotiatedCapabilities clientCapabilities) {
+    AcpRequestContext(AcpAgentSession session, String sessionId, @Nullable NegotiatedCapabilities clientCapabilities) {
         this.session = session;
         this.sessionId = sessionId;
         this.clientCapabilities = clientCapabilities;
@@ -32,35 +31,27 @@ final class AcpRequestContext implements SyncPromptContext {
     }
 
     static void sendSessionUpdate(AcpAgentSession session, String sessionId, AcpSchema.SessionUpdate update) {
-        session.sendNotification(
-                        AcpSchema.METHOD_SESSION_UPDATE, new AcpSchema.SessionNotification(sessionId, update))
+        session.sendNotification(AcpSchema.METHOD_SESSION_UPDATE, new AcpSchema.SessionNotification(sessionId, update))
                 .block();
     }
 
     @Override
     public AcpSchema.ReadTextFileResponse readTextFile(AcpSchema.ReadTextFileRequest request) {
-        return session
-                .sendRequest(
-                        AcpSchema.METHOD_FS_READ_TEXT_FILE,
-                        request,
-                        new TypeRef<AcpSchema.ReadTextFileResponse>() {})
+        return session.sendRequest(
+                        AcpSchema.METHOD_FS_READ_TEXT_FILE, request, new TypeRef<AcpSchema.ReadTextFileResponse>() {})
                 .block();
     }
 
     @Override
     public AcpSchema.WriteTextFileResponse writeTextFile(AcpSchema.WriteTextFileRequest request) {
-        return session
-                .sendRequest(
-                        AcpSchema.METHOD_FS_WRITE_TEXT_FILE,
-                        request,
-                        new TypeRef<AcpSchema.WriteTextFileResponse>() {})
+        return session.sendRequest(
+                        AcpSchema.METHOD_FS_WRITE_TEXT_FILE, request, new TypeRef<AcpSchema.WriteTextFileResponse>() {})
                 .block();
     }
 
     @Override
     public AcpSchema.RequestPermissionResponse requestPermission(AcpSchema.RequestPermissionRequest request) {
-        return session
-                .sendRequest(
+        return session.sendRequest(
                         AcpSchema.METHOD_SESSION_REQUEST_PERMISSION,
                         request,
                         new TypeRef<AcpSchema.RequestPermissionResponse>() {})
@@ -69,38 +60,28 @@ final class AcpRequestContext implements SyncPromptContext {
 
     @Override
     public AcpSchema.CreateTerminalResponse createTerminal(AcpSchema.CreateTerminalRequest request) {
-        return session
-                .sendRequest(
-                        AcpSchema.METHOD_TERMINAL_CREATE,
-                        request,
-                        new TypeRef<AcpSchema.CreateTerminalResponse>() {})
+        return session.sendRequest(
+                        AcpSchema.METHOD_TERMINAL_CREATE, request, new TypeRef<AcpSchema.CreateTerminalResponse>() {})
                 .block();
     }
 
     @Override
     public AcpSchema.TerminalOutputResponse getTerminalOutput(AcpSchema.TerminalOutputRequest request) {
-        return session
-                .sendRequest(
-                        AcpSchema.METHOD_TERMINAL_OUTPUT,
-                        request,
-                        new TypeRef<AcpSchema.TerminalOutputResponse>() {})
+        return session.sendRequest(
+                        AcpSchema.METHOD_TERMINAL_OUTPUT, request, new TypeRef<AcpSchema.TerminalOutputResponse>() {})
                 .block();
     }
 
     @Override
     public AcpSchema.ReleaseTerminalResponse releaseTerminal(AcpSchema.ReleaseTerminalRequest request) {
-        return session
-                .sendRequest(
-                        AcpSchema.METHOD_TERMINAL_RELEASE,
-                        request,
-                        new TypeRef<AcpSchema.ReleaseTerminalResponse>() {})
+        return session.sendRequest(
+                        AcpSchema.METHOD_TERMINAL_RELEASE, request, new TypeRef<AcpSchema.ReleaseTerminalResponse>() {})
                 .block();
     }
 
     @Override
     public AcpSchema.WaitForTerminalExitResponse waitForTerminalExit(AcpSchema.WaitForTerminalExitRequest request) {
-        return session
-                .sendRequest(
+        return session.sendRequest(
                         AcpSchema.METHOD_TERMINAL_WAIT_FOR_EXIT,
                         request,
                         new TypeRef<AcpSchema.WaitForTerminalExitResponse>() {})
@@ -109,8 +90,7 @@ final class AcpRequestContext implements SyncPromptContext {
 
     @Override
     public AcpSchema.KillTerminalCommandResponse killTerminal(AcpSchema.KillTerminalCommandRequest request) {
-        return session
-                .sendRequest(
+        return session.sendRequest(
                         AcpSchema.METHOD_TERMINAL_KILL,
                         request,
                         new TypeRef<AcpSchema.KillTerminalCommandResponse>() {})
@@ -144,7 +124,8 @@ final class AcpRequestContext implements SyncPromptContext {
 
     @Override
     public String readFile(String path, @Nullable Integer startLine, @Nullable Integer lineCount) {
-        return readTextFile(new AcpSchema.ReadTextFileRequest(sessionId, path, startLine, lineCount)).content();
+        return readTextFile(new AcpSchema.ReadTextFileRequest(sessionId, path, startLine, lineCount))
+                .content();
     }
 
     @Override
@@ -173,10 +154,8 @@ final class AcpRequestContext implements SyncPromptContext {
                 null,
                 null);
         var options = List.of(
-                new AcpSchema.PermissionOption(
-                        "allow", "Allow", AcpSchema.PermissionOptionKind.ALLOW_ONCE),
-                new AcpSchema.PermissionOption(
-                        "deny", "Deny", AcpSchema.PermissionOptionKind.REJECT_ONCE));
+                new AcpSchema.PermissionOption("allow", "Allow", AcpSchema.PermissionOptionKind.ALLOW_ONCE),
+                new AcpSchema.PermissionOption("deny", "Deny", AcpSchema.PermissionOptionKind.REJECT_ONCE));
         var response = requestPermission(new AcpSchema.RequestPermissionRequest(sessionId, toolCall, options));
         return response.outcome() instanceof AcpSchema.PermissionSelected selected
                 && selected.optionId().equals("allow");
@@ -201,7 +180,8 @@ final class AcpRequestContext implements SyncPromptContext {
                 null,
                 null,
                 null);
-        var response = requestPermission(new AcpSchema.RequestPermissionRequest(sessionId, toolCall, permissionOptions));
+        var response =
+                requestPermission(new AcpSchema.RequestPermissionRequest(sessionId, toolCall, permissionOptions));
         if (response.outcome() instanceof AcpSchema.PermissionSelected selected) {
             return options[Integer.parseInt(selected.optionId())];
         }

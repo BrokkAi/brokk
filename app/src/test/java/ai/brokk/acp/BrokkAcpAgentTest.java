@@ -100,7 +100,8 @@ class BrokkAcpAgentTest {
         assertTrue(response.models() != null);
         assertTrue(replayed.stream().allMatch(update -> update instanceof AcpSchema.AvailableCommandsUpdate));
 
-        agent.resumeSession(new AcpProtocol.ResumeSessionRequest(second.sessionId(), projectRoot.toString(), null, null));
+        agent.resumeSession(
+                new AcpProtocol.ResumeSessionRequest(second.sessionId(), projectRoot.toString(), null, null));
         assertEquals(second.sessionId(), contextManager.getCurrentSessionId().toString());
     }
 
@@ -154,11 +155,11 @@ class BrokkAcpAgentTest {
                     Map.of("cwd", projectRoot.toString(), "mcpServers", List.of()));
             var newSessionResult = assertInstanceOf(AcpSchema.NewSessionResponse.class, newSession.result());
 
-            var list = transport.exchange(
-                    AcpProtocol.METHOD_SESSION_LIST, "list", Map.of("cwd", projectRoot.toString()));
+            var list =
+                    transport.exchange(AcpProtocol.METHOD_SESSION_LIST, "list", Map.of("cwd", projectRoot.toString()));
             var listResult = assertInstanceOf(AcpProtocol.ListSessionsResponse.class, list.result());
-            assertTrue(listResult.sessions().stream()
-                    .anyMatch(s -> s.sessionId().equals(newSessionResult.sessionId())));
+            assertTrue(
+                    listResult.sessions().stream().anyMatch(s -> s.sessionId().equals(newSessionResult.sessionId())));
 
             var resume = transport.exchange(
                     AcpProtocol.METHOD_SESSION_RESUME,
@@ -181,7 +182,8 @@ class BrokkAcpAgentTest {
     private static final class FakeTransport implements AcpAgentTransport {
         private final McpJsonMapper mapper = McpJsonDefaults.getMapper();
         private final List<AcpSchema.JSONRPCMessage> sentMessages = new ArrayList<>();
-        private Function<Mono<AcpSchema.JSONRPCMessage>, Mono<AcpSchema.JSONRPCMessage>> handler = ignored -> Mono.empty();
+        private Function<Mono<AcpSchema.JSONRPCMessage>, Mono<AcpSchema.JSONRPCMessage>> handler =
+                ignored -> Mono.empty();
 
         AcpSchema.JSONRPCResponse exchange(String method, Object id, Object params) {
             var request = new AcpSchema.JSONRPCRequest(method, id, params);
