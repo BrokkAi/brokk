@@ -62,6 +62,17 @@ pub struct SessionManifest {
     pub modified: u64,
     #[serde(default = "default_version")]
     pub version: String,
+    /// Brokk ACP-specific: session mode, persisted so it survives reload.
+    /// Absent in manifests produced by the Java executor.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "brokkMode")]
+    pub mode: Option<String>,
+    /// Brokk ACP-specific: last selected model for this session.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "brokkModel"
+    )]
+    pub model: Option<String>,
 }
 
 fn default_version() -> String {
@@ -88,17 +99,24 @@ impl Session {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
+        let mode = SessionMode::Lutz;
         let manifest = SessionManifest {
             id: id.clone(),
             name,
             created: now,
             modified: now,
             version: "4.0".to_string(),
+            mode: Some(mode.as_str().to_string()),
+            model: if model.is_empty() {
+                None
+            } else {
+                Some(model.clone())
+            },
         };
         Self {
             id,
             cwd,
-            mode: SessionMode::Lutz,
+            mode,
             model,
             history: Vec::new(),
             manifest,
@@ -503,6 +521,72 @@ fn append_turn_to_zip(zip_path: &Path, manifest: &SessionManifest, turn: &Conver
     }
 }
 
+/// Replace manifest.json in an existing session zip, copying all other entries as-is.
+/// Returns true on success.
+fn rewrite_manifest_in_zip(zip_path: &Path, manifest: &SessionManifest) -> bool {
+    let file = match std::fs::File::open(zip_path) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!("failed to open session zip for manifest rewrite: {e}");
+            return false;
+        }
+    };
+    let mut archive = match zip::ZipArchive::new(file) {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::warn!("failed to read session zip for manifest rewrite: {e}");
+            return false;
+        }
+    };
+
+    let tmp = zip_path.with_extension("tmp");
+    let out_file = match std::fs::File::create(&tmp) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!("failed to create temp zip for manifest rewrite: {e}");
+            return false;
+        }
+    };
+
+    let mut zip_writer = zip::ZipWriter::new(out_file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    for i in 0..archive.len() {
+        let mut entry = match archive.by_index(i) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let name = entry.name().to_string();
+        if name == "manifest.json" {
+            continue;
+        }
+        let mut buf = Vec::new();
+        if entry.read_to_end(&mut buf).is_err() {
+            continue;
+        }
+        if zip_writer.start_file(&name, options).is_ok() {
+            let _ = zip_writer.write_all(&buf);
+        }
+    }
+
+    let manifest_json = serde_json::to_string_pretty(manifest).unwrap_or_default();
+    if zip_writer.start_file("manifest.json", options).is_ok() {
+        let _ = zip_writer.write_all(manifest_json.as_bytes());
+    }
+
+    if zip_writer.finish().is_err() {
+        return false;
+    }
+    match std::fs::rename(&tmp, zip_path) {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!("failed to rename rewritten session zip: {e}");
+            false
+        }
+    }
+}
+
 /// List all session manifests from the executor's sessions directory.
 fn list_manifests_from_disk(cwd: &Path) -> Vec<SessionManifest> {
     let dir = sessions_dir(cwd);
@@ -530,6 +614,9 @@ fn list_manifests_from_disk(cwd: &Path) -> Vec<SessionManifest> {
 pub struct SessionStore {
     sessions: Arc<RwLock<HashMap<String, Session>>>,
     default_model: Arc<RwLock<String>>,
+    /// Last-known list of models, populated by `set_available_models` from the LLM endpoint.
+    /// Used to fulfil `session/new` without re-fetching on every call.
+    available_models: Arc<RwLock<Vec<String>>>,
     cancel_tokens: Arc<RwLock<HashMap<String, CancellationToken>>>,
 }
 
@@ -538,8 +625,17 @@ impl SessionStore {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             default_model: Arc::new(RwLock::new(default_model)),
+            available_models: Arc::new(RwLock::new(Vec::new())),
             cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub async fn set_available_models(&self, models: Vec<String>) {
+        *self.available_models.write().await = models;
+    }
+
+    pub async fn available_models(&self) -> Vec<String> {
+        self.available_models.read().await.clone()
     }
 
     /// Create a new session and write it to disk as a zip.
@@ -548,9 +644,11 @@ impl SessionStore {
         let model = self.default_model.read().await.clone();
         let session = Session::new(id.clone(), cwd.clone(), model, "New Session".to_string());
 
-        // Write to disk in executor-compatible format
+        // Write to disk on a blocking worker so we don't stall the tokio runtime.
         let zip_path = session_zip_path(&cwd, &id);
-        write_new_session_zip(&zip_path, &session.manifest);
+        let manifest = session.manifest.clone();
+        let _ =
+            tokio::task::spawn_blocking(move || write_new_session_zip(&zip_path, &manifest)).await;
 
         self.sessions.write().await.insert(id, session.clone());
         session
@@ -562,15 +660,32 @@ impl SessionStore {
         if let Some(s) = self.sessions.read().await.get(id).cloned() {
             return Some(s);
         }
-        // Try to load from executor's session zip on disk
+        // Try to load from executor's session zip on disk (on a blocking worker).
         let zip_path = session_zip_path(cwd, id);
-        let manifest = read_manifest_from_zip(&zip_path)?;
-        let history = read_history_from_zip(&zip_path);
-        let model = self.default_model.read().await.clone();
+        let (manifest, history) = tokio::task::spawn_blocking(move || {
+            let manifest = read_manifest_from_zip(&zip_path)?;
+            let history = read_history_from_zip(&zip_path);
+            Some((manifest, history))
+        })
+        .await
+        .ok()
+        .flatten()?;
+
+        // Prefer persisted mode/model; fall back to server defaults.
+        let mode = manifest
+            .mode
+            .as_deref()
+            .and_then(SessionMode::parse)
+            .unwrap_or(SessionMode::Lutz);
+        let model = match manifest.model.clone() {
+            Some(m) if !m.is_empty() => m,
+            _ => self.default_model.read().await.clone(),
+        };
+
         let session = Session {
             id: manifest.id.clone(),
             cwd: cwd.to_path_buf(),
-            mode: SessionMode::Lutz,
+            mode,
             model,
             history,
             manifest,
@@ -589,11 +704,28 @@ impl SessionStore {
     }
 
     pub async fn set_mode(&self, id: &str, mode: SessionMode) -> bool {
-        if let Some(session) = self.sessions.write().await.get_mut(id) {
-            session.mode = mode;
-            true
-        } else {
-            false
+        // Update in-memory state and snapshot what we need for persistence.
+        let snapshot = {
+            let mut sessions = self.sessions.write().await;
+            match sessions.get_mut(id) {
+                Some(session) => {
+                    session.mode = mode;
+                    session.manifest.mode = Some(mode.as_str().to_string());
+                    Some((session.cwd.clone(), session.manifest.clone()))
+                }
+                None => None,
+            }
+        };
+        match snapshot {
+            Some((cwd, manifest)) => {
+                let zip_path = session_zip_path(&cwd, id);
+                let _ = tokio::task::spawn_blocking(move || {
+                    rewrite_manifest_in_zip(&zip_path, &manifest)
+                })
+                .await;
+                true
+            }
+            None => false,
         }
     }
 
@@ -603,23 +735,39 @@ impl SessionStore {
 
     /// Add a conversation turn and persist it to the session zip.
     pub async fn add_turn(&self, id: &str, turn: ConversationTurn) {
-        if let Some(session) = self.sessions.write().await.get_mut(id) {
-            session.history.push(turn.clone());
-            // Update modified timestamp
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-            session.manifest.modified = now;
-
-            let zip_path = session_zip_path(&session.cwd, &session.id);
-            append_turn_to_zip(&zip_path, &session.manifest, &turn);
+        // Mutate in-memory state first, then release the lock BEFORE blocking I/O.
+        let snapshot = {
+            let mut sessions = self.sessions.write().await;
+            match sessions.get_mut(id) {
+                Some(session) => {
+                    session.history.push(turn.clone());
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    session.manifest.modified = now;
+                    Some((
+                        session_zip_path(&session.cwd, &session.id),
+                        session.manifest.clone(),
+                    ))
+                }
+                None => None,
+            }
+        };
+        if let Some((zip_path, manifest)) = snapshot {
+            let _ = tokio::task::spawn_blocking(move || {
+                append_turn_to_zip(&zip_path, &manifest, &turn)
+            })
+            .await;
         }
     }
 
     /// List sessions from disk, filtered by cwd.
     pub async fn list_sessions_from_disk(&self, cwd: &Path) -> Vec<SessionManifest> {
-        list_manifests_from_disk(cwd)
+        let cwd = cwd.to_path_buf();
+        tokio::task::spawn_blocking(move || list_manifests_from_disk(&cwd))
+            .await
+            .unwrap_or_default()
     }
 
     pub async fn start_prompt(&self, session_id: &str) -> CancellationToken {

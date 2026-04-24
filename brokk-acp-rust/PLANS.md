@@ -315,3 +315,79 @@ C'est tout. Bifrost apporte tree-sitter + grammaires + git2 + walkdir + glob com
 4. **MCP tools du client ACP** : le protocole ACP permet au client de fournir des serveurs MCP. Faut-il s'y connecter pour avoir des tools supplementaires ? C'est un scope additionnel significatif.
 
 5. **Persistance des tool calls** : les tool calls intermediaires doivent-ils etre persistes dans le zip de session pour le replay ? Le format actuel du zip supporte les `ChatMessageDto` avec role/contentId, donc c'est faisable.
+
+---
+
+## Audit -- problemes identifies (2026-04-24)
+
+Relecture complete du serveur ACP Rust. Problemes classes par severite.
+
+### Bugs critiques
+
+1. **Streaming casse** (`tool_loop.rs:46-68`). Le callback `on_token` bufferise les tokens dans un `Vec<String>` et ne les flush qu'apres que `stream_chat` ait termine. Le client ACP ne voit donc rien jusqu'a la fin de la reponse LLM. Correction : passer `on_text` directement via un `Arc<Mutex<dyn FnMut>>` partage entre les tours.
+
+2. **Mode et modele de session non persistes** (`session.rs`). `get_session` recharge toujours avec `mode: SessionMode::Lutz` et `model: default_model`, les changements via `set_mode` ne sont jamais ecrits dans le zip. Correction : ajouter `mode` et `model` au `SessionManifest`.
+
+3. **Replay d'historique incomplet** (`agent.rs:156-158`). Seul `turn.agent_response` est renvoye au client, les prompts utilisateur sont omis. Correction : envoyer aussi `turn.user_prompt` (role user).
+
+4. **Tool calls non persistes dans l'historique**. `ConversationTurn` ne stocke que `user_prompt` + `agent_response`. Au rechargement, le LLM ne voit plus ses tool calls/results intermediaires. Scope plus large -- voir "ameliorations differees".
+
+5. **Arguments de tool malformes silencieusement avales** (`tool_loop.rs:92`). `serde_json::from_str(...).unwrap_or_default()` appelle le tool avec `{}` sans signaler l'erreur au LLM. Correction : renvoyer un `tool_result` d'erreur de parsing.
+
+### Securite
+
+6. **Trou dans `safe_resolve_for_write`** (`tools/mod.rs:236-255`). Si le parent du chemin demande n'existe pas, le check `starts_with(cwd)` est totalement saute et le `joined` non canonicalise est retourne. Path traversal possible via `../nouveau_dossier/../../tmp/evil`. Correction : remonter vers le premier ancetre existant, canonicaliser celui-ci, et valider la prefixe.
+
+7. **`runShellCommand` sans sandbox**. `sh -c` execute n'importe quoi (cat /etc/passwd, curl | sh, etc.). Aucun seccomp, namespace ou allow-list. Pour un outil pilote par LLM c'est un risque majeur. Correction : hors scope immediat, mais documenter et envisager une confirmation client ACP.
+
+8. **Symlinks suivis aveuglement**. Un symlink sous cwd pointant dehors laisse passer les ecritures. Mitige par canonicalize dans `safe_resolve` pour la lecture ; le write reste expose.
+
+### Concurrence / performance
+
+9. **I/O bloquantes sous le runtime tokio** (`session.rs`, `tools/filesystem.rs`). Tous les appels `std::fs` et zip se font en `sync` depuis des methodes `async`. Correction : envelopper dans `tokio::task::spawn_blocking`.
+
+10. **`add_turn` bloque tout le `SessionStore`** (`session.rs:605-618`). Le `RwLock::write()` sur `sessions` est tenu pendant toute la compression zip. Correction : cloner les donnees necessaires hors du lock avant `spawn_blocking`.
+
+11. **`list_models()` refait a chaque `session/new`** (`agent.rs:106`). Un appel HTTP par creation de session pour une liste deja recuperee a l'init. Correction : cacher la liste dans `SessionStore`.
+
+12. **`search_file_contents` sans filtre de taille ni detection de binaires** (`filesystem.rs:161`). Tente de lire tout fichier non-filtre par le glob. Correction : skip si > 1 MiB ou si les premiers octets contiennent un NUL.
+
+13. **Pas d'eviction des sessions en memoire**. `SessionStore::sessions` grandit indefiniment. Hors scope immediat (YAGNI).
+
+### Fonctionnalites manquantes
+
+14. **Bifrost/brokk_analyzer jamais integre** (`tools/mod.rs:21`). Le `headline()` reference `search_symbols`, `get_symbol_locations` etc. mais aucun n'est enregistre. Phase 2 du plan non realisee -- scope separe.
+
+15. **`max_turns` hardcode a 25** (`agent.rs:271`). Correction : exposer `--max-turns`.
+
+16. **Pas de fallback pour modeles sans tool calling**. Beaucoup de petits Ollama cassent. Hors scope immediat.
+
+17. **Mode invalide accepte silencieusement** (`agent.rs:315-317`). `SessionMode::parse` None ignore et `SetSessionModeResponse::new()` repond succes. Correction : retourner une erreur JSON-RPC ou un `meta` d'erreur.
+
+18. **`SetSessionModeResponse` succes meme si la session n'existe pas**. Correction : valider l'existence avant de repondre.
+
+### Qualite de code
+
+19. **Tool calls tronques renvoyes sur cancel** (`llm_client.rs:430-437`). Si le stream est coupe au milieu des arguments, `tool_acc.is_empty()` est faux et les calls partiels remontent. Correction : si cancel.is_cancelled(), renvoyer seulement le texte.
+
+20. **Logs qui avalent les erreurs d'ecriture zip** (`session.rs`). `append_turn_to_zip` log `warn` et continue, la memoire croit avoir persiste alors que le disque est desynchronise. Correction (partielle) : propager l'erreur via `Result`.
+
+21. **Pas de tests**. Aucun `#[test]` ni `tests/`. Ecart vs cote Java. Hors scope immediat.
+
+22. **`ChatMessage.role` non type**. `String` partout. Hors scope immediat (YAGNI).
+
+---
+
+## Plan de remediation (ordre d'attaque)
+
+1. Streaming (bug critique)
+2. Path-traversal `safe_resolve_for_write`
+3. Persistance mode/modele
+4. Replay utilisateur
+5. Arguments malformes -> erreur
+6. I/O bloquantes -> spawn_blocking
+7. `max_turns` configurable
+8. Filtre binaires/taille dans `search_file_contents`
+9. Cache des modeles
+10. Validation set_mode
+11. Tool calls tronques sur cancel
