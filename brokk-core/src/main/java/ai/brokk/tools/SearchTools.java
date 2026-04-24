@@ -1708,9 +1708,7 @@ public class SearchTools {
         List<String> processingErrors = new ArrayList<>();
         BatchResult<FileHit> batchResult;
         try {
-            var filesToSearch = files.size() <= effectiveMaxFiles
-                    ? files.stream().sorted().toList()
-                    : prioritizeFilesForSelection(files);
+            var filesToSearch = files.stream().sorted().toList();
             batchResult = batchProcessFiles(filesToSearch, effectiveMaxFiles, (file, idx) -> {
                 try {
                     var res = AlmostGrep.searchFileContentsInFile(

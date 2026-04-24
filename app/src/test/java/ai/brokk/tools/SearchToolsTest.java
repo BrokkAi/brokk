@@ -9,8 +9,10 @@ import ai.brokk.analyzer.IAnalyzer.Range;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.testutil.FileUtil;
@@ -26,6 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -772,6 +775,30 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testSearchFileContents_DoesNotRankCandidatesBeforeSearching() throws Exception {
+        Path matchingPath = projectRoot.resolve("a-match.txt");
+        Path otherPath = projectRoot.resolve("z-other.txt");
+        Files.writeString(matchingPath, "MATCH\n");
+        Files.writeString(otherPath, "no match\n");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "a-match.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "z-other.txt"));
+
+        AtomicInteger fileHistoryCalls = new AtomicInteger();
+        var project = new TestProject(projectRoot, Languages.NONE).withAllFilesSupplier(() -> mockProjectFiles);
+        var ctx = new TestContextManager(
+                project, new TestConsoleIO(), Set.of(), new TestAnalyzer(), rankingProbeRepo(fileHistoryCalls));
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.searchFileContents(List.of("MATCH"), "*.txt", false, false, 0, 1);
+
+        assertTrue(result.contains("a-match.txt"));
+        assertEquals(
+                0,
+                fileHistoryCalls.get(),
+                "searchFileContents should scan candidates directly, not rank the whole candidate set by Git history");
+    }
+
+    @Test
     void testSearchFileContents_invalidRegexThrows() throws Exception {
         // "[[" is invalid regex, should return error message
         String result = searchTools.searchFileContents(List.of("[["), "README.md", false, false, 0, 200);
@@ -845,20 +872,28 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testSearchFileContents_limitUsesGitImportanceBeforeAlphabeticalDisplay() throws Exception {
+    void testSearchFileContents_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
         commitTrackedFile("a-low.txt", "MATCH low\n", Instant.parse("2020-01-01T00:00:00Z"));
         commitTrackedFile("z-high.txt", "MATCH high\n", Instant.parse("2025-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "MATCH high again\n", Instant.parse("2025-02-01T00:00:00Z"));
         recreateSearchTools();
+        var aLow = new ProjectFile(projectRoot, "a-low.txt");
+        var zHigh = new ProjectFile(projectRoot, "z-high.txt");
+
+        assertEquals(
+                zHigh,
+                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
+                "Test setup should give z-high.txt a higher Git rank");
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "*.txt", false, false, 0, 1);
         String mainSection = mainResultSection(result);
 
         assertTrue(
-                mainSection.contains("z-high.txt"),
-                "More important matching file should be selected when maxFiles is hit");
-        assertFalse(
                 mainSection.contains("a-low.txt"),
-                "Alphabetically earlier matching file should be omitted when less important");
+                "Alphabetically first matching file should be retained when maxFiles is hit");
+        assertFalse(
+                mainSection.contains("z-high.txt"),
+                "Later matching files should be truncated even if Git ranks them higher");
     }
 
     @Test
@@ -1527,5 +1562,34 @@ public class SearchToolsTest {
     private static String relatedContentSection(String text) {
         int relatedContentIdx = text.indexOf("\n\n## Related Content\n");
         return relatedContentIdx >= 0 ? text.substring(relatedContentIdx) : "";
+    }
+
+    private static IGitRepo rankingProbeRepo(AtomicInteger fileHistoryCalls) {
+        return new IGitRepo() {
+            @Override
+            public Set<ProjectFile> getTrackedFiles() {
+                return Set.of();
+            }
+
+            @Override
+            public void add(Collection<ProjectFile> files) {}
+
+            @Override
+            public void add(ProjectFile file) {}
+
+            @Override
+            public void remove(ProjectFile file) {}
+
+            @Override
+            public String getCurrentCommitId() {
+                return "HEAD";
+            }
+
+            @Override
+            public List<CommitInfo> getFileHistories(Collection<ProjectFile> files, int maxResults) {
+                fileHistoryCalls.incrementAndGet();
+                return List.of();
+            }
+        };
     }
 }

@@ -4,12 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.ICodeIntelligence;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.IAnalyzer.Range;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpserver.StandaloneCodeIntelligence;
@@ -20,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -149,6 +152,50 @@ class SearchToolsTest {
 
         assertTrue(result.contains("<file path=\"counted.txt\" loc=\"1\">"));
         assertEquals(1, readCount.get(), "searchFileContents should read a matching file only once");
+    }
+
+    @Test
+    void searchFileContents_DoesNotRankCandidatesBeforeSearching() throws Exception {
+        Path projectRoot = initRepo();
+        Path matchingPath = projectRoot.resolve("a-match.txt");
+        Path otherPath = projectRoot.resolve("z-other.txt");
+        Files.writeString(matchingPath, "MATCH\n");
+        Files.writeString(otherPath, "no match\n");
+
+        ProjectFile matchingFile = new ProjectFile(projectRoot, "a-match.txt");
+        ProjectFile otherFile = new ProjectFile(projectRoot, "z-other.txt");
+        Set<ProjectFile> allFiles = Set.of(matchingFile, otherFile);
+
+        project = new CoreProject(projectRoot);
+        ICoreProject countingProject = overridingProject(project, () -> allFiles, relPath -> allFiles.stream()
+                .filter(file -> file.getRelPath().equals(relPath))
+                .findFirst());
+        AtomicInteger fileHistoryCalls = new AtomicInteger();
+        IAnalyzer analyzer = new DisabledAnalyzer(countingProject);
+        SearchTools tools = new SearchTools(new ICodeIntelligence() {
+            @Override
+            public IAnalyzer getAnalyzer() {
+                return analyzer;
+            }
+
+            @Override
+            public ICoreProject getProject() {
+                return countingProject;
+            }
+
+            @Override
+            public IGitRepo getRepo() {
+                return rankingProbeRepo(fileHistoryCalls);
+            }
+        });
+
+        String result = tools.searchFileContents(List.of("MATCH"), "*.txt", false, false, 0, 1);
+
+        assertTrue(result.contains("a-match.txt"));
+        assertEquals(
+                0,
+                fileHistoryCalls.get(),
+                "searchFileContents should scan candidates directly, not rank the whole candidate set by Git history");
     }
 
     @Test
@@ -954,5 +1001,34 @@ class SearchToolsTest {
     private static String mainResultSection(String text) {
         int relatedContentIdx = text.indexOf("\n\n## Related Content\n");
         return relatedContentIdx >= 0 ? text.substring(0, relatedContentIdx) : text;
+    }
+
+    private static IGitRepo rankingProbeRepo(AtomicInteger fileHistoryCalls) {
+        return new IGitRepo() {
+            @Override
+            public Set<ProjectFile> getTrackedFiles() {
+                return Set.of();
+            }
+
+            @Override
+            public void add(Collection<ProjectFile> files) {}
+
+            @Override
+            public void add(ProjectFile file) {}
+
+            @Override
+            public void remove(ProjectFile file) {}
+
+            @Override
+            public String getCurrentCommitId() {
+                return "HEAD";
+            }
+
+            @Override
+            public List<CommitInfo> getFileHistories(Collection<ProjectFile> files, int maxResults) {
+                fileHistoryCalls.incrementAndGet();
+                return List.of();
+            }
+        };
     }
 }

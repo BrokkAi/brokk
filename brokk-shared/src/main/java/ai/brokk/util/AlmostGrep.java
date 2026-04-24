@@ -197,6 +197,9 @@ public final class AlmostGrep {
         if (content.isEmpty()) {
             return null;
         }
+        if (patterns.stream().noneMatch(pattern -> findWithOverflowGuard(pattern, content))) {
+            return null;
+        }
 
         List<LineRef> lineRefs = computeLineRefs(content);
         if (lineRefs.isEmpty()) {
