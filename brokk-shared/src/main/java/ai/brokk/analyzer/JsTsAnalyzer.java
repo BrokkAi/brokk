@@ -1,11 +1,10 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
+import static ai.brokk.analyzer.javascript.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.javascript.JsTsExportUsageExtractor;
 import ai.brokk.analyzer.javascript.TsConfigPathsResolver;
-import ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes;
 import ai.brokk.analyzer.usages.ExportIndex;
 import ai.brokk.analyzer.usages.ImportBinder;
 import ai.brokk.analyzer.usages.ReferenceCandidate;
@@ -17,7 +16,6 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -61,19 +59,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static final Set<String> JS_LOG_BARE_NAMES = Set.of("log", "warn", "error", "exception");
     private static final Set<String> JS_LOG_RECEIVER_NAMES = Set.of("log", "logger", "console");
     private static final Set<String> JS_LOG_METHOD_NAMES = Set.of("log", "warn", "error", "exception");
-    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES = Set.copyOf(new HashSet<>(List.of(
-            IDENTIFIER, TypeScriptTreeSitterNodeTypes.IDENTIFIER, TypeScriptTreeSitterNodeTypes.PROPERTY_IDENTIFIER)));
-    private static final Set<String> CLONE_AST_STRING_TYPES = Set.copyOf(new HashSet<>(List.of(
-            STRING,
-            TEMPLATE_STRING,
-            TypeScriptTreeSitterNodeTypes.STRING,
-            TypeScriptTreeSitterNodeTypes.TEMPLATE_STRING)));
-    private static final Set<String> CLONE_AST_NUMBER_TYPES =
-            Set.copyOf(new HashSet<>(List.of(NUMBER, TypeScriptTreeSitterNodeTypes.NUMBER)));
-    private static final Set<String> CLONE_AST_IGNORED_TYPES = Set.of(
-            TypeScriptTreeSitterNodeTypes.ACCESSIBILITY_MODIFIER,
-            TypeScriptTreeSitterNodeTypes.MODIFIERS,
-            TypeScriptTreeSitterNodeTypes.TYPE_PARAMETERS);
+    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES = JS_TS_IDENTIFIER_TYPES;
+    private static final Set<String> CLONE_AST_STRING_TYPES = JS_TS_STRING_TYPES;
+    private static final Set<String> CLONE_AST_NUMBER_TYPES = JS_TS_NUMBER_TYPES;
+    private static final Set<String> CLONE_AST_IGNORED_TYPES = JS_TS_CLONE_AST_IGNORED_TYPES;
 
     private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
@@ -440,10 +429,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (CLONE_AST_NUMBER_TYPES.contains(type)) {
             return "NUM";
         }
-        if (TypeScriptTreeSitterNodeTypes.TRUE.equals(text)
-                || TypeScriptTreeSitterNodeTypes.FALSE.equals(text)
-                || TRUE.equals(text)
-                || FALSE.equals(text)) {
+        if (TRUE.equals(text) || FALSE.equals(text)) {
             return "BOOL";
         }
         if (CLONE_AST_IGNORED_TYPES.contains(type)) {
@@ -814,7 +800,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private Optional<ExceptionHandlingSmell> analyzeCatchClause(
             ProjectFile file, TSNode catchClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
-        TSNode bodyNode = catchClause.getChildByFieldName("body");
+        TSNode bodyNode = catchClause.getChildByFieldName(FIELD_BODY);
         if (bodyNode == null) {
             for (int i = 0; i < catchClause.getNamedChildCount(); i++) {
                 TSNode child = catchClause.getNamedChild(i);
@@ -901,7 +887,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     private static String extractCatchType(TSNode catchClause, SourceContent sourceContent) {
-        TSNode parameterNode = catchClause.getChildByFieldName("parameter");
+        TSNode parameterNode = catchClause.getChildByFieldName(FIELD_PARAMETER);
         if (parameterNode == null) {
             return "<untyped>";
         }
@@ -923,7 +909,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (call == null) {
             return false;
         }
-        TSNode functionNode = call.getChildByFieldName("function");
+        TSNode functionNode = call.getChildByFieldName(FIELD_FUNCTION);
         if (functionNode == null) {
             return false;
         }
@@ -934,8 +920,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (!MEMBER_EXPRESSION.equals(functionNode.getType())) {
             return false;
         }
-        TSNode objectNode = functionNode.getChildByFieldName("object");
-        TSNode propertyNode = functionNode.getChildByFieldName("property");
+        TSNode objectNode = functionNode.getChildByFieldName(FIELD_OBJECT);
+        TSNode propertyNode = functionNode.getChildByFieldName(FIELD_PROPERTY);
         if (objectNode == null || propertyNode == null) {
             return false;
         }
@@ -1303,7 +1289,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         // Check for both legacy and new split-query capture names
         TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
         if (requireCallNode == null) {
-            requireCallNode = capturedNodesForMatch.get("module.require_call");
+            requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
         }
 
         if (requireCallNode == null) {
@@ -1313,19 +1299,19 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         // Identify the require function identifier to verify it's a 'require' call
         TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
         if (requireFuncNode == null) {
-            requireFuncNode = capturedNodesForMatch.get("_require_func");
+            requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
         }
         if (requireFuncNode == null) {
-            requireFuncNode = capturedNodesForMatch.get("require_func");
+            requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME_FALLBACK);
         }
 
         boolean isRequire = false;
         if (requireFuncNode != null) {
             String funcName = sourceContent.substringFrom(requireFuncNode).strip();
-            isRequire = "require".equals(funcName);
+            isRequire = REQUIRE.equals(funcName);
         } else {
             String text = sourceContent.substringFrom(requireCallNode).trim();
-            isRequire = text.startsWith("require") || text.contains("require(");
+            isRequire = text.startsWith(REQUIRE) || text.contains(REQUIRE + "(");
         }
 
         if (isRequire) {
@@ -1335,10 +1321,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             TSNode current = requireCallNode;
             while (current != null) {
                 String type = current.getType();
-                if ("lexical_declaration".equals(type)
-                        || "variable_declaration".equals(type)
-                        || "expression_statement".equals(type)
-                        || "variable_declarator".equals(type)) {
+                if (LEXICAL_DECLARATION.equals(type)
+                        || VARIABLE_DECLARATION.equals(type)
+                        || EXPRESSION_STATEMENT.equals(type)
+                        || VARIABLE_DECLARATOR.equals(type)) {
                     nodeToCapture = current;
                     // If we found a declarator, try one more step for the full declaration
                     TSNode parent = current.getParent();
@@ -1364,7 +1350,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     @Override
     protected boolean isConstructor(
             CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
-        return "constructor".equals(candidate.identifier());
+        return CONSTRUCTOR.equals(candidate.identifier());
     }
 
     @Override
@@ -1401,12 +1387,12 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                                         TERNARY_EXPRESSION -> complexity++;
                                 case SWITCH_CASE -> {
                                     // Increment for 'case ...:', but not for 'default:'
-                                    if (node.getChildByFieldName("value") != null) {
+                                    if (node.getChildByFieldName(FIELD_VALUE) != null) {
                                         complexity++;
                                     }
                                 }
                                 case BINARY_EXPRESSION -> {
-                                    TSNode operatorNode = node.getChildByFieldName("operator");
+                                    TSNode operatorNode = node.getChildByFieldName(FIELD_OPERATOR);
                                     if (operatorNode != null) {
                                         String operator = operatorNode.getType(); // In JS/TS grammar,
                                         // operators are often
