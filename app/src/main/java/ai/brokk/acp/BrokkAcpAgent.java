@@ -2,26 +2,19 @@ package ai.brokk.acp;
 
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
+import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.util.Messages;
-import com.agentclientprotocol.sdk.agent.AcpSyncAgent;
 import com.agentclientprotocol.sdk.agent.SyncPromptContext;
-import com.agentclientprotocol.sdk.annotation.AcpAgent;
-import com.agentclientprotocol.sdk.annotation.Cancel;
-import com.agentclientprotocol.sdk.annotation.Initialize;
-import com.agentclientprotocol.sdk.annotation.LoadSession;
-import com.agentclientprotocol.sdk.annotation.NewSession;
-import com.agentclientprotocol.sdk.annotation.Prompt;
-import com.agentclientprotocol.sdk.annotation.SetSessionMode;
-import com.agentclientprotocol.sdk.annotation.SetSessionModel;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -35,13 +28,12 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Annotation-based ACP agent that exposes Brokk's code intelligence and execution
- * capabilities via the Agent Client Protocol over stdio.
+ * ACP agent implementation that exposes Brokk's code intelligence and execution
+ * capabilities via the Agent Client Protocol.
  *
  * <p>Handles the full ACP lifecycle: initialization, session management, prompt
  * execution, mode/model configuration, and cancellation.
  */
-@AcpAgent(name = "brokk", version = BuildInfo.version)
 public class BrokkAcpAgent {
     private static final Logger logger = LogManager.getLogger(BrokkAcpAgent.class);
 
@@ -72,8 +64,13 @@ public class BrokkAcpAgent {
     private volatile String defaultModelId;
     private volatile String defaultReasoningLevel;
 
-    // Set after AcpAgentSupport.build() to enable session updates outside of prompt context
-    private volatile @Nullable AcpSyncAgent syncAgent;
+    // Set by BrokkAcpRuntime to enable session updates outside of prompt context
+    private volatile @Nullable SessionUpdateSender sessionUpdateSender;
+
+    @FunctionalInterface
+    interface SessionUpdateSender {
+        void sendSessionUpdate(String sessionId, AcpSchema.SessionUpdate update);
+    }
 
     public BrokkAcpAgent(ContextManager cm, JobRunner jobRunner, JobStore jobStore) {
         this.cm = cm;
@@ -86,19 +83,24 @@ public class BrokkAcpAgent {
         logger.info("ACP defaults loaded: model={}, reasoning={}", defaultModelId, defaultReasoningLevel);
     }
 
-    public void setSyncAgent(AcpSyncAgent agent) {
-        this.syncAgent = agent;
+    public void setSessionUpdateSender(SessionUpdateSender sessionUpdateSender) {
+        this.sessionUpdateSender = sessionUpdateSender;
     }
 
-    @Initialize
-    public AcpSchema.InitializeResponse initialize() {
+    public AcpProtocol.InitializeResponse initialize() {
         logger.info("ACP initialize");
-        var capabilities = new AcpSchema.AgentCapabilities(
+        var capabilities = new AcpProtocol.AgentCapabilities(
                 true, // loadSession
                 null, // mcpCapabilities
                 new AcpSchema.PromptCapabilities(null, true, null), // embeddedContext = true
+                new AcpProtocol.SessionCapabilities(
+                        new AcpProtocol.SessionListCapabilities(null),
+                        new AcpProtocol.SessionResumeCapabilities(null),
+                        new AcpProtocol.SessionCloseCapabilities(null),
+                        new AcpProtocol.SessionForkCapabilities(null),
+                        null),
                 Map.of("brokk", Map.of("context", true, "completions", true, "costs", true)));
-        return new AcpSchema.InitializeResponse(
+        return new AcpProtocol.InitializeResponse(
                 AcpSchema.LATEST_PROTOCOL_VERSION,
                 capabilities,
                 List.of(),
@@ -106,7 +108,10 @@ public class BrokkAcpAgent {
                 null);
     }
 
-    @NewSession
+    public AcpSchema.AuthenticateResponse authenticate() {
+        return new AcpSchema.AuthenticateResponse();
+    }
+
     public AcpSchema.NewSessionResponse newSession(AcpSchema.NewSessionRequest request) {
         logger.info("ACP new session, cwd={}", request.cwd());
 
@@ -126,7 +131,6 @@ public class BrokkAcpAgent {
         return new AcpSchema.NewSessionResponse(sessionId, modeState, modelState, meta);
     }
 
-    @LoadSession
     public AcpSchema.LoadSessionResponse loadSession(AcpSchema.LoadSessionRequest request) {
         logger.info("ACP load session {}", request.sessionId());
         var sessionId = request.sessionId();
@@ -153,7 +157,94 @@ public class BrokkAcpAgent {
         return new AcpSchema.LoadSessionResponse(modeState, modelState, meta);
     }
 
-    @Prompt
+    public AcpProtocol.ResumeSessionResponse resumeSession(AcpProtocol.ResumeSessionRequest request) {
+        logger.info("ACP resume session {}", request.sessionId());
+        var sessionId = request.sessionId();
+        switchToKnownSession(sessionId);
+
+        modeBySession.putIfAbsent(sessionId, "LUTZ");
+        reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
+
+        var modeState = new AcpSchema.SessionModeState(modeBySession.getOrDefault(sessionId, "LUTZ"), AVAILABLE_MODES);
+        var modelState = buildModelState(sessionId);
+        var meta = buildVariantMeta(sessionId);
+
+        scheduleAvailableCommandsUpdate(sessionId);
+        return new AcpProtocol.ResumeSessionResponse(modeState, modelState, meta);
+    }
+
+    public AcpProtocol.ListSessionsResponse listSessions(AcpProtocol.ListSessionsRequest request) {
+        logger.info("ACP list sessions cwd={}", request.cwd());
+        var rootPath = cm.getProject().getRoot().toAbsolutePath().normalize();
+        var root = rootPath.toString();
+        if (request.cwd() != null
+                && !request.cwd().isBlank()
+                && !Path.of(request.cwd()).toAbsolutePath().normalize().equals(rootPath)) {
+            return new AcpProtocol.ListSessionsResponse(List.of(), null, null);
+        }
+        var sessions = cm.getProject().getSessionManager().listSessions().stream()
+                .map(session -> {
+                    var stats = cm.getProject().getSessionManager().countSessionStats(session.id());
+                    var meta = Map.<String, Object>of(
+                            "brokk",
+                            Map.of(
+                                    "aiResponses", stats.aiResponses(),
+                                    "totalTasks", stats.tasks().total(),
+                                    "incompleteTasks", stats.tasks().incomplete()));
+                    return new AcpProtocol.SessionInfo(
+                            session.id().toString(),
+                            root,
+                            session.name(),
+                            Instant.ofEpochMilli(session.modified()).toString(),
+                            meta);
+                })
+                .toList();
+        return new AcpProtocol.ListSessionsResponse(sessions, null, null);
+    }
+
+    public AcpProtocol.CloseSessionResponse closeSession(AcpProtocol.CloseSessionRequest request) {
+        var sessionId = request.sessionId();
+        logger.info("ACP close session {}", sessionId);
+        var jobId = activeJobBySession.remove(sessionId);
+        if (jobId != null) {
+            jobRunner.cancel(jobId);
+        }
+        modeBySession.remove(sessionId);
+        modelBySession.remove(sessionId);
+        reasoningBySession.remove(sessionId);
+        return new AcpProtocol.CloseSessionResponse(null);
+    }
+
+    public AcpProtocol.ForkSessionResponse forkSession(AcpProtocol.ForkSessionRequest request) {
+        logger.info("ACP fork session {}", request.sessionId());
+        assertCompatibleCwd(request.cwd());
+
+        var target = findSession(request.sessionId());
+        try {
+            var copied = cm.getProject().getSessionManager().copySession(target.id(), "Fork of " + target.name());
+            var forkSessionId = copied.id().toString();
+            cm.switchSessionAsync(copied.id()).join();
+
+            modeBySession.put(forkSessionId, modeBySession.getOrDefault(request.sessionId(), "LUTZ"));
+            var model = modelBySession.get(request.sessionId());
+            if (model != null) {
+                modelBySession.put(forkSessionId, model);
+            }
+            reasoningBySession.put(
+                    forkSessionId, reasoningBySession.getOrDefault(request.sessionId(), defaultReasoningLevel));
+
+            var modeState =
+                    new AcpSchema.SessionModeState(modeBySession.getOrDefault(forkSessionId, "LUTZ"), AVAILABLE_MODES);
+            var modelState = buildModelState(forkSessionId);
+            var meta = buildVariantMeta(forkSessionId);
+
+            scheduleAvailableCommandsUpdate(forkSessionId);
+            return new AcpProtocol.ForkSessionResponse(forkSessionId, modeState, modelState, meta);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to fork session " + request.sessionId(), e);
+        }
+    }
+
     public AcpSchema.PromptResponse prompt(AcpSchema.PromptRequest request, SyncPromptContext promptContext) {
         var sessionId = request.sessionId();
         var text = request.text();
@@ -234,7 +325,6 @@ public class BrokkAcpAgent {
         return AcpSchema.PromptResponse.endTurn();
     }
 
-    @SetSessionMode
     public AcpSchema.SetSessionModeResponse setMode(AcpSchema.SetSessionModeRequest request) {
         var sessionId = request.sessionId();
         var modeId = request.modeId();
@@ -248,7 +338,6 @@ public class BrokkAcpAgent {
         return new AcpSchema.SetSessionModeResponse();
     }
 
-    @SetSessionModel
     public AcpSchema.SetSessionModelResponse setModel(AcpSchema.SetSessionModelRequest request) {
         var sessionId = request.sessionId();
         var modelId = request.modelId();
@@ -269,7 +358,6 @@ public class BrokkAcpAgent {
         return new AcpSchema.SetSessionModelResponse();
     }
 
-    @Cancel
     public void cancel(AcpSchema.CancelNotification notification) {
         var sessionId = notification.sessionId();
         logger.info("ACP cancel session={}", sessionId);
@@ -278,6 +366,25 @@ public class BrokkAcpAgent {
             jobRunner.cancel(jobId);
         } else {
             logger.info("ACP cancel: no active job for session {}", sessionId);
+        }
+    }
+
+    private void switchToKnownSession(String sessionId) {
+        var target = findSession(sessionId);
+        cm.switchSessionAsync(target.id()).join();
+    }
+
+    private SessionInfo findSession(String sessionId) {
+        return cm.getProject().getSessionManager().listSessions().stream()
+                .filter(s -> s.id().toString().equals(sessionId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown session: " + sessionId));
+    }
+
+    private void assertCompatibleCwd(String cwd) {
+        var rootPath = cm.getProject().getRoot().toAbsolutePath().normalize();
+        if (!Path.of(cwd).toAbsolutePath().normalize().equals(rootPath)) {
+            throw new IllegalArgumentException("Session cwd does not match project root: " + cwd);
         }
     }
 
@@ -368,9 +475,9 @@ public class BrokkAcpAgent {
     // ---- Conversation replay ----
 
     private void scheduleConversationReplay(String sessionId) {
-        var agent = this.syncAgent;
-        if (agent == null) {
-            logger.debug("No syncAgent available, skipping conversation replay for session {}", sessionId);
+        var sender = this.sessionUpdateSender;
+        if (sender == null) {
+            logger.debug("No sessionUpdateSender available, skipping conversation replay for session {}", sessionId);
             return;
         }
 
@@ -381,7 +488,7 @@ public class BrokkAcpAgent {
                     // Send user prompt as UserMessageChunk
                     var description = task.description();
                     if (!description.isBlank()) {
-                        agent.sendSessionUpdate(
+                        sender.sendSessionUpdate(
                                 sessionId,
                                 new AcpSchema.UserMessageChunk(
                                         "user_message_chunk", new AcpSchema.TextContent(description)));
@@ -391,7 +498,7 @@ public class BrokkAcpAgent {
                     var mopMarkdown = task.mopMarkdown();
                     var responseText = mopMarkdown != null ? mopMarkdown : task.summary();
                     if (responseText != null && !responseText.isBlank()) {
-                        agent.sendSessionUpdate(
+                        sender.sendSessionUpdate(
                                 sessionId,
                                 new AcpSchema.AgentMessageChunk(
                                         "agent_message_chunk", new AcpSchema.TextContent(responseText)));
@@ -455,15 +562,15 @@ public class BrokkAcpAgent {
     }
 
     private void scheduleAvailableCommandsUpdate(String sessionId) {
-        var agent = this.syncAgent;
-        if (agent == null) {
+        var sender = this.sessionUpdateSender;
+        if (sender == null) {
             return;
         }
         Thread.startVirtualThread(() -> {
             try {
                 var commands =
                         List.of(new AcpSchema.AvailableCommand("context", "Show current context snapshot", null));
-                agent.sendSessionUpdate(
+                sender.sendSessionUpdate(
                         sessionId, new AcpSchema.AvailableCommandsUpdate("available_commands_update", commands));
             } catch (Exception e) {
                 logger.warn("Failed to send available commands for session {}", sessionId, e);

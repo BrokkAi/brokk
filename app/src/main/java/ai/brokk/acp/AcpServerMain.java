@@ -6,7 +6,6 @@ import ai.brokk.cli.MemoryConsole;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
-import com.agentclientprotocol.sdk.agent.support.AcpAgentSupport;
 import com.agentclientprotocol.sdk.agent.transport.StdioAcpAgentTransport;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import java.nio.file.Path;
@@ -99,8 +98,7 @@ public final class AcpServerMain {
             // Create and start ACP agent
             var agent = new BrokkAcpAgent(contextManager, jobRunner, jobStore);
             var transport = new StdioAcpAgentTransport(McpJsonDefaults.getMapper());
-            var support = AcpAgentSupport.create(agent).transport(transport).build();
-            agent.setSyncAgent(support.getAgent());
+            var runtime = new BrokkAcpRuntime(transport, agent);
 
             // Register shutdown hook -- close transport first (stop accepting requests),
             // then job infrastructure, then context manager
@@ -109,7 +107,7 @@ public final class AcpServerMain {
                             () -> {
                                 logger.info("Shutdown hook triggered, cleaning up...");
                                 try {
-                                    support.close();
+                                    runtime.close();
                                 } catch (Exception e) {
                                     logger.warn("Error closing ACP transport", e);
                                 }
@@ -132,7 +130,7 @@ public final class AcpServerMain {
             // Block until the transport terminates (stdin EOF or graceful close).
             // StdioAcpAgentTransport reads from System.in and terminates on EOF,
             // which serves as the parent-death signal (same mechanism as HeadlessExecutorMain).
-            support.run();
+            runtime.run();
 
         } catch (Exception e) {
             logger.fatal("AcpServerMain failed to start", e);
