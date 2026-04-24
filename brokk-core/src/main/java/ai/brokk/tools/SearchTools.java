@@ -1836,14 +1836,11 @@ public class SearchTools {
         record FileHit(ProjectFile file, AlmostGrep.FileContentSearchResult block) {}
 
         String patternsLabel = String.join(", ", patterns);
-        List<String> processingErrors = new ArrayList<>();
-        boolean truncatedByMaxFiles = false;
-        boolean truncatedByTotalMatches = false;
-        List<FileHit> selectedHits = new ArrayList<>();
-        int totalMatches = 0;
+        List<String> processingErrors;
+        BatchResult<FileHit> batchResult;
         try {
             var probeResult = AlmostGrep.findFilesContainingPatterns(compiledPatterns, new LinkedHashSet<>(files));
-            processingErrors.addAll(probeResult.errors());
+            processingErrors = new ArrayList<>(probeResult.errors());
             var matchedFiles = probeResult.matches();
             if (matchedFiles.isEmpty()) {
                 return "No matches found for pattern(s) '%s' in files matching '%s' with searchType='%s'%s"
@@ -1861,87 +1858,35 @@ public class SearchTools {
                     ? matchedFiles.stream().sorted().toList()
                     : prioritizeFilesForSelection(matchedFiles);
 
-            outer:
-            for (int start = 0; start < rankedMatchedFiles.size(); ) {
-                if (Thread.interrupted()) {
-                    throw new InterruptedException("Interrupted during searchFileContents processing");
-                }
-                if (selectedHits.size() >= effectiveMaxFiles) {
-                    truncatedByMaxFiles = true;
-                    break;
-                }
-                if (totalMatches >= FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
-                    truncatedByTotalMatches = true;
-                    break;
-                }
-
-                int remainingNeeded = effectiveMaxFiles - selectedHits.size();
-                int batchSize = min(rankedMatchedFiles.size() - start, max(SEARCH_TOOLS_PARALLELISM, remainingNeeded));
-                var batch = rankedMatchedFiles.subList(start, min(start + batchSize, rankedMatchedFiles.size()));
-                final int batchOffset = start;
-                start += batchSize;
-
-                List<CompletableFuture<IndexedResult<FileHit>>> batchFutures = IntStream.range(0, batch.size())
-                        .mapToObj(idx -> LoggingFuture.supplyVirtual(() -> {
-                            var file = batch.get(idx);
-                            try {
-                                var res = AlmostGrep.searchFileContentsInFile(
-                                        file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
-                                if (res == null) return new IndexedResult<FileHit>(batchOffset + idx, null, null);
-                                return new IndexedResult<>(batchOffset + idx, new FileHit(file, res), null);
-                            } catch (AlmostGrep.RegexMatchOverflowException e) {
-                                String message =
-                                        "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
-                                logger.warn("Regex stack overflow while searching file contents in {}", file, e);
-                                return new IndexedResult<FileHit>(batchOffset + idx, null, message);
-                            }
-                        }))
-                        .toList();
-                CompletableFuture<Void> batchDone = LoggingFuture.allOf(batchFutures.toArray(new CompletableFuture[0]));
-
+            batchResult = batchProcessFiles(rankedMatchedFiles, effectiveMaxFiles, (file, idx) -> {
                 try {
-                    batchDone.get();
-                } catch (InterruptedException e) {
-                    batchFutures.forEach(future -> future.cancel(true));
-                    throw e;
-                } catch (ExecutionException e) {
-                    batchFutures.forEach(future -> future.cancel(true));
-                    Throwable cause = e.getCause();
-                    if (cause instanceof RuntimeException re) {
-                        throw re;
-                    }
-                    if (cause instanceof Error er) {
-                        throw er;
-                    }
-                    throw new RuntimeException("Error executing searchFileContents batch", cause);
+                    var res =
+                            AlmostGrep.searchFileContentsInFile(file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
+                    if (res == null) return new IndexedResult<>(idx, null, null);
+                    return new IndexedResult<>(idx, new FileHit(file, res), null);
+                } catch (AlmostGrep.RegexMatchOverflowException e) {
+                    String message = "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
+                    logger.warn("Regex stack overflow while searching file contents in {}", file, e);
+                    return new IndexedResult<>(idx, null, message);
                 }
-
-                List<IndexedResult<FileHit>> batchResults =
-                        batchFutures.stream().map(CompletableFuture::join).toList();
-
-                for (var res : batchResults) {
-                    if (res.error() != null) {
-                        processingErrors.add(res.error());
-                    }
-                    if (res.value() == null) {
-                        continue;
-                    }
-                    if (selectedHits.size() >= effectiveMaxFiles) {
-                        truncatedByMaxFiles = true;
-                        break outer;
-                    }
-
-                    selectedHits.add(res.value());
-                    totalMatches += res.value().block().matches();
-                    if (totalMatches >= FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
-                        truncatedByTotalMatches = true;
-                        break outer;
-                    }
-                }
-            }
+            });
         } catch (RuntimeException e) {
             logger.error("Error searching file contents for '{}' in '{}'", patternsLabel, filepath, e);
             return "Error searching file contents: " + (e.getMessage() == null ? e.toString() : e.getMessage());
+        }
+
+        processingErrors.addAll(batchResult.errors());
+        boolean truncatedByTotalMatches = false;
+        List<FileHit> selectedHits = new ArrayList<>();
+        int totalMatches = 0;
+        for (var hit : batchResult.results()) {
+            if (totalMatches >= FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
+                truncatedByTotalMatches = true;
+                break;
+            }
+
+            selectedHits.add(hit);
+            totalMatches += hit.block().matches();
         }
 
         List<String> fileBlocks = selectedHits.stream()
@@ -1968,7 +1913,7 @@ public class SearchTools {
             suffixLines.add(
                     "TRUNCATED: reached global limit of %d total matches".formatted(FILE_CONTENTS_TOTAL_MATCH_LIMIT));
         }
-        if (truncatedByMaxFiles) {
+        if (batchResult.truncatedByMaxFiles()) {
             suffixLines.add("TRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles));
         }
         if (!processingErrors.isEmpty()) {
