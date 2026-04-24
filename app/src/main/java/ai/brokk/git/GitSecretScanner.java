@@ -10,6 +10,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.MatchResult;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -47,8 +49,25 @@ public class GitSecretScanner {
     private static final Logger logger = LogManager.getLogger(GitSecretScanner.class);
 
     private static final int SECRET_SCAN_PARALLELISM = 20;
+    private static final int MAX_IN_FLIGHT_BLOB_SCANS = SECRET_SCAN_PARALLELISM * 4;
     private static final int MAX_BLOB_BYTES = 1024 * 1024;
     private static final int MAX_SECRET_SAMPLE_VALUE_CHARS = 12;
+    private static final Set<String> PLACEHOLDER_VALUES = Set.of(
+            "changeme",
+            "change_me",
+            "example",
+            "example-secret",
+            "dummy",
+            "test",
+            "testing",
+            "placeholder",
+            "password",
+            "secret",
+            "token",
+            "xxx",
+            "xxxx",
+            "your-token",
+            "your-secret");
 
     private static final Set<CredentialKeyword> CREDENTIAL_KEYWORDS = Set.of(
             new CredentialKeyword("password", Set.of("password")),
@@ -124,13 +143,20 @@ public class GitSecretScanner {
 
     public SecretScanReport scan(int maxCommits, boolean includeHistoryOnly, boolean includeLowConfidence)
             throws GitAPIException, IOException {
+        return scan(maxCommits, includeHistoryOnly, includeLowConfidence, MAX_IN_FLIGHT_BLOB_SCANS);
+    }
+
+    SecretScanReport scan(
+            int maxCommits, boolean includeHistoryOnly, boolean includeLowConfidence, int maxInFlightBlobScans)
+            throws GitAPIException, IOException {
         int commitCap = maxCommits > 0 ? maxCommits : 2000;
         var refInfo = resolveDefaultBranchRef();
         var accumulator = new SecretScanAccumulator();
-        scanDefaultRef(refInfo.refName(), includeLowConfidence)
+        var blobScanCache = new ConcurrentHashMap<ObjectId, BlobContentScanResult>();
+        scanDefaultRef(refInfo.refName(), includeLowConfidence, blobScanCache)
                 .forEach(key -> accumulator.add(key, SecretLocation.CURRENT, "", ""));
 
-        HistoryScanResult history = scanHistory(commitCap, includeLowConfidence);
+        HistoryScanResult history = scanHistory(commitCap, includeLowConfidence, blobScanCache, maxInFlightBlobScans);
         history.commitOrder().forEach((commit, commitIndex) -> history.keysByCommit()
                 .getOrDefault(commit, Set.of())
                 .forEach(key -> {
@@ -158,7 +184,8 @@ public class GitSecretScanner {
                 findings);
     }
 
-    private Set<SecretKey> scanDefaultRef(String refName, boolean includeLowConfidence)
+    private Set<SecretKey> scanDefaultRef(
+            String refName, boolean includeLowConfidence, Map<ObjectId, BlobContentScanResult> blobScanCache)
             throws GitAPIException, IOException {
         Repository repository = repo.getGit().getRepository();
         ObjectId ref = repository.resolve(refName + "^{commit}");
@@ -194,7 +221,7 @@ public class GitSecretScanner {
                 ExecutorsUtil.newVirtualThreadExecutor("brokk-secret-scan", SECRET_SCAN_PARALLELISM)) {
             var futures = tasks.stream()
                     .map(task -> LoggingFuture.supplyAsync(
-                            () -> scanBlob(repository, task, includeLowConfidence)
+                            () -> scanBlob(repository, task, includeLowConfidence, blobScanCache)
                                     .keys(),
                             executor))
                     .toList();
@@ -207,7 +234,11 @@ public class GitSecretScanner {
         }
     }
 
-    private HistoryScanResult scanHistory(int maxCommits, boolean includeLowConfidence)
+    private HistoryScanResult scanHistory(
+            int maxCommits,
+            boolean includeLowConfidence,
+            Map<ObjectId, BlobContentScanResult> blobScanCache,
+            int maxInFlightBlobScans)
             throws GitAPIException, IOException {
         Repository repository = repo.getGit().getRepository();
         ObjectId head = repository.resolve(Constants.HEAD);
@@ -215,13 +246,13 @@ public class GitSecretScanner {
             return HistoryScanResult.EMPTY();
         }
 
-        var keysByCommit = new LinkedHashMap<String, Set<SecretKey>>();
+        int inFlightCap = Math.max(1, maxInFlightBlobScans);
+        var accumulator = new HistoryScanAccumulator();
         var commitOrder = new LinkedHashMap<String, Integer>();
         int commitsScanned = 0;
-        int missingEntriesSkipped = 0;
-        int nonTextEntriesSkipped = 0;
         Path workTreeRoot = repo.getWorkTreeRoot();
         Path projectRoot = repo.getProjectRoot().toAbsolutePath().normalize();
+        var inFlight = new ArrayDeque<CompletableFuture<BlobScanResult>>();
 
         try (RevWalk walk = new RevWalk(repository);
                 LoggingExecutorService executor =
@@ -233,7 +264,6 @@ public class GitSecretScanner {
                 commitOrder.put(commitName, commitsScanned);
                 commitsScanned++;
 
-                var futures = new ArrayList<CompletableFuture<BlobScanResult>>();
                 try (TreeWalk treeWalk = new TreeWalk(repository)) {
                     treeWalk.addTree(commit.getTree());
                     treeWalk.setRecursive(true);
@@ -247,38 +277,50 @@ public class GitSecretScanner {
                             continue;
                         }
                         var task = new BlobScanTask(commitName, projectPath.get(), treeWalk.getObjectId(0));
-                        futures.add(LoggingFuture.supplyAsync(
-                                () -> scanBlob(repository, task, includeLowConfidence), executor));
+                        inFlight.addLast(LoggingFuture.supplyAsync(
+                                () -> scanBlob(repository, task, includeLowConfidence, blobScanCache), executor));
+                        if (inFlight.size() >= inFlightCap) {
+                            accumulator.add(inFlight.removeFirst().join());
+                        }
                     }
                 } catch (MissingObjectException e) {
-                    missingEntriesSkipped++;
+                    accumulator.addMissingEntry();
                     logger.debug("Skipping missing tree while scanning {}: {}", repo.shortHash(commitName), e);
-                    continue;
                 }
-
-                LoggingFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-                for (var future : futures) {
-                    BlobScanResult result = future.join();
-                    missingEntriesSkipped += result.missingEntriesSkipped();
-                    nonTextEntriesSkipped += result.nonTextEntriesSkipped();
-                    if (!result.keys().isEmpty()) {
-                        keysByCommit
-                                .computeIfAbsent(result.commit(), ignored -> new HashSet<>())
-                                .addAll(result.keys());
-                    }
-                }
+            }
+            while (!inFlight.isEmpty()) {
+                accumulator.add(inFlight.removeFirst().join());
             }
         }
 
         return new HistoryScanResult(
-                keysByCommit, commitOrder, commitsScanned, missingEntriesSkipped, nonTextEntriesSkipped);
+                accumulator.keysByCommit(),
+                commitOrder,
+                commitsScanned,
+                accumulator.missingEntriesSkipped(),
+                accumulator.nonTextEntriesSkipped());
     }
 
-    private static BlobScanResult scanBlob(Repository repository, BlobScanTask task, boolean includeLowConfidence) {
+    private static BlobScanResult scanBlob(
+            Repository repository,
+            BlobScanTask task,
+            boolean includeLowConfidence,
+            Map<ObjectId, BlobContentScanResult> blobScanCache) {
+        BlobContentScanResult contentResult = blobScanCache.computeIfAbsent(
+                task.objectId(), ignored -> scanBlobContent(repository, task, includeLowConfidence));
+        return new BlobScanResult(
+                task.commit(),
+                rebasePath(contentResult.keys(), task.path()),
+                contentResult.missingEntriesSkipped(),
+                contentResult.nonTextEntriesSkipped());
+    }
+
+    private static BlobContentScanResult scanBlobContent(
+            Repository repository, BlobScanTask task, boolean includeLowConfidence) {
         try {
             ObjectLoader loader = repository.open(task.objectId());
             if (loader.getSize() > MAX_BLOB_BYTES) {
-                return new BlobScanResult(task.commit(), Set.of(), 0, 1);
+                return new BlobContentScanResult(Set.of(), 0, 1);
             }
             byte[] bytes = loader.getBytes(MAX_BLOB_BYTES);
             String text = StandardCharsets.UTF_8
@@ -286,20 +328,29 @@ public class GitSecretScanner {
                     .decode(ByteBuffer.wrap(bytes))
                     .toString();
             if (BrokkFile.isBinary(text)) {
-                return new BlobScanResult(task.commit(), Set.of(), 0, 1);
+                return new BlobContentScanResult(Set.of(), 0, 1);
             }
-            return new BlobScanResult(task.commit(), scanText(task.path(), text, includeLowConfidence), 0, 0);
+            return new BlobContentScanResult(scanText(task.path(), text, includeLowConfidence), 0, 0);
         } catch (MissingObjectException e) {
-            logger.debug("Skipping missing blob {} in {}: {}", task.path(), task.commit(), e.getMessage());
-            return new BlobScanResult(task.commit(), Set.of(), 1, 0);
+            logger.trace("Skipping missing blob {} in {}: {}", task.path(), task.commit(), e.getMessage());
+            return new BlobContentScanResult(Set.of(), 1, 0);
         } catch (LargeObjectException | CharacterCodingException e) {
-            logger.debug(
+            logger.trace(
                     "Skipping non-text or oversized blob {} in {}: {}", task.path(), task.commit(), e.getMessage());
-            return new BlobScanResult(task.commit(), Set.of(), 0, 1);
+            return new BlobContentScanResult(Set.of(), 0, 1);
         } catch (IOException e) {
             logger.debug("Skipping unreadable blob {} in {}: {}", task.path(), task.commit(), e.getMessage());
-            return new BlobScanResult(task.commit(), Set.of(), 1, 0);
+            return new BlobContentScanResult(Set.of(), 1, 0);
         }
+    }
+
+    private static Set<SecretKey> rebasePath(Set<SecretKey> keys, String path) {
+        if (keys.isEmpty()) {
+            return Set.of();
+        }
+        return keys.stream()
+                .map(key -> new SecretKey(path, key.line(), key.rule(), key.confidence(), key.sample()))
+                .collect(Collectors.toSet());
     }
 
     public static Set<SecretKey> scanText(String path, String text, boolean includeLowConfidence) {
@@ -323,7 +374,8 @@ public class GitSecretScanner {
                 }
             }
 
-            if (hasCredentialKeyword(line)) {
+            String lowerLine = line.toLowerCase(Locale.ROOT);
+            if (hasCredentialKeyword(lowerLine)) {
                 addAssignmentFindings(
                         findings, path, lineNumber, line, ASSIGNMENT_SECRET_PATTERN, SecretConfidence.MEDIUM);
                 if (includeLowConfidence) {
@@ -336,14 +388,9 @@ public class GitSecretScanner {
         return findings;
     }
 
-    private static boolean hasCredentialKeyword(String line) {
-        return CREDENTIAL_KEYWORDS.stream().anyMatch(keyword -> keyword.matchesSignal(line));
-    }
-
-    private static boolean containsIgnoreCase(String text, String needle) {
-        int max = text.length() - needle.length();
-        for (int i = 0; i <= max; i++) {
-            if (text.regionMatches(true, i, needle, 0, needle.length())) {
+    private static boolean hasCredentialKeyword(String lowerLine) {
+        for (CredentialKeyword keyword : CREDENTIAL_KEYWORDS) {
+            if (keyword.matchesLowercaseSignal(lowerLine)) {
                 return true;
             }
         }
@@ -387,24 +434,7 @@ public class GitSecretScanner {
             return true;
         }
         String lower = stripped.toLowerCase(Locale.ROOT);
-        return Set.of(
-                                "changeme",
-                                "change_me",
-                                "example",
-                                "example-secret",
-                                "dummy",
-                                "test",
-                                "testing",
-                                "placeholder",
-                                "password",
-                                "secret",
-                                "token",
-                                "xxx",
-                                "xxxx",
-                                "your-token",
-                                "your-secret")
-                        .contains(lower)
-                || lower.chars().distinct().count() <= 2;
+        return PLACEHOLDER_VALUES.contains(lower) || lower.chars().distinct().count() <= 2;
     }
 
     private static double approximateEntropy(String value) {
@@ -514,13 +544,23 @@ public class GitSecretScanner {
     private record SecretRule(
             String name, SecretConfidence confidence, Pattern pattern, int secretGroup, Set<String> signalSubstrings) {
         boolean matchesSignal(String line) {
-            return signalSubstrings.stream().anyMatch(line::contains);
+            for (String signal : signalSubstrings) {
+                if (line.contains(signal)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
     private record CredentialKeyword(String patternFragment, Set<String> signalSubstrings) {
-        boolean matchesSignal(String line) {
-            return signalSubstrings.stream().anyMatch(signal -> containsIgnoreCase(line, signal));
+        boolean matchesLowercaseSignal(String lowerLine) {
+            for (String signal : signalSubstrings) {
+                if (lowerLine.contains(signal)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
@@ -553,6 +593,8 @@ public class GitSecretScanner {
     private record BlobScanResult(
             String commit, Set<SecretKey> keys, int missingEntriesSkipped, int nonTextEntriesSkipped) {}
 
+    private record BlobContentScanResult(Set<SecretKey> keys, int missingEntriesSkipped, int nonTextEntriesSkipped) {}
+
     private record HistoryScanResult(
             Map<String, Set<SecretKey>> keysByCommit,
             Map<String, Integer> commitOrder,
@@ -561,6 +603,38 @@ public class GitSecretScanner {
             int nonTextEntriesSkipped) {
         static HistoryScanResult EMPTY() {
             return new HistoryScanResult(Map.of(), Map.of(), 0, 0, 0);
+        }
+    }
+
+    private static final class HistoryScanAccumulator {
+        private final Map<String, Set<SecretKey>> keysByCommit = new LinkedHashMap<>();
+        private int missingEntriesSkipped;
+        private int nonTextEntriesSkipped;
+
+        void add(BlobScanResult result) {
+            missingEntriesSkipped += result.missingEntriesSkipped();
+            nonTextEntriesSkipped += result.nonTextEntriesSkipped();
+            if (!result.keys().isEmpty()) {
+                keysByCommit
+                        .computeIfAbsent(result.commit(), ignored -> new HashSet<>())
+                        .addAll(result.keys());
+            }
+        }
+
+        void addMissingEntry() {
+            missingEntriesSkipped++;
+        }
+
+        Map<String, Set<SecretKey>> keysByCommit() {
+            return keysByCommit;
+        }
+
+        int missingEntriesSkipped() {
+            return missingEntriesSkipped;
+        }
+
+        int nonTextEntriesSkipped() {
+            return nonTextEntriesSkipped;
         }
     }
 
