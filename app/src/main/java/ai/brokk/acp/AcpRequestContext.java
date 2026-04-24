@@ -1,5 +1,7 @@
 package ai.brokk.acp;
 
+import static java.util.Objects.requireNonNull;
+
 import com.agentclientprotocol.sdk.agent.Command;
 import com.agentclientprotocol.sdk.agent.CommandResult;
 import com.agentclientprotocol.sdk.agent.SyncPromptContext;
@@ -37,64 +39,64 @@ final class AcpRequestContext implements SyncPromptContext {
 
     @Override
     public AcpSchema.ReadTextFileResponse readTextFile(AcpSchema.ReadTextFileRequest request) {
-        return session.sendRequest(
+        return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_FS_READ_TEXT_FILE, request, new TypeRef<AcpSchema.ReadTextFileResponse>() {})
-                .block();
+                .block());
     }
 
     @Override
     public AcpSchema.WriteTextFileResponse writeTextFile(AcpSchema.WriteTextFileRequest request) {
-        return session.sendRequest(
+        return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_FS_WRITE_TEXT_FILE, request, new TypeRef<AcpSchema.WriteTextFileResponse>() {})
-                .block();
+                .block());
     }
 
     @Override
     public AcpSchema.RequestPermissionResponse requestPermission(AcpSchema.RequestPermissionRequest request) {
-        return session.sendRequest(
+        return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_SESSION_REQUEST_PERMISSION,
                         request,
                         new TypeRef<AcpSchema.RequestPermissionResponse>() {})
-                .block();
+                .block());
     }
 
     @Override
     public AcpSchema.CreateTerminalResponse createTerminal(AcpSchema.CreateTerminalRequest request) {
-        return session.sendRequest(
+        return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_TERMINAL_CREATE, request, new TypeRef<AcpSchema.CreateTerminalResponse>() {})
-                .block();
+                .block());
     }
 
     @Override
     public AcpSchema.TerminalOutputResponse getTerminalOutput(AcpSchema.TerminalOutputRequest request) {
-        return session.sendRequest(
+        return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_TERMINAL_OUTPUT, request, new TypeRef<AcpSchema.TerminalOutputResponse>() {})
-                .block();
+                .block());
     }
 
     @Override
     public AcpSchema.ReleaseTerminalResponse releaseTerminal(AcpSchema.ReleaseTerminalRequest request) {
-        return session.sendRequest(
+        return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_TERMINAL_RELEASE, request, new TypeRef<AcpSchema.ReleaseTerminalResponse>() {})
-                .block();
+                .block());
     }
 
     @Override
     public AcpSchema.WaitForTerminalExitResponse waitForTerminalExit(AcpSchema.WaitForTerminalExitRequest request) {
-        return session.sendRequest(
+        return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_TERMINAL_WAIT_FOR_EXIT,
                         request,
                         new TypeRef<AcpSchema.WaitForTerminalExitResponse>() {})
-                .block();
+                .block());
     }
 
     @Override
     public AcpSchema.KillTerminalCommandResponse killTerminal(AcpSchema.KillTerminalCommandRequest request) {
-        return session.sendRequest(
+        return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_TERMINAL_KILL,
                         request,
                         new TypeRef<AcpSchema.KillTerminalCommandResponse>() {})
-                .block();
+                .block());
     }
 
     @Override
@@ -163,7 +165,7 @@ final class AcpRequestContext implements SyncPromptContext {
 
     @Override
     public @Nullable String askChoice(String question, String... options) {
-        if (options == null || options.length < 2) {
+        if (options.length < 2) {
             throw new IllegalArgumentException("At least 2 options are required");
         }
         var permissionOptions = new ArrayList<AcpSchema.PermissionOption>();
