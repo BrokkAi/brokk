@@ -6,6 +6,8 @@ use clap::Parser;
 mod agent;
 mod llm_client;
 mod session;
+mod tool_loop;
+mod tools;
 
 /// Brokk ACP Server -- Rust-based Agent Client Protocol server
 /// with Ollama/OpenAI-compatible LLM backend.
@@ -49,10 +51,7 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    tracing::info!(
-        "brokk-acp starting, endpoint={}",
-        args.endpoint_url
-    );
+    tracing::info!("brokk-acp starting, endpoint={}", args.endpoint_url);
 
     let llm: Arc<dyn llm_client::LlmBackend> = Arc::new(llm_client::OpenAiClient::new(
         args.endpoint_url,
