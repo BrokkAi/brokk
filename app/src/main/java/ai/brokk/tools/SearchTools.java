@@ -191,12 +191,9 @@ public class SearchTools {
     }
 
     private String appendRelatedContent(String output, Collection<ProjectFile> resultFiles) {
-        var repo = contextManager.getRepo();
-        if (repo != null) {
-            return searchToolSupport.appendRelatedContent(
-                    output, resultFiles, RELATED_CONTENT_LIMIT, getAnalyzer(), repo);
-        }
-        return searchToolSupport.appendRelatedContent(output, resultFiles, RELATED_CONTENT_LIMIT, getAnalyzer(), null);
+        var gitRepo = contextManager.getProject().hasGit() ? contextManager.getRepo() : null;
+        return searchToolSupport.appendRelatedContent(
+                output, resultFiles, RELATED_CONTENT_LIMIT, getAnalyzer(), gitRepo);
     }
 
     // --- Sanitization Helper Methods
@@ -1627,11 +1624,8 @@ public class SearchTools {
     private record IndexedResult<T>(int index, @Nullable T value, @Nullable String error) {}
 
     private List<ProjectFile> prioritizeFilesForSelection(Collection<ProjectFile> files) {
-        var repo = contextManager.getRepo();
-        if (repo == null) {
-            return searchToolSupport.prioritizeFilesForSelection(files, null);
-        }
-        return searchToolSupport.prioritizeFilesForSelection(files, repo);
+        var gitRepo = contextManager.getProject().hasGit() ? contextManager.getRepo() : null;
+        return searchToolSupport.prioritizeFilesForSelection(files, gitRepo);
     }
 
     private List<ProjectFile> selectFilesForDisplay(Collection<ProjectFile> files, int limit) {
