@@ -834,6 +834,16 @@ public interface IAnalyzer {
     }
 
     /**
+     * Comment density for the first resolved declaration that supports it.
+     */
+    default Optional<CommentDensityStats> commentDensity(String fqName) {
+        return getDefinitions(fqName).stream()
+                .map(this::commentDensity)
+                .flatMap(Optional::stream)
+                .findFirst();
+    }
+
+    /**
      * Per-top-level declaration comment density for a file. Default is an empty list.
      */
     default List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {

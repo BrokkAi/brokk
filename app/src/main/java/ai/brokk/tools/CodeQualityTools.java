@@ -112,10 +112,7 @@ public class CodeQualityTools {
         if (defs.isEmpty()) {
             return "No definition found for: " + key;
         }
-        Optional<CommentDensityStats> stats = defs.stream()
-                .map(analyzer::commentDensity)
-                .flatMap(Optional::stream)
-                .findFirst();
+        Optional<CommentDensityStats> stats = analyzer.commentDensity(key);
         if (stats.isEmpty()) {
             return COMMENT_DENSITY_UNAVAILABLE;
         }
