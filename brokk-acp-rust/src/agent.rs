@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 use agent_client_protocol::schema::{
@@ -6,13 +6,13 @@ use agent_client_protocol::schema::{
     InitializeResponse, ListSessionsRequest, ListSessionsResponse, LoadSessionRequest,
     LoadSessionResponse, NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest,
     PromptResponse, ResumeSessionRequest, ResumeSessionResponse, SessionCapabilities, SessionInfo,
-    SessionListCapabilities, SessionMode as AcpSessionMode, SessionModeState,
-    SessionNotification, SessionResumeCapabilities, SessionUpdate, SetSessionModeRequest,
-    SetSessionModeResponse, StopReason, TextContent,
+    SessionListCapabilities, SessionMode as AcpSessionMode, SessionModeState, SessionNotification,
+    SessionResumeCapabilities, SessionUpdate, SetSessionModeRequest, SetSessionModeResponse,
+    StopReason, TextContent,
 };
 use agent_client_protocol::{
-    on_receive_dispatch, on_receive_notification, on_receive_request, Agent, ByteStreams, Client,
-    ConnectionTo, Dispatch, Handled, Responder,
+    Agent, ByteStreams, Client, ConnectionTo, Dispatch, Handled, Responder, on_receive_dispatch,
+    on_receive_notification, on_receive_request,
 };
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
@@ -361,7 +361,7 @@ fn send_message(cx: &ConnectionTo<Client>, session_id: &str, text: &str) {
 }
 
 /// Build a system prompt based on the current session mode and working directory.
-fn build_system_prompt(mode: &SessionMode, cwd: &PathBuf) -> String {
+fn build_system_prompt(mode: &SessionMode, cwd: &Path) -> String {
     let cwd_context = format!(
         "The user's working directory is: {}\n\
          All file paths should be interpreted relative to this directory.\n\n",

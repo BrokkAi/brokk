@@ -68,6 +68,46 @@ jobs:
       - name: Check code formatting
         run: ./gradlew spotlessCheck
 
+  rust-acp:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo registry and build
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          brokk-acp-rust/target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('brokk-acp-rust/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Build Rust ACP server
+      working-directory: brokk-acp-rust
+      run: cargo build --release
+
+    - name: Run Rust ACP tests
+      working-directory: brokk-acp-rust
+      run: cargo test
+
+    - name: Check Rust formatting
+      working-directory: brokk-acp-rust
+      run: cargo fmt --check
+
+    - name: Run Clippy lints
+      working-directory: brokk-acp-rust
+      run: cargo clippy --all-targets -- -D warnings
+
   dependency-analysis:
     runs-on: ubuntu-latest
 

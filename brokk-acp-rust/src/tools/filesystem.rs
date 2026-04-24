@@ -6,7 +6,12 @@ use walkdir::WalkDir;
 pub fn read_file(cwd: &Path, path: &str) -> ToolResult {
     let resolved = match safe_resolve(cwd, path) {
         Ok(p) => p,
-        Err(e) => return ToolResult { status: ToolStatus::RequestError, output: e },
+        Err(e) => {
+            return ToolResult {
+                status: ToolStatus::RequestError,
+                output: e,
+            };
+        }
     };
     match std::fs::read_to_string(&resolved) {
         Ok(content) => ToolResult {
@@ -23,16 +28,21 @@ pub fn read_file(cwd: &Path, path: &str) -> ToolResult {
 pub fn write_file(cwd: &Path, path: &str, content: &str) -> ToolResult {
     let resolved = match safe_resolve_for_write(cwd, path) {
         Ok(p) => p,
-        Err(e) => return ToolResult { status: ToolStatus::RequestError, output: e },
-    };
-    // Create parent directories if needed
-    if let Some(parent) = resolved.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
+        Err(e) => {
             return ToolResult {
-                status: ToolStatus::InternalError,
-                output: format!("Failed to create directories for '{}': {}", path, e),
+                status: ToolStatus::RequestError,
+                output: e,
             };
         }
+    };
+    // Create parent directories if needed
+    if let Some(parent) = resolved.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        return ToolResult {
+            status: ToolStatus::InternalError,
+            output: format!("Failed to create directories for '{}': {}", path, e),
+        };
     }
     match std::fs::write(&resolved, content) {
         Ok(()) => ToolResult {
@@ -49,7 +59,12 @@ pub fn write_file(cwd: &Path, path: &str, content: &str) -> ToolResult {
 pub fn list_directory(cwd: &Path, path: &str) -> ToolResult {
     let resolved = match safe_resolve(cwd, path) {
         Ok(p) => p,
-        Err(e) => return ToolResult { status: ToolStatus::RequestError, output: e },
+        Err(e) => {
+            return ToolResult {
+                status: ToolStatus::RequestError,
+                output: e,
+            };
+        }
     };
     let entries = match std::fs::read_dir(&resolved) {
         Ok(e) => e,
@@ -57,7 +72,7 @@ pub fn list_directory(cwd: &Path, path: &str) -> ToolResult {
             return ToolResult {
                 status: ToolStatus::RequestError,
                 output: format!("Failed to list '{}': {}", path, e),
-            }
+            };
         }
     };
 
@@ -90,7 +105,7 @@ pub fn search_file_contents(
             return ToolResult {
                 status: ToolStatus::RequestError,
                 output: format!("Invalid regex '{}': {}", pattern, e),
-            }
+            };
         }
     };
 
@@ -110,7 +125,7 @@ pub fn search_file_contents(
             return ToolResult {
                 status: ToolStatus::InternalError,
                 output: format!("Cannot resolve cwd: {}", e),
-            }
+            };
         }
     };
 
@@ -120,7 +135,10 @@ pub fn search_file_contents(
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
             // Skip hidden dirs and common noise
-            !name.starts_with('.') && name != "node_modules" && name != "target" && name != "__pycache__"
+            !name.starts_with('.')
+                && name != "node_modules"
+                && name != "target"
+                && name != "__pycache__"
         })
         .flatten()
     {
@@ -134,10 +152,10 @@ pub fn search_file_contents(
             .unwrap_or(path);
         let rel_str = rel.to_string_lossy();
 
-        if let Some(glob_re) = &glob_re {
-            if !glob_re.is_match(&rel_str) {
-                continue;
-            }
+        if let Some(glob_re) = &glob_re
+            && !glob_re.is_match(&rel_str)
+        {
+            continue;
         }
 
         let content = match std::fs::read_to_string(path) {

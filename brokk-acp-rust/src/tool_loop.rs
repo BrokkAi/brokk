@@ -15,6 +15,7 @@ const MAX_TOOL_RESULT_BYTES: usize = 50_000;
 ///
 /// `on_text` is called for each text token streamed from the LLM.
 /// `on_tool_event` is called with a human-readable headline when a tool starts executing.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     llm: &Arc<dyn LlmBackend>,
     registry: &ToolRegistry,
@@ -49,7 +50,13 @@ pub async fn run(
         });
 
         let response = llm
-            .stream_chat(model, messages.clone(), turn_tools, on_token, cancel.clone())
+            .stream_chat(
+                model,
+                messages.clone(),
+                turn_tools,
+                on_token,
+                cancel.clone(),
+            )
             .await;
 
         // Flush buffered tokens to the caller
@@ -84,7 +91,11 @@ pub async fn run(
                     let args: serde_json::Value =
                         serde_json::from_str(&call.function.arguments).unwrap_or_default();
 
-                    tracing::info!("executing tool {} with args: {}", tool_name, call.function.arguments);
+                    tracing::info!(
+                        "executing tool {} with args: {}",
+                        tool_name,
+                        call.function.arguments
+                    );
 
                     let result = registry.execute(tool_name, args).await;
 
@@ -100,11 +111,7 @@ pub async fn run(
                         output.push_str("\n... output truncated");
                     }
 
-                    messages.push(ChatMessage::tool_result(
-                        &call.id,
-                        tool_name,
-                        &output,
-                    ));
+                    messages.push(ChatMessage::tool_result(&call.id, tool_name, &output));
                 }
             }
             Err(e) => {

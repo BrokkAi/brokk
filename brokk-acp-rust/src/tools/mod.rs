@@ -31,84 +31,108 @@ impl ToolRegistry {
     /// All tool definitions for the OpenAI tools parameter.
     pub fn tool_definitions(&self) -> Vec<ToolDefinition> {
         vec![
-            tool_def("think", "Use this tool to think through a problem step by step before acting. The input is not used for anything -- it is just a scratchpad for your thoughts.", json!({
-                "type": "object",
-                "properties": {
-                    "thought": {
-                        "type": "string",
-                        "description": "Your reasoning or thought process."
-                    }
-                },
-                "required": ["thought"]
-            })),
-            tool_def("readFile", "Read the contents of a file. Path is relative to the working directory.", json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Relative path to the file to read."
-                    }
-                },
-                "required": ["path"]
-            })),
-            tool_def("writeFile", "Write content to a file, creating it if it does not exist. Path is relative to the working directory.", json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Relative path to the file to write."
+            tool_def(
+                "think",
+                "Use this tool to think through a problem step by step before acting. The input is not used for anything -- it is just a scratchpad for your thoughts.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "thought": {
+                            "type": "string",
+                            "description": "Your reasoning or thought process."
+                        }
                     },
-                    "content": {
-                        "type": "string",
-                        "description": "Content to write to the file."
-                    }
-                },
-                "required": ["path", "content"]
-            })),
-            tool_def("listDirectory", "List files and directories at the given path. Path is relative to the working directory.", json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Relative path to the directory to list. Use '.' for the working directory root."
-                    }
-                },
-                "required": ["path"]
-            })),
-            tool_def("searchFileContents", "Search for a regex pattern across files in the working directory. Returns matching lines with file paths and line numbers.", json!({
-                "type": "object",
-                "properties": {
-                    "pattern": {
-                        "type": "string",
-                        "description": "Regex pattern to search for."
+                    "required": ["thought"]
+                }),
+            ),
+            tool_def(
+                "readFile",
+                "Read the contents of a file. Path is relative to the working directory.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Relative path to the file to read."
+                        }
                     },
-                    "glob": {
-                        "type": "string",
-                        "description": "Optional glob to filter files (e.g. '*.rs', '**/*.java'). Defaults to all files."
+                    "required": ["path"]
+                }),
+            ),
+            tool_def(
+                "writeFile",
+                "Write content to a file, creating it if it does not exist. Path is relative to the working directory.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Relative path to the file to write."
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Content to write to the file."
+                        }
                     },
-                    "maxResults": {
-                        "type": "integer",
-                        "default": 50,
-                        "description": "Maximum number of matching lines to return."
-                    }
-                },
-                "required": ["pattern"]
-            })),
-            tool_def("runShellCommand", "Execute a shell command in the working directory. Returns stdout and stderr. Use for build, test, git, or other CLI operations.", json!({
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute (passed to sh -c)."
+                    "required": ["path", "content"]
+                }),
+            ),
+            tool_def(
+                "listDirectory",
+                "List files and directories at the given path. Path is relative to the working directory.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Relative path to the directory to list. Use '.' for the working directory root."
+                        }
                     },
-                    "timeoutSeconds": {
-                        "type": "integer",
-                        "default": 60,
-                        "description": "Maximum execution time in seconds."
-                    }
-                },
-                "required": ["command"]
-            })),
+                    "required": ["path"]
+                }),
+            ),
+            tool_def(
+                "searchFileContents",
+                "Search for a regex pattern across files in the working directory. Returns matching lines with file paths and line numbers.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "pattern": {
+                            "type": "string",
+                            "description": "Regex pattern to search for."
+                        },
+                        "glob": {
+                            "type": "string",
+                            "description": "Optional glob to filter files (e.g. '*.rs', '**/*.java'). Defaults to all files."
+                        },
+                        "maxResults": {
+                            "type": "integer",
+                            "default": 50,
+                            "description": "Maximum number of matching lines to return."
+                        }
+                    },
+                    "required": ["pattern"]
+                }),
+            ),
+            tool_def(
+                "runShellCommand",
+                "Execute a shell command in the working directory. Returns stdout and stderr. Use for build, test, git, or other CLI operations.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The shell command to execute (passed to sh -c)."
+                        },
+                        "timeoutSeconds": {
+                            "type": "integer",
+                            "default": 60,
+                            "description": "Maximum execution time in seconds."
+                        }
+                    },
+                    "required": ["command"]
+                }),
+            ),
         ]
     }
 
@@ -138,12 +162,18 @@ impl ToolRegistry {
             "searchFileContents" => {
                 let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
                 let glob = args.get("glob").and_then(|v| v.as_str());
-                let max_results = args.get("maxResults").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+                let max_results = args
+                    .get("maxResults")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(50) as usize;
                 filesystem::search_file_contents(&self.cwd, pattern, glob, max_results)
             }
             "runShellCommand" => {
                 let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
-                let timeout = args.get("timeoutSeconds").and_then(|v| v.as_u64()).unwrap_or(60);
+                let timeout = args
+                    .get("timeoutSeconds")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(60);
                 shell::run_shell_command(&self.cwd, command, timeout).await
             }
             _ => ToolResult {
@@ -194,7 +224,10 @@ pub fn safe_resolve(cwd: &Path, requested: &str) -> Result<PathBuf, String> {
         .canonicalize()
         .map_err(|e| format!("Cannot resolve cwd: {}", e))?;
     if !resolved.starts_with(&cwd_canonical) {
-        return Err(format!("Path '{}' escapes the working directory", requested));
+        return Err(format!(
+            "Path '{}' escapes the working directory",
+            requested
+        ));
     }
     Ok(resolved)
 }
@@ -212,7 +245,10 @@ pub fn safe_resolve_for_write(cwd: &Path, requested: &str) -> Result<PathBuf, St
             .canonicalize()
             .map_err(|e| format!("Cannot resolve cwd: {}", e))?;
         if !parent_canonical.starts_with(&cwd_canonical) {
-            return Err(format!("Path '{}' escapes the working directory", requested));
+            return Err(format!(
+                "Path '{}' escapes the working directory",
+                requested
+            ));
         }
     }
     Ok(joined)

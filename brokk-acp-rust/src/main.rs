@@ -51,10 +51,7 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    tracing::info!(
-        "brokk-acp starting, endpoint={}",
-        args.endpoint_url
-    );
+    tracing::info!("brokk-acp starting, endpoint={}", args.endpoint_url);
 
     let llm: Arc<dyn llm_client::LlmBackend> = Arc::new(llm_client::OpenAiClient::new(
         args.endpoint_url,

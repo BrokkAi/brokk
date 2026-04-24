@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use futures::future::BoxFuture;
 use futures::StreamExt;
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -40,10 +40,7 @@ pub struct FunctionCall {
 #[derive(Debug)]
 pub enum LlmResponse {
     Text(String),
-    ToolCalls {
-        text: String,
-        calls: Vec<ToolCall>,
-    },
+    ToolCalls { text: String, calls: Vec<ToolCall> },
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +101,11 @@ impl ChatMessage {
         }
     }
 
-    pub fn tool_result(tool_call_id: impl Into<String>, name: impl Into<String>, content: impl Into<String>) -> Self {
+    pub fn tool_result(
+        tool_call_id: impl Into<String>,
+        name: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
         Self {
             role: "tool".to_string(),
             content: Some(content.into()),
@@ -171,8 +172,6 @@ struct ChatCompletionChunk {
 #[derive(Debug, Deserialize)]
 struct ChunkChoice {
     delta: ChunkDelta,
-    #[serde(default)]
-    finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -208,9 +207,10 @@ struct ToolCallAccumulator {
 
 impl ToolCallAccumulator {
     fn push(&mut self, chunk: &ChunkToolCall) {
-        let entry = self.calls.entry(chunk.index).or_insert_with(|| {
-            (String::new(), String::new(), String::new())
-        });
+        let entry = self
+            .calls
+            .entry(chunk.index)
+            .or_insert_with(|| (String::new(), String::new(), String::new()));
         if let Some(id) = &chunk.id {
             entry.0 = id.clone();
         }
@@ -321,8 +321,10 @@ impl OpenAiClient {
             anyhow::bail!("model discovery failed (HTTP {status})");
         }
 
-        let models: ModelsResponse =
-            resp.json().await.context("failed to parse models response")?;
+        let models: ModelsResponse = resp
+            .json()
+            .await
+            .context("failed to parse models response")?;
         Ok(models.data.into_iter().map(|m| m.id).collect())
     }
 

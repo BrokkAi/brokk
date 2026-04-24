@@ -78,7 +78,6 @@ pub struct Session {
     pub cwd: PathBuf,
     pub mode: SessionMode,
     pub model: String,
-    pub reasoning_level: String,
     pub history: Vec<ConversationTurn>,
     pub manifest: SessionManifest,
 }
@@ -101,7 +100,6 @@ impl Session {
             cwd,
             mode: SessionMode::Lutz,
             model,
-            reasoning_level: "medium".to_string(),
             history: Vec::new(),
             manifest,
         }
@@ -151,7 +149,10 @@ fn read_history_from_zip(zip_path: &Path) -> Vec<ConversationTurn> {
             Err(_) => continue,
         };
         let name = entry.name().to_string();
-        if let Some(content_id) = name.strip_prefix("content/").and_then(|s| s.strip_suffix(".txt")) {
+        if let Some(content_id) = name
+            .strip_prefix("content/")
+            .and_then(|s| s.strip_suffix(".txt"))
+        {
             let mut buf = String::new();
             if entry.read_to_string(&mut buf).is_ok() {
                 content_map.insert(content_id.to_string(), buf);
@@ -185,18 +186,18 @@ fn read_history_from_zip(zip_path: &Path) -> Vec<ConversationTurn> {
     if let Some(tasks) = fragments.get("task").and_then(|t| t.as_object()) {
         for (_id, task) in tasks {
             // Try markdownContentId first (newer format: pre-rendered markdown)
-            if let Some(content_id) = task.get("markdownContentId").and_then(|v| v.as_str()) {
-                if let Some(text) = content_map.get(content_id) {
-                    let description = task
-                        .get("taskDescription")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    turns.push(ConversationTurn {
-                        user_prompt: description.to_string(),
-                        agent_response: text.clone(),
-                    });
-                    continue;
-                }
+            if let Some(content_id) = task.get("markdownContentId").and_then(|v| v.as_str())
+                && let Some(text) = content_map.get(content_id)
+            {
+                let description = task
+                    .get("taskDescription")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                turns.push(ConversationTurn {
+                    user_prompt: description.to_string(),
+                    agent_response: text.clone(),
+                });
+                continue;
             }
 
             // Fall back to messages array (older format)
@@ -278,7 +279,11 @@ fn write_new_session_zip(zip_path: &Path, manifest: &SessionManifest) {
         "task": {}
     });
     if zip.start_file("fragments-v4.json", options).is_ok() {
-        let _ = zip.write_all(serde_json::to_string(&fragments).unwrap_or_default().as_bytes());
+        let _ = zip.write_all(
+            serde_json::to_string(&fragments)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
     }
 
     // Empty content metadata
@@ -289,7 +294,11 @@ fn write_new_session_zip(zip_path: &Path, manifest: &SessionManifest) {
     // Empty group info
     let group_info = serde_json::json!({"contextToGroupId": {}, "groupLabels": {}});
     if zip.start_file("group_info.json", options).is_ok() {
-        let _ = zip.write_all(serde_json::to_string(&group_info).unwrap_or_default().as_bytes());
+        let _ = zip.write_all(
+            serde_json::to_string(&group_info)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
     }
 
     let _ = zip.finish();
@@ -356,10 +365,10 @@ fn append_turn_to_zip(zip_path: &Path, manifest: &SessionManifest, turn: &Conver
             "manifest.json" => { /* we'll rewrite this */ }
             "fragments-v4.json" => {
                 let mut buf = String::new();
-                if entry.read_to_string(&mut buf).is_ok() {
-                    if let Ok(v) = serde_json::from_str(&buf) {
-                        existing_fragments = v;
-                    }
+                if entry.read_to_string(&mut buf).is_ok()
+                    && let Ok(v) = serde_json::from_str(&buf)
+                {
+                    existing_fragments = v;
                 }
             }
             "contexts.jsonl" => {
@@ -367,18 +376,18 @@ fn append_turn_to_zip(zip_path: &Path, manifest: &SessionManifest, turn: &Conver
             }
             "content_metadata.json" => {
                 let mut buf = String::new();
-                if entry.read_to_string(&mut buf).is_ok() {
-                    if let Ok(v) = serde_json::from_str(&buf) {
-                        existing_content_metadata = v;
-                    }
+                if entry.read_to_string(&mut buf).is_ok()
+                    && let Ok(v) = serde_json::from_str(&buf)
+                {
+                    existing_content_metadata = v;
                 }
             }
             "group_info.json" => {
                 let mut buf = String::new();
-                if entry.read_to_string(&mut buf).is_ok() {
-                    if let Ok(v) = serde_json::from_str(&buf) {
-                        existing_group_info = v;
-                    }
+                if entry.read_to_string(&mut buf).is_ok()
+                    && let Ok(v) = serde_json::from_str(&buf)
+                {
+                    existing_group_info = v;
                 }
             }
             _ => {
@@ -399,7 +408,10 @@ fn append_turn_to_zip(zip_path: &Path, manifest: &SessionManifest, turn: &Conver
     }
 
     // Add the new task fragment referencing the response content
-    if let Some(tasks) = existing_fragments.get_mut("task").and_then(|t| t.as_object_mut()) {
+    if let Some(tasks) = existing_fragments
+        .get_mut("task")
+        .and_then(|t| t.as_object_mut())
+    {
         tasks.insert(
             task_fragment_id.clone(),
             serde_json::json!({
@@ -491,54 +503,6 @@ fn append_turn_to_zip(zip_path: &Path, manifest: &SessionManifest, turn: &Conver
     }
 }
 
-/// Update only the manifest.json inside an existing zip.
-fn update_manifest_in_zip(zip_path: &Path, manifest: &SessionManifest) {
-    let file = match std::fs::File::open(zip_path) {
-        Ok(f) => f,
-        Err(_) => return,
-    };
-    let mut archive = match zip::ZipArchive::new(file) {
-        Ok(a) => a,
-        Err(_) => return,
-    };
-
-    let tmp = zip_path.with_extension("tmp");
-    let out_file = match std::fs::File::create(&tmp) {
-        Ok(f) => f,
-        Err(_) => return,
-    };
-
-    let mut zip_writer = zip::ZipWriter::new(out_file);
-    let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
-
-    // Copy all entries except manifest.json
-    for i in 0..archive.len() {
-        let mut entry = match archive.by_index(i) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        let name = entry.name().to_string();
-        if name == "manifest.json" {
-            continue;
-        }
-        let mut buf = Vec::new();
-        let _ = entry.read_to_end(&mut buf);
-        if zip_writer.start_file(&name, options).is_ok() {
-            let _ = zip_writer.write_all(&buf);
-        }
-    }
-
-    // Write updated manifest
-    let manifest_json = serde_json::to_string_pretty(manifest).unwrap_or_default();
-    if zip_writer.start_file("manifest.json", options).is_ok() {
-        let _ = zip_writer.write_all(manifest_json.as_bytes());
-    }
-
-    let _ = zip_writer.finish();
-    let _ = std::fs::rename(&tmp, zip_path);
-}
-
 /// List all session manifests from the executor's sessions directory.
 fn list_manifests_from_disk(cwd: &Path) -> Vec<SessionManifest> {
     let dir = sessions_dir(cwd);
@@ -608,7 +572,6 @@ impl SessionStore {
             cwd: cwd.to_path_buf(),
             mode: SessionMode::Lutz,
             model,
-            reasoning_level: "medium".to_string(),
             history,
             manifest,
         };
