@@ -904,6 +904,52 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testSearchSymbols_PreservesOverloadsWhenDisplaySignaturesCollide() throws IOException, InterruptedException {
+        Path aJava = projectRoot.resolve("src/main/java/com/example/A.java");
+        Files.createDirectories(aJava.getParent());
+        Files.writeString(
+                aJava,
+                """
+                class A {
+                    public void bar(int value) {}
+                    public void bar(String value) {}
+                }
+                """
+                        .stripIndent());
+        ProjectFile pf = new ProjectFile(projectRoot, "src/main/java/com/example/A.java");
+        mockProjectFiles.add(pf);
+
+        CodeUnit intOverload =
+                new ai.brokk.analyzer.CodeUnit(pf, ai.brokk.analyzer.CodeUnitType.FUNCTION, "com.example", "A.bar", "(int)");
+        CodeUnit stringOverload = new ai.brokk.analyzer.CodeUnit(
+                pf, ai.brokk.analyzer.CodeUnitType.FUNCTION, "com.example", "A.bar", "(String)");
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(intOverload);
+        analyzer.addDeclaration(stringOverload);
+        analyzer.setDisplaySignatures(intOverload, List.of("public void bar(T value)"));
+        analyzer.setDisplaySignatures(stringOverload, List.of("public void bar(T value)"));
+        analyzer.setRanges(intOverload, List.of(new Range(0, 0, 1, 33, 0)));
+        analyzer.setRanges(stringOverload, List.of(new Range(0, 0, 2, 36, 0)));
+
+        TestContextManager ctx = new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo);
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.searchSymbols(List.of(".*A.*"), false, 200);
+
+        assertTrue(
+                result.contains("- 2: public void bar(T value)"),
+                "Should keep the first overload when display signatures collide. Result: " + result);
+        assertTrue(
+                result.contains("- 3: public void bar(T value)"),
+                "Should keep the second overload when display signatures collide. Result: " + result);
+    }
+
+    @Test
     void testSearchSymbols_IncludesLoc() throws IOException, InterruptedException {
         Path aJava = projectRoot.resolve("A.java");
         Files.writeString(aJava, "class A {}");

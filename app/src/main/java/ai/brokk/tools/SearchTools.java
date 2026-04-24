@@ -96,7 +96,7 @@ public class SearchTools {
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
 
-    private record SymbolSearchHit(String signature, int lineNumber) {}
+    private record SymbolSearchHit(String signature, String fqName, @Nullable String codeUnitSignature, int lineNumber) {}
 
     private static final int FILE_SKIM_LIMIT = 20;
     private static final int CLASS_COUNT_LIMIT = 10;
@@ -1118,14 +1118,9 @@ public class SearchTools {
                     result.append("[").append(kind).append("]\n");
                     symbols.stream()
                             .flatMap(cu -> analyzer.getDisplaySignatures(cu).stream()
-                                    .map(signature -> new SymbolSearchHit(signature, displayLineNumber(analyzer, cu))))
-                            .collect(Collectors.toMap(
-                                    SymbolSearchHit::signature,
-                                    hit -> hit,
-                                    SearchTools::earlierSymbolSearchHit,
-                                    LinkedHashMap::new))
-                            .values()
-                            .stream()
+                                    .map(signature -> new SymbolSearchHit(
+                                            signature, cu.fqName(), cu.signature(), displayLineNumber(analyzer, cu))))
+                            .distinct()
                             .sorted(SearchTools::compareSymbolSearchHits)
                             .forEach(hit -> result.append("- ")
                                     .append(formatSymbolSearchHit(hit))
@@ -1144,12 +1139,6 @@ public class SearchTools {
                 .mapToInt(range -> range.startLine() + 1)
                 .min()
                 .orElse(0);
-    }
-
-    private static SymbolSearchHit earlierSymbolSearchHit(SymbolSearchHit left, SymbolSearchHit right) {
-        int leftLine = normalizedLineNumber(left.lineNumber());
-        int rightLine = normalizedLineNumber(right.lineNumber());
-        return leftLine <= rightLine ? left : right;
     }
 
     private static int compareSymbolSearchHits(SymbolSearchHit left, SymbolSearchHit right) {

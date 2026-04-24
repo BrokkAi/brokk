@@ -168,6 +168,61 @@ class SearchToolsTest {
     }
 
     @Test
+    void searchSymbols_PreservesOverloadsWhenDisplaySignaturesCollide() throws Exception {
+        Path projectRoot = initRepo();
+        Path filePath = projectRoot.resolve("src/main/java/com/example/A.java");
+        Files.createDirectories(filePath.getParent());
+        Files.writeString(
+                filePath,
+                """
+                class A {
+                    public void bar(int value) {}
+                    public void bar(String value) {}
+                }
+                """
+                        .stripIndent());
+
+        project = new CoreProject(projectRoot);
+        ProjectFile aFile = new ProjectFile(projectRoot, "src/main/java/com/example/A.java");
+        CodeUnit intOverload =
+                new CodeUnit(aFile, ai.brokk.analyzer.CodeUnitType.FUNCTION, "com.example", "A.bar", "(int)");
+        CodeUnit stringOverload =
+                new CodeUnit(aFile, ai.brokk.analyzer.CodeUnitType.FUNCTION, "com.example", "A.bar", "(String)");
+        Map<CodeUnit, List<Range>> ranges = Map.of(
+                intOverload, List.of(new Range(0, 0, 1, 33, 0)),
+                stringOverload, List.of(new Range(0, 0, 2, 36, 0)));
+        IAnalyzer analyzer = new DisabledAnalyzer(project) {
+            @Override
+            public Set<CodeUnit> searchDefinitions(String pattern) {
+                return "A".equals(pattern) ? Set.of(intOverload, stringOverload) : Set.of();
+            }
+
+            @Override
+            public List<String> getDisplaySignatures(CodeUnit codeUnit) {
+                if (codeUnit.equals(intOverload) || codeUnit.equals(stringOverload)) {
+                    return List.of("public void bar(T value)");
+                }
+                return super.getDisplaySignatures(codeUnit);
+            }
+
+            @Override
+            public List<Range> rangesOf(CodeUnit codeUnit) {
+                return ranges.getOrDefault(codeUnit, List.of());
+            }
+        };
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
+
+        String result = tools.searchSymbols(List.of("A"), false, 200);
+
+        assertTrue(
+                result.contains("- 2: public void bar(T value)"),
+                "Should keep the first overload when display signatures collide. Result: " + result);
+        assertTrue(
+                result.contains("- 3: public void bar(T value)"),
+                "Should keep the second overload when display signatures collide. Result: " + result);
+    }
+
+    @Test
     void searchSymbols_TracksResearchTokensIncludingRelatedContent() throws Exception {
         Path projectRoot = initRepo();
         commitTrackedFiles(
