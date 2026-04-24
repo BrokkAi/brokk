@@ -78,6 +78,27 @@ class GitSecretScannerTest {
     }
 
     @Test
+    void matcherDetectsCredentialAssignmentKeywordVariants() {
+        String text =
+                """
+                apiKey = "qQ9xV7pL2mN8rT4sZ6wY"
+                api_key = "aB9xV7pL2mN8rT4sZ6wY"
+                api-key = "zZ9xV7pL2mN8rT4sZ6wY"
+                access_key = "mM9xV7pL2mN8rT4sZ6wY"
+                """
+                        .stripIndent();
+
+        Set<GitSecretScanner.SecretKey> findings = GitSecretScanner.scanText("config.yml", text, false);
+
+        assertEquals(
+                4,
+                findings.stream()
+                        .filter(f -> f.rule().equals("Credential assignment"))
+                        .count(),
+                findings.toString());
+    }
+
+    @Test
     void matcherIgnoresPlaceholdersAndLowConfidenceUnlessRequested() {
         String text =
                 """
