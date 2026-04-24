@@ -1167,10 +1167,28 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         }
 
         if (componentInfo.containsKey("templateUrl") || componentInfo.containsKey("template")) {
-            log.debug("Found Angular component metadata for {}: {}", hostClass.fqName(), componentInfo);
+            log.debug(
+                    "Found Angular component metadata for {}: {}",
+                    hostClass.fqName(),
+                    summarizeAngularComponentInfo(componentInfo));
             // Attributes are stored in CodeUnitProperties via the accumulator in analyzeFileContent
             acc.setAttribute(hostClass, "angular.component", Map.copyOf(componentInfo));
         }
+    }
+
+    private static Map<String, Object> summarizeAngularComponentInfo(Map<String, Object> componentInfo) {
+        var summary = new HashMap<String, Object>();
+        Object templateUrl = componentInfo.get("templateUrl");
+        if (templateUrl instanceof String url) {
+            summary.put("templateSource", "external");
+            summary.put("templateUrl", url);
+        }
+        Object template = componentInfo.get("template");
+        if (template instanceof String inlineTemplate) {
+            summary.put("templateSource", "inline");
+            summary.put("templateLength", inlineTemplate.length());
+        }
+        return Map.copyOf(summary);
     }
 
     @Override
