@@ -505,7 +505,7 @@ def _map_tool_event(
     start_tool_call: Any,
     update_tool_call: Any,
     tool_content: Any,
-    TextContentBlock: type,
+    text_content_block_cls: type,
 ) -> Optional[Any]:
     """Handle structured tool/command events (called after ACP SDK imports)."""
     match event_type:
@@ -530,7 +530,8 @@ def _map_tool_event(
             status = "completed" if executor_status == "SUCCESS" else "failed"
             content = []
             if result_text:
-                content.append(tool_content(TextContentBlock(type="text", text=str(result_text))))
+                block = text_content_block_cls(type="text", text=str(result_text))
+                content.append(tool_content(block))
             return update_tool_call(
                 tool_call_id=tool_id,
                 title=tool_name,
@@ -562,7 +563,8 @@ def _map_tool_event(
             result_text = exception if (not success and exception) else output
             content = []
             if result_text:
-                content.append(tool_content(TextContentBlock(type="text", text=str(result_text))))
+                block = text_content_block_cls(type="text", text=str(result_text))
+                content.append(tool_content(block))
             return update_tool_call(
                 tool_call_id=cmd_id,
                 title=stage,

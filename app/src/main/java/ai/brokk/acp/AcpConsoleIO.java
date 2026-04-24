@@ -129,9 +129,8 @@ public class AcpConsoleIO extends MemoryConsole {
         // Build content blocks with the result text
         List<AcpSchema.ToolCallContent> content = List.of();
         var resultText = result.resultText();
-        if (resultText != null && !resultText.isBlank()) {
-            content = List.of(new AcpSchema.ToolCallContentBlock(
-                    "content", new AcpSchema.TextContent(resultText)));
+        if (!resultText.isBlank()) {
+            content = List.of(new AcpSchema.ToolCallContentBlock("content", new AcpSchema.TextContent(resultText)));
         }
 
         var update = new AcpSchema.ToolCallUpdateNotification(
@@ -243,8 +242,7 @@ public class AcpConsoleIO extends MemoryConsole {
 
         List<AcpSchema.ToolCallContent> content = List.of();
         if (resultText != null && !resultText.isBlank()) {
-            content = List.of(new AcpSchema.ToolCallContentBlock(
-                    "content", new AcpSchema.TextContent(resultText)));
+            content = List.of(new AcpSchema.ToolCallContentBlock("content", new AcpSchema.TextContent(resultText)));
         }
 
         var update = new AcpSchema.ToolCallUpdateNotification(
@@ -291,14 +289,20 @@ public class AcpConsoleIO extends MemoryConsole {
         if (toolName.startsWith("search") || toolName.startsWith("find")) {
             return AcpSchema.ToolKind.SEARCH;
         }
-        if (toolName.startsWith("get") || toolName.startsWith("list")
-                || toolName.startsWith("skim") || toolName.startsWith("explain")
-                || toolName.startsWith("read") || toolName.startsWith("scan")) {
+        if (toolName.startsWith("get")
+                || toolName.startsWith("list")
+                || toolName.startsWith("skim")
+                || toolName.startsWith("explain")
+                || toolName.startsWith("read")
+                || toolName.startsWith("scan")) {
             return AcpSchema.ToolKind.READ;
         }
-        if (toolName.startsWith("add") || toolName.startsWith("drop")
-                || toolName.startsWith("replace") || toolName.startsWith("edit")
-                || toolName.startsWith("write") || toolName.startsWith("create")) {
+        if (toolName.startsWith("add")
+                || toolName.startsWith("drop")
+                || toolName.startsWith("replace")
+                || toolName.startsWith("edit")
+                || toolName.startsWith("write")
+                || toolName.startsWith("create")) {
             return AcpSchema.ToolKind.EDIT;
         }
         return AcpSchema.ToolKind.OTHER;
