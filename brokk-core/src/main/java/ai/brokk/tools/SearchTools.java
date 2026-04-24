@@ -1833,32 +1833,17 @@ public class SearchTools {
         record FileHit(ProjectFile file, AlmostGrep.FileContentSearchResult block) {}
 
         String patternsLabel = String.join(", ", patterns);
-        List<String> processingErrors;
+        List<String> processingErrors = new ArrayList<>();
         BatchResult<FileHit> batchResult;
         try {
-            var probeResult = AlmostGrep.findFilesContainingPatterns(compiledPatterns, new LinkedHashSet<>(files));
-            processingErrors = new ArrayList<>(probeResult.errors());
-            var matchedFiles = probeResult.matches();
-            if (matchedFiles.isEmpty()) {
-                return "No matches found for pattern(s) '%s' in files matching '%s' with searchType='%s'%s"
-                        .formatted(
-                                patternsLabel,
-                                filepath,
-                                effectiveSearchType.wireName(),
-                                processingErrors.isEmpty()
-                                        ? ""
-                                        : " (errors occurred in %d files; first: %s)"
-                                                .formatted(processingErrors.size(), processingErrors.getFirst()));
-            }
-
-            var rankedMatchedFiles = matchedFiles.size() <= effectiveMaxFiles
-                    ? matchedFiles.stream().sorted().toList()
-                    : prioritizeFilesForSelection(matchedFiles);
-
-            batchResult = batchProcessFiles(rankedMatchedFiles, effectiveMaxFiles, (file, idx) -> {
+            var filesToSearch = files.size() <= effectiveMaxFiles
+                    ? files.stream().sorted().toList()
+                    : prioritizeFilesForSelection(files);
+            batchResult = batchProcessFiles(filesToSearch, effectiveMaxFiles, (file, idx) -> {
                 try {
                     var res =
-                            AlmostGrep.searchFileContentsInFile(file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
+                            AlmostGrep.searchFileContentsInFile(
+                                    file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
                     if (res == null) return new IndexedResult<>(idx, null, null);
                     return new IndexedResult<>(idx, new FileHit(file, res), null);
                 } catch (AlmostGrep.RegexMatchOverflowException e) {

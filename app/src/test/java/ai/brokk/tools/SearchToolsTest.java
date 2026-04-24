@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.SequencedSet;
 import java.util.Set;
 import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.jetbrains.annotations.Nullable;
@@ -721,6 +722,27 @@ public class SearchToolsTest {
         assertTrue(result.contains("2: line2 MATCH"));
         assertTrue(result.contains("3: line3"));
         assertFalse(result.contains("4: line4"));
+    }
+
+    @Test
+    void testSearchFileContents_ReadsMatchingFileOnce() throws Exception {
+        Path txt = projectRoot.resolve("counted.txt");
+        Files.writeString(txt, "MATCH\n");
+
+        AtomicInteger readCount = new AtomicInteger();
+        ProjectFile countedFile = new ProjectFile(projectRoot, "counted.txt") {
+            @Override
+            public java.util.Optional<String> read() {
+                readCount.incrementAndGet();
+                return super.read();
+            }
+        };
+        mockProjectFiles.add(countedFile);
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "counted.txt", false, false, 0, 200);
+
+        assertTrue(result.contains("<file path=\"counted.txt\" loc=\"1\">"));
+        assertEquals(1, readCount.get(), "searchFileContents should read a matching file only once");
     }
 
     @Test

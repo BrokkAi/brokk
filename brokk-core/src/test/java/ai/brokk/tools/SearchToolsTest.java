@@ -8,10 +8,14 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.IAnalyzer.Range;
+import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitDistance;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpserver.StandaloneCodeIntelligence;
 import ai.brokk.project.CoreProject;
+import ai.brokk.project.ICoreProject;
+import ai.brokk.util.IStringDiskCache;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -112,6 +116,153 @@ class SearchToolsTest {
         assertTrue(result.contains("## Related Content"), "Should include related content header");
         assertTrue(relatedSection.contains("B.java"), "Should include a related file");
         assertFalse(relatedSection.contains("A.java"), "Should not echo the seed file");
+    }
+
+    @Test
+    void searchFileContents_ReadsMatchingFileOnce() throws Exception {
+        Path projectRoot = initRepo();
+        Path filePath = projectRoot.resolve("counted.txt");
+        Files.writeString(filePath, "MATCH\n");
+
+        AtomicInteger readCount = new AtomicInteger();
+        ProjectFile countedFile = new ProjectFile(projectRoot, "counted.txt") {
+            @Override
+            public Optional<String> read() {
+                readCount.incrementAndGet();
+                return super.read();
+            }
+        };
+
+        project = new CoreProject(projectRoot);
+        ICoreProject countingProject = new ICoreProject() {
+            @Override
+            public Set<ProjectFile> getAllFiles() {
+                return Set.of(countedFile);
+            }
+
+            @Override
+            public Path getRoot() {
+                return project.getRoot();
+            }
+
+            @Override
+            public Optional<ProjectFile> getFileByRelPath(Path relPath) {
+                return countedFile.getRelPath().equals(relPath)
+                        ? Optional.of(countedFile)
+                        : project.getFileByRelPath(relPath);
+            }
+
+            @Override
+            public boolean isEmptyProject() {
+                return project.isEmptyProject();
+            }
+
+            @Override
+            public Set<ProjectFile> getAnalyzableFiles(Language language) {
+                return project.getAnalyzableFiles(language);
+            }
+
+            @Override
+            public Set<Language> getAnalyzerLanguages() {
+                return project.getAnalyzerLanguages();
+            }
+
+            @Override
+            public void setAnalyzerLanguages(Set<Language> languages) {
+                project.setAnalyzerLanguages(languages);
+            }
+
+            @Override
+            public void invalidateAutoDetectedLanguages() {
+                project.invalidateAutoDetectedLanguages();
+            }
+
+            @Override
+            public List<String> getSourceRoots(Language language) {
+                return project.getSourceRoots(language);
+            }
+
+            @Override
+            public void setSourceRoots(Language language, List<String> roots) {
+                project.setSourceRoots(language, roots);
+            }
+
+            @Override
+            public boolean isGitignored(Path relPath) {
+                return project.isGitignored(relPath);
+            }
+
+            @Override
+            public boolean isGitignored(Path relPath, boolean isDirectory) {
+                return project.isGitignored(relPath, isDirectory);
+            }
+
+            @Override
+            public boolean shouldSkipPath(Path relPath, boolean isDirectory) {
+                return project.shouldSkipPath(relPath, isDirectory);
+            }
+
+            @Override
+            public Set<String> getExclusionPatterns() {
+                return project.getExclusionPatterns();
+            }
+
+            @Override
+            public Set<String> getExcludedDirectories() {
+                return project.getExcludedDirectories();
+            }
+
+            @Override
+            public Set<String> getExcludedGlobPatterns() {
+                return project.getExcludedGlobPatterns();
+            }
+
+            @Override
+            public boolean isPathExcluded(String relativePath, boolean isDirectory) {
+                return project.isPathExcluded(relativePath, isDirectory);
+            }
+
+            @Override
+            public Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
+                return project.filterExcludedFiles(files);
+            }
+
+            @Override
+            public void invalidateAllFiles() {
+                project.invalidateAllFiles();
+            }
+
+            @Override
+            public IGitRepo getRepo() {
+                return project.getRepo();
+            }
+
+            @Override
+            public boolean hasGit() {
+                return project.hasGit();
+            }
+
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return project.getMasterRootPathForConfig();
+            }
+
+            @Override
+            public IStringDiskCache getDiskCache() {
+                return project.getDiskCache();
+            }
+
+            @Override
+            public void close() {
+                project.close();
+            }
+        };
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(countingProject, new DisabledAnalyzer(project)));
+
+        String result = tools.searchFileContents(List.of("MATCH"), "counted.txt", false, false, 0, 200);
+
+        assertTrue(result.contains("<file path=\"counted.txt\" loc=\"1\">"));
+        assertEquals(1, readCount.get(), "searchFileContents should read a matching file only once");
     }
 
     @Test
