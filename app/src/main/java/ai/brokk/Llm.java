@@ -896,7 +896,7 @@ public class Llm {
     }
 
     private void prettyPrintToolCalls(ToolContext toolContext, List<ToolExecutionRequest> requests) {
-        if (requests.isEmpty()) {
+        if (requests.isEmpty() || io.supportsStructuredToolOutput()) {
             return;
         }
         var tr = toolContext.toolRegistry();

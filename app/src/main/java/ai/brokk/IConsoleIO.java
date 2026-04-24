@@ -165,6 +165,18 @@ public interface IConsoleIO {
     }
 
     /**
+     * Returns true if this console emits structured tool-call updates (e.g. ACP {@code tool_call}
+     * and {@code tool_call_update} notifications) via {@link #beforeToolCall} / {@link #afterToolOutput}.
+     * <p>
+     * When true, callers should avoid echoing tool call explanations and results as plain text
+     * via {@link #llmOutput}, since that information is already delivered through the structured
+     * channel and would otherwise appear duplicated in the output.
+     */
+    default boolean supportsStructuredToolOutput() {
+        return false;
+    }
+
+    /**
      * Signals that a shell command has finished executing.
      * Default implementation is a no-op (Swing already saw output via commandOutput).
      * Headless consoles override to emit a COMMAND_RESULT event.

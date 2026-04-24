@@ -12,6 +12,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
+import ai.brokk.tools.Destructive;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -204,15 +205,27 @@ public final class MergeOneFile {
                     return new Outcome(Status.INTERRUPTED, null);
                 }
 
-                var explanation = tr.getExplanationForToolRequest(req);
-                if (!explanation.isBlank()) {
-                    io.llmOutput("\n" + explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+                if (!io.supportsStructuredToolOutput()) {
+                    var explanation = tr.getExplanationForToolRequest(req);
+                    if (!explanation.isBlank()) {
+                        io.llmOutput("\n" + explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+                    }
                 }
 
+                boolean destructive = tr.isToolAnnotated(req.name(), Destructive.class);
+                var approval = io.beforeToolCall(req, destructive);
+                if (!approval.isApproved()) {
+                    var denied = ToolExecutionResult.requestError(
+                            req, "Tool call '%s' was denied by user.".formatted(req.name()));
+                    io.afterToolOutput(denied);
+                    currentSessionMessages.add(denied.toMessage());
+                    continue;
+                }
                 ToolExecutionResult exec = tr.executeTool(req);
+                io.afterToolOutput(exec);
 
                 currentSessionMessages.add(exec.toMessage());
-                if (!exec.resultText().isBlank()) {
+                if (!io.supportsStructuredToolOutput() && !exec.resultText().isBlank()) {
                     io.llmOutput(exec.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                 }
 
