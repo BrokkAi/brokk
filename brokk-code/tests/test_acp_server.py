@@ -376,12 +376,65 @@ def test_map_executor_status_token_mojibake_is_minimally_normalized() -> None:
     }
 
 
-def test_map_executor_tool_events_are_suppressed() -> None:
-    call_event = {"type": "TOOL_CALL", "data": {"name": "read"}}
-    assert map_executor_event_to_session_update(call_event, _text_block) is None
+def test_map_executor_tool_call_produces_structured_update() -> None:
+    call_event = {
+        "type": "TOOL_CALL",
+        "data": {"id": "t1", "name": "getFileContents", "arguments": "{}", "destructive": False},
+    }
+    result = map_executor_event_to_session_update(call_event, _text_block)
+    assert result is not None
+    assert result.session_update == "tool_call"
+    assert result.tool_call_id == "t1"
+    assert result.title == "getFileContents"
+    assert result.kind == "read"
+    assert result.status == "pending"
 
-    out_event = {"type": "TOOL_OUTPUT", "data": {"result": "ok"}}
-    assert map_executor_event_to_session_update(out_event, _text_block) is None
+
+def test_map_executor_tool_output_produces_structured_update() -> None:
+    out_event = {
+        "type": "TOOL_OUTPUT",
+        "data": {
+            "id": "t1",
+            "name": "getFileContents",
+            "status": "SUCCESS",
+            "resultText": "file contents",
+        },
+    }
+    result = map_executor_event_to_session_update(out_event, _text_block)
+    assert result is not None
+    assert result.session_update == "tool_call_update"
+    assert result.tool_call_id == "t1"
+    assert result.status == "completed"
+
+
+def test_map_executor_tool_output_failed_status() -> None:
+    out_event = {
+        "type": "TOOL_OUTPUT",
+        "data": {"id": "t2", "name": "shell", "status": "INTERNAL_ERROR", "resultText": "boom"},
+    }
+    result = map_executor_event_to_session_update(out_event, _text_block)
+    assert result is not None
+    assert result.status == "failed"
+
+
+def test_map_executor_command_start_produces_tool_call() -> None:
+    event = {"type": "COMMAND_START", "data": {"stage": "Build", "command": "gradle build"}}
+    result = map_executor_event_to_session_update(event, _text_block)
+    assert result is not None
+    assert result.session_update == "tool_call"
+    assert result.kind == "execute"
+    assert result.status == "in_progress"
+
+
+def test_map_executor_command_result_produces_tool_call_update() -> None:
+    event = {
+        "type": "COMMAND_RESULT",
+        "data": {"stage": "Build", "command": "gradle build", "success": True, "output": "OK"},
+    }
+    result = map_executor_event_to_session_update(event, _text_block)
+    assert result is not None
+    assert result.session_update == "tool_call_update"
+    assert result.status == "completed"
 
 
 def test_conversation_payload_to_session_updates_replays_user_assistant_and_reasoning() -> None:

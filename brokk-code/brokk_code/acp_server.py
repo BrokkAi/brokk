@@ -467,12 +467,128 @@ def _is_truthy(value: Any) -> bool:
     return bool(value)
 
 
+def _classify_tool_kind(tool_name: str, destructive: bool = False) -> str:
+    """Map a Brokk tool name to an ACP ToolKind string literal."""
+    if destructive:
+        return "edit"
+    match tool_name:
+        case "shell":
+            return "execute"
+        case "searchAgent":
+            return "search"
+        case "createOrReplaceTaskList":
+            return "think"
+        case _:
+            pass
+    for prefix in ("search", "find"):
+        if tool_name.startswith(prefix):
+            return "search"
+    for prefix in ("get", "list", "skim", "explain", "read", "scan"):
+        if tool_name.startswith(prefix):
+            return "read"
+    for prefix in ("add", "drop", "replace", "edit", "write", "create"):
+        if tool_name.startswith(prefix):
+            return "edit"
+    return "other"
+
+
+def _command_tool_call_id(stage: str, command: str) -> str:
+    """Derive a stable tool-call ID for a COMMAND_START/COMMAND_RESULT pair."""
+    import hashlib
+
+    return hashlib.md5(f"{stage}:{command}".encode(), usedforsecurity=False).hexdigest()[:12]
+
+
+def _map_tool_event(
+    event_type: str,
+    data: dict[str, Any],
+    start_tool_call: Any,
+    update_tool_call: Any,
+    tool_content: Any,
+    text_content_block_cls: type,
+) -> Optional[Any]:
+    """Handle structured tool/command events (called after ACP SDK imports)."""
+    match event_type:
+        case "TOOL_CALL":
+            tool_name = str(data.get("name", "unknown"))
+            tool_id = str(data.get("id") or "")
+            destructive = _is_truthy(data.get("destructive", False))
+            kind = _classify_tool_kind(tool_name, destructive)
+            return start_tool_call(
+                tool_call_id=tool_id,
+                title=tool_name,
+                kind=kind,
+                status="pending",
+                raw_input=data.get("arguments"),
+            )
+
+        case "TOOL_OUTPUT":
+            tool_id = str(data.get("id") or "")
+            tool_name = str(data.get("name", "unknown"))
+            executor_status = str(data.get("status", "")).upper()
+            result_text = data.get("resultText", "")
+            status = "completed" if executor_status == "SUCCESS" else "failed"
+            content = []
+            if result_text:
+                block = text_content_block_cls(type="text", text=str(result_text))
+                content.append(tool_content(block))
+            return update_tool_call(
+                tool_call_id=tool_id,
+                title=tool_name,
+                status=status,
+                content=content if content else None,
+                raw_output=result_text,
+            )
+
+        case "COMMAND_START":
+            stage = str(data.get("stage", "command"))
+            command = str(data.get("command", ""))
+            cmd_id = _command_tool_call_id(stage, command)
+            return start_tool_call(
+                tool_call_id=cmd_id,
+                title=stage,
+                kind="execute",
+                status="in_progress",
+                raw_input=command,
+            )
+
+        case "COMMAND_RESULT":
+            stage = str(data.get("stage", "command"))
+            command = str(data.get("command", ""))
+            success = _is_truthy(data.get("success", True))
+            output = data.get("output", "")
+            exception = data.get("exception", "")
+            cmd_id = _command_tool_call_id(stage, command)
+            status = "completed" if success else "failed"
+            result_text = exception if (not success and exception) else output
+            content = []
+            if result_text:
+                block = text_content_block_cls(type="text", text=str(result_text))
+                content.append(tool_content(block))
+            return update_tool_call(
+                tool_call_id=cmd_id,
+                title=stage,
+                status=status,
+                kind="execute",
+                content=content if content else None,
+                raw_output=result_text,
+            )
+
+        case _:
+            return None
+
+
 def map_executor_event_to_session_update(
     event: dict[str, Any],
     update_agent_message_text: Callable[[str], Any],
     update_agent_thought_text: Optional[Callable[[str], Any]] = None,
 ) -> Optional[Any]:
-    """Map executor events into clean ACP message or thought updates."""
+    """Map executor events into properly typed ACP session updates.
+
+    Converts executor events to structured ACP notifications: LLM tokens become
+    agent_message_chunk/agent_thought_chunk, tool calls become tool_call/tool_call_update,
+    and build commands become tool_call lifecycle events.
+    """
     event_type = event.get("type")
     data = safe_data(event)
     if not data:
@@ -510,9 +626,17 @@ def map_executor_event_to_session_update(
                 return update_agent_message_text(f"\n\n**Error:** {msg}\n\n")
             return update_agent_message_text(f"\n\n_{msg}_\n\n")
 
+        case "TOOL_CALL" | "TOOL_OUTPUT" | "COMMAND_START" | "COMMAND_RESULT":
+            # Lazy-import ACP SDK types only for structured tool events (not LLM tokens)
+            from acp import start_tool_call, tool_content, update_tool_call
+            from acp.schema import TextContentBlock
+
+            return _map_tool_event(
+                event_type, data, start_tool_call, update_tool_call, tool_content, TextContentBlock
+            )
+
         case _:
-            # Suppress internal TOOL_CALL, TOOL_OUTPUT, and STATE_HINT events for ACP.
-            # These are noisy and usually handled via LLM tokens or final output.
+            # Suppress internal STATE_HINT and other unrecognized events.
             return None
 
 
