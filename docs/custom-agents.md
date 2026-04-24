@@ -269,11 +269,11 @@ When you specify a `tools` list, you're choosing which capabilities the agent ha
 | `runShellCommand` | Execute a shell command |
 | `importDependency` | Import a project dependency |
 | `computeCyclomaticComplexity` | Compute cyclomatic complexity for Java code when analysis data is available |
-| `reportCommentDensityForCodeUnit` | Report comment density for one Java symbol, with bounded output |
+| `reportCommentDensityForCodeUnit` | Report comment density for one symbol (Java, JavaScript, TypeScript when analyzer data is available), with bounded output |
 | `reportCommentDensityForFiles` | Report comment density tables for Java files, with bounded output |
 | `analyzeGitHotspots` | Analyze churn hotspots using bounded commit and file limits |
 
-Java comment-density tools return a short message when the analyzer has no Java snapshot. `analyzeGitHotspots` supports `sinceDays` and optional ISO `sinceIso` and `untilIso`, plus bounded `maxCommits` and `maxFiles`.
+Comment-density tools return a short message when the analyzer snapshot cannot provide those stats for a symbol or file. `analyzeGitHotspots` supports `sinceDays` and optional ISO `sinceIso` and `untilIso`, plus bounded `maxCommits` and `maxFiles`.
 
 ### Always available
 
