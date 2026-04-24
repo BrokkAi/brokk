@@ -26,6 +26,10 @@ struct Args {
     /// Default model to use if not specified by the client
     #[arg(long, default_value = "")]
     default_model: String,
+
+    /// Maximum number of tool-calling turns per prompt before the server forces a final text response.
+    #[arg(long, default_value_t = 25)]
+    max_turns: usize,
 }
 
 // Manual Debug to avoid leaking api_key in logs or process listings.
@@ -35,6 +39,7 @@ impl std::fmt::Debug for Args {
             .field("endpoint_url", &self.endpoint_url)
             .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
             .field("default_model", &self.default_model)
+            .field("max_turns", &self.max_turns)
             .finish()
     }
 }
@@ -60,8 +65,11 @@ async fn main() -> Result<()> {
     // SessionStore uses internal Arc -- no outer Arc needed
     let sessions = session::SessionStore::new(args.default_model);
 
-    agent::run_agent(llm, sessions).await.map_err(|e| {
-        tracing::error!("agent error: {e}");
-        anyhow::anyhow!("agent error: {e}")
-    })
+    let max_turns = args.max_turns.max(1);
+    agent::run_agent(llm, sessions, max_turns)
+        .await
+        .map_err(|e| {
+            tracing::error!("agent error: {e}");
+            anyhow::anyhow!("agent error: {e}")
+        })
 }

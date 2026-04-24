@@ -1,7 +1,15 @@
 use super::{ToolResult, ToolStatus, safe_resolve, safe_resolve_for_write};
 use regex::Regex;
+use std::io::Read;
 use std::path::Path;
 use walkdir::WalkDir;
+
+/// Hard cap on individual file size scanned by `search_file_contents`.
+/// Files larger than this are skipped to keep memory bounded on big repos.
+const SEARCH_MAX_FILE_BYTES: u64 = 1_048_576; // 1 MiB
+
+/// Number of leading bytes inspected for NUL bytes to classify a file as binary.
+const BINARY_SNIFF_BYTES: usize = 8192;
 
 pub fn read_file(cwd: &Path, path: &str) -> ToolResult {
     let resolved = match safe_resolve(cwd, path) {
@@ -158,9 +166,21 @@ pub fn search_file_contents(
             continue;
         }
 
+        // Size cap: skip files above SEARCH_MAX_FILE_BYTES.
+        match entry.metadata() {
+            Ok(md) if md.len() > SEARCH_MAX_FILE_BYTES => continue,
+            Err(_) => continue,
+            _ => {}
+        }
+
+        // Sniff the first BINARY_SNIFF_BYTES bytes for a NUL. If present, treat as binary and skip.
+        if is_binary_file(path) {
+            continue;
+        }
+
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
-            Err(_) => continue, // skip binary or unreadable files
+            Err(_) => continue, // skip non-UTF8 or unreadable files
         };
 
         for (line_num, line) in content.lines().enumerate() {
@@ -188,4 +208,19 @@ pub fn search_file_contents(
             output: results.join("\n"),
         }
     }
+}
+
+/// Classify a file as binary if any of the first BINARY_SNIFF_BYTES bytes is NUL.
+/// Files we cannot open are classified as binary so we skip them.
+fn is_binary_file(path: &Path) -> bool {
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return true,
+    };
+    let mut buf = [0u8; BINARY_SNIFF_BYTES];
+    let n = match file.read(&mut buf) {
+        Ok(n) => n,
+        Err(_) => return true,
+    };
+    buf[..n].contains(&0)
 }

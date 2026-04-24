@@ -232,24 +232,61 @@ pub fn safe_resolve(cwd: &Path, requested: &str) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
-/// Like safe_resolve but allows the path to not exist yet (for writes).
+/// Like safe_resolve but allows the target (and intermediate ancestors) not to exist yet.
+/// We walk up until we find an existing ancestor, canonicalize it, and verify it lies
+/// under the canonical cwd. Returns the canonical cwd joined with the remaining tail,
+/// which guarantees the final path resolves under cwd without relying on canonicalize
+/// of the still-missing target.
 pub fn safe_resolve_for_write(cwd: &Path, requested: &str) -> Result<PathBuf, String> {
+    let cwd_canonical = cwd
+        .canonicalize()
+        .map_err(|e| format!("Cannot resolve cwd: {}", e))?;
+
     let joined = cwd.join(requested);
-    // Canonicalize the parent to check it's under cwd
-    let parent = joined.parent().ok_or("Invalid path")?;
-    if parent.exists() {
-        let parent_canonical = parent
-            .canonicalize()
-            .map_err(|e| format!("Cannot resolve parent of '{}': {}", requested, e))?;
-        let cwd_canonical = cwd
-            .canonicalize()
-            .map_err(|e| format!("Cannot resolve cwd: {}", e))?;
-        if !parent_canonical.starts_with(&cwd_canonical) {
+
+    // Walk up to the first existing ancestor (including the target itself if it exists).
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut cursor: &Path = &joined;
+    let existing = loop {
+        if cursor.exists() {
+            break cursor.to_path_buf();
+        }
+        match (cursor.file_name(), cursor.parent()) {
+            (Some(name), Some(parent)) => {
+                tail.push(name.to_os_string());
+                cursor = parent;
+            }
+            _ => {
+                return Err(format!(
+                    "Cannot resolve path '{}': no existing ancestor",
+                    requested
+                ));
+            }
+        }
+    };
+
+    let existing_canonical = existing
+        .canonicalize()
+        .map_err(|e| format!("Cannot resolve ancestor of '{}': {}", requested, e))?;
+    if !existing_canonical.starts_with(&cwd_canonical) {
+        return Err(format!(
+            "Path '{}' escapes the working directory",
+            requested
+        ));
+    }
+
+    // Reject any `..` components in the still-missing tail so an attacker
+    // can't re-escape via unwritten path components.
+    let mut resolved = existing_canonical;
+    for component in tail.into_iter().rev() {
+        if component == std::ffi::OsStr::new("..") || component == std::ffi::OsStr::new(".") {
             return Err(format!(
-                "Path '{}' escapes the working directory",
+                "Path '{}' contains unsupported '..' or '.' components",
                 requested
             ));
         }
+        resolved.push(component);
     }
-    Ok(joined)
+
+    Ok(resolved)
 }

@@ -38,11 +38,11 @@ fn mode_state(current: &str) -> SessionModeState {
 pub async fn run_agent(
     llm: Arc<dyn LlmBackend>,
     sessions: SessionStore,
+    max_turns: usize,
 ) -> agent_client_protocol::Result<()> {
     let llm_init = llm.clone();
     let sessions_init = sessions.clone();
 
-    let llm_new = llm.clone();
     let sessions_new = sessions.clone();
 
     let sessions_load = sessions.clone();
@@ -65,7 +65,7 @@ pub async fn run_agent(
                         _cx: ConnectionTo<Client>| {
                 tracing::info!("ACP initialize");
 
-                // Try to discover models at startup
+                // Try to discover models at startup and cache them for session/new.
                 let models = match llm_init.list_models().await {
                     Ok(m) => m,
                     Err(e) => {
@@ -76,6 +76,7 @@ pub async fn run_agent(
                 if let Some(first) = models.first() {
                     sessions_init.set_default_model(first.clone()).await;
                 }
+                sessions_init.set_available_models(models).await;
 
                 let capabilities = AgentCapabilities::new()
                     .load_session(true)
@@ -102,14 +103,11 @@ pub async fn run_agent(
                 tracing::info!("ACP session/new, cwd={}", cwd.display());
                 let session = sessions_new.create_session(cwd).await;
 
-                // Discover models for the response
-                let models = match llm_new.list_models().await {
-                    Ok(m) => m,
-                    Err(e) => {
-                        tracing::warn!("model discovery failed: {e}");
-                        vec![session.model.clone()]
-                    }
-                };
+                // Reuse the cached list populated at init; fall back to the session's own model.
+                let mut models = sessions_new.available_models().await;
+                if models.is_empty() && !session.model.is_empty() {
+                    models = vec![session.model.clone()];
+                }
 
                 let meta_value = serde_json::json!({
                     "brokk": {
@@ -152,9 +150,14 @@ pub async fn run_agent(
                     }
                 };
 
-                // Replay conversation history as session updates
+                // Replay conversation history as session updates (both sides).
                 for turn in &session.history {
-                    send_message(&cx, &session_id, &turn.agent_response);
+                    if !turn.user_prompt.is_empty() {
+                        send_user_message(&cx, &session_id, &turn.user_prompt);
+                    }
+                    if !turn.agent_response.is_empty() {
+                        send_message(&cx, &session_id, &turn.agent_response);
+                    }
                 }
 
                 responder.respond(
@@ -263,14 +266,21 @@ pub async fn run_agent(
                 let cx_tool = cx.clone();
                 let sid_tool = session_id.clone();
 
+                // Text tokens stream to the client in real time via this shared sink.
+                let text_sink: crate::tool_loop::TextSink = std::sync::Arc::new(
+                    std::sync::Mutex::new(move |token: &str| {
+                        send_message(&cx_text, &sid_text, token);
+                    }),
+                );
+
                 let response_text = crate::tool_loop::run(
                     &llm_prompt,
                     &registry,
                     &session.model,
                     messages,
-                    25, // max turns
+                    max_turns,
                     cancel,
-                    |token| send_message(&cx_text, &sid_text, token),
+                    text_sink,
                     |headline| send_message(&cx_tool, &sid_tool, headline),
                 )
                 .await;
@@ -312,8 +322,26 @@ pub async fn run_agent(
                 let mode_id = req.mode_id.to_string();
                 tracing::info!("ACP set_mode session={session_id} mode={mode_id}");
 
-                if let Some(mode) = SessionMode::parse(&mode_id) {
-                    sessions_mode.set_mode(&session_id, mode).await;
+                let Some(mode) = SessionMode::parse(&mode_id) else {
+                    return responder.respond_with_error(
+                        agent_client_protocol::Error::invalid_params()
+                            .data(serde_json::json!({
+                                "reason": format!("unknown mode '{mode_id}'"),
+                                "supported": available_modes()
+                                    .iter()
+                                    .map(|m| m.id.to_string())
+                                    .collect::<Vec<_>>(),
+                            })),
+                    );
+                };
+
+                if !sessions_mode.set_mode(&session_id, mode).await {
+                    return responder.respond_with_error(
+                        agent_client_protocol::Error::invalid_params()
+                            .data(serde_json::json!({
+                                "reason": format!("unknown session '{session_id}'"),
+                            })),
+                    );
                 }
 
                 responder.respond(SetSessionModeResponse::new())
@@ -357,6 +385,16 @@ fn send_message(cx: &ConnectionTo<Client>, session_id: &str, text: &str) {
     let notification = SessionNotification::new(session_id.to_string(), update);
     if let Err(e) = cx.send_notification(notification) {
         tracing::warn!("failed to send session update: {e}");
+    }
+}
+
+/// Send a user_message_chunk session update to the client (used when replaying history).
+fn send_user_message(cx: &ConnectionTo<Client>, session_id: &str, text: &str) {
+    let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)));
+    let update = SessionUpdate::UserMessageChunk(chunk);
+    let notification = SessionNotification::new(session_id.to_string(), update);
+    if let Err(e) = cx.send_notification(notification) {
+        tracing::warn!("failed to send user session update: {e}");
     }
 }
 

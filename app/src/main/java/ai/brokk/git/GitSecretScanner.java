@@ -10,6 +10,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.MatchResult;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -47,9 +49,26 @@ public class GitSecretScanner {
     private static final Logger logger = LogManager.getLogger(GitSecretScanner.class);
 
     private static final int SECRET_SCAN_PARALLELISM = 20;
+    private static final int MAX_IN_FLIGHT_BLOB_SCANS = SECRET_SCAN_PARALLELISM * 4;
     private static final int MAX_BLOB_BYTES = 1024 * 1024;
     private static final int MAX_SECRET_SAMPLE_VALUE_CHARS = 12;
     private static final int HISTORY_PROGRESS_LOG_COMMITS = 100;
+    private static final Set<String> PLACEHOLDER_VALUES = Set.of(
+            "changeme",
+            "change_me",
+            "example",
+            "example-secret",
+            "dummy",
+            "test",
+            "testing",
+            "placeholder",
+            "password",
+            "secret",
+            "token",
+            "xxx",
+            "xxxx",
+            "your-token",
+            "your-secret");
 
     private static final Set<CredentialKeyword> CREDENTIAL_KEYWORDS = Set.of(
             new CredentialKeyword("password", Set.of("password")),
@@ -125,14 +144,21 @@ public class GitSecretScanner {
 
     public SecretScanReport scan(int maxCommits, boolean includeHistoryOnly, boolean includeLowConfidence)
             throws GitAPIException, IOException {
+        return scan(maxCommits, includeHistoryOnly, includeLowConfidence, MAX_IN_FLIGHT_BLOB_SCANS);
+    }
+
+    SecretScanReport scan(
+            int maxCommits, boolean includeHistoryOnly, boolean includeLowConfidence, int maxInFlightBlobScans)
+            throws GitAPIException, IOException {
         long startedNanos = System.nanoTime();
         int commitCap = maxCommits > 0 ? maxCommits : 2000;
         var refInfo = resolveDefaultBranchRef();
         var accumulator = new SecretScanAccumulator();
-        CurrentScanResult current = scanDefaultRef(refInfo.refName(), includeLowConfidence);
+        var blobScanCache = new ConcurrentHashMap<ObjectId, BlobContentScanResult>();
+        CurrentScanResult current = scanDefaultRef(refInfo.refName(), includeLowConfidence, blobScanCache);
         current.keys().forEach(key -> accumulator.add(key, SecretLocation.CURRENT, "", ""));
 
-        HistoryScanResult history = scanHistory(commitCap, includeLowConfidence);
+        HistoryScanResult history = scanHistory(commitCap, includeLowConfidence, blobScanCache, maxInFlightBlobScans);
         history.commitOrder().forEach((commit, commitIndex) -> history.keysByCommit()
                 .getOrDefault(commit, Set.of())
                 .forEach(key -> {
@@ -150,13 +176,15 @@ public class GitSecretScanner {
                 .toList();
 
         logger.debug(
-                "Secret scan complete for {}: defaultRef={}, fallback={}, commitsScanned={}, currentBlobsScanned={}, historyBlobsScanned={}, missingBlobsSkipped={}, nonTextOrOversizedBlobsSkipped={}, findings={}, elapsedMs={}",
+                "Secret scan complete for {}: defaultRef={}, fallback={}, commitsScanned={}, currentBlobsScanned={}, historyBlobsScanned={}, cacheHits={}, cacheMisses={}, missingBlobsSkipped={}, nonTextOrOversizedBlobsSkipped={}, findings={}, elapsedMs={}",
                 repo.getWorkTreeRoot(),
                 refInfo.displayName(),
                 refInfo.fallback(),
                 history.commitsScanned(),
                 current.blobsScanned(),
                 history.blobsScanned(),
+                current.cacheHits() + history.cacheHits(),
+                current.cacheMisses() + history.cacheMisses(),
                 current.missingEntriesSkipped() + history.missingEntriesSkipped(),
                 current.nonTextEntriesSkipped() + history.nonTextEntriesSkipped(),
                 findings.size(),
@@ -173,7 +201,8 @@ public class GitSecretScanner {
                 findings);
     }
 
-    private CurrentScanResult scanDefaultRef(String refName, boolean includeLowConfidence)
+    private CurrentScanResult scanDefaultRef(
+            String refName, boolean includeLowConfidence, Map<ObjectId, BlobContentScanResult> blobScanCache)
             throws GitAPIException, IOException {
         long startedNanos = System.nanoTime();
         Repository repository = repo.getGit().getRepository();
@@ -182,7 +211,7 @@ public class GitSecretScanner {
             ref = repository.resolve(refName);
         }
         if (ref == null) {
-            return new CurrentScanResult(Set.of(), 0, 0, 0);
+            return CurrentScanResult.EMPTY;
         }
 
         var tasks = new ArrayList<BlobScanTask>();
@@ -209,8 +238,8 @@ public class GitSecretScanner {
         try (LoggingExecutorService executor =
                 ExecutorsUtil.newVirtualThreadExecutor("brokk-secret-scan", SECRET_SCAN_PARALLELISM)) {
             var futures = tasks.stream()
-                    .map(task ->
-                            LoggingFuture.supplyAsync(() -> scanBlob(repository, task, includeLowConfidence), executor))
+                    .map(task -> LoggingFuture.supplyAsync(
+                            () -> scanBlob(repository, task, includeLowConfidence, blobScanCache), executor))
                     .toList();
 
             LoggingFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
@@ -218,28 +247,37 @@ public class GitSecretScanner {
                     futures.stream().map(CompletableFuture::join).toList();
             Set<SecretKey> keys =
                     results.stream().flatMap(result -> result.keys().stream()).collect(Collectors.toSet());
-            int missingEntriesSkipped = results.stream()
-                    .mapToInt(BlobScanResult::missingEntriesSkipped)
-                    .sum();
-            int nonTextEntriesSkipped = results.stream()
-                    .mapToInt(BlobScanResult::nonTextEntriesSkipped)
-                    .sum();
-            int blobsScanned =
-                    results.stream().mapToInt(BlobScanResult::blobsScanned).sum();
+            var result = new CurrentScanResult(
+                    keys,
+                    results.stream().mapToInt(BlobScanResult::blobsScanned).sum(),
+                    results.stream().mapToInt(BlobScanResult::cacheHits).sum(),
+                    results.stream().mapToInt(BlobScanResult::cacheMisses).sum(),
+                    results.stream()
+                            .mapToInt(BlobScanResult::missingEntriesSkipped)
+                            .sum(),
+                    results.stream()
+                            .mapToInt(BlobScanResult::nonTextEntriesSkipped)
+                            .sum());
             logger.debug(
-                    "Secret scan current ref complete: ref={}, candidateBlobs={}, blobsScanned={}, missingBlobsSkipped={}, nonTextOrOversizedBlobsSkipped={}, findings={}, elapsedMs={}",
+                    "Secret scan current ref complete: ref={}, candidateBlobs={}, blobsScanned={}, cacheHits={}, cacheMisses={}, missingBlobsSkipped={}, nonTextOrOversizedBlobsSkipped={}, findings={}, elapsedMs={}",
                     refName,
                     tasks.size(),
-                    blobsScanned,
-                    missingEntriesSkipped,
-                    nonTextEntriesSkipped,
-                    keys.size(),
+                    result.blobsScanned(),
+                    result.cacheHits(),
+                    result.cacheMisses(),
+                    result.missingEntriesSkipped(),
+                    result.nonTextEntriesSkipped(),
+                    result.keys().size(),
                     elapsedMillis(startedNanos));
-            return new CurrentScanResult(keys, blobsScanned, missingEntriesSkipped, nonTextEntriesSkipped);
+            return result;
         }
     }
 
-    private HistoryScanResult scanHistory(int maxCommits, boolean includeLowConfidence)
+    private HistoryScanResult scanHistory(
+            int maxCommits,
+            boolean includeLowConfidence,
+            Map<ObjectId, BlobContentScanResult> blobScanCache,
+            int maxInFlightBlobScans)
             throws GitAPIException, IOException {
         Repository repository = repo.getGit().getRepository();
         ObjectId head = repository.resolve(Constants.HEAD);
@@ -247,14 +285,13 @@ public class GitSecretScanner {
             return HistoryScanResult.EMPTY();
         }
 
-        var keysByCommit = new LinkedHashMap<String, Set<SecretKey>>();
+        int inFlightCap = Math.max(1, maxInFlightBlobScans);
+        var accumulator = new HistoryScanAccumulator();
         var commitOrder = new LinkedHashMap<String, Integer>();
         int commitsScanned = 0;
-        int blobsScanned = 0;
-        int missingEntriesSkipped = 0;
-        int nonTextEntriesSkipped = 0;
         Path workTreeRoot = repo.getWorkTreeRoot();
         Path projectRoot = repo.getProjectRoot().toAbsolutePath().normalize();
+        var inFlight = new ArrayDeque<CompletableFuture<BlobScanResult>>();
         long startedNanos = System.nanoTime();
 
         try (RevWalk walk = new RevWalk(repository);
@@ -268,16 +305,17 @@ public class GitSecretScanner {
                 commitsScanned++;
                 if (commitsScanned % HISTORY_PROGRESS_LOG_COMMITS == 0) {
                     logger.debug(
-                            "Secret scan history progress: commitsScanned={}, blobsScanned={}, missingBlobsSkipped={}, nonTextOrOversizedBlobsSkipped={}, findings={}, elapsedMs={}",
+                            "Secret scan history progress: commitsScanned={}, blobsScanned={}, cacheHits={}, cacheMisses={}, missingBlobsSkipped={}, nonTextOrOversizedBlobsSkipped={}, findings={}, elapsedMs={}",
                             commitsScanned,
-                            blobsScanned,
-                            missingEntriesSkipped,
-                            nonTextEntriesSkipped,
-                            keysByCommit.values().stream().mapToInt(Set::size).sum(),
+                            accumulator.blobsScanned(),
+                            accumulator.cacheHits(),
+                            accumulator.cacheMisses(),
+                            accumulator.missingEntriesSkipped(),
+                            accumulator.nonTextEntriesSkipped(),
+                            accumulator.findingCount(),
                             elapsedMillis(startedNanos));
                 }
 
-                var futures = new ArrayList<CompletableFuture<BlobScanResult>>();
                 try (TreeWalk treeWalk = new TreeWalk(repository)) {
                     treeWalk.addTree(commit.getTree());
                     treeWalk.setRecursive(true);
@@ -291,48 +329,70 @@ public class GitSecretScanner {
                             continue;
                         }
                         var task = new BlobScanTask(commitName, projectPath.get(), treeWalk.getObjectId(0));
-                        futures.add(LoggingFuture.supplyAsync(
-                                () -> scanBlob(repository, task, includeLowConfidence), executor));
+                        inFlight.addLast(LoggingFuture.supplyAsync(
+                                () -> scanBlob(repository, task, includeLowConfidence, blobScanCache), executor));
+                        if (inFlight.size() >= inFlightCap) {
+                            accumulator.add(inFlight.removeFirst().join());
+                        }
                     }
                 } catch (MissingObjectException e) {
-                    missingEntriesSkipped++;
+                    accumulator.addMissingEntry();
                     logger.debug("Skipping missing tree while scanning {}: {}", repo.shortHash(commitName), e);
-                    continue;
                 }
-
-                LoggingFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-                for (var future : futures) {
-                    BlobScanResult result = future.join();
-                    blobsScanned += result.blobsScanned();
-                    missingEntriesSkipped += result.missingEntriesSkipped();
-                    nonTextEntriesSkipped += result.nonTextEntriesSkipped();
-                    if (!result.keys().isEmpty()) {
-                        keysByCommit
-                                .computeIfAbsent(result.commit(), ignored -> new HashSet<>())
-                                .addAll(result.keys());
-                    }
-                }
+            }
+            while (!inFlight.isEmpty()) {
+                accumulator.add(inFlight.removeFirst().join());
             }
         }
 
         logger.debug(
-                "Secret scan history complete: commitsScanned={}, blobsScanned={}, missingBlobsSkipped={}, nonTextOrOversizedBlobsSkipped={}, findings={}, elapsedMs={}",
+                "Secret scan history complete: commitsScanned={}, blobsScanned={}, cacheHits={}, cacheMisses={}, missingBlobsSkipped={}, nonTextOrOversizedBlobsSkipped={}, findings={}, elapsedMs={}",
                 commitsScanned,
-                blobsScanned,
-                missingEntriesSkipped,
-                nonTextEntriesSkipped,
-                keysByCommit.values().stream().mapToInt(Set::size).sum(),
+                accumulator.blobsScanned(),
+                accumulator.cacheHits(),
+                accumulator.cacheMisses(),
+                accumulator.missingEntriesSkipped(),
+                accumulator.nonTextEntriesSkipped(),
+                accumulator.findingCount(),
                 elapsedMillis(startedNanos));
 
         return new HistoryScanResult(
-                keysByCommit, commitOrder, commitsScanned, blobsScanned, missingEntriesSkipped, nonTextEntriesSkipped);
+                accumulator.keysByCommit(),
+                commitOrder,
+                commitsScanned,
+                accumulator.blobsScanned(),
+                accumulator.cacheHits(),
+                accumulator.cacheMisses(),
+                accumulator.missingEntriesSkipped(),
+                accumulator.nonTextEntriesSkipped());
     }
 
-    private static BlobScanResult scanBlob(Repository repository, BlobScanTask task, boolean includeLowConfidence) {
+    private static BlobScanResult scanBlob(
+            Repository repository,
+            BlobScanTask task,
+            boolean includeLowConfidence,
+            Map<ObjectId, BlobContentScanResult> blobScanCache) {
+        boolean[] cacheMiss = {false};
+        BlobContentScanResult contentResult = blobScanCache.computeIfAbsent(task.objectId(), ignored -> {
+            cacheMiss[0] = true;
+            return scanBlobContent(repository, task, includeLowConfidence);
+        });
+        return new BlobScanResult(
+                task.commit(),
+                rebasePath(contentResult.keys(), task.path()),
+                contentResult.blobsScanned(),
+                cacheMiss[0] ? 0 : 1,
+                cacheMiss[0] ? 1 : 0,
+                contentResult.missingEntriesSkipped(),
+                contentResult.nonTextEntriesSkipped());
+    }
+
+    private static BlobContentScanResult scanBlobContent(
+            Repository repository, BlobScanTask task, boolean includeLowConfidence) {
         try {
             ObjectLoader loader = repository.open(task.objectId());
             if (loader.getSize() > MAX_BLOB_BYTES) {
-                return new BlobScanResult(task.commit(), Set.of(), 0, 0, 1);
+                return new BlobContentScanResult(Set.of(), 0, 0, 1);
             }
             byte[] bytes = loader.getBytes(MAX_BLOB_BYTES);
             String text = StandardCharsets.UTF_8
@@ -340,20 +400,32 @@ public class GitSecretScanner {
                     .decode(ByteBuffer.wrap(bytes))
                     .toString();
             if (BrokkFile.isBinary(text)) {
-                return new BlobScanResult(task.commit(), Set.of(), 0, 0, 1);
+                return new BlobContentScanResult(Set.of(), 0, 0, 1);
             }
-            return new BlobScanResult(task.commit(), scanText(task.path(), text, includeLowConfidence), 1, 0, 0);
+            return new BlobContentScanResult(scanText(task.path(), text, includeLowConfidence), 1, 0, 0);
         } catch (MissingObjectException e) {
-            return new BlobScanResult(task.commit(), Set.of(), 0, 1, 0);
+            logger.trace("Skipping missing blob {} in {}: {}", task.path(), task.commit(), e.getMessage());
+            return new BlobContentScanResult(Set.of(), 0, 1, 0);
         } catch (LargeObjectException | CharacterCodingException e) {
-            return new BlobScanResult(task.commit(), Set.of(), 0, 0, 1);
+            logger.trace(
+                    "Skipping non-text or oversized blob {} in {}: {}", task.path(), task.commit(), e.getMessage());
+            return new BlobContentScanResult(Set.of(), 0, 0, 1);
         } catch (IOException e) {
-            return new BlobScanResult(task.commit(), Set.of(), 0, 1, 0);
+            return new BlobContentScanResult(Set.of(), 0, 1, 0);
         }
     }
 
     private static long elapsedMillis(long startedNanos) {
         return (System.nanoTime() - startedNanos) / 1_000_000;
+    }
+
+    private static Set<SecretKey> rebasePath(Set<SecretKey> keys, String path) {
+        if (keys.isEmpty()) {
+            return Set.of();
+        }
+        return keys.stream()
+                .map(key -> new SecretKey(path, key.line(), key.rule(), key.confidence(), key.sample()))
+                .collect(Collectors.toSet());
     }
 
     public static Set<SecretKey> scanText(String path, String text, boolean includeLowConfidence) {
@@ -377,7 +449,8 @@ public class GitSecretScanner {
                 }
             }
 
-            if (hasCredentialKeyword(line)) {
+            String lowerLine = line.toLowerCase(Locale.ROOT);
+            if (hasCredentialKeyword(lowerLine)) {
                 addAssignmentFindings(
                         findings, path, lineNumber, line, ASSIGNMENT_SECRET_PATTERN, SecretConfidence.MEDIUM);
                 if (includeLowConfidence) {
@@ -390,14 +463,9 @@ public class GitSecretScanner {
         return findings;
     }
 
-    private static boolean hasCredentialKeyword(String line) {
-        return CREDENTIAL_KEYWORDS.stream().anyMatch(keyword -> keyword.matchesSignal(line));
-    }
-
-    private static boolean containsIgnoreCase(String text, String needle) {
-        int max = text.length() - needle.length();
-        for (int i = 0; i <= max; i++) {
-            if (text.regionMatches(true, i, needle, 0, needle.length())) {
+    private static boolean hasCredentialKeyword(String lowerLine) {
+        for (CredentialKeyword keyword : CREDENTIAL_KEYWORDS) {
+            if (keyword.matchesLowercaseSignal(lowerLine)) {
                 return true;
             }
         }
@@ -441,24 +509,7 @@ public class GitSecretScanner {
             return true;
         }
         String lower = stripped.toLowerCase(Locale.ROOT);
-        return Set.of(
-                                "changeme",
-                                "change_me",
-                                "example",
-                                "example-secret",
-                                "dummy",
-                                "test",
-                                "testing",
-                                "placeholder",
-                                "password",
-                                "secret",
-                                "token",
-                                "xxx",
-                                "xxxx",
-                                "your-token",
-                                "your-secret")
-                        .contains(lower)
-                || lower.chars().distinct().count() <= 2;
+        return PLACEHOLDER_VALUES.contains(lower) || lower.chars().distinct().count() <= 2;
     }
 
     private static double approximateEntropy(String value) {
@@ -568,13 +619,23 @@ public class GitSecretScanner {
     private record SecretRule(
             String name, SecretConfidence confidence, Pattern pattern, int secretGroup, Set<String> signalSubstrings) {
         boolean matchesSignal(String line) {
-            return signalSubstrings.stream().anyMatch(line::contains);
+            for (String signal : signalSubstrings) {
+                if (line.contains(signal)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
     private record CredentialKeyword(String patternFragment, Set<String> signalSubstrings) {
-        boolean matchesSignal(String line) {
-            return signalSubstrings.stream().anyMatch(signal -> containsIgnoreCase(line, signal));
+        boolean matchesLowercaseSignal(String lowerLine) {
+            for (String signal : signalSubstrings) {
+                if (lowerLine.contains(signal)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
@@ -608,10 +669,22 @@ public class GitSecretScanner {
             String commit,
             Set<SecretKey> keys,
             int blobsScanned,
+            int cacheHits,
+            int cacheMisses,
             int missingEntriesSkipped,
             int nonTextEntriesSkipped) {}
 
     private record CurrentScanResult(
+            Set<SecretKey> keys,
+            int blobsScanned,
+            int cacheHits,
+            int cacheMisses,
+            int missingEntriesSkipped,
+            int nonTextEntriesSkipped) {
+        private static final CurrentScanResult EMPTY = new CurrentScanResult(Set.of(), 0, 0, 0, 0, 0);
+    }
+
+    private record BlobContentScanResult(
             Set<SecretKey> keys, int blobsScanned, int missingEntriesSkipped, int nonTextEntriesSkipped) {}
 
     private record HistoryScanResult(
@@ -619,10 +692,66 @@ public class GitSecretScanner {
             Map<String, Integer> commitOrder,
             int commitsScanned,
             int blobsScanned,
+            int cacheHits,
+            int cacheMisses,
             int missingEntriesSkipped,
             int nonTextEntriesSkipped) {
         static HistoryScanResult EMPTY() {
-            return new HistoryScanResult(Map.of(), Map.of(), 0, 0, 0, 0);
+            return new HistoryScanResult(Map.of(), Map.of(), 0, 0, 0, 0, 0, 0);
+        }
+    }
+
+    private static final class HistoryScanAccumulator {
+        private final Map<String, Set<SecretKey>> keysByCommit = new LinkedHashMap<>();
+        private int blobsScanned;
+        private int cacheHits;
+        private int cacheMisses;
+        private int missingEntriesSkipped;
+        private int nonTextEntriesSkipped;
+
+        void add(BlobScanResult result) {
+            blobsScanned += result.blobsScanned();
+            cacheHits += result.cacheHits();
+            cacheMisses += result.cacheMisses();
+            missingEntriesSkipped += result.missingEntriesSkipped();
+            nonTextEntriesSkipped += result.nonTextEntriesSkipped();
+            if (!result.keys().isEmpty()) {
+                keysByCommit
+                        .computeIfAbsent(result.commit(), ignored -> new HashSet<>())
+                        .addAll(result.keys());
+            }
+        }
+
+        void addMissingEntry() {
+            missingEntriesSkipped++;
+        }
+
+        Map<String, Set<SecretKey>> keysByCommit() {
+            return keysByCommit;
+        }
+
+        int blobsScanned() {
+            return blobsScanned;
+        }
+
+        int cacheHits() {
+            return cacheHits;
+        }
+
+        int cacheMisses() {
+            return cacheMisses;
+        }
+
+        int missingEntriesSkipped() {
+            return missingEntriesSkipped;
+        }
+
+        int nonTextEntriesSkipped() {
+            return nonTextEntriesSkipped;
+        }
+
+        int findingCount() {
+            return keysByCommit.values().stream().mapToInt(Set::size).sum();
         }
     }
 
