@@ -393,7 +393,12 @@ def test_map_executor_tool_call_produces_structured_update() -> None:
 def test_map_executor_tool_output_produces_structured_update() -> None:
     out_event = {
         "type": "TOOL_OUTPUT",
-        "data": {"id": "t1", "name": "getFileContents", "status": "SUCCESS", "resultText": "file contents"},
+        "data": {
+            "id": "t1",
+            "name": "getFileContents",
+            "status": "SUCCESS",
+            "resultText": "file contents",
+        },
     }
     result = map_executor_event_to_session_update(out_event, _text_block)
     assert result is not None
