@@ -22,12 +22,12 @@ import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
-import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.util.AlmostGrep;
 import ai.brokk.util.FileTargetHeuristic;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import ai.brokk.util.PathExpander;
+import ai.brokk.util.SearchToolSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -184,12 +184,7 @@ public class SearchTools {
 
     private final ICodeIntelligence codeIntelligence;
     private final AtomicLong researchTokens = new AtomicLong(0);
-    private final Cache<FileRankingCacheKey, List<ProjectFile>> prioritizedFilesCache =
-            Caffeine.newBuilder().maximumSize(64).build();
-    private final Cache<GitCommitSearchCacheKey, GitRepo.SearchCommitsResult> searchCommitsCache =
-            Caffeine.newBuilder().maximumSize(128).build();
-    private final Cache<String, List<ProjectFile>> changedFilesByCommitCache =
-            Caffeine.newBuilder().maximumSize(2048).build();
+    private final SearchToolSupport searchToolSupport = new SearchToolSupport(logger);
 
     public SearchTools(ICodeIntelligence codeIntelligence) {
         this.codeIntelligence = codeIntelligence;
@@ -208,59 +203,11 @@ public class SearchTools {
     }
 
     private String appendRelatedContent(String output, Collection<ProjectFile> resultFiles) {
-        var relatedFiles = getMostRelevantFilesForResults(resultFiles, RELATED_CONTENT_LIMIT);
-        if (relatedFiles.isEmpty()) {
-            return output;
+        var repo = codeIntelligence.getRepo();
+        if (repo != null) {
+            return searchToolSupport.appendRelatedContent(output, resultFiles, RELATED_CONTENT_LIMIT, getAnalyzer(), repo);
         }
-
-        String relatedSection = relatedFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
-        return output + "\n\n## Related Content\n" + relatedSection;
-    }
-
-    private List<ProjectFile> getMostRelevantFilesForResults(Collection<ProjectFile> resultFiles, int topK) {
-        if (topK <= 0) return List.of();
-
-        var ineligibleSources = new LinkedHashSet<>(resultFiles);
-        if (ineligibleSources.isEmpty()) {
-            return List.of();
-        }
-
-        Map<ProjectFile, Double> weightedSeeds = ineligibleSources.stream()
-                .collect(Collectors.toMap(file -> file, file -> 1.0d, Double::sum, HashMap::new));
-
-        Set<ProjectFile> relevantFiles = new LinkedHashSet<>();
-        var repoObj = codeIntelligence.getRepo();
-
-        if (repoObj instanceof GitRepo gr) {
-            try {
-                var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK);
-                relevantFiles.addAll(filterResults(gitResults, ineligibleSources));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warn("Interrupted while computing Git-based related files for {}", ineligibleSources, e);
-                return List.of();
-            } catch (Exception e) {
-                logger.warn("Failed to compute Git-based related files; falling back to imports.", e);
-            }
-        }
-
-        if (relevantFiles.size() < topK) {
-            int remaining = topK - relevantFiles.size();
-            var importResults = ImportPageRanker.getRelatedFilesByImports(getAnalyzer(), weightedSeeds, topK, false);
-            filterResults(importResults, ineligibleSources).stream()
-                    .filter(file -> !relevantFiles.contains(file))
-                    .limit(remaining)
-                    .forEach(relevantFiles::add);
-        }
-
-        return List.copyOf(relevantFiles);
-    }
-
-    private List<ProjectFile> filterResults(List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
-        return results.stream()
-                .map(IAnalyzer.FileRelevance::file)
-                .filter(file -> !ineligibleSources.contains(file))
-                .toList();
+        return searchToolSupport.appendRelatedContent(output, resultFiles, RELATED_CONTENT_LIMIT, getAnalyzer(), null);
     }
 
     // --- Sanitization Helper Methods
@@ -1467,7 +1414,7 @@ public class SearchTools {
 
         int effectiveLimit = min(max(1, limit), AlmostGrep.FILE_SEARCH_LIMIT);
 
-        GitRepo.SearchCommitsResult searchResult;
+        IGitRepo.SearchCommitsResult searchResult;
         try {
             searchResult = getCachedCommitSearchResult(gitRepo, pattern, effectiveLimit);
         } catch (GitAPIException e) {
@@ -1600,77 +1547,26 @@ public class SearchTools {
 
     private record IndexedResult<T>(int index, @Nullable T value, @Nullable String error) {}
 
-    private record FileRankingCacheKey(String currentCommitId, List<ProjectFile> files) {}
-
-    private record GitCommitSearchCacheKey(String currentCommitId, String pattern, int limit) {}
-
     private List<ProjectFile> prioritizeFilesForSelection(Collection<ProjectFile> files) {
-        var alphabeticalFiles = files.stream().sorted().toList();
         var repo = codeIntelligence.getRepo();
-        if (!(repo instanceof GitRepo gitRepo)) {
-            return alphabeticalFiles;
+        if (repo == null) {
+            return searchToolSupport.prioritizeFilesForSelection(files, null);
         }
-        try {
-            var cacheKey = new FileRankingCacheKey(gitRepo.getCurrentCommitId(), alphabeticalFiles);
-            var cached = prioritizedFilesCache.getIfPresent(cacheKey);
-            if (cached != null) {
-                return cached;
-            }
-
-            var rankedFiles = GitDistance.sortByImportance(alphabeticalFiles, gitRepo);
-            prioritizedFilesCache.put(cacheKey, rankedFiles);
-            return rankedFiles;
-        } catch (GitAPIException e) {
-            logger.debug("Failed to determine current commit for ranking; falling back to direct Git ranking", e);
-            try {
-                return GitDistance.sortByImportance(alphabeticalFiles, gitRepo);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                logger.warn("Interrupted while ranking files by Git importance; falling back to alphabetical order");
-                return alphabeticalFiles;
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("Interrupted while ranking files by Git importance; falling back to alphabetical order");
-            return alphabeticalFiles;
-        } catch (RuntimeException e) {
-            logger.debug("Failed to rank files by Git importance; falling back to alphabetical order", e);
-            return alphabeticalFiles;
-        }
+        return searchToolSupport.prioritizeFilesForSelection(files, repo);
     }
 
     private List<ProjectFile> selectFilesForDisplay(Collection<ProjectFile> files, int limit) {
-        var alphabeticalFiles = files.stream().sorted().toList();
-        if (alphabeticalFiles.size() <= limit) {
-            return alphabeticalFiles;
-        }
-        return alphabeticalFiles.stream().limit(limit).toList();
+        return searchToolSupport.selectFilesForDisplay(files, limit);
     }
 
-    private GitRepo.SearchCommitsResult getCachedCommitSearchResult(GitRepo gitRepo, String pattern, int limit)
+    private IGitRepo.SearchCommitsResult getCachedCommitSearchResult(IGitRepo gitRepo, String pattern, int limit)
             throws GitAPIException {
-        var cacheKey = new GitCommitSearchCacheKey(gitRepo.getCurrentCommitId(), pattern, limit);
-        var cached = searchCommitsCache.getIfPresent(cacheKey);
-        if (cached != null) {
-            return cached;
-        }
-
-        var computed = gitRepo.searchCommits(pattern, limit);
-        searchCommitsCache.put(cacheKey, computed);
-        return computed;
+        return searchToolSupport.getCachedCommitSearchResult(gitRepo, pattern, limit);
     }
 
-    private List<ProjectFile> getCachedChangedFilesForCommit(GitRepo gitRepo, String commitId) throws GitAPIException {
-        var cached = changedFilesByCommitCache.getIfPresent(commitId);
-        if (cached != null) {
-            return cached;
-        }
-
-        var changedFiles = gitRepo.listFilesChangedInCommit(commitId).stream()
-                .map(IGitRepo.ModifiedFile::file)
-                .toList();
-        changedFilesByCommitCache.put(commitId, changedFiles);
-        return changedFiles;
+    private List<ProjectFile> getCachedChangedFilesForCommit(IGitRepo gitRepo, String commitId)
+            throws GitAPIException {
+        return searchToolSupport.getCachedChangedFilesForCommit(gitRepo, commitId);
     }
 
     private <T> BatchResult<T> batchProcessFiles(
