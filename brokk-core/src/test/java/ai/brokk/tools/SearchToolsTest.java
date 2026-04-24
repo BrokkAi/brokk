@@ -31,6 +31,8 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.junit.jupiter.api.AfterEach;
@@ -134,129 +136,12 @@ class SearchToolsTest {
         };
 
         project = new CoreProject(projectRoot);
-        ICoreProject countingProject = new ICoreProject() {
-            @Override
-            public Set<ProjectFile> getAllFiles() {
-                return Set.of(countedFile);
-            }
-
-            @Override
-            public Path getRoot() {
-                return project.getRoot();
-            }
-
-            @Override
-            public Optional<ProjectFile> getFileByRelPath(Path relPath) {
-                return countedFile.getRelPath().equals(relPath)
+        ICoreProject countingProject = overridingProject(
+                project,
+                () -> Set.of(countedFile),
+                relPath -> countedFile.getRelPath().equals(relPath)
                         ? Optional.of(countedFile)
-                        : project.getFileByRelPath(relPath);
-            }
-
-            @Override
-            public boolean isEmptyProject() {
-                return project.isEmptyProject();
-            }
-
-            @Override
-            public Set<ProjectFile> getAnalyzableFiles(Language language) {
-                return project.getAnalyzableFiles(language);
-            }
-
-            @Override
-            public Set<Language> getAnalyzerLanguages() {
-                return project.getAnalyzerLanguages();
-            }
-
-            @Override
-            public void setAnalyzerLanguages(Set<Language> languages) {
-                project.setAnalyzerLanguages(languages);
-            }
-
-            @Override
-            public void invalidateAutoDetectedLanguages() {
-                project.invalidateAutoDetectedLanguages();
-            }
-
-            @Override
-            public List<String> getSourceRoots(Language language) {
-                return project.getSourceRoots(language);
-            }
-
-            @Override
-            public void setSourceRoots(Language language, List<String> roots) {
-                project.setSourceRoots(language, roots);
-            }
-
-            @Override
-            public boolean isGitignored(Path relPath) {
-                return project.isGitignored(relPath);
-            }
-
-            @Override
-            public boolean isGitignored(Path relPath, boolean isDirectory) {
-                return project.isGitignored(relPath, isDirectory);
-            }
-
-            @Override
-            public boolean shouldSkipPath(Path relPath, boolean isDirectory) {
-                return project.shouldSkipPath(relPath, isDirectory);
-            }
-
-            @Override
-            public Set<String> getExclusionPatterns() {
-                return project.getExclusionPatterns();
-            }
-
-            @Override
-            public Set<String> getExcludedDirectories() {
-                return project.getExcludedDirectories();
-            }
-
-            @Override
-            public Set<String> getExcludedGlobPatterns() {
-                return project.getExcludedGlobPatterns();
-            }
-
-            @Override
-            public boolean isPathExcluded(String relativePath, boolean isDirectory) {
-                return project.isPathExcluded(relativePath, isDirectory);
-            }
-
-            @Override
-            public Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
-                return project.filterExcludedFiles(files);
-            }
-
-            @Override
-            public void invalidateAllFiles() {
-                project.invalidateAllFiles();
-            }
-
-            @Override
-            public IGitRepo getRepo() {
-                return project.getRepo();
-            }
-
-            @Override
-            public boolean hasGit() {
-                return project.hasGit();
-            }
-
-            @Override
-            public Path getMasterRootPathForConfig() {
-                return project.getMasterRootPathForConfig();
-            }
-
-            @Override
-            public IStringDiskCache getDiskCache() {
-                return project.getDiskCache();
-            }
-
-            @Override
-            public void close() {
-                project.close();
-            }
-        };
+                        : project.getFileByRelPath(relPath));
         SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(countingProject, new DisabledAnalyzer(project)));
 
         String result = tools.searchFileContents(List.of("MATCH"), "counted.txt", false, false, 0, 200);
@@ -865,6 +750,170 @@ class SearchToolsTest {
 
         assertTrue(result.contains("class C0"), "Should include computed skeletons");
         assertEquals(parallelism, maxInFlight.get(), "getSummaries should cap concurrent getSkeletons calls");
+    }
+
+    @Test
+    void getSummaries_ClassTargetsDoNotEnumerateProjectFilesForExtensionHeuristic() throws Exception {
+        Path projectRoot = initRepo();
+        project = new CoreProject(projectRoot);
+
+        AtomicInteger getAllFilesCalls = new AtomicInteger();
+        ProjectFile source = new ProjectFile(projectRoot, "A.java");
+        CodeUnit classUnit = CodeUnit.cls(source, "", "A");
+        ICoreProject countingProject =
+                overridingProject(project, () -> {
+                    getAllFilesCalls.incrementAndGet();
+                    return Set.of(source);
+                }, project::getFileByRelPath);
+
+        IAnalyzer analyzer = new DisabledAnalyzer(countingProject) {
+            @Override
+            public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+                return "A".equals(fqName) ? new LinkedHashSet<>(List.of(classUnit)) : new LinkedHashSet<>();
+            }
+
+            @Override
+            public Optional<String> getSkeleton(CodeUnit cu) {
+                return classUnit.equals(cu) ? Optional.of("class A {}") : Optional.empty();
+            }
+        };
+
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(countingProject, analyzer));
+
+        String result = tools.getSummaries(List.of("A"));
+
+        assertTrue(result.contains("class A"), "Should still return the class summary");
+        assertEquals(
+                0,
+                getAllFilesCalls.get(),
+                "Class-only getSummaries calls should not scan project files just to classify targets");
+    }
+
+    private static ICoreProject overridingProject(
+            CoreProject delegate,
+            Supplier<Set<ProjectFile>> allFilesSupplier,
+            Function<Path, Optional<ProjectFile>> fileByRelPathLookup) {
+        return new ICoreProject() {
+            @Override
+            public Set<ProjectFile> getAllFiles() {
+                return allFilesSupplier.get();
+            }
+
+            @Override
+            public Path getRoot() {
+                return delegate.getRoot();
+            }
+
+            @Override
+            public Optional<ProjectFile> getFileByRelPath(Path relPath) {
+                return fileByRelPathLookup.apply(relPath);
+            }
+
+            @Override
+            public boolean isEmptyProject() {
+                return delegate.isEmptyProject();
+            }
+
+            @Override
+            public Set<ProjectFile> getAnalyzableFiles(Language language) {
+                return delegate.getAnalyzableFiles(language);
+            }
+
+            @Override
+            public Set<Language> getAnalyzerLanguages() {
+                return delegate.getAnalyzerLanguages();
+            }
+
+            @Override
+            public void setAnalyzerLanguages(Set<Language> languages) {
+                delegate.setAnalyzerLanguages(languages);
+            }
+
+            @Override
+            public void invalidateAutoDetectedLanguages() {
+                delegate.invalidateAutoDetectedLanguages();
+            }
+
+            @Override
+            public List<String> getSourceRoots(Language language) {
+                return delegate.getSourceRoots(language);
+            }
+
+            @Override
+            public void setSourceRoots(Language language, List<String> roots) {
+                delegate.setSourceRoots(language, roots);
+            }
+
+            @Override
+            public boolean isGitignored(Path relPath) {
+                return delegate.isGitignored(relPath);
+            }
+
+            @Override
+            public boolean isGitignored(Path relPath, boolean isDirectory) {
+                return delegate.isGitignored(relPath, isDirectory);
+            }
+
+            @Override
+            public boolean shouldSkipPath(Path relPath, boolean isDirectory) {
+                return delegate.shouldSkipPath(relPath, isDirectory);
+            }
+
+            @Override
+            public Set<String> getExclusionPatterns() {
+                return delegate.getExclusionPatterns();
+            }
+
+            @Override
+            public Set<String> getExcludedDirectories() {
+                return delegate.getExcludedDirectories();
+            }
+
+            @Override
+            public Set<String> getExcludedGlobPatterns() {
+                return delegate.getExcludedGlobPatterns();
+            }
+
+            @Override
+            public boolean isPathExcluded(String relativePath, boolean isDirectory) {
+                return delegate.isPathExcluded(relativePath, isDirectory);
+            }
+
+            @Override
+            public Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
+                return delegate.filterExcludedFiles(files);
+            }
+
+            @Override
+            public void invalidateAllFiles() {
+                delegate.invalidateAllFiles();
+            }
+
+            @Override
+            public IGitRepo getRepo() {
+                return delegate.getRepo();
+            }
+
+            @Override
+            public boolean hasGit() {
+                return delegate.hasGit();
+            }
+
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return delegate.getMasterRootPathForConfig();
+            }
+
+            @Override
+            public IStringDiskCache getDiskCache() {
+                return delegate.getDiskCache();
+            }
+
+            @Override
+            public void close() {
+                delegate.close();
+            }
+        };
     }
 
     private Path initRepo() throws Exception {

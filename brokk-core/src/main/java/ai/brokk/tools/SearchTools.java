@@ -24,6 +24,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.util.AlmostGrep;
+import ai.brokk.util.FileTargetHeuristic;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import ai.brokk.util.PathExpander;
@@ -863,12 +864,6 @@ public class SearchTools {
 
     private SummaryTargets routeSummaryTargets(List<String> targets) {
         var project = codeIntelligence.getProject();
-        var knownExtensions = project.getAllFiles().stream()
-                .map(ProjectFile::extension)
-                .map(ext -> ext.toLowerCase(Locale.ROOT))
-                .filter(ext -> !ext.isBlank())
-                .collect(Collectors.toSet());
-
         var fileTargets = new LinkedHashSet<ProjectFile>();
         var unmatchedFileTargets = new ArrayList<String>();
         var classTargets = new LinkedHashSet<String>();
@@ -887,7 +882,7 @@ public class SearchTools {
                 continue;
             }
 
-            if (looksLikeFileTarget(target, knownExtensions)) {
+            if (FileTargetHeuristic.looksLikeFileTarget(target)) {
                 unmatchedFileTargets.add(target);
                 continue;
             }
@@ -897,25 +892,6 @@ public class SearchTools {
 
         return new SummaryTargets(
                 List.copyOf(fileTargets), List.copyOf(unmatchedFileTargets), List.copyOf(classTargets));
-    }
-
-    private static boolean looksLikeFileTarget(String target, Set<String> knownExtensions) {
-        if (target.equals(".")
-                || target.startsWith(".")
-                || target.contains("/")
-                || target.contains("\\")
-                || target.contains("*")
-                || target.contains("?")) {
-            return true;
-        }
-
-        int lastDot = target.lastIndexOf('.');
-        if (lastDot <= 0 || lastDot == target.length() - 1) {
-            return false;
-        }
-
-        var extension = target.substring(lastDot + 1).toLowerCase(Locale.ROOT);
-        return knownExtensions.contains(extension);
     }
 
     private SummaryOutput summarizeFiles(List<ProjectFile> projectFiles) {

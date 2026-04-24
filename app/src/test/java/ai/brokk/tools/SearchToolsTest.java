@@ -637,6 +637,32 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testGetSummaries_classTargetsDoNotEnumerateProjectFilesForExtensionHeuristic() {
+        AtomicInteger getAllFilesCalls = new AtomicInteger();
+        ProjectFile source = new ProjectFile(projectRoot, "A.java");
+        CodeUnit classUnit = CodeUnit.cls(source, "", "A");
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(classUnit);
+        analyzer.setSkeleton(classUnit, "class A {}");
+
+        TestProject project = new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> {
+            getAllFilesCalls.incrementAndGet();
+            return Set.of(source);
+        });
+        TestContextManager ctx =
+                new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, repo);
+
+        SearchTools tools = new SearchTools(ctx);
+        String result = tools.getSummaries(List.of("A"));
+
+        assertTrue(result.contains("class A"), "Should still return the class summary");
+        assertEquals(
+                0,
+                getAllFilesCalls.get(),
+                "Class-only getSummaries calls should not scan project files just to classify targets");
+    }
+
+    @Test
     void testGetGitLog_limitEnforced() throws Exception {
         // Create several commits
         try (Git git = Git.open(projectRoot.toFile())) {
