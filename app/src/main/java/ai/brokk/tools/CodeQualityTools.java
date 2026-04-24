@@ -31,8 +31,8 @@ import org.jetbrains.annotations.Blocking;
 public class CodeQualityTools {
     private static final String FINDING_PREFIX = "[CODE_QUALITY]";
 
-    private static final String COMMENT_DENSITY_JAVA_ONLY =
-            "Comment density is only available for Java symbols in this analyzer snapshot.";
+    private static final String COMMENT_DENSITY_UNAVAILABLE =
+            "Comment density is unavailable for this symbol in the current analyzer snapshot.";
 
     private static final int DEFAULT_SECRET_MAX_FINDINGS = 100;
     private static final int DEFAULT_SECRET_MAX_COMMITS = 2000;
@@ -94,7 +94,8 @@ public class CodeQualityTools {
 
     @Tool(
             """
-            Java comment density for one symbol identified by fully qualified name (same resolution as getDefinitions).
+            Comment density for one symbol identified by fully qualified name (same resolution as getDefinitions).
+            Works for analyzers that provide comment-density stats (for example Java, JavaScript, or TypeScript).
             Reports header vs inline comment line counts, declaration span lines, and rolled-up totals for class-like units.
             For semantic review, follow up with getFileContents or getMethodSources. Output is truncated to maxLines.""")
     public String reportCommentDensityForCodeUnit(
@@ -111,15 +112,11 @@ public class CodeQualityTools {
         if (defs.isEmpty()) {
             return "No definition found for: " + key;
         }
-        CodeUnit cu = defs.stream()
-                .filter(d -> "java".equals(d.source().extension()))
-                .findFirst()
-                .orElse(defs.getFirst());
-        Optional<CommentDensityStats> stats = analyzer.commentDensity(cu);
+        Optional<CommentDensityStats> stats = analyzer.commentDensity(key);
         if (stats.isEmpty()) {
-            return COMMENT_DENSITY_JAVA_ONLY;
+            return COMMENT_DENSITY_UNAVAILABLE;
         }
-        return truncateToLineCap(formatCommentDensityForUnit(stats.get()), cap);
+        return truncateToLineCap(formatCommentDensityForUnit(stats.orElseThrow()), cap);
     }
 
     @Tool(
@@ -164,7 +161,7 @@ public class CodeQualityTools {
             List<CommentDensityStats> stats = analyzer.commentDensityByTopLevel(file);
             if (stats.isEmpty()) {
                 lines.add("### `" + path + "`");
-                lines.add(COMMENT_DENSITY_JAVA_ONLY);
+                lines.add(COMMENT_DENSITY_UNAVAILABLE);
                 lines.add("");
                 filesShown++;
                 continue;

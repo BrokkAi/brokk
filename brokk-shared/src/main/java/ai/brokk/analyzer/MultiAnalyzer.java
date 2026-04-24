@@ -229,6 +229,14 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Optional<CommentDensityStats> commentDensity(String fqName) {
+        return getDefinitions(fqName).stream()
+                .map(cu -> delegateFor(cu).flatMap(delegate -> delegate.commentDensity(cu)))
+                .flatMap(Optional::stream)
+                .findFirst();
+    }
+
+    @Override
     public List<CommentDensityStats> commentDensityByTopLevel(ProjectFile file) {
         return delegateFor(file)
                 .map(delegate -> delegate.commentDensityByTopLevel(file))

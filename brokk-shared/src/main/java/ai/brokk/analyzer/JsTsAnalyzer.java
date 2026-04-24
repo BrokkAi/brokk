@@ -15,7 +15,9 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -357,7 +359,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (!"js".equals(ext) && !"jsx".equals(ext) && !"ts".equals(ext) && !"tsx".equals(ext)) {
             return Optional.empty();
         }
-        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(cu.source(), COMMENT_NODE_TYPES);
+        Map<String, CommentLineBreakdown> counts = collectJsTsCommentLineBreakdown(cu.source());
         return Optional.of(buildRollUpStats(cu, counts));
     }
 
@@ -368,7 +370,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (!"js".equals(ext) && !"jsx".equals(ext) && !"ts".equals(ext) && !"tsx".equals(ext)) {
             return List.of();
         }
-        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(file, COMMENT_NODE_TYPES);
+        Map<String, CommentLineBreakdown> counts = collectJsTsCommentLineBreakdown(file);
         List<CommentDensityStats> rows = new ArrayList<>();
         for (CodeUnit top : getTopLevelDeclarations(file)) {
             rows.add(buildRollUpStats(top, counts));
@@ -931,6 +933,55 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 || JS_LOG_RECEIVER_NAMES.stream().anyMatch(name -> receiver.endsWith("." + name));
         boolean loggerLikeMethod = JS_LOG_METHOD_NAMES.contains(method);
         return loggerLikeReceiver && loggerLikeMethod;
+    }
+
+    /**
+     * Walks the JavaScript/TypeScript parse tree for comment nodes, associates each comment with the smallest
+     * comment-expanded declaration range that owns it, and classifies leading comments as header lines.
+     */
+    private Map<String, CommentLineBreakdown> collectJsTsCommentLineBreakdown(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Map.of();
+                    }
+                    List<TSNode> comments = new ArrayList<>();
+                    collectNodesByType(root, COMMENT_NODE_TYPES, comments);
+
+                    Map<String, int[]> counts = new HashMap<>();
+                    for (TSNode comment : comments) {
+                        int startByte = comment.getStartByte();
+                        int endByte = comment.getEndByte();
+                        var cuOpt = enclosingCodeUnitByCommentBytes(file, startByte, endByte);
+                        if (cuOpt.isEmpty()) {
+                            continue;
+                        }
+                        var cu = cuOpt.get();
+                        var rangeOpt = rangesOf(cu).stream()
+                                .filter(r -> startByte >= r.commentStartByte() && endByte <= r.endByte())
+                                .min(Comparator.comparingInt(r -> r.endByte() - r.commentStartByte()));
+                        if (rangeOpt.isEmpty()) {
+                            continue;
+                        }
+                        var range = rangeOpt.get();
+                        int[] entry = counts.computeIfAbsent(cu.fqName(), ignored -> new int[2]);
+                        int lines = comment.getEndPoint().getRow()
+                                - comment.getStartPoint().getRow()
+                                + 1;
+                        if (endByte <= range.startByte()) {
+                            entry[0] += lines;
+                        } else {
+                            entry[1] += lines;
+                        }
+                    }
+                    return counts.entrySet().stream()
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> new CommentLineBreakdown(e.getValue()[0], e.getValue()[1])));
+                },
+                Map.of());
     }
 
     private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentLineBreakdown> counts) {
