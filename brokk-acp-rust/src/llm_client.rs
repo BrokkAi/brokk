@@ -427,6 +427,13 @@ impl OpenAiClient {
             }
         }
 
+        // If we exited the loop via cancellation, tool call fragments may be incomplete
+        // (arguments JSON truncated mid-stream). Return only the text we've already
+        // streamed to the caller to avoid dispatching malformed tool calls.
+        if cancel.is_cancelled() {
+            return Ok(LlmResponse::Text(full_text));
+        }
+
         if tool_acc.is_empty() {
             Ok(LlmResponse::Text(full_text))
         } else {
