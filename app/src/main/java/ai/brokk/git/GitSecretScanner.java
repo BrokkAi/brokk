@@ -332,10 +332,10 @@ public class GitSecretScanner {
             }
             return new BlobContentScanResult(scanText(task.path(), text, includeLowConfidence), 0, 0);
         } catch (MissingObjectException e) {
-            logger.debug("Skipping missing blob {} in {}: {}", task.path(), task.commit(), e.getMessage());
+            logger.trace("Skipping missing blob {} in {}: {}", task.path(), task.commit(), e.getMessage());
             return new BlobContentScanResult(Set.of(), 1, 0);
         } catch (LargeObjectException | CharacterCodingException e) {
-            logger.debug(
+            logger.trace(
                     "Skipping non-text or oversized blob {} in {}: {}", task.path(), task.commit(), e.getMessage());
             return new BlobContentScanResult(Set.of(), 0, 1);
         } catch (IOException e) {
