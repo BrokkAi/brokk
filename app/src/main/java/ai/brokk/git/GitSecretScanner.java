@@ -50,38 +50,71 @@ public class GitSecretScanner {
     private static final int MAX_BLOB_BYTES = 1024 * 1024;
     private static final int MAX_SECRET_SAMPLE_VALUE_CHARS = 12;
 
-    private static final Pattern ASSIGNMENT_SECRET_PATTERN = Pattern.compile(
-            "(?i)([A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|client[_-]?secret|private[_-]?key|access[_-]?key)[A-Za-z0-9_.-]*)\\s*[:=]\\s*['\"]?([^'\"\\s,;#}]+)");
+    private static final Set<CredentialKeyword> CREDENTIAL_KEYWORDS = Set.of(
+            new CredentialKeyword("password", Set.of("password")),
+            new CredentialKeyword("passwd", Set.of("passwd")),
+            new CredentialKeyword("secret", Set.of("secret")),
+            new CredentialKeyword("token", Set.of("token")),
+            new CredentialKeyword("api[_-]?key", Set.of("apikey", "api_key", "api-key")),
+            new CredentialKeyword("client[_-]?secret", Set.of("clientsecret", "client_secret", "client-secret")),
+            new CredentialKeyword("private[_-]?key", Set.of("privatekey", "private_key", "private-key")),
+            new CredentialKeyword("access[_-]?key", Set.of("accesskey", "access_key", "access-key")));
 
-    private static final Pattern LOW_CONFIDENCE_SECRET_PATTERN = Pattern.compile(
-            "(?i)([A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|client[_-]?secret|private[_-]?key|access[_-]?key)[A-Za-z0-9_.-]*)\\s*[:=]\\s*['\"]?([^'\"\\s,;#}]{4,11})");
+    private static final String CREDENTIAL_NAME_PATTERN_FRAGMENT = CREDENTIAL_KEYWORDS.stream()
+            .map(CredentialKeyword::patternFragment)
+            .collect(Collectors.joining("|", "(?:", ")"));
+
+    private static final Pattern ASSIGNMENT_SECRET_PATTERN =
+            Pattern.compile("(?i)([A-Za-z0-9_.-]*%s[A-Za-z0-9_.-]*)\\s*[:=]\\s*['\"]?([^'\"\\s,;#}]+)"
+                    .formatted(CREDENTIAL_NAME_PATTERN_FRAGMENT));
+
+    private static final Pattern LOW_CONFIDENCE_SECRET_PATTERN =
+            Pattern.compile("(?i)([A-Za-z0-9_.-]*%s[A-Za-z0-9_.-]*)\\s*[:=]\\s*['\"]?([^'\"\\s,;#}]{4,11})"
+                    .formatted(CREDENTIAL_NAME_PATTERN_FRAGMENT));
 
     private static final List<SecretRule> HIGH_CONFIDENCE_RULES = List.of(
             new SecretRule(
                     "AWS access key id",
                     SecretConfidence.HIGH,
                     Pattern.compile("\\b(A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}\\b"),
-                    0),
+                    0,
+                    Set.of("AKIA", "ASIA", "A3T")),
             new SecretRule(
-                    "GitHub token", SecretConfidence.HIGH, Pattern.compile("\\bgh[opurs]_[A-Za-z0-9_]{36,}\\b"), 0),
+                    "GitHub token",
+                    SecretConfidence.HIGH,
+                    Pattern.compile("\\bgh[opurs]_[A-Za-z0-9_]{36,}\\b"),
+                    0,
+                    Set.of("gho_", "ghp_", "ghu_", "ghr_", "ghs_")),
             new SecretRule(
-                    "Slack token", SecretConfidence.HIGH, Pattern.compile("\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b"), 0),
+                    "Slack token",
+                    SecretConfidence.HIGH,
+                    Pattern.compile("\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b"),
+                    0,
+                    Set.of("xoxb-", "xoxa-", "xoxp-", "xoxr-", "xoxs-")),
             new SecretRule(
                     "Private key block",
                     SecretConfidence.HIGH,
                     Pattern.compile("-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-                    0),
+                    0,
+                    Set.of("-----BEGIN ")),
             new SecretRule(
                     "JWT",
                     SecretConfidence.HIGH,
                     Pattern.compile("\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b"),
-                    0),
-            new SecretRule("Google API key", SecretConfidence.HIGH, Pattern.compile("\\bAIza[0-9A-Za-z_-]{35}\\b"), 0),
+                    0,
+                    Set.of("eyJ")),
+            new SecretRule(
+                    "Google API key",
+                    SecretConfidence.HIGH,
+                    Pattern.compile("\\bAIza[0-9A-Za-z_-]{35}\\b"),
+                    0,
+                    Set.of("AIza")),
             new SecretRule(
                     "Stripe key",
                     SecretConfidence.HIGH,
                     Pattern.compile("\\b[rs]k_(?:live|test)_[0-9A-Za-z]{16,}\\b"),
-                    0));
+                    0,
+                    Set.of("sk_live_", "sk_test_", "rk_live_", "rk_test_")));
 
     private final GitRepo repo;
 
@@ -271,32 +304,50 @@ public class GitSecretScanner {
 
     public static Set<SecretKey> scanText(String path, String text, boolean includeLowConfidence) {
         var findings = new HashSet<SecretKey>();
-        List<String> lines = text.lines().toList();
-        for (int i = 0; i < lines.size(); i++) {
-            int lineNumber = i + 1;
-            String line = lines.get(i);
+        int lineNumber = 1;
+        for (String line : (Iterable<String>) text.lines()::iterator) {
             for (SecretRule rule : HIGH_CONFIDENCE_RULES) {
-                var matcher = rule.pattern().matcher(line);
-                while (matcher.find()) {
-                    String value = matcher.group(rule.secretGroup());
-                    if (!isPlaceholder(value)) {
-                        findings.add(new SecretKey(
-                                path,
-                                lineNumber,
-                                rule.name(),
-                                rule.confidence(),
-                                redactedLine(line, value, matcher.toMatchResult())));
+                if (rule.matchesSignal(line)) {
+                    var matcher = rule.pattern().matcher(line);
+                    while (matcher.find()) {
+                        String value = matcher.group(rule.secretGroup());
+                        if (!isPlaceholder(value)) {
+                            findings.add(new SecretKey(
+                                    path,
+                                    lineNumber,
+                                    rule.name(),
+                                    rule.confidence(),
+                                    redactedLine(line, value, matcher.toMatchResult())));
+                        }
                     }
                 }
             }
 
-            addAssignmentFindings(findings, path, lineNumber, line, ASSIGNMENT_SECRET_PATTERN, SecretConfidence.MEDIUM);
-            if (includeLowConfidence) {
+            if (hasCredentialKeyword(line)) {
                 addAssignmentFindings(
-                        findings, path, lineNumber, line, LOW_CONFIDENCE_SECRET_PATTERN, SecretConfidence.LOW);
+                        findings, path, lineNumber, line, ASSIGNMENT_SECRET_PATTERN, SecretConfidence.MEDIUM);
+                if (includeLowConfidence) {
+                    addAssignmentFindings(
+                            findings, path, lineNumber, line, LOW_CONFIDENCE_SECRET_PATTERN, SecretConfidence.LOW);
+                }
             }
+            lineNumber++;
         }
         return findings;
+    }
+
+    private static boolean hasCredentialKeyword(String line) {
+        return CREDENTIAL_KEYWORDS.stream().anyMatch(keyword -> keyword.matchesSignal(line));
+    }
+
+    private static boolean containsIgnoreCase(String text, String needle) {
+        int max = text.length() - needle.length();
+        for (int i = 0; i <= max; i++) {
+            if (text.regionMatches(true, i, needle, 0, needle.length())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void addAssignmentFindings(
@@ -460,7 +511,18 @@ public class GitSecretScanner {
         BOTH
     }
 
-    private record SecretRule(String name, SecretConfidence confidence, Pattern pattern, int secretGroup) {}
+    private record SecretRule(
+            String name, SecretConfidence confidence, Pattern pattern, int secretGroup, Set<String> signalSubstrings) {
+        boolean matchesSignal(String line) {
+            return signalSubstrings.stream().anyMatch(line::contains);
+        }
+    }
+
+    private record CredentialKeyword(String patternFragment, Set<String> signalSubstrings) {
+        boolean matchesSignal(String line) {
+            return signalSubstrings.stream().anyMatch(signal -> containsIgnoreCase(line, signal));
+        }
+    }
 
     public record SecretKey(String path, int line, String rule, SecretConfidence confidence, String sample) {}
 

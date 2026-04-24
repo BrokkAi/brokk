@@ -49,11 +49,53 @@ class GitSecretScannerTest {
     }
 
     @Test
+    void matcherDetectsProviderTokensWithoutCredentialKeywords() {
+        String text =
+                """
+                value = "AKIAABCDEFGHIJKLMNOP"
+                value = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
+                value = "xoxb-1234567890-abcedfghij"
+                value = "AIza12345678901234567890123456789012345"
+                value = "sk_live_1234567890abcdef"
+                """
+                        .stripIndent();
+
+        Set<GitSecretScanner.SecretKey> findings = GitSecretScanner.scanText("Config.java", text, false);
+
+        assertTrue(findings.stream().anyMatch(f -> f.rule().equals("AWS access key id")), findings.toString());
+        assertTrue(findings.stream().anyMatch(f -> f.rule().equals("GitHub token")), findings.toString());
+        assertTrue(findings.stream().anyMatch(f -> f.rule().equals("Slack token")), findings.toString());
+        assertTrue(findings.stream().anyMatch(f -> f.rule().equals("Google API key")), findings.toString());
+        assertTrue(findings.stream().anyMatch(f -> f.rule().equals("Stripe key")), findings.toString());
+    }
+
+    @Test
     void matcherDetectsGenericCredentialAssignment() {
         Set<GitSecretScanner.SecretKey> findings =
                 GitSecretScanner.scanText("config.yml", "client_secret: qQ9xV7pL2mN8rT4sZ6wY", false);
 
         assertTrue(findings.stream().anyMatch(f -> f.rule().equals("Credential assignment")), findings.toString());
+    }
+
+    @Test
+    void matcherDetectsCredentialAssignmentKeywordVariants() {
+        String text =
+                """
+                apiKey = "qQ9xV7pL2mN8rT4sZ6wY"
+                api_key = "aB9xV7pL2mN8rT4sZ6wY"
+                api-key = "zZ9xV7pL2mN8rT4sZ6wY"
+                access_key = "mM9xV7pL2mN8rT4sZ6wY"
+                """
+                        .stripIndent();
+
+        Set<GitSecretScanner.SecretKey> findings = GitSecretScanner.scanText("config.yml", text, false);
+
+        assertEquals(
+                4,
+                findings.stream()
+                        .filter(f -> f.rule().equals("Credential assignment"))
+                        .count(),
+                findings.toString());
     }
 
     @Test
