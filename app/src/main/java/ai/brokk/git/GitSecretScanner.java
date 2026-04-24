@@ -56,6 +56,30 @@ public class GitSecretScanner {
     private static final Pattern LOW_CONFIDENCE_SECRET_PATTERN = Pattern.compile(
             "(?i)([A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|client[_-]?secret|private[_-]?key|access[_-]?key)[A-Za-z0-9_.-]*)\\s*[:=]\\s*['\"]?([^'\"\\s,;#}]{4,11})");
 
+    private static final Set<String> HIGH_CONFIDENCE_SIGNAL_SUBSTRINGS = Set.of(
+            "AKIA",
+            "ASIA",
+            "A3T",
+            "gho_",
+            "ghp_",
+            "ghu_",
+            "ghr_",
+            "ghs_",
+            "xoxb-",
+            "xoxa-",
+            "xoxp-",
+            "xoxr-",
+            "xoxs-",
+            "-----BEGIN ",
+            "eyJ",
+            "AIza",
+            "sk_live_",
+            "sk_test_",
+            "rk_live_",
+            "rk_test_");
+
+    private static final Set<String> CREDENTIAL_KEYWORDS = Set.of("password", "passwd", "secret", "token", "key");
+
     private static final List<SecretRule> HIGH_CONFIDENCE_RULES = List.of(
             new SecretRule(
                     "AWS access key id",
@@ -271,32 +295,54 @@ public class GitSecretScanner {
 
     public static Set<SecretKey> scanText(String path, String text, boolean includeLowConfidence) {
         var findings = new HashSet<SecretKey>();
-        List<String> lines = text.lines().toList();
-        for (int i = 0; i < lines.size(); i++) {
-            int lineNumber = i + 1;
-            String line = lines.get(i);
-            for (SecretRule rule : HIGH_CONFIDENCE_RULES) {
-                var matcher = rule.pattern().matcher(line);
-                while (matcher.find()) {
-                    String value = matcher.group(rule.secretGroup());
-                    if (!isPlaceholder(value)) {
-                        findings.add(new SecretKey(
-                                path,
-                                lineNumber,
-                                rule.name(),
-                                rule.confidence(),
-                                redactedLine(line, value, matcher.toMatchResult())));
+        int lineNumber = 1;
+        for (String line : (Iterable<String>) text.lines()::iterator) {
+            if (hasHighConfidenceSignal(line)) {
+                for (SecretRule rule : HIGH_CONFIDENCE_RULES) {
+                    var matcher = rule.pattern().matcher(line);
+                    while (matcher.find()) {
+                        String value = matcher.group(rule.secretGroup());
+                        if (!isPlaceholder(value)) {
+                            findings.add(new SecretKey(
+                                    path,
+                                    lineNumber,
+                                    rule.name(),
+                                    rule.confidence(),
+                                    redactedLine(line, value, matcher.toMatchResult())));
+                        }
                     }
                 }
             }
 
-            addAssignmentFindings(findings, path, lineNumber, line, ASSIGNMENT_SECRET_PATTERN, SecretConfidence.MEDIUM);
-            if (includeLowConfidence) {
+            if (hasCredentialKeyword(line)) {
                 addAssignmentFindings(
-                        findings, path, lineNumber, line, LOW_CONFIDENCE_SECRET_PATTERN, SecretConfidence.LOW);
+                        findings, path, lineNumber, line, ASSIGNMENT_SECRET_PATTERN, SecretConfidence.MEDIUM);
+                if (includeLowConfidence) {
+                    addAssignmentFindings(
+                            findings, path, lineNumber, line, LOW_CONFIDENCE_SECRET_PATTERN, SecretConfidence.LOW);
+                }
             }
+            lineNumber++;
         }
         return findings;
+    }
+
+    private static boolean hasHighConfidenceSignal(String line) {
+        return HIGH_CONFIDENCE_SIGNAL_SUBSTRINGS.stream().anyMatch(line::contains);
+    }
+
+    private static boolean hasCredentialKeyword(String line) {
+        return CREDENTIAL_KEYWORDS.stream().anyMatch(keyword -> containsIgnoreCase(line, keyword));
+    }
+
+    private static boolean containsIgnoreCase(String text, String needle) {
+        int max = text.length() - needle.length();
+        for (int i = 0; i <= max; i++) {
+            if (text.regionMatches(true, i, needle, 0, needle.length())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void addAssignmentFindings(
