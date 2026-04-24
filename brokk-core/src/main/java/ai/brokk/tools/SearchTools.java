@@ -1054,7 +1054,7 @@ public class SearchTools {
                 .collect(Collectors.groupingBy(
                         CodeUnit::source, Collectors.groupingBy(cu -> cu.kind().name())));
 
-        // Build output: select by Git importance, then render the selected files alphabetically.
+        // Build output deterministically so truncation does not depend on Git state.
         var result = new StringBuilder();
         boolean truncated = fileGroups.size() > effectiveLimit;
         var filesToRender = selectFilesForDisplay(fileGroups.keySet(), effectiveLimit);
@@ -1668,10 +1668,7 @@ public class SearchTools {
         if (alphabeticalFiles.size() <= limit) {
             return alphabeticalFiles;
         }
-        return prioritizeFilesForSelection(alphabeticalFiles).stream()
-                .limit(limit)
-                .sorted()
-                .toList();
+        return alphabeticalFiles.stream().limit(limit).toList();
     }
 
     private GitRepo.SearchCommitsResult getCachedCommitSearchResult(GitRepo gitRepo, String pattern, int limit)
