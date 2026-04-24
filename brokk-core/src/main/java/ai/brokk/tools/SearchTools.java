@@ -97,7 +97,6 @@ public class SearchTools {
 
     private record SymbolSearchHit(String signature, int lineNumber) {}
 
-    static final int FILE_SEARCH_LIMIT = 100;
     private static final int FILE_SKIM_LIMIT = 20;
     private static final int CLASS_COUNT_LIMIT = 10;
     private static final int RELATED_CONTENT_LIMIT = 5;
@@ -1048,7 +1047,7 @@ public class SearchTools {
             return "No definitions found for patterns: " + String.join(", ", patterns);
         }
 
-        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
+        int effectiveLimit = min(max(1, limit), AlmostGrep.FILE_SEARCH_LIMIT);
 
         // Group by file, then by kind within each file
         var fileGroups = allDefinitions.stream()
@@ -1501,7 +1500,7 @@ public class SearchTools {
                     + repo.getClass().getName() + ").";
         }
 
-        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
+        int effectiveLimit = min(max(1, limit), AlmostGrep.FILE_SEARCH_LIMIT);
 
         GitRepo.SearchCommitsResult searchResult;
         try {
@@ -1588,7 +1587,7 @@ public class SearchTools {
 
         var searchResult = findFilesContainingPatterns(
                 compiledPatterns, codeIntelligence.getProject().getAllFiles());
-        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
+        int effectiveLimit = min(max(1, limit), AlmostGrep.FILE_SEARCH_LIMIT);
         boolean truncated = searchResult.matches().size() > effectiveLimit;
         var matchingFilenames = selectFilesForDisplay(searchResult.matches(), effectiveLimit);
 
@@ -1812,7 +1811,7 @@ public class SearchTools {
 
         int clampedContext = max(0, min(contextLines, FILE_CONTENTS_CONTEXT_LINES_LIMIT));
 
-        int effectiveMaxFiles = min(max(1, maxFiles), FILE_SEARCH_LIMIT);
+        int effectiveMaxFiles = min(max(1, maxFiles), AlmostGrep.FILE_SEARCH_LIMIT);
 
         int flags = 0;
         if (caseInsensitive) {
@@ -2000,9 +1999,9 @@ public class SearchTools {
     private record EffectiveLimits(int maxFiles, int matchesPerFile) {}
 
     private static EffectiveLimits clampMaxFilesAndMatchesPerFile(int maxFiles, int matchesPerFile) {
-        int effectiveMaxFiles = min(max(1, maxFiles), FILE_SEARCH_LIMIT);
+        int effectiveMaxFiles = min(max(1, maxFiles), AlmostGrep.FILE_SEARCH_LIMIT);
 
-        int effectiveMatchesPerFile = min(max(1, matchesPerFile), FILE_SEARCH_LIMIT);
+        int effectiveMatchesPerFile = min(max(1, matchesPerFile), AlmostGrep.FILE_SEARCH_LIMIT);
 
         long product = (long) effectiveMaxFiles * (long) effectiveMatchesPerFile;
         if (product > FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
@@ -2140,7 +2139,7 @@ public class SearchTools {
             return "No XML files found matching: " + filepath;
         }
 
-        int effectiveMaxFiles = min(max(1, maxFiles), FILE_SEARCH_LIMIT);
+        int effectiveMaxFiles = min(max(1, maxFiles), AlmostGrep.FILE_SEARCH_LIMIT);
 
         BatchResult<FileOutput> batchResult;
         try {
@@ -2438,7 +2437,7 @@ public class SearchTools {
             return "Regex pattern '%s' caused StackOverflowError during filename search".formatted(e.pattern());
         }
 
-        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
+        int effectiveLimit = min(max(1, limit), AlmostGrep.FILE_SEARCH_LIMIT);
         boolean truncated = allMatches.size() > effectiveLimit;
         var matchingFiles = selectFilesForDisplay(allMatches, effectiveLimit);
 

@@ -16,6 +16,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -32,7 +33,7 @@ public final class AlmostGrep {
     private AlmostGrep() {}
 
     private static final Logger logger = LogManager.getLogger(AlmostGrep.class);
-    private static final int FILE_SEARCH_LIMIT = 100;
+    public static final int FILE_SEARCH_LIMIT = 100;
     public static final int FILE_CONTENTS_MATCHES_PER_FILE = 20;
     private static final int FILE_SEARCH_BATCH_SIZE = 2 * FILE_SEARCH_LIMIT;
 
@@ -58,7 +59,7 @@ public final class AlmostGrep {
         }
 
         public static FileContentSearchType fromWireValue(String rawValue) {
-            return switch (rawValue.toLowerCase(java.util.Locale.ROOT)) {
+            return switch (rawValue.toLowerCase(Locale.ROOT)) {
                 case "declarations" -> DECLARATIONS;
                 case "usages" -> USAGES;
                 case "all" -> ALL;
