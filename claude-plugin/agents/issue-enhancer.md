@@ -39,8 +39,8 @@ issue that includes:
 - `getMethodSources` -- read the implementation of methods that are
   relevant
 - `getClassSkeletons` -- understand the API surface of related classes
-- `getFileSummaries` -- get an overview of packages or directories
-  related to the issue
+- `getSummaries` -- get API-level and package-level summaries of files,
+  classes, or directories related to the issue
 - `searchFileContents` -- search for patterns, error messages, or
   keywords mentioned in the draft
 - `findFilenames` -- locate files by name when the draft references

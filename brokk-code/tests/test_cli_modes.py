@@ -850,13 +850,13 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
         return tmp_path / ".codex" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
 
     def fake_install_codex_mcp_summaries_skill(*, skills_path: Any = None):
-        return tmp_path / ".codex" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+        return tmp_path / ".codex" / "skills" / "brokk-get-summaries" / "SKILL.md"
 
     def fake_install_claude_mcp_workspace_skill(*, skills_path: Any = None):
         return tmp_path / ".claude" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
 
     def fake_install_claude_mcp_summaries_skill(*, skills_path: Any = None):
-        return tmp_path / ".claude" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+        return tmp_path / ".claude" / "skills" / "brokk-get-summaries" / "SKILL.md"
 
     monkeypatch.setattr(
         main_module,

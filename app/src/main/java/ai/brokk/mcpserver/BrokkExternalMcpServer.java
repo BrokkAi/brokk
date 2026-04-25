@@ -14,6 +14,7 @@ import ai.brokk.agents.ContextAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.RelaxedSourceLookupResolver;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.cli.MemoryConsole;
@@ -97,7 +98,7 @@ public class BrokkExternalMcpServer {
             "scan",
             "searchSymbols",
             "scanUsages",
-            "getFileSummaries",
+            "getSummaries",
             "getClassSources",
             "getMethodSources");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -508,7 +509,10 @@ public class BrokkExternalMcpServer {
 
         var analyzer = cm.getAnalyzerUninterrupted();
         List<String> blocks = new ArrayList<>();
+        List<String> ambiguousMessages = new ArrayList<>();
         Set<String> added = new HashSet<>();
+        var lookups = RelaxedSourceLookupResolver.resolveLookups(
+                analyzer, names, classMode ? CodeUnit::isClass : CodeUnit::isFunction);
 
         int processedCount = 0;
         int maxCount = 10;
@@ -518,14 +522,19 @@ public class BrokkExternalMcpServer {
                 break;
             }
 
-            var definitionOpt = analyzer.getDefinitions(name).stream()
-                    .filter(cu -> classMode ? cu.isClass() : cu.isFunction())
-                    .findFirst();
-            if (definitionOpt.isEmpty()) {
+            var lookup = lookups.get(name);
+            if (lookup == null) {
+                continue;
+            }
+            if (lookup.isAmbiguous()) {
+                ambiguousMessages.add(lookup.ambiguityMessage(classMode ? "class" : "method", name));
+                continue;
+            }
+            if (!lookup.isResolved()) {
                 continue;
             }
 
-            var cu = definitionOpt.get();
+            var cu = requireNonNull(lookup.codeUnit());
             if (!added.add(cu.fqName())) {
                 continue;
             }
@@ -557,10 +566,17 @@ public class BrokkExternalMcpServer {
         }
 
         if (blocks.isEmpty()) {
+            if (!ambiguousMessages.isEmpty()) {
+                return String.join("\n\n", ambiguousMessages);
+            }
             return rawResultText;
         }
 
-        return String.join("\n\n", blocks);
+        String formatted = String.join("\n\n", blocks);
+        if (!ambiguousMessages.isEmpty()) {
+            formatted += "\n\n" + String.join("\n\n", ambiguousMessages);
+        }
+        return formatted;
     }
 
     private static String formatScanUsagesForMcp(Map<?, ?> args, String rawResultText, ContextManager cm) {

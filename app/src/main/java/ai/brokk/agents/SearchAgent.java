@@ -60,6 +60,7 @@ public class SearchAgent {
             "searchSymbols",
             "scanUsages",
             "getSymbolLocations",
+            "getSummaries",
             "skimFiles",
             "findFilesContaining",
             "findFilenames",
@@ -379,6 +380,7 @@ public class SearchAgent {
         names.add("searchSymbols");
         names.add("scanUsages");
         names.add("getSymbolLocations");
+        names.add("getSummaries");
         names.add("skimFiles");
         names.add("findFilesContaining");
         names.add("findFilenames");

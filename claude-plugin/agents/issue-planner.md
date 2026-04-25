@@ -43,8 +43,8 @@ details:
   similar features, etc.)
 - `findFilenames` -- locate test files, configuration files, or related
   modules
-- `getFileSummaries` -- understand package structure to place new files
-  correctly
+- `getSummaries` -- understand package structure and adjacent APIs so new
+  files or edits land in the right place
 
 ## Strategy
 

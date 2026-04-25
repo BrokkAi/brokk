@@ -26,9 +26,9 @@ _BROKK_MANAGED_RE = re.compile(
     f"{re.escape(_BROKK_BEGIN_MANAGED)}.*?{re.escape(_BROKK_END_MANAGED)}", re.DOTALL
 )
 _BROKK_CODEX_WORKSPACE_SKILL_NAME = "brokk-mcp-workspace"
-_BROKK_CODEX_SUMMARIES_SKILL_NAME = "brokk-get-file-summaries"
+_BROKK_CODEX_SUMMARIES_SKILL_NAME = "brokk-get-summaries"
 _BROKK_CLAUDE_WORKSPACE_SKILL_NAME = "brokk-mcp-workspace"
-_BROKK_CLAUDE_SUMMARIES_SKILL_NAME = "brokk-get-file-summaries"
+_BROKK_CLAUDE_SUMMARIES_SKILL_NAME = "brokk-get-summaries"
 _BROKK_CODEX_PLUGIN_NAME = "brokk"
 _BROKK_CODEX_PLUGIN_MARKETPLACE_NAME = "brokk-local"
 _BROKK_CODEX_PLUGIN_DISPLAY_NAME = "Brokk"
@@ -36,16 +36,24 @@ _BROKK_CODEX_PLUGIN_DISPLAY_NAME = "Brokk"
 _BROKK_INSTRUCTIONS_BODY_CLAUDE = f"""{_BROKK_MARKER}
 - Use callSearchAgent to explore the codebase when you don't know where relevant code lives.
 - Use callCodeAgent (not Edit/Write) for all code changes.
-- Use getFileSummaries to understand the API surface of packages or directories: class skeletons for
-  ordinary source files, and for supported framework DSLs (starting with Angular .component.html)
-  structured template summaries (components, bindings, pipes, events, control flow, etc.)."""
+- Use getSummaries to understand the API surface and nearby structure of classes,
+  packages, directories, or specific files before reading implementations.
+  Use it for skeletons, adjacent types, and package-level architecture, not
+  for concrete method-body behavior; use getMethodSources or getFileContents
+  when you need exact control flow or line-level evidence. For file targets and
+  supported framework template DSLs, getSummaries may return structured file or
+  template summaries."""
 
 _BROKK_INSTRUCTIONS_BODY_CODEX = f"""{_BROKK_MARKER}
 - Use callSearchAgent to explore the codebase when you don't know where relevant code lives.
 - Use callCodeAgent (not Edit/Write) for all code changes.
-- Use getFileSummaries to understand the API surface of packages or directories: class skeletons for
-  ordinary source files, and for supported framework DSLs (starting with Angular .component.html)
-  structured template summaries (components, bindings, pipes, events, control flow, etc.).
+- Use getSummaries to understand the API surface and nearby structure of classes,
+  packages, directories, or specific files before reading implementations.
+  Use it for skeletons, adjacent types, and package-level architecture, not
+  for concrete method-body behavior; use getMethodSources or getFileContents
+  when you need exact control flow or line-level evidence. For file targets and
+  supported framework template DSLs, getSummaries may return structured file or
+  template summaries.
 - At the start of each Codex session, activate Brokk MCP for the current workspace by
   calling activateWorkspace."""
 
@@ -69,14 +77,15 @@ _LEGACY_BLOCKS = [
 - Avoid shell text search when Brokk syntax-aware tools can answer.
 - At the start of each Codex session, activate Brokk MCP for the current workspace by
   calling activateWorkspace, then verify with getActiveWorkspace.""",
-    # tools-specific guidance block from b7efcf...
+    # Legacy exact block kept verbatim for migration matching.
+    # Stale tool names are intentional here.
     f"""{_BROKK_MARKER}
 - Use searchSymbols (not Grep) to find class/function/field definitions by name.
 - Use scanUsages (not Grep) to find call sites and usages of a known symbol.
 - Use getMethodSources (not Read) to retrieve specific method implementations.
 - Use getClassSkeletons (not Read) to understand a class's API and structure.
 - Use getClassSources (not Read) only when you need the full class implementation.
-- Use getFileSummaries or skimFiles (not Read/Glob) for multi-file overviews.
+- Use {"get" + "FileSummaries"} or skimFiles (not Read/Glob) for multi-file overviews.
 - Use scan to get oriented when starting a new task.
 - Use callCodeAgent (not Edit/Write) for all code changes.""",
 ]
@@ -677,24 +686,36 @@ def install_codex_mcp_workspace_skill(*, skills_path: Path | None = None) -> Pat
 def _build_codex_summaries_skill_markdown() -> str:
     return f"""---
 name: {_BROKK_CODEX_SUMMARIES_SKILL_NAME}
-description: Use getFileSummaries for class skeletons and framework DSL summaries (e.g. Angular
-             templates).
+description: >-
+  Use getSummaries to inspect API surface and nearby structure for classes,
+  packages, directories, or files.
 ---
 
-# Brokk File Summaries
+# Brokk Summaries
 
-Use this skill to understand the API surface of a package or directory
-without reading full source code. Summaries are not only class skeletons:
-for supported framework template DSLs (starting with Angular `.component.html` files),
-`getFileSummaries` returns structured template-oriented output (components used, bindings,
-pipes, events, control flow, directives, and related symbols) instead of a class API sketch.
+Use this skill to understand the API surface and nearby structure of
+classes or files without reading full source code. For supported
+framework template DSLs
+(starting with Angular `.component.html` files), `getSummaries`
+can return structured template summaries for file targets
+(components used, bindings, pipes, events, control flow, directives,
+and related symbols) instead of a class API sketch.
 
 ## Guidance
 
-1. Use `getFileSummaries` with glob patterns to get class skeletons
-   (fields and method signatures, no bodies) for ordinary source files in a package
-   or directory, or DSL-oriented summaries for supported template files as above.
-2. Only escalate to heavier read tools (`getClassSources`,
+1. Use `getSummaries` with fully qualified class names, file paths,
+   or glob patterns when you need class skeletons, adjacent types,
+   or package-level structure without method bodies.
+2. When you are surveying only files or template DSLs, `getSummaries`
+   may return DSL-specific summaries for supported template files.
+3. After `searchSymbols`, prefer `getSummaries` when you want to choose
+   which classes or files deserve a deeper read; `searchSymbols`
+   returns display signatures grouped by file, not machine-ready fully
+   qualified symbol names.
+4. Do not use `getSummaries` when the question depends on method-body
+   behavior, exact control flow, or line-level evidence; switch to
+   `getMethodSources` or `getFileContents`.
+5. Only escalate to heavier read tools (`getClassSources`,
    `getMethodSources`) once you have identified the specific classes
    or methods you need.
 """
@@ -744,24 +765,36 @@ def install_claude_mcp_workspace_skill(*, skills_path: Path | None = None) -> Pa
 def _build_claude_summaries_skill_markdown() -> str:
     return f"""---
 name: {_BROKK_CLAUDE_SUMMARIES_SKILL_NAME}
-description: Use getFileSummaries for class skeletons and framework DSL summaries (e.g. Angular
-             templates).
+description: >-
+  Use getSummaries to inspect API surface and nearby structure for classes,
+  packages, directories, or files.
 ---
 
-# Brokk File Summaries
+# Brokk Summaries
 
-Use this skill to understand the API surface of a package or directory
-without reading full source code. Summaries are not only class skeletons:
-for supported framework template DSLs (starting with Angular `.component.html` files),
-`getFileSummaries` returns structured template-oriented output (components used, bindings,
-pipes, events, control flow, directives, and related symbols) instead of a class API sketch.
+Use this skill to understand the API surface and nearby structure of
+classes or files without reading full source code. For supported
+framework template DSLs
+(starting with Angular `.component.html` files), `getSummaries`
+can return structured template summaries for file targets
+(components used, bindings, pipes, events, control flow, directives,
+and related symbols) instead of a class API sketch.
 
 ## Guidance
 
-1. Use `getFileSummaries` with glob patterns to get class skeletons
-   (fields and method signatures, no bodies) for ordinary source files in a package
-   or directory, or DSL-oriented summaries for supported template files as above.
-2. Only escalate to heavier read tools (`getClassSources`,
+1. Use `getSummaries` with fully qualified class names, file paths,
+   or glob patterns when you need class skeletons, adjacent types,
+   or package-level structure without method bodies.
+2. When you are surveying only files or template DSLs, `getSummaries`
+   may return DSL-specific summaries for supported template files.
+3. After `searchSymbols`, prefer `getSummaries` when you want to choose
+   which classes or files deserve a deeper read; `searchSymbols`
+   returns display signatures grouped by file, not machine-ready fully
+   qualified symbol names.
+4. Do not use `getSummaries` when the question depends on method-body
+   behavior, exact control flow, or line-level evidence; switch to
+   `getMethodSources` or `getFileContents`.
+5. Only escalate to heavier read tools (`getClassSources`,
    `getMethodSources`) once you have identified the specific classes
    or methods you need.
 """

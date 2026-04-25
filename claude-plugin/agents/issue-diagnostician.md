@@ -41,8 +41,8 @@ Brokk MCP tools to explore the codebase and identify:
 - `getMethodSources` -- read the full implementation of methods relevant
   to the issue
 - `getClassSkeletons` -- understand the API surface of classes involved
-- `getFileSummaries` -- get an overview of files and packages related to
-  the issue
+- `getSummaries` -- get API-level and package-level summaries of files,
+  classes, and packages related to the issue
 - `searchFileContents` -- search for error messages, configuration keys,
   or patterns mentioned in the issue
 - `getGitLog` -- find recent commits that modified the affected files

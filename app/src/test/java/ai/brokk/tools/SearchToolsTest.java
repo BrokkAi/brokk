@@ -2,10 +2,17 @@ package ai.brokk.tools;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.DisabledAnalyzer;
+import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.IAnalyzer.Range;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.CommitInfo;
+import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.testutil.FileUtil;
@@ -19,12 +26,20 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.SequencedSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.lib.PersonIdent;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -94,6 +109,63 @@ public class SearchToolsTest {
         }
     }
 
+    private void recreateSearchTools() {
+        repo.close();
+        repo = new GitRepo(projectRoot);
+
+        TestProject project = new TestProject(projectRoot, Languages.NONE)
+                .withRepo(repo)
+                .withAllFilesSupplier(() -> mockProjectFiles)
+                .withGitignoredPredicate(path -> path.startsWith(Path.of(AbstractProject.BROKK_DIR)));
+        TestContextManager ctxManager =
+                new TestContextManager(project, new TestConsoleIO(), Set.of(), new TestAnalyzer(), repo);
+
+        searchTools = new SearchTools(ctxManager);
+    }
+
+    private void commitTrackedFile(String relativePath, String content, Instant instant) throws Exception {
+        Path file = projectRoot.resolve(relativePath);
+        Path parent = file.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Files.writeString(file, content);
+        mockProjectFiles.add(new ProjectFile(projectRoot, relativePath));
+
+        try (Git git = Git.open(projectRoot.toFile())) {
+            var ident = new PersonIdent("Test User", "test@example.com", instant, ZoneId.of("UTC"));
+            git.add().addFilepattern(relativePath.replace('\\', '/')).call();
+            git.commit()
+                    .setMessage("Update " + relativePath)
+                    .setAuthor(ident)
+                    .setCommitter(ident)
+                    .setSign(false)
+                    .call();
+        }
+    }
+
+    private void commitTrackedFiles(Map<String, String> filesByPath, Instant instant, String message) throws Exception {
+        try (Git git = Git.open(projectRoot.toFile())) {
+            var ident = new PersonIdent("Test User", "test@example.com", instant, ZoneId.of("UTC"));
+            for (var entry : filesByPath.entrySet()) {
+                Path file = projectRoot.resolve(entry.getKey());
+                Path parent = file.getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                Files.writeString(file, entry.getValue());
+                mockProjectFiles.add(new ProjectFile(projectRoot, entry.getKey()));
+                git.add().addFilepattern(entry.getKey().replace('\\', '/')).call();
+            }
+            git.commit()
+                    .setMessage(message)
+                    .setAuthor(ident)
+                    .setCommitter(ident)
+                    .setSign(false)
+                    .call();
+        }
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         projectRoot = tempDir.resolve("testRepo");
@@ -114,15 +186,7 @@ public class SearchToolsTest {
         }
 
         repo = new GitRepo(projectRoot);
-
-        TestProject project = new TestProject(projectRoot, Languages.NONE)
-                .withRepo(repo)
-                .withAllFilesSupplier(() -> mockProjectFiles)
-                .withGitignoredPredicate(path -> path.startsWith(Path.of(AbstractProject.BROKK_DIR)));
-        TestContextManager ctxManager =
-                new TestContextManager(project, new TestConsoleIO(), Set.of(), new TestAnalyzer(), repo);
-
-        searchTools = new SearchTools(ctxManager);
+        recreateSearchTools();
     }
 
     @AfterEach
@@ -176,6 +240,222 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testfindFilenames_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
+        commitTrackedFile("a-low.txt", "low\n", Instant.parse("2020-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "high\n", Instant.parse("2025-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "high again\n", Instant.parse("2025-02-01T00:00:00Z"));
+        recreateSearchTools();
+        var aLow = new ProjectFile(projectRoot, "a-low.txt");
+        var zHigh = new ProjectFile(projectRoot, "z-high.txt");
+
+        assertEquals(
+                zHigh,
+                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
+                "Test setup should give z-high.txt a higher Git rank");
+
+        String result = searchTools.findFilenames(List.of(".*\\.txt"), 1);
+        String mainSection = mainResultSection(result);
+
+        assertTrue(mainSection.contains("a-low.txt"), "Alphabetically first file should be retained when limit is hit");
+        assertFalse(
+                mainSection.contains("z-high.txt"), "Later files should be truncated even if Git ranks them higher");
+    }
+
+    @Test
+    void testfindFilenames_selectedFilesAreRenderedAlphabetically() throws Exception {
+        commitTrackedFile("a-low.txt", "low\n", Instant.parse("2020-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "high\n", Instant.parse("2025-01-01T00:00:00Z"));
+        recreateSearchTools();
+
+        String result = searchTools.findFilenames(List.of(".*\\.txt"), 2);
+
+        assertTrue(
+                result.indexOf("a-low.txt") < result.indexOf("z-high.txt"),
+                "Selected files should still render alphabetically");
+    }
+
+    @Test
+    void testfindFilesContaining_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
+        commitTrackedFile("a-low.txt", "MATCH low\n", Instant.parse("2020-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "MATCH high\n", Instant.parse("2025-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "MATCH high again\n", Instant.parse("2025-02-01T00:00:00Z"));
+        recreateSearchTools();
+        var aLow = new ProjectFile(projectRoot, "a-low.txt");
+        var zHigh = new ProjectFile(projectRoot, "z-high.txt");
+
+        assertEquals(
+                zHigh,
+                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
+                "Test setup should give z-high.txt a higher Git rank");
+
+        String result = searchTools.findFilesContaining(List.of("MATCH"), 1);
+
+        assertTrue(result.contains("a-low.txt"), "Alphabetically first match should be retained when limit is hit");
+        assertFalse(result.contains("z-high.txt"), "Later matches should be truncated even if Git ranks them higher");
+    }
+
+    @Test
+    void getClassSources_resolvesUniqueNonFqName() throws Exception {
+        Path customRoot = Files.createTempDirectory("brokk-app-search-class-");
+        try {
+            Files.createDirectories(customRoot.resolve("src/main/java/com/example"));
+            Files.writeString(customRoot.resolve("src/main/java/com/example/Foo.java"), "class Foo {}\n");
+
+            var project = new TestProject(customRoot, Languages.JAVA);
+            ProjectFile fooFile = new ProjectFile(customRoot, "src/main/java/com/example/Foo.java");
+            CodeUnit fooClass = CodeUnit.cls(fooFile, "com.example", "Foo");
+            IAnalyzer analyzer = new DisabledAnalyzer(project) {
+                @Override
+                public List<CodeUnit> getAllDeclarations() {
+                    return List.of(fooClass);
+                }
+
+                @Override
+                public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+                    SequencedSet<CodeUnit> results = new LinkedHashSet<>();
+                    if ("com.example.Foo".equals(fqName)) {
+                        results.add(fooClass);
+                    }
+                    return results;
+                }
+
+                @Override
+                public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+                    return codeUnit.equals(fooClass) ? Set.of("class Foo {}") : Set.of();
+                }
+            };
+            SearchTools tools =
+                    new SearchTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
+
+            String result = tools.getClassSources(List.of("Foo"));
+
+            assertTrue(result.contains("class Foo {}"), "Should resolve a unique simple class name. Result: " + result);
+        } finally {
+            deleteRecursively(customRoot);
+        }
+    }
+
+    @Test
+    void getClassSources_listsAmbiguousNonFqMatches() throws Exception {
+        Path customRoot = Files.createTempDirectory("brokk-app-search-class-ambiguous-");
+        try {
+            var project = new TestProject(customRoot, Languages.JAVA);
+            ProjectFile firstFile = new ProjectFile(customRoot, "src/main/java/com/example/Foo.java");
+            ProjectFile secondFile = new ProjectFile(customRoot, "src/main/java/org/example/Foo.java");
+            CodeUnit firstFoo = CodeUnit.cls(firstFile, "com.example", "Foo");
+            CodeUnit secondFoo = CodeUnit.cls(secondFile, "org.example", "Foo");
+            IAnalyzer analyzer = new DisabledAnalyzer(project) {
+                @Override
+                public List<CodeUnit> getAllDeclarations() {
+                    return List.of(firstFoo, secondFoo);
+                }
+            };
+            SearchTools tools =
+                    new SearchTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
+
+            String result = tools.getClassSources(List.of("Foo"));
+
+            assertTrue(result.contains("Ambiguous class match for 'Foo'"), result);
+            assertTrue(result.contains("com.example.Foo"), result);
+            assertTrue(result.contains("org.example.Foo"), result);
+        } finally {
+            deleteRecursively(customRoot);
+        }
+    }
+
+    @Test
+    void getMethodSources_resolvesUniqueNonFqName() throws Exception {
+        Path customRoot = Files.createTempDirectory("brokk-app-search-method-");
+        try {
+            Files.createDirectories(customRoot.resolve("src/main/java/com/example"));
+            Files.writeString(customRoot.resolve("src/main/java/com/example/Foo.java"), "class Foo {}\n");
+
+            var project = new TestProject(customRoot, Languages.JAVA);
+            ProjectFile fooFile = new ProjectFile(customRoot, "src/main/java/com/example/Foo.java");
+            CodeUnit fooClass = CodeUnit.cls(fooFile, "com.example", "Foo");
+            CodeUnit incMethod = CodeUnit.fn(fooFile, "com.example", "Foo.inc");
+            IAnalyzer analyzer = new DisabledAnalyzer(project) {
+                @Override
+                public List<CodeUnit> getAllDeclarations() {
+                    return List.of(fooClass);
+                }
+
+                @Override
+                public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+                    return classUnit.equals(fooClass) ? List.of(incMethod) : List.of();
+                }
+
+                @Override
+                public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+                    SequencedSet<CodeUnit> results = new LinkedHashSet<>();
+                    if ("com.example.Foo".equals(fqName)) {
+                        results.add(fooClass);
+                    } else if ("com.example.Foo.inc".equals(fqName)) {
+                        results.add(incMethod);
+                    }
+                    return results;
+                }
+
+                @Override
+                public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+                    return codeUnit.equals(incMethod) ? Set.of("int inc(int x) { return x + 1; }") : Set.of();
+                }
+            };
+            SearchTools tools =
+                    new SearchTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
+
+            String result = tools.getMethodSources(List.of("inc"));
+
+            assertTrue(
+                    result.contains("int inc(int x) { return x + 1; }"),
+                    "Should resolve a unique simple method name. Result: " + result);
+        } finally {
+            deleteRecursively(customRoot);
+        }
+    }
+
+    @Test
+    void getMethodSources_listsAmbiguousNonFqMatches() throws Exception {
+        Path customRoot = Files.createTempDirectory("brokk-app-search-method-ambiguous-");
+        try {
+            var project = new TestProject(customRoot, Languages.JAVA);
+            ProjectFile firstFile = new ProjectFile(customRoot, "src/main/java/com/example/Foo.java");
+            ProjectFile secondFile = new ProjectFile(customRoot, "src/main/java/org/example/Bar.java");
+            CodeUnit fooClass = CodeUnit.cls(firstFile, "com.example", "Foo");
+            CodeUnit barClass = CodeUnit.cls(secondFile, "org.example", "Bar");
+            CodeUnit firstMethod = CodeUnit.fn(firstFile, "com.example", "Foo.inc");
+            CodeUnit secondMethod = CodeUnit.fn(secondFile, "org.example", "Bar.inc");
+            IAnalyzer analyzer = new DisabledAnalyzer(project) {
+                @Override
+                public List<CodeUnit> getAllDeclarations() {
+                    return List.of(fooClass, barClass);
+                }
+
+                @Override
+                public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+                    if (classUnit.equals(fooClass)) {
+                        return List.of(firstMethod);
+                    }
+                    if (classUnit.equals(barClass)) {
+                        return List.of(secondMethod);
+                    }
+                    return List.of();
+                }
+            };
+            SearchTools tools =
+                    new SearchTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
+
+            String result = tools.getMethodSources(List.of("inc"));
+
+            assertTrue(result.contains("Ambiguous method match for 'inc'"), result);
+            assertTrue(result.contains("com.example.Foo.inc"), result);
+            assertTrue(result.contains("org.example.Bar.inc"), result);
+        } finally {
+            deleteRecursively(customRoot);
+        }
+    }
+
+    @Test
     void testfindFilenames_withSubdirectories() throws Exception {
         // 1. Create a file with a subdirectory path
         Path subDir = projectRoot.resolve("frontend-mop").resolve("src");
@@ -219,6 +499,20 @@ public class SearchToolsTest {
         String resultUpper = searchTools.findFilenames(List.of("MOP.SVELTE"), 200);
         assertTrue(resultUpper.contains("# frontend-mop/src"), "Should group by common prefix");
         assertTrue(resultUpper.contains("- MOP.svelte"), "Should include matching file under prefix");
+    }
+
+    @Test
+    void testFindFilenames_DoesNotAppendRelatedContent() throws Exception {
+        commitTrackedFiles(
+                Map.of("A.java", "class A {}", "B.java", "class B {}"),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add A and B together");
+        recreateSearchTools();
+
+        String result = searchTools.findFilenames(List.of("A\\.java"), 10);
+
+        assertTrue(result.contains("A.java"), "Should still include matching filenames");
+        assertFalse(result.contains("## Related Content"), "Should not include related content for non-search tools");
     }
 
     @Test
@@ -333,6 +627,45 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testGetSummaries_routesClassesAndFilesTogether() {
+        TestContextManager ctxWithAnalyzer = new TestContextManager(
+                javaTestProject, new TestConsoleIO(), Set.of(), javaAnalyzer, new TestRepo(javaTestProject.getRoot()));
+
+        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+
+        String result = tools.getSummaries(List.of("A", "B.java", "Missing.java"));
+
+        assertTrue(result.contains("class A"), "Should include class summary for direct class targets");
+        assertTrue(result.contains("class B"), "Should include class summary for file targets");
+        assertTrue(result.contains("No project files found matching: Missing.java"), "Should report unmatched files");
+    }
+
+    @Test
+    void testGetSummaries_classTargetsDoNotEnumerateProjectFilesForExtensionHeuristic() {
+        AtomicInteger getAllFilesCalls = new AtomicInteger();
+        ProjectFile source = new ProjectFile(projectRoot, "A.java");
+        CodeUnit classUnit = CodeUnit.cls(source, "", "A");
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(classUnit);
+        analyzer.setSkeleton(classUnit, "class A {}");
+
+        TestProject project = new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> {
+            getAllFilesCalls.incrementAndGet();
+            return Set.of(source);
+        });
+        TestContextManager ctx = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, repo);
+
+        SearchTools tools = new SearchTools(ctx);
+        String result = tools.getSummaries(List.of("A"));
+
+        assertTrue(result.contains("class A"), "Should still return the class summary");
+        assertEquals(
+                0,
+                getAllFilesCalls.get(),
+                "Class-only getSummaries calls should not scan project files just to classify targets");
+    }
+
+    @Test
     void testGetGitLog_limitEnforced() throws Exception {
         // Create several commits
         try (Git git = Git.open(projectRoot.toFile())) {
@@ -412,11 +745,57 @@ public class SearchToolsTest {
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "**/grep_test.txt", false, false, 1, 200);
 
-        assertTrue(result.contains("grep_test.txt (4 loc) (pattern: MATCH) (first 1/1 matches)"));
+        assertTrue(result.contains("<file path=\"grep_test.txt\" loc=\"4\">"));
+        assertTrue(result.contains("<matches>"));
         assertTrue(result.contains("1: line1"));
         assertTrue(result.contains("2: line2 MATCH"));
         assertTrue(result.contains("3: line3"));
         assertFalse(result.contains("4: line4"));
+    }
+
+    @Test
+    void testSearchFileContents_ReadsMatchingFileOnce() throws Exception {
+        Path txt = projectRoot.resolve("counted.txt");
+        Files.writeString(txt, "MATCH\n");
+
+        AtomicInteger readCount = new AtomicInteger();
+        ProjectFile countedFile = new ProjectFile(projectRoot, "counted.txt") {
+            @Override
+            public java.util.Optional<String> read() {
+                readCount.incrementAndGet();
+                return super.read();
+            }
+        };
+        mockProjectFiles.add(countedFile);
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "counted.txt", false, false, 0, 200);
+
+        assertTrue(result.contains("<file path=\"counted.txt\" loc=\"1\">"));
+        assertEquals(1, readCount.get(), "searchFileContents should read a matching file only once");
+    }
+
+    @Test
+    void testSearchFileContents_DoesNotRankCandidatesBeforeSearching() throws Exception {
+        Path matchingPath = projectRoot.resolve("a-match.txt");
+        Path otherPath = projectRoot.resolve("z-other.txt");
+        Files.writeString(matchingPath, "MATCH\n");
+        Files.writeString(otherPath, "no match\n");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "a-match.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "z-other.txt"));
+
+        AtomicInteger fileHistoryCalls = new AtomicInteger();
+        var project = new TestProject(projectRoot, Languages.NONE).withAllFilesSupplier(() -> mockProjectFiles);
+        var ctx = new TestContextManager(
+                project, new TestConsoleIO(), Set.of(), new TestAnalyzer(), rankingProbeRepo(fileHistoryCalls));
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.searchFileContents(List.of("MATCH"), "*.txt", false, false, 0, 1);
+
+        assertTrue(result.contains("a-match.txt"));
+        assertEquals(
+                0,
+                fileHistoryCalls.get(),
+                "searchFileContents should scan candidates directly, not rank the whole candidate set by Git history");
     }
 
     @Test
@@ -493,6 +872,31 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testSearchFileContents_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
+        commitTrackedFile("a-low.txt", "MATCH low\n", Instant.parse("2020-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "MATCH high\n", Instant.parse("2025-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.txt", "MATCH high again\n", Instant.parse("2025-02-01T00:00:00Z"));
+        recreateSearchTools();
+        var aLow = new ProjectFile(projectRoot, "a-low.txt");
+        var zHigh = new ProjectFile(projectRoot, "z-high.txt");
+
+        assertEquals(
+                zHigh,
+                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
+                "Test setup should give z-high.txt a higher Git rank");
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "*.txt", false, false, 0, 1);
+        String mainSection = mainResultSection(result);
+
+        assertTrue(
+                mainSection.contains("a-low.txt"),
+                "Alphabetically first matching file should be retained when maxFiles is hit");
+        assertFalse(
+                mainSection.contains("z-high.txt"),
+                "Later matching files should be truncated even if Git ranks them higher");
+    }
+
+    @Test
     void testSearchFileContents_CaseInsensitiveFlag() throws Exception {
         Path txt = projectRoot.resolve("case_insensitive.txt");
         Files.writeString(txt, "Line1\nLine2 MATCH\nLine3");
@@ -504,8 +908,8 @@ public class SearchToolsTest {
 
         String withFlag = searchTools.searchFileContents(List.of("match"), "case_insensitive.txt", true, false, 0, 200);
         assertTrue(
-                withFlag.contains("case_insensitive.txt (3 loc) (pattern: match) (first 1/1 matches)"),
-                "Should match with case-insensitive flag and show LOC");
+                withFlag.contains("<file path=\"case_insensitive.txt\" loc=\"3\">"),
+                "Should match with case-insensitive flag and show file metadata");
         assertTrue(withFlag.contains("2: Line2 MATCH"), "Should show matching line");
     }
 
@@ -520,8 +924,8 @@ public class SearchToolsTest {
 
         String withFlag = searchTools.searchFileContents(List.of("^line2$"), "multiline.txt", false, true, 0, 200);
         assertTrue(
-                withFlag.contains("multiline.txt (3 loc) (pattern: ^line2$) (first 1/1 matches)"),
-                "Should match with multiline flag and show LOC");
+                withFlag.contains("<file path=\"multiline.txt\" loc=\"3\">"),
+                "Should match with multiline flag and show file metadata");
         assertTrue(withFlag.contains("2: line2"), "Should show the anchored match line");
     }
 
@@ -569,6 +973,131 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testSearchSymbols_RendersDisplaySignatures() throws IOException, InterruptedException {
+        Path aJava = projectRoot.resolve("src/main/java/com/example/A.java");
+        Files.createDirectories(aJava.getParent());
+        Files.writeString(
+                aJava,
+                """
+                class A extends Base {
+                    public void bar(int x, int y) {}
+                }
+                """
+                        .stripIndent());
+        ProjectFile pf = new ProjectFile(projectRoot, "src/main/java/com/example/A.java");
+        mockProjectFiles.add(pf);
+
+        CodeUnit cls = ai.brokk.analyzer.CodeUnit.cls(pf, "com.example", "A");
+        CodeUnit method = ai.brokk.analyzer.CodeUnit.fn(pf, "com.example", "A.bar");
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(cls);
+        analyzer.addDeclaration(method);
+        analyzer.setDisplaySignatures(cls, List.of("class A extends Base"));
+        analyzer.setDisplaySignatures(method, List.of("public void bar(int x, int y)"));
+        analyzer.setRanges(cls, List.of(new Range(0, 0, 0, 30, 0)));
+        analyzer.setRanges(method, List.of(new Range(0, 0, 1, 39, 0)));
+
+        TestContextManager ctx = new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo);
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.searchSymbols(List.of(".*A.*"), false, 200);
+
+        assertTrue(result.contains("- 1: class A extends Base"), "Should render class signature. Result: " + result);
+        assertTrue(
+                result.contains("- 2: public void bar(int x, int y)"),
+                "Should render method signature. Result: " + result);
+        assertFalse(result.contains("com.example.A.bar"), "Should not render raw method FQN. Result: " + result);
+    }
+
+    @Test
+    void testSearchSymbols_PreservesOverloadsWhenDisplaySignaturesCollide() throws IOException, InterruptedException {
+        Path aJava = projectRoot.resolve("src/main/java/com/example/A.java");
+        Files.createDirectories(aJava.getParent());
+        Files.writeString(
+                aJava,
+                """
+                class A {
+                    public void bar(int value) {}
+                    public void bar(String value) {}
+                }
+                """
+                        .stripIndent());
+        ProjectFile pf = new ProjectFile(projectRoot, "src/main/java/com/example/A.java");
+        mockProjectFiles.add(pf);
+
+        CodeUnit intOverload = new ai.brokk.analyzer.CodeUnit(
+                pf, ai.brokk.analyzer.CodeUnitType.FUNCTION, "com.example", "A.bar", "(int)");
+        CodeUnit stringOverload = new ai.brokk.analyzer.CodeUnit(
+                pf, ai.brokk.analyzer.CodeUnitType.FUNCTION, "com.example", "A.bar", "(String)");
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(intOverload);
+        analyzer.addDeclaration(stringOverload);
+        analyzer.setDisplaySignatures(intOverload, List.of("public void bar(T value)"));
+        analyzer.setDisplaySignatures(stringOverload, List.of("public void bar(T value)"));
+        analyzer.setRanges(intOverload, List.of(new Range(0, 0, 1, 33, 0)));
+        analyzer.setRanges(stringOverload, List.of(new Range(0, 0, 2, 36, 0)));
+
+        TestContextManager ctx = new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo);
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.searchSymbols(List.of(".*A.*"), false, 200);
+
+        assertTrue(
+                result.contains("- 2: public void bar(T value)"),
+                "Should keep the first overload when display signatures collide. Result: " + result);
+        assertTrue(
+                result.contains("- 3: public void bar(T value)"),
+                "Should keep the second overload when display signatures collide. Result: " + result);
+    }
+
+    @Test
+    void testSearchSymbols_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
+        commitTrackedFile("a-low.java", "class A {}", Instant.parse("2020-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.java", "class Z {}", Instant.parse("2025-01-01T00:00:00Z"));
+        commitTrackedFile("z-high.java", "class Z { int value; }", Instant.parse("2025-02-01T00:00:00Z"));
+        recreateSearchTools();
+
+        ProjectFile aLow = new ProjectFile(projectRoot, "a-low.java");
+        ProjectFile zHigh = new ProjectFile(projectRoot, "z-high.java");
+        assertEquals(
+                zHigh,
+                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
+                "Test setup should give z-high.java a higher Git rank");
+
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(aLow, "", "A"));
+        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(zHigh, "", "Z"));
+
+        TestContextManager ctx = new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo);
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.searchSymbols(List.of(".*"), false, 1);
+        String mainSection = mainResultSection(result);
+
+        assertTrue(
+                mainSection.contains("<file path=\"a-low.java\""),
+                "Alphabetically first file should be retained when limit is hit");
+        assertFalse(
+                mainSection.contains("<file path=\"z-high.java\""),
+                "Later files should be truncated even if Git ranks them higher");
+    }
+
+    @Test
     void testSearchSymbols_IncludesLoc() throws IOException, InterruptedException {
         Path aJava = projectRoot.resolve("A.java");
         Files.writeString(aJava, "class A {}");
@@ -588,6 +1117,35 @@ public class SearchToolsTest {
 
         String result = tools.searchSymbols(List.of("A"), false, 200);
         assertTrue(result.contains("loc=\"1\""), "Should contain loc attribute in file tag. Result: " + result);
+    }
+
+    @Test
+    void testSearchSymbols_AppendsRelatedContent() throws Exception {
+        commitTrackedFiles(
+                Map.of("A.java", "class A {}", "B.java", "class B {}"),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add A and B together");
+
+        ProjectFile aFile = new ProjectFile(projectRoot, "A.java");
+        ProjectFile bFile = new ProjectFile(projectRoot, "B.java");
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(aFile, "", "A"));
+        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(bFile, "", "B"));
+
+        TestContextManager ctx = new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo);
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.searchSymbols(List.of("A"), false, 200);
+        String relatedSection = relatedContentSection(result);
+
+        assertTrue(result.contains("## Related Content"), "Should include related content header");
+        assertTrue(relatedSection.contains("B.java"), "Should include a Git-related file");
+        assertFalse(relatedSection.contains("A.java"), "Should not echo the result file in related content");
     }
 
     @Test
@@ -672,7 +1230,7 @@ public class SearchToolsTest {
         String result =
                 searchTools.searchFileContents(List.of("MATCH"), "matches_per_file_test.txt", false, false, 0, 200);
 
-        assertTrue(result.contains("matches_per_file_test.txt (30 loc) (pattern: MATCH) (first 20/30 matches)"));
+        assertTrue(result.contains("<file path=\"matches_per_file_test.txt\" loc=\"30\">"));
         assertTrue(result.contains("20: MATCH 20"));
         assertFalse(result.contains("21: MATCH 21"));
     }
@@ -701,11 +1259,13 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "budget26.txt"));
 
         String result = searchTools.searchFileContents(List.of("A", "B", "C"), "budget*.txt", false, false, 0, 999);
+        String mainSection = mainResultSection(result);
 
-        assertTrue(result.contains("budget25.txt (40 loc) (pattern: B) (first 20/20 matches)"));
-        assertTrue(result.contains("budget25.txt (40 loc) (pattern: C) (first 20/20 matches)"));
+        assertTrue(mainSection.contains("<file path=\"budget25.txt\" loc=\"40\">"));
+        assertTrue(mainSection.contains("21: C 1"));
         assertFalse(
-                result.contains("budget26.txt"), "Should stop before the next file after crossing the 500-match limit");
+                mainSection.contains("budget26.txt"),
+                "Should stop before the next file after crossing the 500-match limit");
         assertTrue(result.contains("TRUNCATED: reached global limit of 500 total matches"));
     }
 
@@ -719,9 +1279,7 @@ public class SearchToolsTest {
         // Ask for exactly 3 matches.
         String result = searchTools.searchFileContents(List.of("MATCH"), "exact_limit.txt", false, false, 0, 10);
 
-        assertTrue(
-                result.contains("exact_limit.txt (3 loc) (pattern: MATCH) (first 3/3 matches)"),
-                "Should show hit limit in header");
+        assertTrue(result.contains("<file path=\"exact_limit.txt\" loc=\"3\">"), "Should show file metadata");
         assertTrue(result.contains("3: MATCH 3"), "Should contain the last match");
         assertFalse(
                 result.contains("TRUNCATED: reached matchesPerFile"),
@@ -803,9 +1361,83 @@ public class SearchToolsTest {
                 List.of("alpha", "beta", "gamma"), "multi_pattern_dedupe.txt", false, false, 0, 200);
 
         assertEquals(
-                3,
+                1,
                 countOccurrences(result, "1: alpha beta gamma"),
-                "Line should be emitted once for each matching pattern block");
+                "Line should be emitted once after combining matches from all patterns");
+    }
+
+    @Test
+    void testSearchFileContents_SearchTypeClassifiesAnalyzedFiles() throws Exception {
+        Path nestedDir = projectRoot.resolve("src/main/java/com/example");
+        Files.createDirectories(nestedDir);
+        Path file = nestedDir.resolve("Foo.java");
+        Files.writeString(
+                file,
+                """
+                package com.example;
+                import java.util.List;
+                class Foo {
+                    String before = "before";
+                    List<String> values;
+                    Foo useFoo(Foo other) {
+                        Foo local = other;
+                        return local;
+                    }
+                    String after = "after";
+                }
+                """
+                        .stripIndent());
+
+        ProjectFile projectFile = new ProjectFile(projectRoot, "src/main/java/com/example/Foo.java");
+        mockProjectFiles.add(projectFile);
+
+        CodeUnit cls = CodeUnit.cls(projectFile, "com.example", "Foo");
+        CodeUnit field = CodeUnit.field(projectFile, "com.example", "Foo.values");
+        CodeUnit method = CodeUnit.fn(projectFile, "com.example", "Foo.useFoo");
+
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(cls);
+        analyzer.addDeclaration(field);
+        analyzer.addDeclaration(method);
+        analyzer.setRanges(cls, List.of(new Range(0, 0, 2, 10, 0)));
+        analyzer.setRanges(field, List.of(new Range(0, 0, 4, 4, 0)));
+        analyzer.setRanges(method, List.of(new Range(0, 0, 5, 8, 0)));
+        analyzer.setImportStatements(projectFile, List.of("import java.util.List;"));
+
+        SearchTools tools = new SearchTools(new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo));
+
+        String declarations =
+                tools.searchFileContents(List.of("Foo", "List"), "**/*.java", "declarations", false, false, 0, 20);
+        assertTrue(declarations.contains("[DECLARATIONS]"));
+        assertTrue(declarations.contains("3: class Foo {"));
+        assertTrue(declarations.contains("5:     List<String> values;"));
+        assertTrue(declarations.contains("6:     Foo useFoo(Foo other) {"));
+        assertFalse(declarations.contains("2: import java.util.List;"));
+        assertFalse(declarations.contains("7:         Foo local = other;"));
+
+        String usages = tools.searchFileContents(List.of("Foo"), "**/*.java", "usages", false, false, 2, 20);
+        assertTrue(usages.contains("[USAGES]"));
+        assertTrue(usages.contains("Foo::useFoo [6..9]"));
+        assertTrue(usages.contains("6:     Foo useFoo(Foo other) {"));
+        assertTrue(usages.contains("7:         Foo local = other;"));
+        assertTrue(usages.contains("8:         return local;"));
+        assertTrue(usages.contains("9:     }"));
+        assertFalse(usages.contains("3: class Foo {"));
+        assertFalse(usages.contains("5:     List<String> values;"));
+        assertFalse(usages.contains("10:     String after = \"after\";"));
+
+        String all = tools.searchFileContents(List.of("Foo", "List"), "**/*.java", "all", false, false, 0, 20);
+        assertTrue(all.contains("<matches>"));
+        assertTrue(all.contains("<related>"));
+        assertTrue(all.contains("[DECLARATIONS]"));
+        assertTrue(all.contains("[USAGES]"));
+        assertTrue(all.contains("Foo::useFoo [6..9]"));
+        assertTrue(all.contains("2: import java.util.List;"));
     }
 
     @Test
@@ -920,5 +1552,44 @@ public class SearchToolsTest {
             idx += substring.length();
         }
         return count;
+    }
+
+    private static String mainResultSection(String text) {
+        int relatedContentIdx = text.indexOf("\n\n## Related Content\n");
+        return relatedContentIdx >= 0 ? text.substring(0, relatedContentIdx) : text;
+    }
+
+    private static String relatedContentSection(String text) {
+        int relatedContentIdx = text.indexOf("\n\n## Related Content\n");
+        return relatedContentIdx >= 0 ? text.substring(relatedContentIdx) : "";
+    }
+
+    private static IGitRepo rankingProbeRepo(AtomicInteger fileHistoryCalls) {
+        return new IGitRepo() {
+            @Override
+            public Set<ProjectFile> getTrackedFiles() {
+                return Set.of();
+            }
+
+            @Override
+            public void add(Collection<ProjectFile> files) {}
+
+            @Override
+            public void add(ProjectFile file) {}
+
+            @Override
+            public void remove(ProjectFile file) {}
+
+            @Override
+            public String getCurrentCommitId() {
+                return "HEAD";
+            }
+
+            @Override
+            public List<CommitInfo> getFileHistories(Collection<ProjectFile> files, int maxResults) {
+                fileHistoryCalls.incrementAndGet();
+                return List.of();
+            }
+        };
     }
 }

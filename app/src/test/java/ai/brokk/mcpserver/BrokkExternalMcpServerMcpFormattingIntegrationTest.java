@@ -29,9 +29,41 @@ class BrokkExternalMcpServerMcpFormattingIntegrationTest {
     }
 
     @Test
+    void mcpGetClassSources_acceptsUniqueNonFqName() throws Exception {
+        try (var cm = contextManagerWithSampleJava()) {
+            String output = invokeTool(cm, "getClassSources", Map.of("classNames", List.of("Foo")));
+            assertTrue(output.matches("(?s).*```.*Foo\\.java\\R.*"), output);
+            assertTrue(output.contains("3: class Foo {"), output);
+            assertTrue(output.contains("4:     int inc(int x) {"), output);
+        }
+    }
+
+    @Test
+    void mcpGetClassSources_preservesAmbiguityTextAlongsideRenderedBlocks() throws Exception {
+        try (var cm = contextManagerWithAmbiguousJava()) {
+            String output = invokeTool(cm, "getClassSources", Map.of("classNames", List.of("com.example.Foo", "Foo")));
+            assertTrue(output.matches("(?s).*```.*Foo\\.java\\R.*"), output);
+            assertTrue(output.contains("3: class Foo {"), output);
+            assertTrue(output.contains("Ambiguous class match for 'Foo'"), output);
+            assertTrue(output.contains("com.example.Foo"), output);
+            assertTrue(output.contains("other.example.Foo"), output);
+        }
+    }
+
+    @Test
     void mcpGetMethodSources_returnsRealFileLineNumbers() throws Exception {
         try (var cm = contextManagerWithSampleJava()) {
             String output = invokeTool(cm, "getMethodSources", Map.of("methodNames", List.of("com.example.Foo.inc")));
+            assertTrue(output.matches("(?s).*```.*Foo\\.java\\R.*"), output);
+            assertTrue(output.contains("4:     int inc(int x) {"), output);
+            assertTrue(output.contains("5:         return x + 1;"), output);
+        }
+    }
+
+    @Test
+    void mcpGetMethodSources_acceptsUniqueNonFqName() throws Exception {
+        try (var cm = contextManagerWithSampleJava()) {
+            String output = invokeTool(cm, "getMethodSources", Map.of("methodNames", List.of("inc")));
             assertTrue(output.matches("(?s).*```.*Foo\\.java\\R.*"), output);
             assertTrue(output.contains("4:     int inc(int x) {"), output);
             assertTrue(output.contains("5:         return x + 1;"), output);
@@ -90,6 +122,8 @@ class BrokkExternalMcpServerMcpFormattingIntegrationTest {
                             List.of("MCP", "ToolRegistry", "skill"),
                             "filepath",
                             "**/*.md",
+                            "searchType",
+                            "all",
                             "caseInsensitive",
                             true,
                             "multiline",
@@ -126,6 +160,43 @@ class BrokkExternalMcpServerMcpFormattingIntegrationTest {
                     }
                 }
                 """);
+        var project = new ai.brokk.project.MainProject(tempDir);
+        var cm = new ContextManager(project);
+        cm.createHeadless(true, new MutedConsoleIO(cm.getIo()));
+        return cm;
+    }
+
+    private static ContextManager contextManagerWithAmbiguousJava() throws Exception {
+        Path tempDir = Files.createTempDirectory("mcp-formatting-ambiguous");
+
+        Path firstSource = tempDir.resolve("src/main/java/com/example/Foo.java");
+        Files.createDirectories(firstSource.getParent());
+        Files.writeString(
+                firstSource,
+                """
+                package com.example;
+
+                class Foo {
+                    int inc(int x) {
+                        return x + 1;
+                    }
+                }
+                """);
+
+        Path secondSource = tempDir.resolve("src/main/java/other/example/Foo.java");
+        Files.createDirectories(secondSource.getParent());
+        Files.writeString(
+                secondSource,
+                """
+                package other.example;
+
+                class Foo {
+                    int inc(int x) {
+                        return x + 2;
+                    }
+                }
+                """);
+
         var project = new ai.brokk.project.MainProject(tempDir);
         var cm = new ContextManager(project);
         cm.createHeadless(true, new MutedConsoleIO(cm.getIo()));
