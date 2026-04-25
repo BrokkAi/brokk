@@ -42,35 +42,36 @@ import org.jetbrains.annotations.Nullable;
 public class BrokkCoreMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkCoreMcpServer.class);
     private static final String VERSION = "0.1.0";
-    private static final String LOG_MCP_HISTORY_FLAG = "--log-mcp-history";
+    private static final String MCP_HISTORY_PATH_FLAG = "--mcp-history-path";
 
     private final ReentrantReadWriteLock workspaceLock = new ReentrantReadWriteLock(true);
-    private final boolean logMcpHistory;
     private CoreProject project;
     private ICodeIntelligence intelligence;
     private SearchTools searchTools;
     private CodeQualityToolsMcp codeQualityTools;
     private Path activeWorkspaceRoot;
-    private @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
+    private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
 
     public BrokkCoreMcpServer(CoreProject project, ICodeIntelligence intelligence, SearchTools searchTools) {
-        this(project, intelligence, searchTools, false);
+        this(project, intelligence, searchTools, null);
     }
 
     public BrokkCoreMcpServer(
-            CoreProject project, ICodeIntelligence intelligence, SearchTools searchTools, boolean logMcpHistory) {
+            CoreProject project,
+            ICodeIntelligence intelligence,
+            SearchTools searchTools,
+            @Nullable Path mcpHistoryPath) {
         this.project = project;
         this.intelligence = intelligence;
         this.searchTools = searchTools;
-        this.logMcpHistory = logMcpHistory;
         this.codeQualityTools = new CodeQualityToolsMcp(intelligence);
         this.activeWorkspaceRoot = project.getRoot();
-        this.mcpToolCallHistoryWriter = logMcpHistory ? createMcpToolCallHistoryWriter(this.activeWorkspaceRoot) : null;
+        this.mcpToolCallHistoryWriter = mcpHistoryPath != null ? createMcpToolCallHistoryWriter(mcpHistoryPath) : null;
     }
 
-    private static @Nullable McpToolCallHistoryWriter createMcpToolCallHistoryWriter(Path projectRoot) {
+    private static @Nullable McpToolCallHistoryWriter createMcpToolCallHistoryWriter(Path historyRootDirectory) {
         try {
-            return new McpToolCallHistoryWriter(projectRoot.resolve(".brokk").resolve("mcp-history"));
+            return new McpToolCallHistoryWriter(historyRootDirectory);
         } catch (IOException e) {
             logger.warn("Failed to initialize MCP tool call history logging", e);
             return null;
@@ -79,19 +80,27 @@ public class BrokkCoreMcpServer {
 
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
-        boolean logMcpHistory = false;
+        @Nullable Path mcpHistoryPath = null;
 
-        for (String arg : args) {
+        for (int i = 0; i < args.length; i++) {
+            var arg = args[i];
             if ("--help".equals(arg) || "-h".equals(arg)) {
                 System.out.println("Brokk Core MCP Server v" + VERSION);
                 System.out.println("Provides code intelligence tools via Model Context Protocol.");
                 System.out.println("No LLM dependencies - pure tree-sitter analysis.");
                 System.out.println("Options:");
-                System.out.println(
-                        "  " + LOG_MCP_HISTORY_FLAG + "  Write MCP request/response logs under .brokk/mcp-history.");
+                System.out.println("  " + MCP_HISTORY_PATH_FLAG
+                        + " <path>  Write MCP request/response logs under the given directory.");
                 System.exit(0);
-            } else if (LOG_MCP_HISTORY_FLAG.equals(arg)) {
-                logMcpHistory = true;
+            } else if (MCP_HISTORY_PATH_FLAG.equals(arg)) {
+                if (i + 1 >= args.length) {
+                    throw new IllegalArgumentException(MCP_HISTORY_PATH_FLAG + " requires a path argument");
+                }
+                mcpHistoryPath = Path.of(args[++i]).toAbsolutePath().normalize();
+            } else if (arg.startsWith(MCP_HISTORY_PATH_FLAG + "=")) {
+                mcpHistoryPath = Path.of(arg.substring((MCP_HISTORY_PATH_FLAG + "=").length()))
+                        .toAbsolutePath()
+                        .normalize();
             }
         }
 
@@ -126,7 +135,7 @@ public class BrokkCoreMcpServer {
 
             var coreIntelligence = new StandaloneCodeIntelligence(coreProject, analyzer);
             var coreSearchTools = new SearchTools(coreIntelligence);
-            var server = new BrokkCoreMcpServer(coreProject, coreIntelligence, coreSearchTools, logMcpHistory);
+            var server = new BrokkCoreMcpServer(coreProject, coreIntelligence, coreSearchTools, mcpHistoryPath);
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
@@ -240,7 +249,6 @@ public class BrokkCoreMcpServer {
             this.searchTools = new SearchTools(this.intelligence);
             this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
             this.activeWorkspaceRoot = newRoot;
-            this.mcpToolCallHistoryWriter = logMcpHistory ? createMcpToolCallHistoryWriter(newRoot) : null;
             logger.info("Workspace switched to {}", newRoot);
         } finally {
             workspaceLock.writeLock().unlock();

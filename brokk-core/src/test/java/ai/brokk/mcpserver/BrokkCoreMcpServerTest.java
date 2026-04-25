@@ -187,7 +187,8 @@ class BrokkCoreMcpServerTest {
         var analyzer = new DisabledAnalyzer(project);
         var intel = new StandaloneCodeIntelligence(project, analyzer);
         var searchTools = new SearchTools(intel);
-        server = new BrokkCoreMcpServer(project, intel, searchTools, true);
+        Path historyRoot = tempDir.resolve("mcp-history");
+        server = new BrokkCoreMcpServer(project, intel, searchTools, historyRoot);
 
         var specs = server.toolSpecifications();
         var activeTool = specs.stream()
@@ -200,8 +201,8 @@ class BrokkCoreMcpServerTest {
 
         assertNotNull(result);
 
-        Path historyRoot = projectRoot.resolve(".brokk").resolve("mcp-history");
         assertTrue(Files.isDirectory(historyRoot), "Expected mcp-history directory to exist");
+        assertFalse(Files.exists(projectRoot.resolve(".brokk")), "Expected history to stay outside the workdir");
 
         Path logFile;
         try (Stream<Path> files = Files.walk(historyRoot)) {
