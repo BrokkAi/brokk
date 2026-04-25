@@ -4790,49 +4790,52 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (requestedFiles.isEmpty()) {
             return List.of();
         }
-        List<CloneCandidateData> allCandidates = getAllDeclarations().stream()
+        List<CloneCandidateProfile> allCandidates = getAllDeclarations().stream()
                 .filter(CodeUnit::isFunction)
                 .filter(cu -> isRelevantFile(cu.source()))
                 .map(cu -> buildCloneCandidateData(cu, resolved))
                 .flatMap(Optional::stream)
+                .map(candidate -> new CloneCandidateProfile(
+                        candidate, hashedShingles(candidate.normalizedTokens(), resolved.shingleSize())))
                 .toList();
         if (allCandidates.isEmpty()) {
             return List.of();
         }
-        List<CloneCandidateData> requestedCandidates = allCandidates.stream()
-                .filter(c -> requestedFiles.contains(c.unit().source()))
+        List<CloneCandidateProfile> requestedCandidates = allCandidates.stream()
+                .filter(c -> requestedFiles.contains(c.data().unit().source()))
                 .toList();
         if (requestedCandidates.isEmpty()) {
             return List.of();
         }
 
         var findings = new ArrayList<CloneSmell>();
-        for (CloneCandidateData left : requestedCandidates) {
-            for (CloneCandidateData right : allCandidates) {
-                if (left.unit().equals(right.unit())) {
+        for (CloneCandidateProfile left : requestedCandidates) {
+            for (CloneCandidateProfile right : allCandidates) {
+                CloneCandidateData leftData = left.data();
+                CloneCandidateData rightData = right.data();
+                if (leftData.unit().equals(rightData.unit())) {
                     continue;
                 }
-                int tokenSimilarity =
-                        computeCloneTokenSimilarity(left.normalizedTokens(), right.normalizedTokens(), resolved);
+                int tokenSimilarity = computeCloneTokenSimilarity(left.shingles(), right.shingles(), resolved);
                 if (tokenSimilarity < resolved.minSimilarityPercent()) {
                     continue;
                 }
-                int refinedSimilarity = refineCloneSimilarityPercent(left, right, tokenSimilarity, resolved);
+                int refinedSimilarity = refineCloneSimilarityPercent(leftData, rightData, tokenSimilarity, resolved);
                 if (refinedSimilarity < resolved.minSimilarityPercent()) {
                     continue;
                 }
                 findings.add(new CloneSmell(
-                        left.unit().source(),
-                        left.unit().fqName(),
-                        right.unit().source(),
-                        right.unit().fqName(),
+                        leftData.unit().source(),
+                        leftData.unit().fqName(),
+                        rightData.unit().source(),
+                        rightData.unit().fqName(),
                         refinedSimilarity,
                         Math.min(
-                                left.normalizedTokens().size(),
-                                right.normalizedTokens().size()),
+                                leftData.normalizedTokens().size(),
+                                rightData.normalizedTokens().size()),
                         List.of(buildReason(tokenSimilarity, refinedSimilarity)),
-                        left.excerpt(),
-                        right.excerpt()));
+                        leftData.excerpt(),
+                        rightData.excerpt()));
             }
         }
         return findings.stream()
@@ -4882,22 +4885,36 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected int computeCloneTokenSimilarity(
             List<String> leftTokens, List<String> rightTokens, CloneSmellWeights weights) {
-        Set<String> leftShingles = shingles(leftTokens, weights.shingleSize());
-        Set<String> rightShingles = shingles(rightTokens, weights.shingleSize());
+        Set<Long> leftShingles = hashedShingles(leftTokens, weights.shingleSize());
+        Set<Long> rightShingles = hashedShingles(rightTokens, weights.shingleSize());
+        return computeCloneTokenSimilarity(leftShingles, rightShingles, weights);
+    }
+
+    static int computeCloneTokenSimilarity(Set<Long> leftShingles, Set<Long> rightShingles, CloneSmellWeights weights) {
         if (leftShingles.size() < weights.minSharedShingles() || rightShingles.size() < weights.minSharedShingles()) {
             return 0;
         }
-        Set<String> intersection = new HashSet<>(leftShingles);
-        intersection.retainAll(rightShingles);
-        if (intersection.size() < weights.minSharedShingles()) {
+        int intersectionSize = intersectionSize(leftShingles, rightShingles);
+        if (intersectionSize < weights.minSharedShingles()) {
             return 0;
         }
-        Set<String> union = new HashSet<>(leftShingles);
-        union.addAll(rightShingles);
-        if (union.isEmpty()) {
+        int unionSize = leftShingles.size() + rightShingles.size() - intersectionSize;
+        if (unionSize == 0) {
             return 0;
         }
-        return (int) Math.round((intersection.size() * 100.0) / union.size());
+        return (int) Math.round((intersectionSize * 100.0) / unionSize);
+    }
+
+    private static int intersectionSize(Set<Long> left, Set<Long> right) {
+        Set<Long> smaller = left.size() <= right.size() ? left : right;
+        Set<Long> larger = left.size() <= right.size() ? right : left;
+        int count = 0;
+        for (Long shingle : smaller) {
+            if (larger.contains(shingle)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     protected int computeAstLabelMultisetSimilarityPercent(String leftAstSignature, String rightAstSignature) {
@@ -4983,16 +5000,32 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 || label.contains("continue");
     }
 
-    protected static Set<String> shingles(List<String> tokens, int shingleSize) {
+    static Set<Long> hashedShingles(List<String> tokens, int shingleSize) {
         int k = Math.max(1, shingleSize);
         if (tokens.size() < k) {
             return Set.of();
         }
-        var shingles = new LinkedHashSet<String>();
+        var shingles = new LinkedHashSet<Long>();
         for (int i = 0; i <= tokens.size() - k; i++) {
-            shingles.add(String.join("|", tokens.subList(i, i + k)));
+            shingles.add(hashShingle(tokens, i, k));
         }
         return shingles;
+    }
+
+    private static long hashShingle(List<String> tokens, int start, int length) {
+        long hash = 0xcbf29ce484222325L;
+        for (int i = start; i < start + length; i++) {
+            String token = tokens.get(i);
+            hash = fnv1a(hash, token.length());
+            for (int j = 0; j < token.length(); j++) {
+                hash = fnv1a(hash, token.charAt(j));
+            }
+        }
+        return hash;
+    }
+
+    private static long fnv1a(long hash, int value) {
+        return (hash ^ value) * 0x100000001b3L;
     }
 
     protected String normalizeCloneLeafToken(TSNode node, SourceContent sourceContent) {
@@ -5066,6 +5099,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected record CloneCandidateData(
             CodeUnit unit, List<String> normalizedTokens, String astSignature, String excerpt) {}
+
+    private record CloneCandidateProfile(CloneCandidateData data, Set<Long> shingles) {}
 
     /**
      * Extracts potential type identifiers from source code.
