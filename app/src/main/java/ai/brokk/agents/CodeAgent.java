@@ -20,6 +20,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
@@ -826,7 +827,7 @@ public class CodeAgent {
 
         // Use up to 5 related classes as context (format as combined summaries)
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
-        String fileContents = file.read().orElse("");
+        String fileContents = ProjectFiles.read(file).orElse("");
         var styleGuide = contextManager.getProject().getStyleGuide();
 
         // Build the prompt messages
@@ -1458,7 +1459,7 @@ public class CodeAgent {
 
         // JDT internals are not threadsafe, even with a per-thread ASTParser
         for (var file : javaFiles) {
-            String src = file.read().orElse("");
+            String src = ProjectFiles.read(file).orElse("");
             if (src.isBlank()) { // PJ-3: blank files should produce no diagnostics
                 continue;
             }
@@ -1966,7 +1967,7 @@ public class CodeAgent {
         @VisibleForTesting
         SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
             return SearchReplaceBlockFormatter.fromChangedFiles(
-                    originalFileContents(), file -> file.read().orElse(""));
+                    originalFileContents(), file -> ProjectFiles.read(file).orElse(""));
         }
     }
 

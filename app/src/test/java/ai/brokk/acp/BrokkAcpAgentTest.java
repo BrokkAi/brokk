@@ -9,10 +9,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
+import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
 import com.agentclientprotocol.sdk.spec.AcpAgentSession;
 import com.agentclientprotocol.sdk.spec.AcpAgentTransport;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
@@ -290,6 +293,10 @@ class BrokkAcpAgentTest {
             return new AcpRequestContext(session, otherSessionId, null, agent);
         }
 
+        AcpRequestContext contextWithCaps(NegotiatedCapabilities clientCaps) {
+            return new AcpRequestContext(session, sessionId, clientCaps, agent);
+        }
+
         @Override
         public void close() {
             session.close();
@@ -350,6 +357,78 @@ class BrokkAcpAgentTest {
             assertEquals(AcpSchema.PlanEntryStatus.COMPLETED, latest.entries().getFirst().status());
         } finally {
             agent.stop();
+        }
+    }
+
+    @Test
+    void acpReadHonorsClientFileSystemCapability() throws Exception {
+        var diskFile = projectRoot.resolve("foo.txt");
+        java.nio.file.Files.writeString(diskFile, "DISK\n");
+        var pf = new ProjectFile(projectRoot, java.nio.file.Path.of("foo.txt"));
+
+        try (var fixture = new PermissionFixture()) {
+            fixture.transport.respondTo(AcpSchema.METHOD_FS_READ_TEXT_FILE, params -> {
+                var req = fixture.transport.mapper.convertValue(
+                        params, new TypeRef<AcpSchema.ReadTextFileRequest>() {});
+                assertEquals(diskFile.toAbsolutePath().toString(), req.path());
+                return new AcpSchema.ReadTextFileResponse("EDITOR-BUFFER");
+            });
+
+            var clientCaps = NegotiatedCapabilities.fromClient(new AcpSchema.ClientCapabilities(
+                    new AcpSchema.FileSystemCapability(true, true), false));
+            try (var ignored = AcpFileBridge.install(fixture.contextWithCaps(clientCaps), clientCaps)) {
+                var read = ProjectFiles.read(pf);
+                assertEquals("EDITOR-BUFFER", read.orElse(null));
+            }
+        }
+    }
+
+    @Test
+    void acpWriteHonorsClientFileSystemCapability() throws Exception {
+        var pf = new ProjectFile(projectRoot, java.nio.file.Path.of("write-target.txt"));
+
+        try (var fixture = new PermissionFixture()) {
+            var captured = new AtomicReference<AcpSchema.WriteTextFileRequest>();
+            fixture.transport.respondTo(AcpSchema.METHOD_FS_WRITE_TEXT_FILE, params -> {
+                captured.set(fixture.transport.mapper.convertValue(
+                        params, new TypeRef<AcpSchema.WriteTextFileRequest>() {}));
+                return new AcpSchema.WriteTextFileResponse();
+            });
+
+            var clientCaps = NegotiatedCapabilities.fromClient(new AcpSchema.ClientCapabilities(
+                    new AcpSchema.FileSystemCapability(true, true), false));
+            try (var ignored = AcpFileBridge.install(fixture.contextWithCaps(clientCaps), clientCaps)) {
+                ProjectFiles.write(pf, "NEW-CONTENT");
+            }
+
+            assertNotNull(captured.get());
+            assertEquals(pf.absPath().toString(), captured.get().path());
+            assertEquals("NEW-CONTENT", captured.get().content());
+            // Disk should not have been touched when the bridge handled the write.
+            assertFalse(java.nio.file.Files.exists(pf.absPath()));
+        }
+    }
+
+    @Test
+    void acpReadFallsBackToDiskWhenNoFsCapability() throws Exception {
+        var diskFile = projectRoot.resolve("plain.txt");
+        java.nio.file.Files.writeString(diskFile, "ON-DISK\n");
+        var pf = new ProjectFile(projectRoot, java.nio.file.Path.of("plain.txt"));
+
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_FS_READ_TEXT_FILE, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.ReadTextFileResponse("UNEXPECTED");
+            });
+
+            var clientCaps = NegotiatedCapabilities.fromClient(
+                    new AcpSchema.ClientCapabilities(new AcpSchema.FileSystemCapability(false, false), false));
+            try (var ignored = AcpFileBridge.install(fixture.contextWithCaps(clientCaps), clientCaps)) {
+                var read = ProjectFiles.read(pf);
+                assertEquals("ON-DISK\n", read.orElse(null));
+            }
+            assertEquals(0, calls.get());
         }
     }
 

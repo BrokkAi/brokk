@@ -21,6 +21,7 @@ import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.util.AlmostGrep;
 import ai.brokk.util.FileTargetHeuristic;
 import ai.brokk.util.Lines;
@@ -1022,7 +1023,7 @@ public class SearchTools {
             int loc = kindGroups.values().stream()
                     .flatMap(List::stream)
                     .findFirst()
-                    .flatMap(cu -> cu.source().read())
+                    .flatMap(cu -> ProjectFiles.read(cu.source()))
                     .map(Lines::count)
                     .orElse(0);
             result.append("<file path=\"")
@@ -1239,7 +1240,7 @@ public class SearchTools {
             if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 var filepath = toUnixPath(cu.source().toString());
-                int loc = cu.source().read().map(Lines::count).orElse(0);
+                int loc = ProjectFiles.read(cu.source()).map(Lines::count).orElse(0);
                 locationMappings.add("%s -> %s (%d loc)".formatted(symbol, filepath, loc));
             } else {
                 notFound.add(symbol);
@@ -1597,7 +1598,7 @@ public class SearchTools {
 
         var matchingStrings = matchingFilenames.stream()
                 .map(pf -> {
-                    String content = pf.read().orElse("");
+                    String content = ProjectFiles.read(pf).orElse("");
                     return "%s (%d loc)".formatted(pf.toString(), Lines.count(content));
                 })
                 .collect(Collectors.joining(", "));
@@ -1941,7 +1942,7 @@ public class SearchTools {
         try {
             batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
                 try {
-                    var contentOpt = file.read();
+                    var contentOpt = ProjectFiles.read(file);
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
                     var mapper = jqMappers.get();
@@ -2056,7 +2057,7 @@ public class SearchTools {
         try {
             batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
                 try {
-                    var contentOpt = file.read();
+                    var contentOpt = ProjectFiles.read(file);
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
                     Document doc = parseXmlDocument(file, contentOpt.get());
@@ -2180,7 +2181,7 @@ public class SearchTools {
         try {
             batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
                 try {
-                    var contentOpt = file.read();
+                    var contentOpt = ProjectFiles.read(file);
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
                     Document doc = parseXmlDocument(file, contentOpt.get());
@@ -2410,7 +2411,7 @@ public class SearchTools {
                     String groupPrefix = entry.getKey();
                     String groupFiles = entry.getValue().stream()
                             .map(pf -> {
-                                String content = pf.read().orElse("");
+                                String content = ProjectFiles.read(pf).orElse("");
                                 return "- %s (%d loc)"
                                         .formatted(basename(toUnixPath(pf.toString())), Lines.count(content));
                             })
@@ -2457,7 +2458,7 @@ public class SearchTools {
                     logger.debug("File not found or not a regular file: {}", file);
                     continue;
                 }
-                var contentOpt = file.read();
+                var contentOpt = ProjectFiles.read(file);
                 if (contentOpt.isEmpty()) {
                     logger.debug("Skipping unreadable file: {}", filename);
                     continue;
@@ -2513,7 +2514,7 @@ public class SearchTools {
 
         var files = filesList.stream()
                 .map(file -> {
-                    String content = file.read().orElse("");
+                    String content = ProjectFiles.read(file).orElse("");
                     return "%s (%d loc)".formatted(file.toString(), Lines.count(content));
                 })
                 .collect(Collectors.joining(", "));
@@ -2603,7 +2604,7 @@ public class SearchTools {
         for (var file : candidateFiles) {
             String identifiers = analyzer.summarizeSymbols(file);
             String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
-            String fileContent = file.read().orElse("");
+            String fileContent = ProjectFiles.read(file).orElse("");
             String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\" loc=\""
                     + Lines.count(fileContent) + "\">\n" + content + "\n</file>\n";
 
@@ -2639,7 +2640,7 @@ public class SearchTools {
                 .map(FileOutput::file)
                 .sorted()
                 .map(file -> {
-                    String content = file.read().orElse("");
+                    String content = ProjectFiles.read(file).orElse("");
                     return "%s (%d loc)".formatted(file.toString(), Lines.count(content));
                 })
                 .collect(Collectors.joining(", "));

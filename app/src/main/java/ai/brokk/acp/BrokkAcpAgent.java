@@ -400,7 +400,8 @@ public class BrokkAcpAgent {
         var jobId = UUID.randomUUID().toString();
         activeJobBySession.put(sessionId, jobId);
 
-        try (var mcpScope = installMcpScope(sessionId)) {
+        try (var mcpScope = installMcpScope(sessionId);
+                var fsScope = AcpFileBridge.install(promptContext, promptContext.getClientCapabilities())) {
             // Create job in store
             jobStore.createOrGetJob(jobId, spec);
 

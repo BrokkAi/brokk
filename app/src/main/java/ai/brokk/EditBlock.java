@@ -5,6 +5,7 @@ import static ai.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 import ai.brokk.analyzer.*;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.util.IndentUtil;
 import ai.brokk.util.WhitespaceMatch;
 import com.google.common.base.Splitter;
@@ -209,7 +210,7 @@ public class EditBlock {
                             Map.of(
                                     "sourcefile", file.getFileName(),
                                     "marker", marker,
-                                    "sourceContents", file.read().orElse(""),
+                                    "sourceContents", ProjectFiles.read(file).orElse(""),
                                     "sourceDeclarations",
                                             analyzer.getDeclarations(file).stream()
                                                     .map(CodeUnit::shortName)
@@ -239,7 +240,7 @@ public class EditBlock {
             try {
                 if (!originalContentsThisBatch.containsKey(file)) {
                     originalContentsThisBatch.put(
-                            file, file.exists() ? file.read().orElse("") : "");
+                            file, file.exists() ? ProjectFiles.read(file).orElse("") : "");
                 }
 
                 replaceInFile(file, effectiveBefore, block.afterText(), ctx);
@@ -277,7 +278,7 @@ public class EditBlock {
                             .flatMap(cf -> cf.sourceFiles().join().stream())
                             .filter(f -> !f.equals(file))
                             .filter(f -> {
-                                String otherContent = f.read().orElse("");
+                                String otherContent = ProjectFiles.read(f).orElse("");
                                 return existsIgnoringWhitespace(
                                         otherContent.lines().toArray(String[]::new),
                                         effectiveBefore.trim().lines().toArray(String[]::new));
@@ -426,7 +427,7 @@ public class EditBlock {
     public static void replaceInFile(ProjectFile file, String beforeText, String afterText, Context ctx)
             throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException, InterruptedException {
         IAppContextManager contextManager = ctx.getContextManager();
-        String original = file.exists() ? file.read().orElse("") : "";
+        String original = file.exists() ? ProjectFiles.read(file).orElse("") : "";
         String updated = replaceMostSimilarChunk(original, beforeText, afterText);
 
         if (isDeletion(original, updated)) {
@@ -436,7 +437,7 @@ public class EditBlock {
             return; // Do not write the blank content
         }
 
-        file.write(updated);
+        ProjectFiles.write(file, updated);
     }
 
     /** Custom exception thrown when no matching location is found in the file. */

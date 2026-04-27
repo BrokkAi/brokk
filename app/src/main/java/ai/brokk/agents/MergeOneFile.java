@@ -12,6 +12,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.tools.Destructive;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
@@ -245,7 +246,7 @@ public final class MergeOneFile {
                         io.llmOutput(nudge, ChatMessageType.USER, LlmOutputMeta.DEFAULT);
                     }
 
-                    var textOpt = file.read();
+                    var textOpt = ProjectFiles.read(file);
                     if (textOpt.isPresent() && !ConflictAnnotator.containsConflictMarkers(textOpt.get())) {
                         io.llmOutput("\nConflicts resolved for " + file, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                         return new Outcome(Status.RESOLVED, null);
@@ -370,7 +371,7 @@ public final class MergeOneFile {
 
     private String readFileAsCodeBlock(ProjectFile file) {
         var ext = file.extension();
-        var text = file.read().orElse(null);
+        var text = ProjectFiles.read(file).orElse(null);
         if (text == null) {
             return "```text\n<unable to read " + file + ">\n```";
         }
