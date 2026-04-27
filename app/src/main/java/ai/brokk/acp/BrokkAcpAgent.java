@@ -8,7 +8,6 @@ import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.util.Messages;
-import com.agentclientprotocol.sdk.agent.SyncPromptContext;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -20,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -59,6 +59,12 @@ public class BrokkAcpAgent {
     private final Map<String, String> modelBySession = new ConcurrentHashMap<>();
     private final Map<String, String> reasoningBySession = new ConcurrentHashMap<>();
     private final Map<String, String> activeJobBySession = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, PermissionVerdict>> stickyPermissionsBySession = new ConcurrentHashMap<>();
+
+    public enum PermissionVerdict {
+        ALLOW,
+        DENY
+    }
 
     // Persisted defaults (loaded once on construction)
     private volatile String defaultModelId;
@@ -212,6 +218,7 @@ public class BrokkAcpAgent {
         modeBySession.remove(sessionId);
         modelBySession.remove(sessionId);
         reasoningBySession.remove(sessionId);
+        stickyPermissionsBySession.remove(sessionId);
         return new AcpProtocol.CloseSessionResponse(null);
     }
 
@@ -245,7 +252,7 @@ public class BrokkAcpAgent {
         }
     }
 
-    public AcpSchema.PromptResponse prompt(AcpSchema.PromptRequest request, SyncPromptContext promptContext) {
+    public AcpSchema.PromptResponse prompt(AcpSchema.PromptRequest request, AcpPromptContext promptContext) {
         var sessionId = request.sessionId();
         var text = request.text();
         logger.info(
@@ -360,6 +367,20 @@ public class BrokkAcpAgent {
         saveAcpDefaults(parsed.baseModel, reasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL));
 
         return new AcpSchema.SetSessionModelResponse();
+    }
+
+    public Optional<PermissionVerdict> stickyPermissionFor(String sessionId, String toolName) {
+        var sessionMap = stickyPermissionsBySession.get(sessionId);
+        if (sessionMap == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(sessionMap.get(toolName));
+    }
+
+    public void rememberPermission(String sessionId, String toolName, PermissionVerdict verdict) {
+        stickyPermissionsBySession
+                .computeIfAbsent(sessionId, ignored -> new ConcurrentHashMap<>())
+                .put(toolName, verdict);
     }
 
     public void cancel(AcpSchema.CancelNotification notification) {
@@ -517,7 +538,7 @@ public class BrokkAcpAgent {
 
     // ---- Slash commands ----
 
-    private void handleContextCommand(String sessionId, SyncPromptContext promptContext) {
+    private void handleContextCommand(String sessionId, AcpPromptContext promptContext) {
         logger.info("ACP /context command for session {}", sessionId);
         var live = cm.liveContext();
         var fragments = live.getAllFragmentsInDisplayOrder();

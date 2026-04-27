@@ -5,7 +5,6 @@ import ai.brokk.agents.BlitzForge;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.tools.ApprovalResult;
 import ai.brokk.tools.ToolExecutionResult;
-import com.agentclientprotocol.sdk.agent.SyncPromptContext;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -27,7 +26,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>Constructed per-prompt-turn and set as the active console on ContextManager.
  */
 public class AcpConsoleIO extends MemoryConsole {
-    private final SyncPromptContext context;
+    private final AcpPromptContext context;
     private final String sessionId;
 
     /** Tracks tool kind from beforeToolCall so afterToolOutput can preserve it. */
@@ -36,7 +35,7 @@ public class AcpConsoleIO extends MemoryConsole {
     /** Tracks tool call ID for commandStart/commandResult lifecycle. */
     private volatile @Nullable String activeCommandToolCallId;
 
-    public AcpConsoleIO(SyncPromptContext context) {
+    public AcpConsoleIO(AcpPromptContext context) {
         this.context = context;
         this.sessionId = context.getSessionId();
     }
@@ -83,7 +82,7 @@ public class AcpConsoleIO extends MemoryConsole {
         context.sendUpdate(sessionId, toolCall);
 
         if (destructive) {
-            boolean approved = context.askPermission("Allow destructive tool: " + toolName + "?");
+            boolean approved = context.askPermission("Allow destructive tool: " + toolName + "?", toolName);
             if (!approved) {
                 pendingToolKinds.remove(toolCallId);
             }
@@ -110,7 +109,7 @@ public class AcpConsoleIO extends MemoryConsole {
                 Map.of("brokk", Map.of("toolName", "shell")));
         context.sendUpdate(sessionId, toolCall);
 
-        boolean approved = context.askPermission("Allow shell command: " + command + "?");
+        boolean approved = context.askPermission("Allow shell command: " + command + "?", "shell");
         if (!approved) {
             pendingToolKinds.remove(toolCallId);
         }

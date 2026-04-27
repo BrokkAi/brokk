@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.tools.ToolExecutionResult;
 import com.agentclientprotocol.sdk.agent.Command;
 import com.agentclientprotocol.sdk.agent.CommandResult;
-import com.agentclientprotocol.sdk.agent.SyncPromptContext;
 import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -64,7 +63,7 @@ class AcpConsoleIOTest {
         assertTrue(ctx.updates.isEmpty());
     }
 
-    private static final class RecordingPromptContext implements SyncPromptContext {
+    private static final class RecordingPromptContext implements AcpPromptContext {
         final List<AcpSchema.SessionUpdate> updates = new ArrayList<>();
 
         @Override
@@ -149,7 +148,7 @@ class AcpConsoleIOTest {
         }
 
         @Override
-        public boolean askPermission(String action) {
+        public boolean askPermission(String action, String toolName) {
             return true;
         }
 

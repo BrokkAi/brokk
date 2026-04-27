@@ -64,7 +64,7 @@ final class BrokkAcpRuntime implements AutoCloseable {
         });
         handlers.put(AcpSchema.METHOD_SESSION_PROMPT, params -> {
             var request = unmarshal(params, new TypeRef<AcpSchema.PromptRequest>() {});
-            var context = new AcpRequestContext(session, request.sessionId(), clientCapabilities.get());
+            var context = new AcpRequestContext(session, request.sessionId(), clientCapabilities.get(), agent);
             return Mono.fromCallable(() -> agent.prompt(request, context));
         });
         handlers.put(AcpSchema.METHOD_SESSION_SET_MODE, params -> {

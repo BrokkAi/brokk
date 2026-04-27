@@ -1,8 +1,10 @@
 package ai.brokk.acp;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,16 +13,19 @@ import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
+import com.agentclientprotocol.sdk.spec.AcpAgentSession;
 import com.agentclientprotocol.sdk.spec.AcpAgentTransport;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.TypeRef;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
@@ -173,6 +178,122 @@ class BrokkAcpAgentTest {
         agent.setMode(new AcpSchema.SetSessionModeRequest(created.sessionId(), "BOGUS"));
 
         assertTrue(captured.stream().noneMatch(AcpSchema.CurrentModeUpdate.class::isInstance));
+    }
+
+    @Test
+    void permissionAskOffersFourOptions() {
+        try (var fixture = new PermissionFixture()) {
+            var captured = new AtomicReference<AcpSchema.RequestPermissionRequest>();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                captured.set(fixture.transport.mapper.convertValue(
+                        params, new TypeRef<AcpSchema.RequestPermissionRequest>() {}));
+                return new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionSelected("selected", "allow_once"));
+            });
+
+            assertTrue(fixture.context.askPermission("Allow X?", "myTool"));
+
+            var request = captured.get();
+            assertNotNull(request);
+            var optionIds = request.options().stream()
+                    .map(AcpSchema.PermissionOption::optionId)
+                    .toList();
+            assertEquals(List.of("allow_once", "allow_always", "reject_once", "reject_always"), optionIds);
+            var optionKinds = request.options().stream()
+                    .map(AcpSchema.PermissionOption::kind)
+                    .toList();
+            assertEquals(
+                    List.of(
+                            AcpSchema.PermissionOptionKind.ALLOW_ONCE,
+                            AcpSchema.PermissionOptionKind.ALLOW_ALWAYS,
+                            AcpSchema.PermissionOptionKind.REJECT_ONCE,
+                            AcpSchema.PermissionOptionKind.REJECT_ALWAYS),
+                    optionKinds);
+        }
+    }
+
+    @Test
+    void permissionAllowAlwaysSkipsSubsequentPrompts() {
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionSelected("selected", "allow_always"));
+            });
+
+            assertTrue(fixture.context.askPermission("Allow X?", "myTool"));
+            assertTrue(fixture.context.askPermission("Allow X again?", "myTool"));
+
+            assertEquals(1, calls.get());
+        }
+    }
+
+    @Test
+    void permissionRejectAlwaysCachesDenial() {
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionSelected("selected", "reject_always"));
+            });
+
+            assertFalse(fixture.context.askPermission("Allow X?", "myTool"));
+            assertFalse(fixture.context.askPermission("Allow X again?", "myTool"));
+
+            assertEquals(1, calls.get());
+        }
+    }
+
+    @Test
+    void permissionCacheIsScopedPerSession() {
+        try (var fixture = new PermissionFixture()) {
+            agent.rememberPermission("session-A", "myTool", BrokkAcpAgent.PermissionVerdict.ALLOW);
+
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionSelected("selected", "reject_once"));
+            });
+
+            // session-B has no sticky verdict, so it must prompt.
+            var ctxB = fixture.contextFor("session-B");
+            assertFalse(ctxB.askPermission("Allow X?", "myTool"));
+            assertEquals(1, calls.get());
+        }
+    }
+
+    @Test
+    void permissionWithUnknownToolBypassesCache() {
+        try (var fixture = new PermissionFixture()) {
+            agent.rememberPermission(fixture.sessionId, "unknown", BrokkAcpAgent.PermissionVerdict.DENY);
+
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionSelected("selected", "allow_once"));
+            });
+
+            assertTrue(fixture.context.askPermission("Confirm overwrite?"));
+
+            assertEquals(1, calls.get());
+        }
+    }
+
+    /** Spins up a transport + session + AcpRequestContext for permission tests. */
+    private final class PermissionFixture implements AutoCloseable {
+        final FakeTransport transport = new FakeTransport();
+        final AcpAgentSession session =
+                new AcpAgentSession(Duration.ofSeconds(10), transport, Map.of(), Map.of());
+        final String sessionId = "session-A";
+        final AcpRequestContext context = new AcpRequestContext(session, sessionId, null, agent);
+
+        AcpRequestContext contextFor(String otherSessionId) {
+            return new AcpRequestContext(session, otherSessionId, null, agent);
+        }
+
+        @Override
+        public void close() {
+            session.close();
+        }
     }
 
     @Test

@@ -4,7 +4,6 @@ import static java.util.Objects.requireNonNull;
 
 import com.agentclientprotocol.sdk.agent.Command;
 import com.agentclientprotocol.sdk.agent.CommandResult;
-import com.agentclientprotocol.sdk.agent.SyncPromptContext;
 import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
 import com.agentclientprotocol.sdk.spec.AcpAgentSession;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
@@ -16,15 +15,21 @@ import java.util.UUID;
 import org.jetbrains.annotations.Nullable;
 
 /** Blocking prompt context backed directly by an {@link AcpAgentSession}. */
-final class AcpRequestContext implements SyncPromptContext {
+final class AcpRequestContext implements AcpPromptContext {
     private final AcpAgentSession session;
     private final String sessionId;
     private final @Nullable NegotiatedCapabilities clientCapabilities;
+    private final @Nullable BrokkAcpAgent agent;
 
-    AcpRequestContext(AcpAgentSession session, String sessionId, @Nullable NegotiatedCapabilities clientCapabilities) {
+    AcpRequestContext(
+            AcpAgentSession session,
+            String sessionId,
+            @Nullable NegotiatedCapabilities clientCapabilities,
+            @Nullable BrokkAcpAgent agent) {
         this.session = session;
         this.sessionId = sessionId;
         this.clientCapabilities = clientCapabilities;
+        this.agent = agent;
     }
 
     @Override
@@ -145,7 +150,16 @@ final class AcpRequestContext implements SyncPromptContext {
     }
 
     @Override
-    public boolean askPermission(String action) {
+    public boolean askPermission(String action, String toolName) {
+        // "unknown" is the sentinel from AcpPromptContext's single-arg default for non-tool prompts
+        // (e.g. confirm dialogs). Those should never share a sticky-cache slot.
+        var cache = "unknown".equals(toolName) ? null : agent;
+        if (cache != null) {
+            var sticky = cache.stickyPermissionFor(sessionId, toolName);
+            if (sticky.isPresent()) {
+                return sticky.get() == BrokkAcpAgent.PermissionVerdict.ALLOW;
+            }
+        }
         var toolCall = new AcpSchema.ToolCallUpdate(
                 UUID.randomUUID().toString(),
                 action,
@@ -156,11 +170,25 @@ final class AcpRequestContext implements SyncPromptContext {
                 null,
                 null);
         var options = List.of(
-                new AcpSchema.PermissionOption("allow", "Allow", AcpSchema.PermissionOptionKind.ALLOW_ONCE),
-                new AcpSchema.PermissionOption("deny", "Deny", AcpSchema.PermissionOptionKind.REJECT_ONCE));
+                new AcpSchema.PermissionOption("allow_once", "Allow once", AcpSchema.PermissionOptionKind.ALLOW_ONCE),
+                new AcpSchema.PermissionOption(
+                        "allow_always", "Always allow", AcpSchema.PermissionOptionKind.ALLOW_ALWAYS),
+                new AcpSchema.PermissionOption("reject_once", "Reject once", AcpSchema.PermissionOptionKind.REJECT_ONCE),
+                new AcpSchema.PermissionOption(
+                        "reject_always", "Always reject", AcpSchema.PermissionOptionKind.REJECT_ALWAYS));
         var response = requestPermission(new AcpSchema.RequestPermissionRequest(sessionId, toolCall, options));
-        return response.outcome() instanceof AcpSchema.PermissionSelected selected
-                && selected.optionId().equals("allow");
+        if (!(response.outcome() instanceof AcpSchema.PermissionSelected selected)) {
+            return false;
+        }
+        var optionId = selected.optionId();
+        if (cache != null) {
+            if ("allow_always".equals(optionId)) {
+                cache.rememberPermission(sessionId, toolName, BrokkAcpAgent.PermissionVerdict.ALLOW);
+            } else if ("reject_always".equals(optionId)) {
+                cache.rememberPermission(sessionId, toolName, BrokkAcpAgent.PermissionVerdict.DENY);
+            }
+        }
+        return "allow_once".equals(optionId) || "allow_always".equals(optionId);
     }
 
     @Override
