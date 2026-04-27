@@ -334,55 +334,31 @@ class BrokkAcpAgentTest {
     @Test
     void taskListMutationsEmitPlanSessionUpdate() throws Exception {
         agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
-        var captured = new java.util.concurrent.CopyOnWriteArrayList<AcpSchema.SessionUpdate>();
-        agent.setSessionUpdateSender((sessionId, update) -> captured.add(update));
+        var plans = new java.util.concurrent.LinkedBlockingQueue<AcpSchema.Plan>();
+        agent.setSessionUpdateSender((sessionId, update) -> {
+            if (update instanceof AcpSchema.Plan p) {
+                plans.add(p);
+            }
+        });
         agent.start();
         try {
             contextManager.setTaskListAsync(new ai.brokk.tasks.TaskList.TaskListData(
                     null,
                     List.of(new ai.brokk.tasks.TaskList.TaskItem("task-1", "Investigate the bug", "details", false))));
 
-            // The listener dispatches updates on a virtual thread; poll briefly for the plan update.
-            var deadline = System.currentTimeMillis() + 2_000;
-            AcpSchema.Plan plan = null;
-            while (System.currentTimeMillis() < deadline) {
-                plan = captured.stream()
-                        .filter(AcpSchema.Plan.class::isInstance)
-                        .map(AcpSchema.Plan.class::cast)
-                        .reduce((a, b) -> b)
-                        .orElse(null);
-                if (plan != null && !plan.entries().isEmpty()) {
-                    break;
-                }
-                Thread.sleep(20);
-            }
-            assertNotNull(plan, "expected at least one plan update; saw: " + captured);
-            assertEquals(1, plan.entries().size());
-            assertEquals("Investigate the bug", plan.entries().getFirst().content());
-            assertEquals(AcpSchema.PlanEntryStatus.PENDING, plan.entries().getFirst().status());
+            var first = plans.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertNotNull(first, "expected a plan update for the initial task list");
+            assertEquals(1, first.entries().size());
+            assertEquals("Investigate the bug", first.entries().getFirst().content());
+            assertEquals(AcpSchema.PlanEntryStatus.PENDING, first.entries().getFirst().status());
 
-            // Mutate the task to done; expect another plan update with COMPLETED status.
-            int countBefore = (int) captured.stream().filter(AcpSchema.Plan.class::isInstance).count();
             contextManager.setTaskListAsync(new ai.brokk.tasks.TaskList.TaskListData(
                     null,
                     List.of(new ai.brokk.tasks.TaskList.TaskItem("task-1", "Investigate the bug", "details", true))));
 
-            deadline = System.currentTimeMillis() + 2_000;
-            AcpSchema.Plan latest = null;
-            while (System.currentTimeMillis() < deadline) {
-                int now = (int) captured.stream().filter(AcpSchema.Plan.class::isInstance).count();
-                if (now > countBefore) {
-                    latest = captured.stream()
-                            .filter(AcpSchema.Plan.class::isInstance)
-                            .map(AcpSchema.Plan.class::cast)
-                            .reduce((a, b) -> b)
-                            .orElseThrow();
-                    break;
-                }
-                Thread.sleep(20);
-            }
-            assertNotNull(latest, "expected a follow-up plan update");
-            assertEquals(AcpSchema.PlanEntryStatus.COMPLETED, latest.entries().getFirst().status());
+            var second = plans.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertNotNull(second, "expected a follow-up plan update after marking task done");
+            assertEquals(AcpSchema.PlanEntryStatus.COMPLETED, second.entries().getFirst().status());
         } finally {
             agent.stop();
         }

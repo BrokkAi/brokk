@@ -18,7 +18,6 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URL;
@@ -521,15 +520,7 @@ public class BrokkAcpAgent {
      * {@link #currentSessionMcpServers()}.
      */
     public AutoCloseable installMcpScope(String sessionId) {
-        var previous = SESSION_MCP_SCOPE.get();
-        SESSION_MCP_SCOPE.set(mcpServersFor(sessionId));
-        return () -> {
-            if (previous == null) {
-                SESSION_MCP_SCOPE.remove();
-            } else {
-                SESSION_MCP_SCOPE.set(previous);
-            }
-        };
+        return ThreadLocalScope.install(SESSION_MCP_SCOPE, mcpServersFor(sessionId));
     }
 
     /** Returns the MCP server list visible to the active prompt thread, or an empty list. */
@@ -590,8 +581,7 @@ public class BrokkAcpAgent {
                                 .filter(v -> v != null && v.regionMatches(true, 0, "Bearer ", 0, 7))
                                 .findFirst()
                                 .orElse(null);
-                var brokkServer = new HttpMcpServer(http.name(), url, null, bearerToken);
-                return discoverTools(brokkServer);
+                return McpUtils.withDiscoveredTools(new HttpMcpServer(http.name(), url, null, bearerToken));
             } catch (Exception e) {
                 logger.warn("Failed to convert ACP HTTP MCP server {}: {}", http.name(), e.getMessage());
                 return null;
@@ -611,9 +601,8 @@ public class BrokkAcpAgent {
                         : stdio.env().stream()
                                 .collect(java.util.stream.Collectors.toMap(
                                         AcpSchema.EnvVariable::name, AcpSchema.EnvVariable::value));
-                var brokkServer = new StdioMcpServer(
-                        stdio.name(), stdio.command(), List.copyOf(stdio.args()), env, null);
-                return discoverTools(brokkServer);
+                return McpUtils.withDiscoveredTools(
+                        new StdioMcpServer(stdio.name(), stdio.command(), List.copyOf(stdio.args()), env, null));
             } catch (Exception e) {
                 logger.warn("Failed to convert ACP stdio MCP server {}: {}", stdio.name(), e.getMessage());
                 return null;
@@ -625,23 +614,6 @@ public class BrokkAcpAgent {
         }
         logger.warn("Unknown ACP MCP server variant: {}", server.getClass().getSimpleName());
         return null;
-    }
-
-    private static @Nullable McpServer discoverTools(McpServer server) {
-        try {
-            var discovered = McpUtils.fetchTools(server);
-            var toolNames = discovered.stream().map(Tool::name).toList();
-            if (server instanceof HttpMcpServer http) {
-                return new HttpMcpServer(http.name(), http.url(), toolNames, http.bearerToken());
-            }
-            if (server instanceof StdioMcpServer stdio) {
-                return new StdioMcpServer(stdio.name(), stdio.command(), stdio.args(), stdio.env(), toolNames);
-            }
-            return server;
-        } catch (Exception e) {
-            logger.warn("MCP tool discovery failed for {}: {}", serverName(server), e.getMessage());
-            return server;
-        }
     }
 
     private static String serverName(McpServer server) {

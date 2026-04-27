@@ -44,15 +44,7 @@ public final class AcpFileBridge {
         if (!canRead && !canWrite) {
             return () -> {};
         }
-        var previous = CURRENT.get();
-        CURRENT.set(new AcpFileBridge(ctx, canRead, canWrite));
-        return () -> {
-            if (previous == null) {
-                CURRENT.remove();
-            } else {
-                CURRENT.set(previous);
-            }
-        };
+        return ThreadLocalScope.install(CURRENT, new AcpFileBridge(ctx, canRead, canWrite));
     }
 
     public boolean canRead() {
