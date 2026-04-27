@@ -1988,8 +1988,7 @@ def _main_dispatch(
             sys.exit(1)
         if args.rust and not args.provider_model:
             print(
-                "Error: --rust requires --provider-model "
-                "(passed to brokk-acp as --default-model).",
+                "Error: --rust requires --provider-model (passed to brokk-acp as --default-model).",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -2057,9 +2056,7 @@ def _main_dispatch(
             except (ExistingBrokkCodeEntryError, ValueError) as exc:
                 print(f"Error: {exc}", file=sys.stderr)
                 sys.exit(1)
-            print(
-                f"Wired editor at brokk-acp=`{brokk_acp_path}` bifrost=`{bifrost_path}`"
-            )
+            print(f"Wired editor at brokk-acp=`{brokk_acp_path}` bifrost=`{bifrost_path}`")
             print(f"Configured {integration} ACP integration in {settings_path}")
             return
 
