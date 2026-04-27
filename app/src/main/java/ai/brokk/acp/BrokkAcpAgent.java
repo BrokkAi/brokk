@@ -7,10 +7,17 @@ import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.mcpclient.HttpMcpServer;
+import ai.brokk.mcpclient.McpServer;
+import ai.brokk.mcpclient.McpUtils;
+import ai.brokk.mcpclient.StdioMcpServer;
 import ai.brokk.util.Messages;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.modelcontextprotocol.spec.McpSchema.Tool;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -19,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -60,6 +68,8 @@ public class BrokkAcpAgent {
     private final Map<String, String> reasoningBySession = new ConcurrentHashMap<>();
     private final Map<String, String> activeJobBySession = new ConcurrentHashMap<>();
     private final Map<String, Map<String, PermissionVerdict>> stickyPermissionsBySession = new ConcurrentHashMap<>();
+    private final Map<String, List<McpServer>> mcpServersBySession = new ConcurrentHashMap<>();
+    private static final InheritableThreadLocal<List<McpServer>> SESSION_MCP_SCOPE = new InheritableThreadLocal<>();
 
     public enum PermissionVerdict {
         ALLOW,
@@ -97,7 +107,7 @@ public class BrokkAcpAgent {
         logger.info("ACP initialize");
         var capabilities = new AcpProtocol.AgentCapabilities(
                 true, // loadSession
-                null, // mcpCapabilities
+                new AcpSchema.McpCapabilities(true, false), // http only; Brokk has no SSE transport
                 new AcpSchema.PromptCapabilities(null, true, null), // embeddedContext = true
                 new AcpProtocol.SessionCapabilities(
                         new AcpProtocol.SessionListCapabilities(null),
@@ -127,6 +137,7 @@ public class BrokkAcpAgent {
 
         modeBySession.put(sessionId, "LUTZ");
         reasoningBySession.put(sessionId, defaultReasoningLevel);
+        applySessionMcpServers(sessionId, request.mcpServers());
 
         var modeState = new AcpSchema.SessionModeState("LUTZ", AVAILABLE_MODES);
         var modelState = buildModelState(sessionId);
@@ -151,6 +162,7 @@ public class BrokkAcpAgent {
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
         reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
+        applySessionMcpServers(sessionId, request.mcpServers());
 
         var modeState = new AcpSchema.SessionModeState(modeBySession.getOrDefault(sessionId, "LUTZ"), AVAILABLE_MODES);
         var modelState = buildModelState(sessionId);
@@ -170,6 +182,7 @@ public class BrokkAcpAgent {
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
         reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
+        applySessionMcpServers(sessionId, request.mcpServers());
 
         var modeState = new AcpSchema.SessionModeState(modeBySession.getOrDefault(sessionId, "LUTZ"), AVAILABLE_MODES);
         var modelState = buildModelState(sessionId);
@@ -219,6 +232,7 @@ public class BrokkAcpAgent {
         modelBySession.remove(sessionId);
         reasoningBySession.remove(sessionId);
         stickyPermissionsBySession.remove(sessionId);
+        mcpServersBySession.remove(sessionId);
         return new AcpProtocol.CloseSessionResponse(null);
     }
 
@@ -239,6 +253,15 @@ public class BrokkAcpAgent {
             }
             reasoningBySession.put(
                     forkSessionId, reasoningBySession.getOrDefault(request.sessionId(), defaultReasoningLevel));
+            // Inherit MCP servers from parent unless the fork request supplies a fresh list.
+            if (request.mcpServers() != null) {
+                applySessionMcpServers(forkSessionId, request.mcpServers());
+            } else {
+                var parentServers = mcpServersBySession.get(request.sessionId());
+                if (parentServers != null) {
+                    mcpServersBySession.put(forkSessionId, parentServers);
+                }
+            }
 
             var modeState =
                     new AcpSchema.SessionModeState(modeBySession.getOrDefault(forkSessionId, "LUTZ"), AVAILABLE_MODES);
@@ -316,7 +339,7 @@ public class BrokkAcpAgent {
         var jobId = UUID.randomUUID().toString();
         activeJobBySession.put(sessionId, jobId);
 
-        try {
+        try (var mcpScope = installMcpScope(sessionId)) {
             // Create job in store
             jobStore.createOrGetJob(jobId, spec);
 
@@ -367,6 +390,118 @@ public class BrokkAcpAgent {
         saveAcpDefaults(parsed.baseModel, reasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL));
 
         return new AcpSchema.SetSessionModelResponse();
+    }
+
+    /**
+     * Returns the MCP servers the client supplied for {@code sessionId} via {@code session/new} or
+     * a related session method. Empty when the client passed none.
+     */
+    public List<McpServer> mcpServersFor(String sessionId) {
+        return mcpServersBySession.getOrDefault(sessionId, List.of());
+    }
+
+    /**
+     * Installs the per-session MCP server list as an inheritable thread-local for the duration of
+     * the returned scope. Consumers (e.g. {@code LutzAgent.initMcpTools}) read the list via
+     * {@link #currentSessionMcpServers()}.
+     */
+    public AutoCloseable installMcpScope(String sessionId) {
+        var previous = SESSION_MCP_SCOPE.get();
+        SESSION_MCP_SCOPE.set(mcpServersFor(sessionId));
+        return () -> {
+            if (previous == null) {
+                SESSION_MCP_SCOPE.remove();
+            } else {
+                SESSION_MCP_SCOPE.set(previous);
+            }
+        };
+    }
+
+    /** Returns the MCP server list visible to the active prompt thread, or an empty list. */
+    public static List<McpServer> currentSessionMcpServers() {
+        var current = SESSION_MCP_SCOPE.get();
+        return current == null ? List.of() : current;
+    }
+
+    private void applySessionMcpServers(String sessionId, @Nullable List<AcpSchema.McpServer> acpServers) {
+        if (acpServers == null || acpServers.isEmpty()) {
+            mcpServersBySession.remove(sessionId);
+            return;
+        }
+        var converted = acpServers.stream()
+                .map(BrokkAcpAgent::convertAcpMcpServer)
+                .filter(Objects::nonNull)
+                .toList();
+        if (converted.isEmpty()) {
+            mcpServersBySession.remove(sessionId);
+        } else {
+            mcpServersBySession.put(sessionId, converted);
+            logger.info("ACP session {} registered {} MCP server(s)", sessionId, converted.size());
+        }
+    }
+
+    private static @Nullable McpServer convertAcpMcpServer(AcpSchema.McpServer server) {
+        if (server instanceof AcpSchema.McpServerHttp http) {
+            try {
+                var url = new URI(http.url()).toURL();
+                String bearerToken = http.headers() == null
+                        ? null
+                        : http.headers().stream()
+                                .filter(h -> "authorization".equalsIgnoreCase(h.name()))
+                                .map(AcpSchema.HttpHeader::value)
+                                .findFirst()
+                                .orElse(null);
+                var brokkServer = new HttpMcpServer(http.name(), url, null, bearerToken);
+                return discoverTools(brokkServer);
+            } catch (Exception e) {
+                logger.warn("Failed to convert ACP HTTP MCP server {}: {}", http.name(), e.getMessage());
+                return null;
+            }
+        }
+        if (server instanceof AcpSchema.McpServerStdio stdio) {
+            try {
+                Map<String, String> env = stdio.env() == null
+                        ? Map.of()
+                        : stdio.env().stream()
+                                .collect(java.util.stream.Collectors.toMap(
+                                        AcpSchema.EnvVariable::name, AcpSchema.EnvVariable::value));
+                var brokkServer = new StdioMcpServer(
+                        stdio.name(), stdio.command(), List.copyOf(stdio.args()), env, null);
+                return discoverTools(brokkServer);
+            } catch (Exception e) {
+                logger.warn("Failed to convert ACP stdio MCP server {}: {}", stdio.name(), e.getMessage());
+                return null;
+            }
+        }
+        if (server instanceof AcpSchema.McpServerSse sse) {
+            logger.warn("ACP MCP server {} is SSE; Brokk does not support SSE transport, dropping", sse.name());
+            return null;
+        }
+        logger.warn("Unknown ACP MCP server variant: {}", server.getClass().getSimpleName());
+        return null;
+    }
+
+    private static @Nullable McpServer discoverTools(McpServer server) {
+        try {
+            var discovered = McpUtils.fetchTools(server);
+            var toolNames = discovered.stream().map(Tool::name).toList();
+            if (server instanceof HttpMcpServer http) {
+                return new HttpMcpServer(http.name(), http.url(), toolNames, http.bearerToken());
+            }
+            if (server instanceof StdioMcpServer stdio) {
+                return new StdioMcpServer(stdio.name(), stdio.command(), stdio.args(), stdio.env(), toolNames);
+            }
+            return server;
+        } catch (Exception e) {
+            logger.warn("MCP tool discovery failed for {}: {}", serverName(server), e.getMessage());
+            return server;
+        }
+    }
+
+    private static String serverName(McpServer server) {
+        if (server instanceof HttpMcpServer http) return http.name();
+        if (server instanceof StdioMcpServer stdio) return stdio.name();
+        return server.getClass().getSimpleName();
     }
 
     public Optional<PermissionVerdict> stickyPermissionFor(String sessionId, String toolName) {

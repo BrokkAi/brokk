@@ -237,9 +237,15 @@ public class LutzAgent {
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
-        var mcpConfig = project.getMcpConfig();
         var tools = new ArrayList<McpPrompts.McpTool>();
-        for (var server : mcpConfig.servers()) {
+        for (var server : project.getMcpConfig().servers()) {
+            if (server.tools() != null) {
+                for (var toolName : server.tools()) {
+                    tools.add(new McpPrompts.McpTool(server, toolName));
+                }
+            }
+        }
+        for (var server : ai.brokk.acp.BrokkAcpAgent.currentSessionMcpServers()) {
             if (server.tools() != null) {
                 for (var toolName : server.tools()) {
                     tools.add(new McpPrompts.McpTool(server, toolName));

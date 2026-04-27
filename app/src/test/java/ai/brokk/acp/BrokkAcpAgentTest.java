@@ -297,6 +297,48 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void initializeAdvertisesMcpCapabilities() {
+        var response = agent.initialize();
+        var mcp = response.agentCapabilities().mcpCapabilities();
+        assertNotNull(mcp);
+        assertEquals(Boolean.TRUE, mcp.http());
+        assertEquals(Boolean.FALSE, mcp.sse());
+    }
+
+    @Test
+    void newSessionAcceptsHttpMcpServer() {
+        // 127.0.0.1:1 always refuses; tool discovery fails fast and the server is still registered
+        // with its untransformed (null) tools list. We assert only the conversion + per-session
+        // bookkeeping, not the discovery (which needs a real MCP server, covered by integration).
+        var http = new AcpSchema.McpServerHttp(
+                "test-http",
+                "http://127.0.0.1:1/mcp",
+                List.of(new AcpSchema.HttpHeader("Authorization", "Bearer abc123")));
+
+        var created =
+                agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.<AcpSchema.McpServer>of(http)));
+
+        var registered = agent.mcpServersFor(created.sessionId());
+        assertEquals(1, registered.size());
+        var converted = assertInstanceOf(ai.brokk.mcpclient.HttpMcpServer.class, registered.getFirst());
+        assertEquals("test-http", converted.name());
+        assertEquals("http://127.0.0.1:1/mcp", converted.url().toString());
+        assertEquals("Bearer abc123", converted.bearerToken());
+    }
+
+    @Test
+    void closeSessionClearsMcpServers() {
+        var http = new AcpSchema.McpServerHttp("test-http", "http://127.0.0.1:1/mcp", List.of());
+        var created =
+                agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.<AcpSchema.McpServer>of(http)));
+        assertEquals(1, agent.mcpServersFor(created.sessionId()).size());
+
+        agent.closeSession(new AcpProtocol.CloseSessionRequest(created.sessionId(), null));
+
+        assertTrue(agent.mcpServersFor(created.sessionId()).isEmpty());
+    }
+
+    @Test
     void runtimeRoutesNewSessionMethods() {
         var transport = new FakeTransport();
         try (var runtime = new BrokkAcpRuntime(transport, agent)) {
