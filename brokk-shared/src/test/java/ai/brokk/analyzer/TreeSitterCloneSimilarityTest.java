@@ -44,6 +44,20 @@ class TreeSitterCloneSimilarityTest {
         assertSimilarityMatchesStringShingles(left, right, weights);
     }
 
+    @Test
+    void returnsZeroWhenShingleSizeSkewCannotMeetSimilarityThreshold() {
+        var left = List.of("A", "B", "C");
+        var right = List.of("A", "B", "C", "D", "E", "F", "G", "H");
+        var weights = new IAnalyzer.CloneSmellWeights(1, 80, 1, 1, 70);
+
+        assertEquals(
+                0,
+                TreeSitterAnalyzer.computeCloneTokenSimilarity(
+                        TreeSitterAnalyzer.hashedShingles(left, weights.shingleSize()),
+                        TreeSitterAnalyzer.hashedShingles(right, weights.shingleSize()),
+                        weights));
+    }
+
     private static void assertSimilarityMatchesStringShingles(
             List<String> left, List<String> right, IAnalyzer.CloneSmellWeights weights) {
         int expected = stringShingleSimilarity(left, right, weights);

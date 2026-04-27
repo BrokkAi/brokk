@@ -20,4 +20,15 @@ abstract class AbstractCloneDetectionSmellTest {
             return analyzer.findStructuralCloneSmells(file, weights);
         }
     }
+
+    protected List<IAnalyzer.CloneSmell> analyzeBothRequested(
+            String pathA, String sourceA, String pathB, String sourceB, IAnalyzer.CloneSmellWeights weights) {
+        try (var built =
+                InlineCoreProject.code(sourceA, pathA).addFile(sourceB, pathB).build()) {
+            IAnalyzer analyzer = built.analyzer();
+            ProjectFile fileA = new ProjectFile(built.root(), pathA);
+            ProjectFile fileB = new ProjectFile(built.root(), pathB);
+            return analyzer.findStructuralCloneSmells(List.of(fileA, fileB), weights);
+        }
+    }
 }

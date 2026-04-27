@@ -4816,6 +4816,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 if (leftData.unit().equals(rightData.unit())) {
                     continue;
                 }
+                if (requestedFiles.contains(rightData.unit().source()) && compareCloneUnits(leftData, rightData) > 0) {
+                    continue;
+                }
                 int tokenSimilarity = computeCloneTokenSimilarity(left.shingles(), right.shingles(), resolved);
                 if (tokenSimilarity < resolved.minSimilarityPercent()) {
                     continue;
@@ -4894,6 +4897,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (leftShingles.size() < weights.minSharedShingles() || rightShingles.size() < weights.minSharedShingles()) {
             return 0;
         }
+        int smallerSize = Math.min(leftShingles.size(), rightShingles.size());
+        int largerSize = Math.max(leftShingles.size(), rightShingles.size());
+        if (smallerSize * 100L < (long) weights.minSimilarityPercent() * largerSize) {
+            return 0;
+        }
         int intersectionSize = intersectionSize(leftShingles, rightShingles);
         if (intersectionSize < weights.minSharedShingles()) {
             return 0;
@@ -4903,6 +4911,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return 0;
         }
         return (int) Math.round((intersectionSize * 100.0) / unionSize);
+    }
+
+    private static int compareCloneUnits(CloneCandidateData left, CloneCandidateData right) {
+        int fileComparison =
+                left.unit().source().toString().compareTo(right.unit().source().toString());
+        if (fileComparison != 0) {
+            return fileComparison;
+        }
+        return left.unit().fqName().compareTo(right.unit().fqName());
     }
 
     private static int intersectionSize(Set<Long> left, Set<Long> right) {
