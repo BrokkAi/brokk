@@ -320,7 +320,7 @@ mod tests {
     /// confirm we get the 9 search-tools, and round-trip one tool call.
     /// Skipped automatically when the binary isn't installed.
     #[tokio::test]
-    async fn handshake_and_search_symbols() {
+    async fn handshake_and_call_search_tools() {
         let Some(binary) = locate_bifrost() else {
             eprintln!("skipping: bifrost binary not on PATH and BROKK_BIFROST_BINARY unset");
             return;
@@ -341,7 +341,7 @@ mod tests {
             "get_symbol_locations",
             "get_symbol_summaries",
             "get_symbol_sources",
-            "get_file_summaries",
+            "get_summaries",
             "summarize_symbols",
             "skim_files",
             "most_relevant_files",
@@ -359,6 +359,18 @@ mod tests {
             .expect("search_symbols call should succeed");
         eprintln!(
             "search_symbols result: {}",
+            serde_json::to_string_pretty(&result).unwrap_or_default()
+        );
+
+        let result = client
+            .call_tool(
+                "get_summaries",
+                json!({ "targets": ["brokk-acp-rust/src/bifrost_client.rs"] }),
+            )
+            .await
+            .expect("get_summaries call should succeed");
+        eprintln!(
+            "get_summaries result: {}",
             serde_json::to_string_pretty(&result).unwrap_or_default()
         );
     }
