@@ -986,9 +986,12 @@ public class SearchTools {
         if (truncated) {
             result.append("### WARNING: Result limit reached (max ")
                     .append(effectiveLimit)
-                    .append(" files). Showing first ")
+                    .append(" files). Showing ")
                     .append(effectiveLimit)
-                    .append(" files. Retrying the same tool call will return the same results.\n\n");
+                    .append(" of ")
+                    .append(fileGroups.size())
+                    .append(" files selected by recent activity when available. Results are displayed alphabetically. "
+                            + "Retrying the same tool call will return the same results.\n\n");
         }
 
         filesToRender.forEach(file -> {
@@ -1494,8 +1497,10 @@ public class SearchTools {
         }
         String prefix = "";
         if (truncated) {
-            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " files). Showing first "
-                    + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
+            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " files). Showing "
+                    + effectiveLimit + " of " + searchResult.matches().size()
+                    + " matches selected by recent activity when available. Results are displayed alphabetically. "
+                    + "Retrying the same tool call will return the same results.\n\n";
         }
 
         var matchingStrings = matchingFilenames.stream()
@@ -2210,8 +2215,10 @@ public class SearchTools {
 
         String prefix = "";
         if (truncated) {
-            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " filenames). Showing first "
-                    + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
+            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " filenames). Showing "
+                    + effectiveLimit + " of " + allMatches.size()
+                    + " matches selected by recent activity when available. Results are displayed alphabetically. "
+                    + "Retrying the same tool call will return the same results.\n\n";
         }
 
         return recordResearchTokens(
@@ -2417,9 +2424,12 @@ public class SearchTools {
         if (truncatedByFileLimit) {
             prefix.append("### WARNING: Result limit reached (max ")
                     .append(FILE_SKIM_LIMIT)
-                    .append(" files). Showing first ")
+                    .append(" files). Showing ")
                     .append(FILE_SKIM_LIMIT)
-                    .append(" files. Retrying the same tool call will return the same results.\n\n");
+                    .append(" of ")
+                    .append(projectFiles.size())
+                    .append(" files selected by recent activity when available. Results are displayed alphabetically. "
+                            + "Retrying the same tool call will return the same results.\n\n");
         }
 
         String fullSkim = selectedBlocks.stream()
