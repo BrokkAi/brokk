@@ -36,9 +36,16 @@ public class AcpConsoleIO extends MemoryConsole {
     /** Tracks tool call ID for commandStart/commandResult lifecycle. */
     private volatile @Nullable String activeCommandToolCallId;
 
-    /** Tracks the active EDIT tool call so afterFileEdits can correlate diff blocks. */
-    private volatile @Nullable String activeEditToolCallId;
-    private volatile @Nullable String activeEditToolName;
+    private record ActiveEdit(String toolCallId, String toolName) {}
+
+    /**
+     * Per-thread stack of active EDIT tool calls. EditBlock.apply runs synchronously on the same
+     * thread that called beforeToolCall, so afterFileEdits can correlate by inspecting the top.
+     * Using a stack (rather than a single ref) supports nested EDIT tools — e.g. an architect tool
+     * that calls a code agent tool — without overwriting the outer tool's id.
+     */
+    private static final ThreadLocal<java.util.Deque<ActiveEdit>> ACTIVE_EDIT_STACK =
+            ThreadLocal.withInitial(java.util.ArrayDeque::new);
 
     public AcpConsoleIO(AcpPromptContext context) {
         this.context = context;
@@ -73,8 +80,7 @@ public class AcpConsoleIO extends MemoryConsole {
         var kind = classifyTool(toolName, destructive);
         pendingToolKinds.put(toolCallId, kind);
         if (kind == AcpSchema.ToolKind.EDIT) {
-            activeEditToolCallId = toolCallId;
-            activeEditToolName = toolName;
+            ACTIVE_EDIT_STACK.get().push(new ActiveEdit(toolCallId, toolName));
         }
 
         var toolCall = new AcpSchema.ToolCall(
@@ -130,11 +136,12 @@ public class AcpConsoleIO extends MemoryConsole {
 
     @Override
     public void afterFileEdits(Map<ProjectFile, String> originalContents, Map<ProjectFile, String> newContents) {
-        var toolCallId = activeEditToolCallId;
-        var toolName = activeEditToolName;
-        if (toolCallId == null || toolName == null) {
+        var active = ACTIVE_EDIT_STACK.get().peek();
+        if (active == null) {
             return;
         }
+        var toolCallId = active.toolCallId();
+        var toolName = active.toolName();
         var diffs = originalContents.entrySet().stream()
                 .map(e -> (AcpSchema.ToolCallContent) new AcpSchema.ToolCallDiff(
                         "diff",
@@ -185,9 +192,15 @@ public class AcpConsoleIO extends MemoryConsole {
         var toolId = result.toolId();
         var kind = pendingToolKinds.getOrDefault(toolId, AcpSchema.ToolKind.OTHER);
         pendingToolKinds.remove(toolId);
-        if (toolId != null && toolId.equals(activeEditToolCallId)) {
-            activeEditToolCallId = null;
-            activeEditToolName = null;
+        if (toolId != null) {
+            var stack = ACTIVE_EDIT_STACK.get();
+            // Pop the matching entry from the top of the per-thread edit stack. We use removeIf
+            // (single match) because nesting may not be perfectly LIFO if an exception unwound
+            // partially without afterToolOutput firing.
+            stack.removeIf(e -> toolId.equals(e.toolCallId()));
+            if (stack.isEmpty()) {
+                ACTIVE_EDIT_STACK.remove();
+            }
         }
 
         // Build content blocks with the result text

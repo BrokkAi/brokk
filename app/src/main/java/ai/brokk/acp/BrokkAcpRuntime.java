@@ -98,6 +98,7 @@ final class BrokkAcpRuntime implements AutoCloseable {
             return;
         }
         agent.stop();
+        agent.clearAllSessions();
         session.close();
     }
 }

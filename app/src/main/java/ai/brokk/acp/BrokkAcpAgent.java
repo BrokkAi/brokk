@@ -140,6 +140,23 @@ public class BrokkAcpAgent {
         }
     }
 
+    /**
+     * Clears all per-session state. Called from {@link BrokkAcpRuntime#close()} so that long-lived
+     * processes don't accumulate maps for sessions whose ACP clients disconnected without sending
+     * {@code session/close}. Idempotent.
+     */
+    public void clearAllSessions() {
+        modeBySession.clear();
+        modelBySession.clear();
+        reasoningBySession.clear();
+        activeJobBySession.clear();
+        stickyPermissionsBySession.clear();
+        mcpServersBySession.clear();
+        rejectedMcpServersBySession.clear();
+        lastTaskListBySession.clear();
+        pendingPlanBySession.clear();
+    }
+
     private void onContextChanged(Context newCtx) {
         var sender = sessionUpdateSender;
         if (sender == null) {
