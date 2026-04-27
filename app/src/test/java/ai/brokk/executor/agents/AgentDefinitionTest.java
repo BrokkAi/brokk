@@ -3,8 +3,12 @@ package ai.brokk.executor.agents;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.Languages;
+import ai.brokk.testutil.TestProject;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class AgentDefinitionTest {
 
@@ -86,6 +90,36 @@ class AgentDefinitionTest {
         assertTrue(AgentDefinition.READ_ONLY_TOOL_NAMES.contains("reportTestAssertionSmells"));
         assertTrue(AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES.contains("reportSecretLikeCode"));
         assertTrue(AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES.contains("reportTestAssertionSmells"));
+    }
+
+    @Test
+    void validate_sourceInspectionTools_areReadOnlyAndParallelSafe() {
+        var sourceInspectionTools =
+                List.of("getFileContents", "listFiles", "getClassSkeletons", "getClassSources", "getMethodSources");
+        for (var tool : sourceInspectionTools) {
+            assertTrue(AgentDefinition.READ_ONLY_TOOL_NAMES.contains(tool), tool);
+            assertTrue(AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES.contains(tool), tool);
+        }
+    }
+
+    @Test
+    void isReadOnly_sourceInspectionAndCodeQualityTools_returnsTrue(@TempDir Path root) {
+        var def = new AgentDefinition(
+                "code-quality-complexity",
+                "Reviews code quality",
+                List.of(
+                        "getFileContents",
+                        "computeCyclomaticComplexity",
+                        "reportExceptionHandlingSmells",
+                        "reportStructuralCloneSmells",
+                        "reportSecretLikeCode",
+                        "reportTestAssertionSmells"),
+                null,
+                "You are a code quality reviewer.",
+                "project");
+
+        assertTrue(def.validate().isEmpty(), "Expected no errors but got: " + def.validate());
+        assertTrue(def.isReadOnly(new TestProject(root, Languages.JAVA)));
     }
 
     @Test
