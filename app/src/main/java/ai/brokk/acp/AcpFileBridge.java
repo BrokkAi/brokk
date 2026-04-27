@@ -64,13 +64,19 @@ public final class AcpFileBridge {
     }
 
     @Blocking
-    public Optional<String> tryRead(ProjectFile file) {
+    public Optional<String> tryRead(ProjectFile file) throws IOException {
         try {
             var content = ctx.readFile(file.absPath().toString());
             return Optional.ofNullable(content);
         } catch (Exception e) {
-            logger.debug("ACP fs/read_text_file failed for {}: {}", file.absPath(), e.getMessage());
-            return Optional.empty();
+            // Restore the interrupt flag if reactor wrapped an interruption inside a RuntimeException.
+            if (Thread.currentThread().isInterrupted() || isInterruptedCause(e)) {
+                Thread.currentThread().interrupt();
+            }
+            // The bridge says it can read but the call failed (transport, auth, deserialization, …).
+            // Surface as IOException so callers don't silently fall back to disk and bypass whatever
+            // policy the client was enforcing.
+            throw new IOException("ACP fs/read_text_file failed for " + file.absPath(), e);
         }
     }
 
@@ -79,7 +85,19 @@ public final class AcpFileBridge {
         try {
             ctx.writeFile(file.absPath().toString(), content);
         } catch (Exception e) {
+            if (Thread.currentThread().isInterrupted() || isInterruptedCause(e)) {
+                Thread.currentThread().interrupt();
+            }
             throw new IOException("ACP fs/write_text_file failed for " + file.absPath(), e);
         }
+    }
+
+    private static boolean isInterruptedCause(Throwable t) {
+        for (var cause = t; cause != null; cause = cause.getCause()) {
+            if (cause instanceof InterruptedException) {
+                return true;
+            }
+        }
+        return false;
     }
 }

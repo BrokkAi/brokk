@@ -125,6 +125,9 @@ public class AcpConsoleIO extends MemoryConsole {
         return approved ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
     }
 
+    /** Maximum bytes of pre/post text we'll ship inside a single ToolCallDiff content block. */
+    private static final int MAX_DIFF_BLOB_BYTES = 256 * 1024;
+
     @Override
     public void afterFileEdits(Map<ProjectFile, String> originalContents, Map<ProjectFile, String> newContents) {
         var toolCallId = activeEditToolCallId;
@@ -136,8 +139,8 @@ public class AcpConsoleIO extends MemoryConsole {
                 .map(e -> (AcpSchema.ToolCallContent) new AcpSchema.ToolCallDiff(
                         "diff",
                         e.getKey().absPath().toString(),
-                        e.getValue(),
-                        newContents.getOrDefault(e.getKey(), "")))
+                        truncateForDiff(e.getValue()),
+                        truncateForDiff(newContents.getOrDefault(e.getKey(), ""))))
                 .toList();
         var update = new AcpSchema.ToolCallUpdateNotification(
                 "tool_call_update",
@@ -334,6 +337,14 @@ public class AcpConsoleIO extends MemoryConsole {
      * Destructive tools always map to EDIT. Otherwise, classification is based on
      * tool name prefixes to match the reference ACP implementation's categories.
      */
+    private static String truncateForDiff(String text) {
+        if (text.length() <= MAX_DIFF_BLOB_BYTES) {
+            return text;
+        }
+        return text.substring(0, MAX_DIFF_BLOB_BYTES)
+                + "\n... [truncated " + (text.length() - MAX_DIFF_BLOB_BYTES) + " bytes]";
+    }
+
     private static AcpSchema.ToolKind classifyTool(String toolName, boolean destructive) {
         if (destructive) {
             return AcpSchema.ToolKind.EDIT;

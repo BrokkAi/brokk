@@ -11,11 +11,22 @@ import io.modelcontextprotocol.json.TypeRef;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.jetbrains.annotations.Nullable;
 
 /** Blocking prompt context backed directly by an {@link AcpAgentSession}. */
 final class AcpRequestContext implements AcpPromptContext {
+
+    /**
+     * Tools whose permission verdicts must NEVER be cached with {@code allow_always} /
+     * {@code reject_always}. {@code "shell"} is here because the cache key is the literal string
+     * "shell" — caching one approval would blanket-allow every future shell command in the session,
+     * including destructive ones the user never saw. {@code "unknown"} is the sentinel from
+     * {@link AcpPromptContext}'s single-arg default for non-tool prompts (confirm dialogs).
+     */
+    private static final Set<String> NON_CACHEABLE_TOOL_NAMES = Set.of("shell", "unknown");
+
     private final AcpAgentSession session;
     private final String sessionId;
     private final @Nullable NegotiatedCapabilities clientCapabilities;
@@ -151,9 +162,8 @@ final class AcpRequestContext implements AcpPromptContext {
 
     @Override
     public boolean askPermission(String action, String toolName) {
-        // "unknown" is the sentinel from AcpPromptContext's single-arg default for non-tool prompts
-        // (e.g. confirm dialogs). Those should never share a sticky-cache slot.
-        var cache = "unknown".equals(toolName) ? null : agent;
+        boolean cacheable = !NON_CACHEABLE_TOOL_NAMES.contains(toolName);
+        var cache = cacheable ? agent : null;
         if (cache != null) {
             var sticky = cache.stickyPermissionFor(sessionId, toolName);
             if (sticky.isPresent()) {
@@ -169,13 +179,23 @@ final class AcpRequestContext implements AcpPromptContext {
                 null,
                 null,
                 null);
-        var options = List.of(
-                new AcpSchema.PermissionOption("allow_once", "Allow once", AcpSchema.PermissionOptionKind.ALLOW_ONCE),
-                new AcpSchema.PermissionOption(
-                        "allow_always", "Always allow", AcpSchema.PermissionOptionKind.ALLOW_ALWAYS),
-                new AcpSchema.PermissionOption("reject_once", "Reject once", AcpSchema.PermissionOptionKind.REJECT_ONCE),
-                new AcpSchema.PermissionOption(
-                        "reject_always", "Always reject", AcpSchema.PermissionOptionKind.REJECT_ALWAYS));
+        // Non-cacheable prompts (shell, confirm dialogs) only get once-options to make the
+        // per-invocation nature explicit. Cacheable prompts get the full four-option set.
+        List<AcpSchema.PermissionOption> options = cacheable
+                ? List.of(
+                        new AcpSchema.PermissionOption(
+                                "allow_once", "Allow once", AcpSchema.PermissionOptionKind.ALLOW_ONCE),
+                        new AcpSchema.PermissionOption(
+                                "allow_always", "Always allow", AcpSchema.PermissionOptionKind.ALLOW_ALWAYS),
+                        new AcpSchema.PermissionOption(
+                                "reject_once", "Reject once", AcpSchema.PermissionOptionKind.REJECT_ONCE),
+                        new AcpSchema.PermissionOption(
+                                "reject_always", "Always reject", AcpSchema.PermissionOptionKind.REJECT_ALWAYS))
+                : List.of(
+                        new AcpSchema.PermissionOption(
+                                "allow_once", "Allow", AcpSchema.PermissionOptionKind.ALLOW_ONCE),
+                        new AcpSchema.PermissionOption(
+                                "reject_once", "Reject", AcpSchema.PermissionOptionKind.REJECT_ONCE));
         var response = requestPermission(new AcpSchema.RequestPermissionRequest(sessionId, toolCall, options));
         if (!(response.outcome() instanceof AcpSchema.PermissionSelected selected)) {
             return false;

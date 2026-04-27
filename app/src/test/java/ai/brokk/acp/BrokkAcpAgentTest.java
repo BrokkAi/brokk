@@ -265,6 +265,34 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void permissionForShellOffersOnlyTwoOptionsAndBypassesCache() {
+        // Shell permissions must NEVER cache: the cache key would be the literal string "shell",
+        // so allow_always would blanket-allow every future shell command in the session.
+        try (var fixture = new PermissionFixture()) {
+            var captured = new AtomicReference<AcpSchema.RequestPermissionRequest>();
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                captured.set(fixture.transport.mapper.convertValue(
+                        params, new TypeRef<AcpSchema.RequestPermissionRequest>() {}));
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_once"));
+            });
+
+            assertTrue(fixture.context.askPermission("Allow shell command: ls?", "shell"));
+            assertTrue(fixture.context.askPermission("Allow shell command: rm -rf?", "shell"));
+
+            assertEquals(2, calls.get(), "shell prompts must hit the user every time");
+            var req = captured.get();
+            assertNotNull(req);
+            var optionIds = req.options().stream()
+                    .map(AcpSchema.PermissionOption::optionId)
+                    .toList();
+            assertEquals(List.of("allow_once", "reject_once"), optionIds);
+        }
+    }
+
+    @Test
     void permissionWithUnknownToolBypassesCache() {
         try (var fixture = new PermissionFixture()) {
             agent.rememberPermission(fixture.sessionId, "unknown", BrokkAcpAgent.PermissionVerdict.DENY);

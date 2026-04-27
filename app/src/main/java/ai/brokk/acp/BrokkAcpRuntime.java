@@ -8,6 +8,7 @@ import io.modelcontextprotocol.json.TypeRef;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import reactor.core.publisher.Mono;
 
@@ -17,6 +18,7 @@ final class BrokkAcpRuntime implements AutoCloseable {
     private final BrokkAcpAgent agent;
     private final AtomicReference<NegotiatedCapabilities> clientCapabilities = new AtomicReference<>();
     private final AcpAgentSession session;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     BrokkAcpRuntime(AcpAgentTransport transport, BrokkAcpAgent agent) {
         this.transport = transport;
@@ -92,6 +94,9 @@ final class BrokkAcpRuntime implements AutoCloseable {
 
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
         agent.stop();
         session.close();
     }

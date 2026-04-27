@@ -5,6 +5,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IAppContextManager;
 import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.concurrent.AtomicWrites;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
@@ -74,7 +75,17 @@ public class BrokkAcpAgent {
     private final Map<String, List<McpServer>> mcpServersBySession = new ConcurrentHashMap<>();
     private static final InheritableThreadLocal<List<McpServer>> SESSION_MCP_SCOPE = new InheritableThreadLocal<>();
     private final Map<String, TaskList.TaskListData> lastTaskListBySession = new ConcurrentHashMap<>();
-    private @Nullable IAppContextManager.ContextListener taskListListener;
+    private volatile @Nullable IAppContextManager.ContextListener taskListListener;
+
+    /**
+     * Gate that controls whether stdio MCP servers supplied over ACP are allowed to launch.
+     * stdio MCP runs an arbitrary client-supplied command line on this process's host, so we
+     * default to disallowing it. Operators who trust their ACP client may opt in via the
+     * {@code BROKK_ACP_ALLOW_STDIO_MCP} environment variable.
+     */
+    private static final boolean ALLOW_ACP_STDIO_MCP =
+            "1".equals(System.getenv("BROKK_ACP_ALLOW_STDIO_MCP"))
+                    || "true".equalsIgnoreCase(System.getenv("BROKK_ACP_ALLOW_STDIO_MCP"));
 
     public enum PermissionVerdict {
         ALLOW,
@@ -145,13 +156,8 @@ public class BrokkAcpAgent {
         }
         lastTaskListBySession.put(sessionId, data);
         // Always dispatch off the EDT — listeners may fire there and session.sendNotification blocks.
-        Thread.startVirtualThread(() -> {
-            try {
-                sender.sendSessionUpdate(sessionId, buildPlanUpdate(data));
-            } catch (Exception e) {
-                logger.warn("Failed to send plan update for session {}", sessionId, e);
-            }
-        });
+        // LoggingFuture funnels uncaught exceptions to GlobalExceptionHandler.
+        LoggingFuture.runVirtual(() -> sender.sendSessionUpdate(sessionId, buildPlanUpdate(data)));
     }
 
     private static AcpSchema.Plan buildPlanUpdate(TaskList.TaskListData data) {
@@ -320,7 +326,7 @@ public class BrokkAcpAgent {
             } else {
                 var parentServers = mcpServersBySession.get(request.sessionId());
                 if (parentServers != null) {
-                    mcpServersBySession.put(forkSessionId, parentServers);
+                    mcpServersBySession.put(forkSessionId, List.copyOf(parentServers));
                 }
             }
 
@@ -498,7 +504,9 @@ public class BrokkAcpAgent {
             mcpServersBySession.remove(sessionId);
         } else {
             mcpServersBySession.put(sessionId, converted);
-            logger.info("ACP session {} registered {} MCP server(s)", sessionId, converted.size());
+            // Log only the names — full McpServer toString may include bearer tokens or env vars.
+            var names = converted.stream().map(BrokkAcpAgent::serverName).toList();
+            logger.info("ACP session {} registered MCP server(s): {}", sessionId, names);
         }
     }
 
@@ -506,11 +514,15 @@ public class BrokkAcpAgent {
         if (server instanceof AcpSchema.McpServerHttp http) {
             try {
                 var url = new URI(http.url()).toURL();
+                // Only forward an Authorization header that's already a Bearer token. Non-Bearer
+                // schemes (Basic, ApiKey, custom) would otherwise be silently re-prefixed with
+                // "Bearer " by McpUtils.buildTransport, corrupting the auth scheme.
                 String bearerToken = http.headers() == null
                         ? null
                         : http.headers().stream()
                                 .filter(h -> "authorization".equalsIgnoreCase(h.name()))
                                 .map(AcpSchema.HttpHeader::value)
+                                .filter(v -> v != null && v.regionMatches(true, 0, "Bearer ", 0, 7))
                                 .findFirst()
                                 .orElse(null);
                 var brokkServer = new HttpMcpServer(http.name(), url, null, bearerToken);
@@ -521,6 +533,13 @@ public class BrokkAcpAgent {
             }
         }
         if (server instanceof AcpSchema.McpServerStdio stdio) {
+            if (!ALLOW_ACP_STDIO_MCP) {
+                logger.warn(
+                        "ACP MCP server {} is stdio; spawning client-supplied processes is disabled by default. "
+                                + "Set BROKK_ACP_ALLOW_STDIO_MCP=1 to enable (only for trusted ACP clients).",
+                        stdio.name());
+                return null;
+            }
             try {
                 Map<String, String> env = stdio.env() == null
                         ? Map.of()
