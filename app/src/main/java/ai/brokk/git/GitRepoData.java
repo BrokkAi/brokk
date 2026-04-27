@@ -2,6 +2,7 @@ package ai.brokk.git;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo.ModifiedFile;
+import ai.brokk.io.ProjectFiles;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -444,7 +445,7 @@ public class GitRepoData {
 
     public String getRefContent(String ref, ProjectFile file) throws GitAPIException {
         if ("WORKING".equals(ref)) {
-            return file.read().orElse("");
+            return ProjectFiles.read(file).orElse("");
         }
         try {
             return getFileContent(ref, file);
