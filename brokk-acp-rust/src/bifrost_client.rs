@@ -230,9 +230,7 @@ async fn read_response(io: &mut BifrostIo, expected_id: i64) -> Result<Value, Bi
             .await
             .map_err(|e| BifrostError::Io(format!("read: {e}")))?;
         if n == 0 {
-            return Err(BifrostError::Io(
-                "bifrost subprocess closed stdout".into(),
-            ));
+            return Err(BifrostError::Io("bifrost subprocess closed stdout".into()));
         }
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -324,9 +322,7 @@ mod tests {
     #[tokio::test]
     async fn handshake_and_search_symbols() {
         let Some(binary) = locate_bifrost() else {
-            eprintln!(
-                "skipping: bifrost binary not on PATH and BROKK_BIFROST_BINARY unset"
-            );
+            eprintln!("skipping: bifrost binary not on PATH and BROKK_BIFROST_BINARY unset");
             return;
         };
         let cwd = std::env::current_dir()

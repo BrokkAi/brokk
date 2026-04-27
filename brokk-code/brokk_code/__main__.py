@@ -942,9 +942,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help=(
             "Wire the editor at the Rust ACP server (brokk-acp) instead of the Python or "
-            "Java implementations. Both `brokk-acp` and `bifrost` must already be on PATH "
-            "(see `--brokk-acp-binary` to override the brokk-acp path). Requires "
-            "--provider-model. Mutually exclusive with --native. zed/intellij only."
+            "Java implementations. Writes the literal commands `brokk-acp` and `bifrost` "
+            "into the editor's agent_servers config; both must be on the PATH the editor "
+            "inherits at agent-launch time (use --brokk-acp-binary to write an explicit "
+            "path instead). Requires --provider-model. Mutually exclusive with --native. "
+            "zed/intellij only."
         ),
     )
     install_parser.add_argument(
@@ -952,9 +954,8 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Use a pre-built brokk-acp binary at this absolute path instead of looking it "
-            "up on PATH. The path is written verbatim into the editor's agent_servers "
-            "args. Dev use only."
+            "Write this brokk-acp path verbatim into the editor's agent_servers args "
+            "instead of the literal `brokk-acp`. Path must exist. Dev use only."
         ),
     )
     install_parser.add_argument(
@@ -2057,8 +2058,7 @@ def _main_dispatch(
                 print(f"Error: {exc}", file=sys.stderr)
                 sys.exit(1)
             print(
-                f"Wired Rust ACP server at {brokk_acp_path} "
-                f"(bifrost at {bifrost_path})"
+                f"Wired editor at brokk-acp=`{brokk_acp_path}` bifrost=`{bifrost_path}`"
             )
             print(f"Configured {integration} ACP integration in {settings_path}")
             return

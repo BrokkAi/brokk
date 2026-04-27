@@ -235,30 +235,34 @@ def test_configure_zed_acp_settings_default_path_windows_untrimmed_appdata(
 
 def test_configure_zed_acp_settings_rust_paths_minimal(tmp_path) -> None:
     settings_path = tmp_path / ".config" / "zed" / "settings.json"
+    brokk_acp = Path("/home/u/.brokk/bin/brokk-acp")
+    bifrost = Path("/home/u/.brokk/bin/bifrost")
     rust_paths = RustAcpPaths(
-        brokk_acp=Path("/home/u/.brokk/bin/brokk-acp"),
-        bifrost=Path("/home/u/.brokk/bin/bifrost"),
+        brokk_acp=brokk_acp,
+        bifrost=bifrost,
         model="qwen2.5-coder:7b",
     )
 
     configure_zed_acp_settings(settings_path=settings_path, rust_paths=rust_paths)
 
     entry = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"]["Brokk Code"]
-    assert entry["command"] == "/home/u/.brokk/bin/brokk-acp"
+    assert entry["command"] == str(brokk_acp)
     assert entry["args"] == [
         "--default-model",
         "qwen2.5-coder:7b",
         "--bifrost-binary",
-        "/home/u/.brokk/bin/bifrost",
+        str(bifrost),
     ]
     assert entry["favorite_config_option_values"]["model"] == ["qwen2.5-coder:7b"]
 
 
 def test_configure_zed_acp_settings_rust_paths_with_custom_endpoint(tmp_path) -> None:
     settings_path = tmp_path / ".config" / "zed" / "settings.json"
+    brokk_acp = Path("/opt/brokk-acp")
+    bifrost = Path("/opt/bifrost")
     rust_paths = RustAcpPaths(
-        brokk_acp=Path("/opt/brokk-acp"),
-        bifrost=Path("/opt/bifrost"),
+        brokk_acp=brokk_acp,
+        bifrost=bifrost,
         model="claude-haiku-4-5",
         endpoint_url="http://example.invalid:8080",
         api_key="sk-test-123",
@@ -273,7 +277,7 @@ def test_configure_zed_acp_settings_rust_paths_with_custom_endpoint(tmp_path) ->
         "--default-model",
         "claude-haiku-4-5",
         "--bifrost-binary",
-        "/opt/bifrost",
+        str(bifrost),
         "--endpoint-url",
         "http://example.invalid:8080",
         "--api-key",

@@ -1,20 +1,20 @@
-"""Resolve absolute paths to the Rust ACP server (`brokk-acp`) and `bifrost`.
+"""Resolve paths to the Rust ACP server (`brokk-acp`) and `bifrost`.
 
-brokk-code does not build or fetch these binaries -- the user is responsible
-for installing them (`cargo install`, package manager, prebuilt download, etc.).
-This module only resolves where they live so the editor's agent_servers config
-can be written to point at them.
+brokk-code does not install or locate these binaries. By default we write the
+literal binary names into the editor config and rely on the editor inheriting
+a PATH that finds them at agent-launch time. Pass `--brokk-acp-binary PATH` to
+override with an explicit path (e.g. for dev iteration against a locally-built
+binary).
 """
 
 from __future__ import annotations
 
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 
 class RustAcpInstallError(Exception):
-    """Raised when a required Rust ACP binary cannot be located."""
+    """Raised when an explicitly-provided override path is invalid."""
 
 
 @dataclass
@@ -27,28 +27,18 @@ class RustAcpPaths:
 
 
 def resolve_rust_paths(*, brokk_acp_override: Path | None) -> tuple[Path, Path]:
-    """Resolve absolute paths for the brokk-acp and bifrost binaries.
+    """Return the paths (or literal binary names) to write into the editor config.
 
-    `brokk-acp` may be supplied explicitly via override; otherwise it (and
-    bifrost, always) must be discoverable on PATH.
+    bifrost is always the literal `bifrost`; brokk-acp is the override if given,
+    otherwise the literal `brokk-acp`. Override path is validated to exist.
     """
     brokk_acp = (
         _validate_existing_file(brokk_acp_override, "brokk-acp")
         if brokk_acp_override is not None
-        else _resolve_on_path("brokk-acp")
+        else Path("brokk-acp")
     )
-    bifrost = _resolve_on_path("bifrost")
+    bifrost = Path("bifrost")
     return brokk_acp, bifrost
-
-
-def _resolve_on_path(name: str) -> Path:
-    found = shutil.which(name)
-    if not found:
-        raise RustAcpInstallError(
-            f"'{name}' not found on PATH. Install it (e.g. `cargo install ...`) "
-            "and ensure it is on your PATH, then re-run."
-        )
-    return Path(found).resolve()
 
 
 def _validate_existing_file(path: Path, name: str) -> Path:
@@ -56,4 +46,4 @@ def _validate_existing_file(path: Path, name: str) -> Path:
         raise RustAcpInstallError(f"{name} binary not found at {path}.")
     if not path.is_file():
         raise RustAcpInstallError(f"{name} path {path} is not a regular file.")
-    return path.resolve()
+    return path

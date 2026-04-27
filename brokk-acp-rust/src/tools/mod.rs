@@ -41,9 +41,7 @@ impl ToolRegistry {
                 }
             },
             None => {
-                tracing::debug!(
-                    "bifrost binary not configured; code-intelligence tools disabled"
-                );
+                tracing::debug!("bifrost binary not configured; code-intelligence tools disabled");
                 None
             }
         };
@@ -158,7 +156,11 @@ impl ToolRegistry {
         ];
         if let Some(client) = self.bifrost.as_ref() {
             for tool in client.tools() {
-                defs.push(tool_def(&tool.name, &tool.description, tool.input_schema.clone()));
+                defs.push(tool_def(
+                    &tool.name,
+                    &tool.description,
+                    tool.input_schema.clone(),
+                ));
             }
         }
         defs
@@ -234,9 +236,8 @@ impl ToolRegistry {
                 let output = if let Some(s) = value.as_str() {
                     s.to_string()
                 } else {
-                    serde_json::to_string_pretty(&value).unwrap_or_else(|e| {
-                        format!("<failed to serialize bifrost result: {e}>")
-                    })
+                    serde_json::to_string_pretty(&value)
+                        .unwrap_or_else(|e| format!("<failed to serialize bifrost result: {e}>"))
                 };
                 ToolResult {
                     status: ToolStatus::Success,
