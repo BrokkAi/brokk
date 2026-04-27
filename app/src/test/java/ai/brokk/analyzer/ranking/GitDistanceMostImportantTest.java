@@ -6,6 +6,7 @@ import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
@@ -14,8 +15,11 @@ import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -103,6 +107,59 @@ public class GitDistanceMostImportantTest {
         assertEquals(userService, results.get(0), "UserService should be most important");
         assertEquals(user, results.get(1), "User should be second");
         assertEquals(userRepo, results.get(2), "UserRepository should be third");
+    }
+
+    @Test
+    public void testSortByImportanceUsesBoundedRecentCommitScores() throws InterruptedException {
+        var low = new ProjectFile(testProject.getRoot(), "Low.java");
+        var high = new ProjectFile(testProject.getRoot(), "High.java");
+        var newest = new CommitInfo("newest", "Update high", "Test", Instant.parse("2025-01-02T00:00:00Z"));
+        var older = new CommitInfo("older", "Update low", "Test", Instant.parse("2025-01-01T00:00:00Z"));
+
+        IGitRepo repo = new IGitRepo() {
+            @Override
+            public Set<ProjectFile> getTrackedFiles() {
+                return Set.of(low, high);
+            }
+
+            @Override
+            public void add(Collection<ProjectFile> files) {}
+
+            @Override
+            public void add(ProjectFile file) {}
+
+            @Override
+            public void remove(ProjectFile file) {}
+
+            @Override
+            public String getCurrentBranch() {
+                return "main";
+            }
+
+            @Override
+            public List<CommitInfo> listCommitsDetailed(String branchName, int maxResults) {
+                assertEquals(1_000, maxResults, "sortByImportance should use the bounded recent-commit window");
+                return List.of(newest, older);
+            }
+
+            @Override
+            public List<ModifiedFile> listFilesChangedInCommit(String commitId) {
+                return switch (commitId) {
+                    case "newest" -> List.of(new ModifiedFile(high, ModificationType.MODIFIED));
+                    case "older" -> List.of(new ModifiedFile(low, ModificationType.MODIFIED));
+                    default -> List.of();
+                };
+            }
+
+            @Override
+            public List<CommitInfo> getFileHistories(Collection<ProjectFile> files, int maxResults) {
+                throw new AssertionError("sortByImportance should not collect per-file histories");
+            }
+        };
+
+        var results = GitDistance.sortByImportance(List.of(low, high), repo);
+
+        assertEquals(high, results.getFirst(), "Newer recent history should make High.java more important");
     }
 
     @Test
