@@ -75,6 +75,9 @@ public class BrokkAcpAgent {
     private final Map<String, List<McpServer>> mcpServersBySession = new ConcurrentHashMap<>();
     private static final InheritableThreadLocal<List<McpServer>> SESSION_MCP_SCOPE = new InheritableThreadLocal<>();
     private final Map<String, TaskList.TaskListData> lastTaskListBySession = new ConcurrentHashMap<>();
+    private final Map<String, java.util.concurrent.atomic.AtomicReference<TaskList.TaskListData>>
+            pendingPlanBySession = new ConcurrentHashMap<>();
+    private final Map<String, List<String>> rejectedMcpServersBySession = new ConcurrentHashMap<>();
     private volatile @Nullable IAppContextManager.ContextListener taskListListener;
 
     /**
@@ -142,6 +145,9 @@ public class BrokkAcpAgent {
         if (sender == null) {
             return;
         }
+        // Capture the current session id at listener-fire time. Note: ContextManager has no
+        // session-of-origin on Context, so this is a best-effort attribution. The dedup against
+        // lastTaskListBySession below makes mis-attribution self-healing on the next change.
         var sessionId = cm.getCurrentSessionId().toString();
         TaskList.TaskListData data;
         try {
@@ -150,14 +156,35 @@ public class BrokkAcpAgent {
             logger.debug("Could not read task list for session {}", sessionId, e);
             return;
         }
-        var previous = lastTaskListBySession.get(sessionId);
-        if (data.equals(previous)) {
+        if (data.equals(lastTaskListBySession.get(sessionId))) {
             return;
         }
-        lastTaskListBySession.put(sessionId, data);
-        // Always dispatch off the EDT — listeners may fire there and session.sendNotification blocks.
-        // LoggingFuture funnels uncaught exceptions to GlobalExceptionHandler.
-        LoggingFuture.runVirtual(() -> sender.sendSessionUpdate(sessionId, buildPlanUpdate(data)));
+        // Single-flight per-session: coalesce concurrent updates so the client always sees the
+        // newest plan, never an older one delivered after a newer one (out-of-order virtual threads
+        // were a real risk under churn).
+        var pending = pendingPlanBySession.computeIfAbsent(
+                sessionId, k -> new java.util.concurrent.atomic.AtomicReference<>());
+        var displaced = pending.getAndSet(data);
+        if (displaced != null) {
+            // A flush is already running; it will pick up our value before sending.
+            return;
+        }
+        LoggingFuture.runVirtual(() -> drainPendingPlan(sessionId, sender, pending));
+    }
+
+    private void drainPendingPlan(
+            String sessionId,
+            SessionUpdateSender sender,
+            java.util.concurrent.atomic.AtomicReference<TaskList.TaskListData> pending) {
+        TaskList.TaskListData latest;
+        while ((latest = pending.getAndSet(null)) != null) {
+            try {
+                lastTaskListBySession.put(sessionId, latest);
+                sender.sendSessionUpdate(sessionId, buildPlanUpdate(latest));
+            } catch (Exception e) {
+                logger.warn("Failed to send plan update for session {}", sessionId, e);
+            }
+        }
     }
 
     private static AcpSchema.Plan buildPlanUpdate(TaskList.TaskListData data) {
@@ -300,6 +327,9 @@ public class BrokkAcpAgent {
         reasoningBySession.remove(sessionId);
         stickyPermissionsBySession.remove(sessionId);
         mcpServersBySession.remove(sessionId);
+        rejectedMcpServersBySession.remove(sessionId);
+        lastTaskListBySession.remove(sessionId);
+        pendingPlanBySession.remove(sessionId);
         return new AcpProtocol.CloseSessionResponse(null);
     }
 
@@ -492,22 +522,40 @@ public class BrokkAcpAgent {
     }
 
     private void applySessionMcpServers(String sessionId, @Nullable List<AcpSchema.McpServer> acpServers) {
+        rejectedMcpServersBySession.remove(sessionId);
         if (acpServers == null || acpServers.isEmpty()) {
             mcpServersBySession.remove(sessionId);
             return;
         }
-        var converted = acpServers.stream()
-                .map(BrokkAcpAgent::convertAcpMcpServer)
-                .filter(Objects::nonNull)
-                .toList();
+        var converted = new ArrayList<McpServer>();
+        var rejected = new ArrayList<String>();
+        for (var acp : acpServers) {
+            var brokkServer = convertAcpMcpServer(acp);
+            if (brokkServer == null) {
+                rejected.add(acpServerName(acp));
+            } else {
+                converted.add(brokkServer);
+            }
+        }
         if (converted.isEmpty()) {
             mcpServersBySession.remove(sessionId);
         } else {
-            mcpServersBySession.put(sessionId, converted);
+            mcpServersBySession.put(sessionId, List.copyOf(converted));
             // Log only the names — full McpServer toString may include bearer tokens or env vars.
             var names = converted.stream().map(BrokkAcpAgent::serverName).toList();
             logger.info("ACP session {} registered MCP server(s): {}", sessionId, names);
         }
+        if (!rejected.isEmpty()) {
+            rejectedMcpServersBySession.put(sessionId, List.copyOf(rejected));
+            logger.warn("ACP session {} rejected MCP server(s): {}", sessionId, rejected);
+        }
+    }
+
+    private static String acpServerName(AcpSchema.McpServer s) {
+        if (s instanceof AcpSchema.McpServerHttp h) return h.name();
+        if (s instanceof AcpSchema.McpServerStdio st) return st.name();
+        if (s instanceof AcpSchema.McpServerSse se) return se.name();
+        return s.getClass().getSimpleName();
     }
 
     private static @Nullable McpServer convertAcpMcpServer(AcpSchema.McpServer server) {
@@ -668,7 +716,18 @@ public class BrokkAcpAgent {
         var baseModel = modelBySession.getOrDefault(sessionId, defaultModelId);
         var reasoning = reasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL);
         var variants = modelVariantsFor(baseModel);
-        return Map.of("brokk", Map.of("modelId", baseModel, "variant", reasoning, "availableVariants", variants));
+        var brokk = new HashMap<String, Object>();
+        brokk.put("modelId", baseModel);
+        brokk.put("variant", reasoning);
+        brokk.put("availableVariants", variants);
+        var rejected = rejectedMcpServersBySession.get(sessionId);
+        if (rejected != null && !rejected.isEmpty()) {
+            // Surface MCP servers that the client supplied but Brokk dropped (SSE, stdio without
+            // BROKK_ACP_ALLOW_STDIO_MCP, conversion failures). Without this the client sees no
+            // tools from these and has no way to learn why.
+            brokk.put("rejectedMcpServers", rejected);
+        }
+        return Map.of("brokk", Map.copyOf(brokk));
     }
 
     private List<String> modelVariantsFor(String modelName) {

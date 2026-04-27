@@ -491,6 +491,24 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void newSessionSurfacesRejectedMcpServersInResponseMeta() {
+        // SSE is not supported; should be dropped and surfaced under brokk.rejectedMcpServers.
+        var sse = new AcpSchema.McpServerSse("test-sse", "https://example/mcp", List.of());
+        var response = agent.newSession(
+                new AcpSchema.NewSessionRequest(projectRoot.toString(), List.<AcpSchema.McpServer>of(sse)));
+
+        var meta = response.meta();
+        assertNotNull(meta);
+        @SuppressWarnings("unchecked")
+        var brokk = (Map<String, Object>) meta.get("brokk");
+        assertNotNull(brokk);
+        @SuppressWarnings("unchecked")
+        var rejected = (List<String>) brokk.get("rejectedMcpServers");
+        assertNotNull(rejected, "expected rejected MCP server names in response meta");
+        assertTrue(rejected.contains("test-sse"));
+    }
+
+    @Test
     void closeSessionClearsMcpServers() {
         var http = new AcpSchema.McpServerHttp("test-http", "http://127.0.0.1:1/mcp", List.of());
         var created =
