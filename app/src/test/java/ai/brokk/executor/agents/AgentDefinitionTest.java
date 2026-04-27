@@ -94,8 +94,13 @@ class AgentDefinitionTest {
 
     @Test
     void validate_sourceInspectionTools_areReadOnlyAndParallelSafe() {
-        var sourceInspectionTools =
-                List.of("getFileContents", "listFiles", "getClassSkeletons", "getClassSources", "getMethodSources");
+        var sourceInspectionTools = List.of(
+                "getFileContents",
+                "listFiles",
+                "getSummaries",
+                "getClassSkeletons",
+                "getClassSources",
+                "getMethodSources");
         for (var tool : sourceInspectionTools) {
             assertTrue(AgentDefinition.READ_ONLY_TOOL_NAMES.contains(tool), tool);
             assertTrue(AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES.contains(tool), tool);
