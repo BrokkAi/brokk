@@ -4899,7 +4899,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         int smallerSize = Math.min(leftShingles.size(), rightShingles.size());
         int largerSize = Math.max(leftShingles.size(), rightShingles.size());
-        if (smallerSize * 100L < (long) weights.minSimilarityPercent() * largerSize) {
+        int maxPossibleSimilarity = (int) Math.round((smallerSize * 100.0) / largerSize);
+        if (maxPossibleSimilarity < weights.minSimilarityPercent()) {
             return 0;
         }
         int intersectionSize = intersectionSize(leftShingles, rightShingles);

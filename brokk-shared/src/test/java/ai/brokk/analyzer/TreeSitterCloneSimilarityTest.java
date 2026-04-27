@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 
 class TreeSitterCloneSimilarityTest {
@@ -56,6 +58,15 @@ class TreeSitterCloneSimilarityTest {
                         TreeSitterAnalyzer.hashedShingles(left, weights.shingleSize()),
                         TreeSitterAnalyzer.hashedShingles(right, weights.shingleSize()),
                         weights));
+    }
+
+    @Test
+    void upperBoundUsesRoundedSimilarityThreshold() {
+        var left = LongStream.range(0, 699).boxed().collect(Collectors.toSet());
+        var right = LongStream.range(0, 1000).boxed().collect(Collectors.toSet());
+        var weights = new IAnalyzer.CloneSmellWeights(1, 70, 1, 1, 70);
+
+        assertEquals(70, TreeSitterAnalyzer.computeCloneTokenSimilarity(left, right, weights));
     }
 
     private static void assertSimilarityMatchesStringShingles(
