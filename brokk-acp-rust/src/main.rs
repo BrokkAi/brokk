@@ -1,9 +1,11 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Parser;
 
 mod agent;
+mod bifrost_client;
 mod llm_client;
 mod session;
 mod tool_loop;
@@ -30,6 +32,11 @@ struct Args {
     /// Maximum number of tool-calling turns per prompt before the server forces a final text response.
     #[arg(long, default_value_t = 25)]
     max_turns: usize,
+
+    /// Path to the bifrost binary (or just "bifrost" to look it up on $PATH).
+    /// When unset, code-intelligence tools (search_symbols, etc.) are disabled.
+    #[arg(long, env = "BROKK_BIFROST_BINARY")]
+    bifrost_binary: Option<PathBuf>,
 }
 
 // Manual Debug to avoid leaking api_key in logs or process listings.
@@ -40,6 +47,7 @@ impl std::fmt::Debug for Args {
             .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
             .field("default_model", &self.default_model)
             .field("max_turns", &self.max_turns)
+            .field("bifrost_binary", &self.bifrost_binary)
             .finish()
     }
 }
@@ -66,7 +74,7 @@ async fn main() -> Result<()> {
     let sessions = session::SessionStore::new(args.default_model);
 
     let max_turns = args.max_turns.max(1);
-    agent::run_agent(llm, sessions, max_turns)
+    agent::run_agent(llm, sessions, max_turns, args.bifrost_binary)
         .await
         .map_err(|e| {
             tracing::error!("agent error: {e}");

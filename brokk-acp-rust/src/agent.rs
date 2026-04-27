@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use agent_client_protocol::schema::{
@@ -18,7 +18,6 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::llm_client::{ChatMessage, LlmBackend};
 use crate::session::{ConversationTurn, SessionMode, SessionStore};
-use crate::tools::ToolRegistry;
 
 /// Available session modes exposed to ACP clients.
 fn available_modes() -> Vec<AcpSessionMode> {
@@ -39,6 +38,7 @@ pub async fn run_agent(
     llm: Arc<dyn LlmBackend>,
     sessions: SessionStore,
     max_turns: usize,
+    bifrost_binary: Option<PathBuf>,
 ) -> agent_client_protocol::Result<()> {
     let llm_init = llm.clone();
     let sessions_init = sessions.clone();
@@ -51,6 +51,7 @@ pub async fn run_agent(
 
     let llm_prompt = llm.clone();
     let sessions_prompt = sessions.clone();
+    let bifrost_binary_prompt = bifrost_binary.clone();
 
     let sessions_cancel = sessions.clone();
     let sessions_mode = sessions.clone();
@@ -260,7 +261,13 @@ pub async fn run_agent(
                 let cancel = sessions_prompt.start_prompt(&session_id).await;
 
                 // Run the agentic tool loop
-                let registry = ToolRegistry::new(session.cwd.clone());
+                let registry = sessions_prompt
+                    .get_or_create_registry(
+                        &session_id,
+                        session.cwd.clone(),
+                        bifrost_binary_prompt.as_deref(),
+                    )
+                    .await;
                 let cx_text = cx.clone();
                 let sid_text = session_id.clone();
                 let cx_tool = cx.clone();
