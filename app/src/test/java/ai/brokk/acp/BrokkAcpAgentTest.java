@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
@@ -142,6 +143,39 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void setModeEmitsCurrentModeUpdate() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var captured = new ArrayList<AcpSchema.SessionUpdate>();
+        var capturedSessionIds = new ArrayList<String>();
+        agent.setSessionUpdateSender((sessionId, update) -> {
+            capturedSessionIds.add(sessionId);
+            captured.add(update);
+        });
+
+        agent.setMode(new AcpSchema.SetSessionModeRequest(created.sessionId(), "ASK"));
+
+        var modeUpdates = captured.stream()
+                .filter(AcpSchema.CurrentModeUpdate.class::isInstance)
+                .map(AcpSchema.CurrentModeUpdate.class::cast)
+                .toList();
+        assertEquals(1, modeUpdates.size());
+        assertEquals("current_mode_update", modeUpdates.getFirst().sessionUpdate());
+        assertEquals("ASK", modeUpdates.getFirst().currentModeId());
+        assertEquals(created.sessionId(), capturedSessionIds.getFirst());
+    }
+
+    @Test
+    void setModeWithInvalidModeDoesNotEmit() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var captured = new ArrayList<AcpSchema.SessionUpdate>();
+        agent.setSessionUpdateSender((sessionId, update) -> captured.add(update));
+
+        agent.setMode(new AcpSchema.SetSessionModeRequest(created.sessionId(), "BOGUS"));
+
+        assertTrue(captured.stream().noneMatch(AcpSchema.CurrentModeUpdate.class::isInstance));
+    }
+
+    @Test
     void runtimeRoutesNewSessionMethods() {
         var transport = new FakeTransport();
         try (var runtime = new BrokkAcpRuntime(transport, agent)) {
@@ -179,9 +213,10 @@ class BrokkAcpAgentTest {
         }
     }
 
-    private static final class FakeTransport implements AcpAgentTransport {
+    static final class FakeTransport implements AcpAgentTransport {
         private final McpJsonMapper mapper = McpJsonDefaults.getMapper();
         private final List<AcpSchema.JSONRPCMessage> sentMessages = new ArrayList<>();
+        private final Map<String, Function<Object, Object>> requestStubs = new ConcurrentHashMap<>();
         private Function<Mono<AcpSchema.JSONRPCMessage>, Mono<AcpSchema.JSONRPCMessage>> handler =
                 ignored -> Mono.empty();
 
@@ -189,6 +224,21 @@ class BrokkAcpAgentTest {
             var request = new AcpSchema.JSONRPCRequest(method, id, params);
             var response = handler.apply(Mono.just(request)).block();
             return assertInstanceOf(AcpSchema.JSONRPCResponse.class, response);
+        }
+
+        /** Decoded view of {@code session/update} notifications the agent has emitted. */
+        List<AcpSchema.SessionNotification> sessionUpdates() {
+            return sentMessages.stream()
+                    .filter(AcpSchema.JSONRPCNotification.class::isInstance)
+                    .map(AcpSchema.JSONRPCNotification.class::cast)
+                    .filter(n -> AcpSchema.METHOD_SESSION_UPDATE.equals(n.method()))
+                    .map(n -> mapper.convertValue(n.params(), new TypeRef<AcpSchema.SessionNotification>() {}))
+                    .toList();
+        }
+
+        /** Register a stub that responds to outbound client-bound requests for {@code method}. */
+        void respondTo(String method, Function<Object, Object> stub) {
+            requestStubs.put(method, stub);
         }
 
         @Override
@@ -213,6 +263,15 @@ class BrokkAcpAgentTest {
         @Override
         public Mono<Void> sendMessage(AcpSchema.JSONRPCMessage message) {
             sentMessages.add(message);
+            if (message instanceof AcpSchema.JSONRPCRequest req) {
+                var stub = requestStubs.get(req.method());
+                if (stub != null) {
+                    var result = stub.apply(req.params());
+                    var response = new AcpSchema.JSONRPCResponse("2.0", req.id(), result, null);
+                    Thread.startVirtualThread(
+                            () -> handler.apply(Mono.just(response)).subscribe());
+                }
+            }
             return Mono.empty();
         }
 

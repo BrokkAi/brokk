@@ -152,6 +152,7 @@ public class CustomAgentExecutor {
                                 CompletableFuture.completedFuture(ToolExecutionResult.requestError(
                                         request, "Tool call '%s' was denied by user.".formatted(request.name()))));
                     } else {
+                        io.toolCallInProgress(request);
                         Context snapshotContext = context;
                         parallelFutures.put(
                                 request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
@@ -186,6 +187,7 @@ public class CustomAgentExecutor {
                                 request, "Tool call '%s' was denied by user.".formatted(request.name()));
                         io.afterToolOutput(toolResult);
                     } else {
+                        io.toolCallInProgress(request);
                         var executionRegistry = ToolRegistry.fromBase(toolRegistry)
                                 .register(new WorkspaceTools(context))
                                 .build();

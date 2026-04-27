@@ -221,6 +221,7 @@ public final class MergeOneFile {
                     currentSessionMessages.add(denied.toMessage());
                     continue;
                 }
+                io.toolCallInProgress(req);
                 ToolExecutionResult exec = tr.executeTool(req);
                 io.afterToolOutput(exec);
 

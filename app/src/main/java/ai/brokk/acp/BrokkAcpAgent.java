@@ -333,6 +333,10 @@ public class BrokkAcpAgent {
         var validMode = AVAILABLE_MODES.stream().anyMatch(m -> m.id().equals(modeId));
         if (validMode) {
             modeBySession.put(sessionId, modeId);
+            var sender = sessionUpdateSender;
+            if (sender != null) {
+                sender.sendSessionUpdate(sessionId, new AcpSchema.CurrentModeUpdate("current_mode_update", modeId));
+            }
         }
 
         return new AcpSchema.SetSessionModeResponse();

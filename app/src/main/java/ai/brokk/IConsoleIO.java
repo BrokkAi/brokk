@@ -225,6 +225,14 @@ public interface IConsoleIO {
     }
 
     /**
+     * Notifies the console that an approved tool call has begun executing.
+     * Default implementation is a no-op.
+     */
+    default void toolCallInProgress(ToolExecutionRequest request) {
+        // no-op
+    }
+
+    /**
      * Notifies the console that a tool call has completed.
      * Default implementation is a no-op.
      */

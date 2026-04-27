@@ -631,6 +631,7 @@ public class ArchitectAgent {
                     io.afterToolOutput(
                             ToolExecutionResult.requestError(req, "Tool call 'callCodeAgent' was denied by user."));
                 } else {
+                    io.toolCallInProgress(req);
                     var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
                     io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
                     architectMessages.add(new UserMessage(

@@ -50,6 +50,7 @@ public final class ToolExecutionHelper {
         if (approval.skipSandbox()) {
             SANDBOX_OVERRIDE.set(true);
         }
+        io.toolCallInProgress(request);
         try {
             ToolExecutionResult result = registry.executeTool(request);
             io.afterToolOutput(result);

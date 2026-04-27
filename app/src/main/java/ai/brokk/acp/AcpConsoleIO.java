@@ -118,6 +118,27 @@ public class AcpConsoleIO extends MemoryConsole {
     }
 
     @Override
+    public void toolCallInProgress(ToolExecutionRequest request) {
+        var toolCallId = request.id() != null ? request.id() : null;
+        if (toolCallId == null) {
+            return;
+        }
+        var kind = pendingToolKinds.getOrDefault(toolCallId, AcpSchema.ToolKind.OTHER);
+        var update = new AcpSchema.ToolCallUpdateNotification(
+                "tool_call_update",
+                toolCallId,
+                request.name(),
+                kind,
+                AcpSchema.ToolCallStatus.IN_PROGRESS,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null);
+        context.sendUpdate(sessionId, update);
+    }
+
+    @Override
     public void afterToolOutput(ToolExecutionResult result) {
         var status = result.status() == ToolExecutionResult.Status.SUCCESS
                 ? AcpSchema.ToolCallStatus.COMPLETED
