@@ -65,9 +65,6 @@ public final class SearchToolSupport {
             Thread.currentThread().interrupt();
             logger.warn("Interrupted while ranking files for SearchTools; falling back to alphabetical order");
             return alphabeticalFiles;
-        } catch (RuntimeException e) {
-            logger.debug("Failed to rank files for SearchTools; falling back to alphabetical order", e);
-            return alphabeticalFiles;
         }
     }
 
@@ -150,8 +147,6 @@ public final class SearchToolSupport {
                 Thread.currentThread().interrupt();
                 logger.warn("Interrupted while computing Git-based related files for {}", ineligibleSources, e);
                 return List.of();
-            } catch (RuntimeException e) {
-                logger.warn("Failed to compute Git-based related files; falling back to imports.", e);
             }
         }
 
