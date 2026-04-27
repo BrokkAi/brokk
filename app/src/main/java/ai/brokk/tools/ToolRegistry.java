@@ -82,7 +82,6 @@ public class ToolRegistry {
             Map.entry("getSummaries", "Getting summaries"),
             Map.entry("scanUsages", "Finding usages"),
             Map.entry("getRelatedClasses", "Finding related code"),
-            Map.entry("getClassSkeletons", "Getting class overview"),
             Map.entry("getClassSources", "Fetching class source"),
             Map.entry("getMethodSources", "Fetching method source"),
             Map.entry("getCallGraphTo", "Getting call graph TO"),

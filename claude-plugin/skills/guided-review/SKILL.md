@@ -240,7 +240,7 @@ To show the code context, use Brokk tools based on what the finding references:
 
 - If the finding references a specific method: use `getMethodSources` to show
   the full method implementation
-- If the finding references a class-level concern: use `getClassSkeletons` to
+- If the finding references a class-level concern: use `getSummaries` to
   show the class structure
 - If the finding references a file: use `getFileContents` to show the relevant
   file sections
@@ -316,7 +316,7 @@ Then move to the next finding.
 If the user wants more context, ask what they'd like to see:
 
 1. **Callers/usages** -- Use `scanUsages` to trace who calls the flagged code
-2. **Class structure** -- Use `getClassSkeletons` to see the full class API
+2. **Class structure** -- Use `getSummaries` to see the full class API
 3. **Related files** -- Use `searchFileContents` or `findFilesContaining` to
    find related code
 4. **Full file** -- Use `getFileContents` to see the complete file

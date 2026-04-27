@@ -29,9 +29,8 @@ only from this system prompt.
   newly added code
 - `searchFileContents` -- search for key string literals, algorithm patterns,
   or logic fragments from the new code to find existing implementations
-- `getClassSkeletons` and `getSummaries` -- scan adjacent packages for
-  reusable APIs and neighboring utilities before checking concrete method
-  bodies
+- `getSummaries` -- scan adjacent packages for reusable APIs and neighboring
+  utilities before checking concrete method bodies
 - `scanUsages` -- check if callers of similar code elsewhere already use a
   shared helper that this PR should also use
 - `findFilenames` -- search for utility/helper files in the project that

@@ -767,7 +767,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Understand the API surface and nearby structure of classes or files without reading full implementations.
+                    Understand the API surface and structure of classes or files without reading full implementations.
                     Accepts fully qualified class names, workspace-relative file paths, and file globs in one call.
                     File targets for supported framework template DSLs may return structured template summaries.
                     Use this to inspect fields, signatures, neighboring types, and package-level structure before deciding which classes or methods need full source.
@@ -1116,37 +1116,8 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns fields and method signatures (no bodies) for specified classes by fully qualified name.
-                    Use this to understand a class's API surface without the cost of full source.
-                    For examining specific method implementations, use getMethodSources instead of getClassSources.
-                    """)
-    public String getClassSkeletons(
-            @P("Fully qualified class names to get the skeleton structures for") List<String> classNames) {
-        // Sanitize classNames: remove potential `(params)` suffix from LLM.
-        classNames = stripParams(classNames);
-        if (classNames.isEmpty()) {
-            throw new IllegalArgumentException("Cannot get skeletons: class names list is empty");
-        }
-
-        var analyzer = getAnalyzer();
-        List<String> skeletons = new ArrayList<>();
-        classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(fqcn -> AnalyzerUtil.getSkeleton(
-                        analyzer, fqcn)
-                .ifPresent(skeletons::add));
-
-        var result = String.join("\n\n", skeletons);
-
-        if (result.isEmpty()) {
-            return "No classes found in: " + String.join(", ", classNames);
-        }
-
-        return recordResearchTokens(result);
-    }
-
-    @Tool(
-            """
                     Returns full source code of classes. This is the most expensive read operation (max 10 classes).
-                    Prefer getClassSkeletons (for API overview) or getMethodSources (for specific methods) when possible.
+                    Prefer getSummaries (for API overview) or getMethodSources (for specific methods) when possible.
                     Use this only when you need complete implementation details or most methods in a class are relevant.
                     """)
     public String getClassSources(
@@ -1264,7 +1235,7 @@ public class SearchTools {
             """
                     Returns full source code of specific methods/functions by fully qualified name.
                     Preferred over getClassSources when you only need 1-2 method implementations -- much cheaper.
-                    Typical workflow: getClassSkeletons to see the API, then getMethodSources for the methods you care about.
+                    Typical workflow: getSummaries to see the API, then getMethodSources for the methods you care about.
                     """)
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
@@ -2565,7 +2536,7 @@ public class SearchTools {
             """
                     Lightest-weight exploration tool: returns just the names of classes, methods, and fields in matching files.
                     Use this first to get a quick overview of a package or directory before deciding what to examine in detail.
-                    For more detail (full signatures and types), follow up with getSummaries or getClassSkeletons.
+                    For more detail (full signatures and types), follow up with getSummaries.
                     Supports glob patterns: '*' matches one directory, '**' matches recursively. Capped at 20 files.
                     """)
     public String skimFiles(

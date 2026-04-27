@@ -36,7 +36,7 @@ details:
 
 - `getMethodSources` -- read current implementations to understand what
   exactly needs to change
-- `getClassSkeletons` -- understand the API surface to ensure your plan
+- `getSummaries` -- understand the API surface to ensure your plan
   is compatible with existing interfaces
 - `scanUsages` -- check that your planned changes won't break callers
 - `searchFileContents` -- find existing patterns to follow (tests,

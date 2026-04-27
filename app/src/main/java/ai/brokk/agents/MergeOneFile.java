@@ -2,7 +2,6 @@ package ai.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.ContextManager;
 import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
@@ -150,13 +149,13 @@ public final class MergeOneFile {
         currentSessionMessages.add(firstUser);
 
         // Tool exposure
-        var allowed = new ArrayList<>(List.of("getClassSkeletons", "getClassSources", "getMethodSources"));
+        var allowed = new ArrayList<>(List.of("getSummaries", "getClassSources", "getMethodSources"));
 
         // Register tools
         var tr = cm.getToolRegistry()
                 .builder()
                 .register(new SearchTools(cm))
-                .register(new WorkspaceTools(((ContextManager) cm).liveContext()))
+                .register(new WorkspaceTools(cm.liveContext()))
                 .register(this)
                 .build();
 

@@ -196,8 +196,8 @@ class SftServerTest {
         var to = commitAll(tempDir, "after");
 
         try (var server = new SftServer(0)) {
-            var formatted = server.format_patch(
-                    tempDir.toString(), from, to, List.of("src/main/java/example/Foo.java"));
+            var formatted =
+                    server.format_patch(tempDir.toString(), from, to, List.of("src/main/java/example/Foo.java"));
 
             assertEquals(1, formatted.size());
             assertTrue(formatted.containsKey("src/main/java/example/Foo.java"));
@@ -230,8 +230,8 @@ class SftServerTest {
             var executor = Executors.newFixedThreadPool(4);
             try {
                 var futures = IntStream.range(0, 6)
-                        .mapToObj(i ->
-                                CompletableFuture.supplyAsync(() -> postWorkspace(client, uri, tempDir, revision), executor))
+                        .mapToObj(i -> CompletableFuture.supplyAsync(
+                                () -> postWorkspace(client, uri, tempDir, revision), executor))
                         .toList();
 
                 CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
@@ -316,8 +316,7 @@ class SftServerTest {
                     "repo_path", repoB.toString(),
                     "from", from,
                     "to", to));
-            var request = HttpRequest.newBuilder(
-                            URI.create("http://localhost:" + server.getPort() + "/format_patch"))
+            var request = HttpRequest.newBuilder(URI.create("http://localhost:" + server.getPort() + "/format_patch"))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();

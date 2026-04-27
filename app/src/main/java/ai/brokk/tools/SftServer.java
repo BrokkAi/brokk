@@ -151,9 +151,8 @@ public final class SftServer implements AutoCloseable {
 
         for (var path : normalizedEditable) {
             var file = validateProjectFile(cachedContext, path);
-            fragments.add(
-                    new ContextFragments.ProjectPathFragment(
-                            file, contextManager, loadRevisionText(cachedContext, file, revision)));
+            fragments.add(new ContextFragments.ProjectPathFragment(
+                    file, contextManager, loadRevisionText(cachedContext, file, revision)));
         }
 
         for (var path : normalizedReadonly) {
@@ -302,7 +301,8 @@ public final class SftServer implements AutoCloseable {
     }
 
     private CachedContext contextFor(String repoPath) {
-        var root = Path.of(requireNonBlank(repoPath, "repo_path")).toAbsolutePath().normalize();
+        var root =
+                Path.of(requireNonBlank(repoPath, "repo_path")).toAbsolutePath().normalize();
         return repoContexts.computeIfAbsent(root, SftServer::createContext);
     }
 
