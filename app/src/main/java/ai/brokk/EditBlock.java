@@ -318,6 +318,11 @@ public class EditBlock {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
         originalContentsThisBatch.keySet().retainAll(successfulFiles);
+        if (!originalContentsThisBatch.isEmpty()) {
+            var newContents = originalContentsThisBatch.keySet().stream()
+                    .collect(Collectors.toMap(f -> f, f -> ProjectFiles.read(f).orElse("")));
+            io.afterFileEdits(originalContentsThisBatch, newContents);
+        }
         return new EditResult(originalContentsThisBatch, blockResults);
     }
 

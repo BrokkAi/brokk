@@ -241,6 +241,17 @@ public interface IConsoleIO {
     }
 
     /**
+     * Notifies the console that a batch of file edits has been applied. Maps from {@code ProjectFile} to
+     * its content before and after the edit; only keys for files that successfully changed are present.
+     * Default implementation is a no-op.
+     */
+    default void afterFileEdits(
+            java.util.Map<ai.brokk.analyzer.ProjectFile, String> originalContents,
+            java.util.Map<ai.brokk.analyzer.ProjectFile, String> newContents) {
+        // no-op
+    }
+
+    /**
      * Called before a shell command is executed by the LLM. Implementations may prompt
      * the user for approval. Not called for user-configured build/test commands.
      *

@@ -2,6 +2,7 @@ package ai.brokk.acp;
 
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.agents.BlitzForge;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.tools.ApprovalResult;
 import ai.brokk.tools.ToolExecutionResult;
@@ -35,6 +36,10 @@ public class AcpConsoleIO extends MemoryConsole {
     /** Tracks tool call ID for commandStart/commandResult lifecycle. */
     private volatile @Nullable String activeCommandToolCallId;
 
+    /** Tracks the active EDIT tool call so afterFileEdits can correlate diff blocks. */
+    private volatile @Nullable String activeEditToolCallId;
+    private volatile @Nullable String activeEditToolName;
+
     public AcpConsoleIO(AcpPromptContext context) {
         this.context = context;
         this.sessionId = context.getSessionId();
@@ -67,6 +72,10 @@ public class AcpConsoleIO extends MemoryConsole {
         var toolCallId = request.id() != null ? request.id() : UUID.randomUUID().toString();
         var kind = classifyTool(toolName, destructive);
         pendingToolKinds.put(toolCallId, kind);
+        if (kind == AcpSchema.ToolKind.EDIT) {
+            activeEditToolCallId = toolCallId;
+            activeEditToolName = toolName;
+        }
 
         var toolCall = new AcpSchema.ToolCall(
                 "tool_call",
@@ -117,6 +126,34 @@ public class AcpConsoleIO extends MemoryConsole {
     }
 
     @Override
+    public void afterFileEdits(Map<ProjectFile, String> originalContents, Map<ProjectFile, String> newContents) {
+        var toolCallId = activeEditToolCallId;
+        var toolName = activeEditToolName;
+        if (toolCallId == null || toolName == null) {
+            return;
+        }
+        var diffs = originalContents.entrySet().stream()
+                .map(e -> (AcpSchema.ToolCallContent) new AcpSchema.ToolCallDiff(
+                        "diff",
+                        e.getKey().absPath().toString(),
+                        e.getValue(),
+                        newContents.getOrDefault(e.getKey(), "")))
+                .toList();
+        var update = new AcpSchema.ToolCallUpdateNotification(
+                "tool_call_update",
+                toolCallId,
+                toolName,
+                AcpSchema.ToolKind.EDIT,
+                AcpSchema.ToolCallStatus.IN_PROGRESS,
+                diffs,
+                List.of(),
+                null,
+                null,
+                null);
+        context.sendUpdate(sessionId, update);
+    }
+
+    @Override
     public void toolCallInProgress(ToolExecutionRequest request) {
         var toolCallId = request.id() != null ? request.id() : null;
         if (toolCallId == null) {
@@ -145,6 +182,10 @@ public class AcpConsoleIO extends MemoryConsole {
         var toolId = result.toolId();
         var kind = pendingToolKinds.getOrDefault(toolId, AcpSchema.ToolKind.OTHER);
         pendingToolKinds.remove(toolId);
+        if (toolId != null && toolId.equals(activeEditToolCallId)) {
+            activeEditToolCallId = null;
+            activeEditToolName = null;
+        }
 
         // Build content blocks with the result text
         List<AcpSchema.ToolCallContent> content = List.of();

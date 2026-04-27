@@ -3,17 +3,21 @@ package ai.brokk.acp;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.tools.ToolExecutionResult;
 import com.agentclientprotocol.sdk.agent.Command;
 import com.agentclientprotocol.sdk.agent.CommandResult;
 import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class AcpConsoleIOTest {
 
@@ -48,6 +52,54 @@ class AcpConsoleIOTest {
         assertEquals("tool-1", updates.get(0).toolCallId());
         assertEquals(AcpSchema.ToolKind.READ, updates.get(0).kind());
         assertEquals(AcpSchema.ToolCallStatus.COMPLETED, updates.get(1).status());
+    }
+
+    @Test
+    void editToolEmitsDiffContentBlock(@TempDir Path tempDir) {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        var pf = new ProjectFile(tempDir, Path.of("foo.txt"));
+        var request = ToolExecutionRequest.builder()
+                .id("edit-1")
+                .name("replaceLines")
+                .arguments("{}")
+                .build();
+
+        io.beforeToolCall(request, true); // destructive => EDIT kind
+        io.toolCallInProgress(request);
+        io.afterFileEdits(Map.of(pf, "before\n"), Map.of(pf, "after\n"));
+        io.afterToolOutput(ToolExecutionResult.success(request, "ok"));
+
+        var diffUpdate = ctx.updates.stream()
+                .filter(AcpSchema.ToolCallUpdateNotification.class::isInstance)
+                .map(AcpSchema.ToolCallUpdateNotification.class::cast)
+                .filter(u -> u.content().stream().anyMatch(AcpSchema.ToolCallDiff.class::isInstance))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a tool_call_update with a diff content block"));
+
+        var diff = (AcpSchema.ToolCallDiff)
+                diffUpdate.content().stream()
+                        .filter(AcpSchema.ToolCallDiff.class::isInstance)
+                        .findFirst()
+                        .orElseThrow();
+        assertEquals(pf.absPath().toString(), diff.path());
+        assertEquals("before\n", diff.oldText());
+        assertEquals("after\n", diff.newText());
+        assertEquals("edit-1", diffUpdate.toolCallId());
+        assertEquals(AcpSchema.ToolKind.EDIT, diffUpdate.kind());
+        assertEquals(AcpSchema.ToolCallStatus.IN_PROGRESS, diffUpdate.status());
+    }
+
+    @Test
+    void afterFileEditsIsNoOpOutsideAnEditTool(@TempDir Path tempDir) {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+        var pf = new ProjectFile(tempDir, Path.of("foo.txt"));
+
+        io.afterFileEdits(Map.of(pf, "x"), Map.of(pf, "y"));
+
+        assertTrue(ctx.updates.isEmpty());
     }
 
     @Test
