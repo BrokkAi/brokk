@@ -71,12 +71,16 @@ public final class SearchToolSupport {
         }
     }
 
-    public List<ProjectFile> selectFilesForDisplay(Collection<ProjectFile> files, int limit) {
+    public List<ProjectFile> selectFilesForDisplay(
+            Collection<ProjectFile> files, int limit, @Nullable IGitRepo gitRepo) {
         var alphabeticalFiles = files.stream().sorted().toList();
         if (alphabeticalFiles.size() <= limit) {
             return alphabeticalFiles;
         }
-        return alphabeticalFiles.stream().limit(limit).toList();
+        return prioritizeFilesForSelection(alphabeticalFiles, gitRepo).stream()
+                .limit(limit)
+                .sorted()
+                .toList();
     }
 
     public String appendRelatedContent(

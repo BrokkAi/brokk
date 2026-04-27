@@ -240,25 +240,17 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testfindFilenames_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
+    void testfindFilenames_limitUsesGitImportanceBeforeAlphabeticalDisplay() throws Exception {
         commitTrackedFile("a-low.txt", "low\n", Instant.parse("2020-01-01T00:00:00Z"));
         commitTrackedFile("z-high.txt", "high\n", Instant.parse("2025-01-01T00:00:00Z"));
-        commitTrackedFile("z-high.txt", "high again\n", Instant.parse("2025-02-01T00:00:00Z"));
         recreateSearchTools();
-        var aLow = new ProjectFile(projectRoot, "a-low.txt");
-        var zHigh = new ProjectFile(projectRoot, "z-high.txt");
-
-        assertEquals(
-                zHigh,
-                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
-                "Test setup should give z-high.txt a higher Git rank");
 
         String result = searchTools.findFilenames(List.of(".*\\.txt"), 1);
         String mainSection = mainResultSection(result);
 
-        assertTrue(mainSection.contains("a-low.txt"), "Alphabetically first file should be retained when limit is hit");
+        assertTrue(mainSection.contains("z-high.txt"), "More important file should be selected when limit is hit");
         assertFalse(
-                mainSection.contains("z-high.txt"), "Later files should be truncated even if Git ranks them higher");
+                mainSection.contains("a-low.txt"), "Alphabetically earlier file should be dropped when less important");
     }
 
     @Test
@@ -272,26 +264,6 @@ public class SearchToolsTest {
         assertTrue(
                 result.indexOf("a-low.txt") < result.indexOf("z-high.txt"),
                 "Selected files should still render alphabetically");
-    }
-
-    @Test
-    void testfindFilesContaining_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
-        commitTrackedFile("a-low.txt", "MATCH low\n", Instant.parse("2020-01-01T00:00:00Z"));
-        commitTrackedFile("z-high.txt", "MATCH high\n", Instant.parse("2025-01-01T00:00:00Z"));
-        commitTrackedFile("z-high.txt", "MATCH high again\n", Instant.parse("2025-02-01T00:00:00Z"));
-        recreateSearchTools();
-        var aLow = new ProjectFile(projectRoot, "a-low.txt");
-        var zHigh = new ProjectFile(projectRoot, "z-high.txt");
-
-        assertEquals(
-                zHigh,
-                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
-                "Test setup should give z-high.txt a higher Git rank");
-
-        String result = searchTools.findFilesContaining(List.of("MATCH"), 1);
-
-        assertTrue(result.contains("a-low.txt"), "Alphabetically first match should be retained when limit is hit");
-        assertFalse(result.contains("z-high.txt"), "Later matches should be truncated even if Git ranks them higher");
     }
 
     @Test
@@ -1008,43 +980,6 @@ public class SearchToolsTest {
         assertTrue(
                 result.contains("- 3: public void bar(T value)"),
                 "Should keep the second overload when display signatures collide. Result: " + result);
-    }
-
-    @Test
-    void testSearchSymbols_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
-        commitTrackedFile("a-low.java", "class A {}", Instant.parse("2020-01-01T00:00:00Z"));
-        commitTrackedFile("z-high.java", "class Z {}", Instant.parse("2025-01-01T00:00:00Z"));
-        commitTrackedFile("z-high.java", "class Z { int value; }", Instant.parse("2025-02-01T00:00:00Z"));
-        recreateSearchTools();
-
-        ProjectFile aLow = new ProjectFile(projectRoot, "a-low.java");
-        ProjectFile zHigh = new ProjectFile(projectRoot, "z-high.java");
-        assertEquals(
-                zHigh,
-                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
-                "Test setup should give z-high.java a higher Git rank");
-
-        TestAnalyzer analyzer = new TestAnalyzer();
-        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(aLow, "", "A"));
-        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(zHigh, "", "Z"));
-
-        TestContextManager ctx = new TestContextManager(
-                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
-                new TestConsoleIO(),
-                Set.of(),
-                analyzer,
-                repo);
-        SearchTools tools = new SearchTools(ctx);
-
-        String result = tools.searchSymbols(List.of(".*"), false, 1);
-        String mainSection = mainResultSection(result);
-
-        assertTrue(
-                mainSection.contains("<file path=\"a-low.java\""),
-                "Alphabetically first file should be retained when limit is hit");
-        assertFalse(
-                mainSection.contains("<file path=\"z-high.java\""),
-                "Later files should be truncated even if Git ranks them higher");
     }
 
     @Test

@@ -12,7 +12,6 @@ import ai.brokk.analyzer.IAnalyzer.Range;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.CommitInfo;
-import ai.brokk.git.GitDistance;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpserver.StandaloneCodeIntelligence;
 import ai.brokk.project.CoreProject;
@@ -335,79 +334,6 @@ class SearchToolsTest {
         assertTrue(result.contains("## Related Content"), "Should include related content header");
         assertTrue(countedTokens > 0, "Final output should be counted as research tokens");
         assertEquals(0L, tools.getAndClearResearchTokens(), "Counter should reset after reading");
-    }
-
-    @Test
-    void searchSymbols_UsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
-        Path projectRoot = initRepo();
-        commitTrackedFiles(
-                projectRoot, Map.of("a-low.java", "class A {}\n"), Instant.parse("2020-01-01T00:00:00Z"), "Add A");
-        commitTrackedFiles(
-                projectRoot, Map.of("z-high.java", "class Z {}\n"), Instant.parse("2025-01-01T00:00:00Z"), "Add Z");
-        commitTrackedFiles(
-                projectRoot,
-                Map.of("z-high.java", "class Z { int value; }\n"),
-                Instant.parse("2025-02-01T00:00:00Z"),
-                "Update Z");
-
-        project = new CoreProject(projectRoot);
-        ProjectFile aLow = new ProjectFile(projectRoot, "a-low.java");
-        ProjectFile zHigh = new ProjectFile(projectRoot, "z-high.java");
-        assertEquals(
-                zHigh,
-                GitDistance.sortByImportance(List.of(aLow, zHigh), project.getRepo())
-                        .getFirst(),
-                "Test setup should give z-high.java a higher Git rank");
-
-        CodeUnit aClass = CodeUnit.cls(aLow, "", "A");
-        CodeUnit zClass = CodeUnit.cls(zHigh, "", "Z");
-        IAnalyzer analyzer = new DisabledAnalyzer(project) {
-            @Override
-            public Set<CodeUnit> searchDefinitions(String pattern) {
-                return ".*".equals(pattern) ? Set.of(aClass, zClass) : Set.of();
-            }
-        };
-        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
-
-        String result = tools.searchSymbols(List.of(".*"), false, 1);
-        String mainSection = mainResultSection(result);
-
-        assertTrue(
-                mainSection.contains("<file path=\"a-low.java\""),
-                "Alphabetically first file should be retained when limit is hit");
-        assertFalse(
-                mainSection.contains("<file path=\"z-high.java\""),
-                "Later files should be truncated even if Git ranks them higher");
-    }
-
-    @Test
-    void findFilesContaining_UsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
-        Path projectRoot = initRepo();
-        commitTrackedFiles(
-                projectRoot, Map.of("a-low.txt", "MATCH low\n"), Instant.parse("2020-01-01T00:00:00Z"), "Add low");
-        commitTrackedFiles(
-                projectRoot, Map.of("z-high.txt", "MATCH high\n"), Instant.parse("2025-01-01T00:00:00Z"), "Add high");
-        commitTrackedFiles(
-                projectRoot,
-                Map.of("z-high.txt", "MATCH high again\n"),
-                Instant.parse("2025-02-01T00:00:00Z"),
-                "Update high");
-
-        project = new CoreProject(projectRoot);
-        ProjectFile aLow = new ProjectFile(projectRoot, "a-low.txt");
-        ProjectFile zHigh = new ProjectFile(projectRoot, "z-high.txt");
-        assertEquals(
-                zHigh,
-                GitDistance.sortByImportance(List.of(aLow, zHigh), project.getRepo())
-                        .getFirst(),
-                "Test setup should give z-high.txt a higher Git rank");
-
-        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, new DisabledAnalyzer(project)));
-
-        String result = tools.findFilesContaining(List.of("MATCH"), 1);
-
-        assertTrue(result.contains("a-low.txt"), "Alphabetically first match should be retained when limit is hit");
-        assertFalse(result.contains("z-high.txt"), "Later matches should be truncated even if Git ranks them higher");
     }
 
     @Test
@@ -996,11 +922,6 @@ class SearchToolsTest {
     private static String relatedContentSection(String text) {
         int relatedContentIdx = text.indexOf("\n\n## Related Content\n");
         return relatedContentIdx >= 0 ? text.substring(relatedContentIdx) : "";
-    }
-
-    private static String mainResultSection(String text) {
-        int relatedContentIdx = text.indexOf("\n\n## Related Content\n");
-        return relatedContentIdx >= 0 ? text.substring(0, relatedContentIdx) : text;
     }
 
     private static IGitRepo rankingProbeRepo(AtomicInteger fileHistoryCalls) {

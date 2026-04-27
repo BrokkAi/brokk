@@ -1003,7 +1003,7 @@ public class SearchTools {
                 .collect(Collectors.groupingBy(
                         CodeUnit::source, Collectors.groupingBy(cu -> cu.kind().name())));
 
-        // Build output deterministically so truncation does not depend on Git state.
+        // Build output: select by Git importance, then render the selected files alphabetically.
         var result = new StringBuilder();
         boolean truncated = fileGroups.size() > effectiveLimit;
         var filesToRender = selectFilesForDisplay(fileGroups.keySet(), effectiveLimit);
@@ -1604,7 +1604,7 @@ public class SearchTools {
     }
 
     private List<ProjectFile> selectFilesForDisplay(Collection<ProjectFile> files, int limit) {
-        return searchToolSupport.selectFilesForDisplay(files, limit);
+        return searchToolSupport.selectFilesForDisplay(files, limit, getGitRepoOrNull());
     }
 
     private IGitRepo.SearchCommitsResult getCachedCommitSearchResult(IGitRepo gitRepo, String pattern, int limit)
