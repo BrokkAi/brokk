@@ -1086,28 +1086,6 @@ public class SearchTools {
         return recordResearchTokens(String.join("\n\n", results));
     }
 
-    public String getClassSkeletons(List<String> classNames) {
-        // Sanitize classNames: remove potential `(params)` suffix from LLM.
-        classNames = stripParams(classNames);
-        if (classNames.isEmpty()) {
-            throw new IllegalArgumentException("Cannot get skeletons: class names list is empty");
-        }
-
-        var analyzer = getAnalyzer();
-        List<String> skeletons = new ArrayList<>();
-        classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(fqcn -> AnalyzerUtil.getSkeleton(
-                        analyzer, fqcn)
-                .ifPresent(skeletons::add));
-
-        var result = String.join("\n\n", skeletons);
-
-        if (result.isEmpty()) {
-            return "No classes found in: " + String.join(", ", classNames);
-        }
-
-        return recordResearchTokens(result);
-    }
-
     public String getClassSources(List<String> classNames) {
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);

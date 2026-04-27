@@ -577,56 +577,6 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testGetClassSkeletons() {
-        TestContextManager ctxWithAnalyzer = new TestContextManager(
-                javaTestProject, new TestConsoleIO(), Set.of(), javaAnalyzer, new TestRepo(javaTestProject.getRoot()));
-
-        SearchTools tools = new SearchTools(ctxWithAnalyzer);
-
-        // Test 1: Valid class names - verify skeleton structure
-        String result = tools.getClassSkeletons(List.of("A", "D"));
-        assertFalse(result.isEmpty(), "Result should not be empty for valid classes");
-
-        // Split by double newline to get individual skeletons
-        String[] skeletons = result.split("\n\n");
-        assertTrue(skeletons.length >= 2, "Should have at least 2 skeletons");
-
-        // Verify that skeletons contain class declarations
-        boolean foundA = false;
-        boolean foundD = false;
-        for (String skeleton : skeletons) {
-            if (skeleton.contains("class A") && !skeleton.contains("class AB")) {
-                foundA = true;
-                // Verify it's a skeleton (should not contain method bodies)
-                assertFalse(skeleton.contains("System.out"), "Skeleton should not contain method body");
-            }
-            if (skeleton.contains("class D")) {
-                foundD = true;
-                assertFalse(skeleton.contains("System.out"), "Skeleton should not contain method body");
-            }
-        }
-        assertTrue(foundA, "Should find skeleton for class A");
-        assertTrue(foundD, "Should find skeleton for class D");
-
-        // Test 2: Mix of valid and invalid class names
-        String result2 = tools.getClassSkeletons(List.of("A", "NonExistent"));
-        assertFalse(result2.isEmpty(), "Should return results even with some invalid names");
-        assertTrue(result2.contains("class A"), "Should still contain skeleton for valid class A");
-
-        // Test 3: Non-existent class only
-        String result3 = tools.getClassSkeletons(List.of("CompletelyFake"));
-        assertTrue(
-                result3.contains("No classes found") || result3.isEmpty(),
-                "Should handle non-existent class gracefully");
-
-        // Test 4: Verify CodeUnit-native API is used (not String-based)
-        // This is implicitly tested by the fact that the method works correctly
-        // The refactored code uses getDefinition(String) -> filter(isClass) -> getSkeleton(CodeUnit)
-        String result4 = tools.getClassSkeletons(List.of("A"));
-        assertTrue(result4.contains("class A"), "CodeUnit-native API should work correctly");
-    }
-
-    @Test
     void testGetSummaries_routesClassesAndFilesTogether() {
         TestContextManager ctxWithAnalyzer = new TestContextManager(
                 javaTestProject, new TestConsoleIO(), Set.of(), javaAnalyzer, new TestRepo(javaTestProject.getRoot()));

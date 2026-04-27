@@ -40,7 +40,7 @@ approval or intentional design.
 - `findFilenames` -- look for corresponding test files for changed source files
 - `scanUsages` -- verify that all callers of modified methods/interfaces were
   updated (catch incomplete refactors)
-- `getClassSkeletons` -- understand the public API of modified classes to
+- `getSummaries` -- understand the public API of modified classes to
   assess whether the changes are consistent
 
 ## Output format

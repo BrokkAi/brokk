@@ -72,8 +72,9 @@ class SftServerTest {
                 }
                 """);
 
-        try (var server = new SftServer(tempDir, 0)) {
+        try (var server = new SftServer(0)) {
             var formatted = server.format_workspace(
+                    tempDir.toString(),
                     "Rename the old API",
                     revision,
                     List.of("src/main/java/example/Foo.java"),
@@ -130,8 +131,8 @@ class SftServerTest {
                 """);
         var to = commitAll(tempDir, "after");
 
-        try (var server = new SftServer(tempDir, 0)) {
-            var formatted = server.format_patch(from, to);
+        try (var server = new SftServer(0)) {
+            var formatted = server.format_patch(tempDir.toString(), from, to);
             var filePatch = formatted.get("src/main/java/example/Foo.java");
 
             assertEquals(1, formatted.size());
@@ -194,8 +195,9 @@ class SftServerTest {
                 """);
         var to = commitAll(tempDir, "after");
 
-        try (var server = new SftServer(tempDir, 0)) {
-            var formatted = server.format_patch(from, to, List.of("src/main/java/example/Foo.java"));
+        try (var server = new SftServer(0)) {
+            var formatted =
+                    server.format_patch(tempDir.toString(), from, to, List.of("src/main/java/example/Foo.java"));
 
             assertEquals(1, formatted.size());
             assertTrue(formatted.containsKey("src/main/java/example/Foo.java"));
@@ -221,15 +223,15 @@ class SftServerTest {
                 """);
         var revision = commitAll(tempDir, "initial");
 
-        try (var server = new SftServer(tempDir, 0)) {
+        try (var server = new SftServer(0)) {
             server.start();
             var client = HttpClient.newHttpClient();
             var uri = URI.create("http://localhost:" + server.getPort() + "/format_workspace");
             var executor = Executors.newFixedThreadPool(4);
             try {
                 var futures = IntStream.range(0, 6)
-                        .mapToObj(i ->
-                                CompletableFuture.supplyAsync(() -> postWorkspace(client, uri, revision), executor))
+                        .mapToObj(i -> CompletableFuture.supplyAsync(
+                                () -> postWorkspace(client, uri, tempDir, revision), executor))
                         .toList();
 
                 CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
@@ -270,8 +272,9 @@ class SftServerTest {
                 """);
         var revision = commitAll(tempDir, "initial");
 
-        try (var server = new SftServer(tempDir, 0)) {
+        try (var server = new SftServer(0)) {
             var formatted = server.format_workspace(
+                    tempDir.toString(),
                     "Fix the build",
                     revision,
                     List.of("src/main/java/example/Foo.java"),
@@ -284,9 +287,54 @@ class SftServerTest {
         }
     }
 
-    private static HttpResponse<String> postWorkspace(HttpClient client, URI uri, String revision) {
+    @Test
+    void httpFormatPatch_usesRepoPathFromRequest() throws Exception {
+        var repoA = tempDir.resolve("repo-a");
+        var repoB = tempDir.resolve("repo-b");
+        Files.createDirectories(repoA);
+        Files.createDirectories(repoB);
+        initGitRepo(repoA);
+        initGitRepo(repoB);
+
+        var aFile = repoA.resolve("src/A.java");
+        Files.createDirectories(aFile.getParent());
+        Files.writeString(aFile, "class A { void before() {} }\n");
+        commitAll(repoA, "a before");
+        Files.writeString(aFile, "class A { void after() {} }\n");
+        commitAll(repoA, "a after");
+
+        var bFile = repoB.resolve("src/B.java");
+        Files.createDirectories(bFile.getParent());
+        Files.writeString(bFile, "class B { void before() {} }\n");
+        var from = commitAll(repoB, "b before");
+        Files.writeString(bFile, "class B { void after() {} }\n");
+        var to = commitAll(repoB, "b after");
+
+        try (var server = new SftServer(0)) {
+            server.start();
+            var body = OBJECT_MAPPER.writeValueAsString(Map.of(
+                    "repo_path", repoB.toString(),
+                    "from", from,
+                    "to", to));
+            var request = HttpRequest.newBuilder(URI.create("http://localhost:" + server.getPort() + "/format_patch"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+
+            var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(200, response.statusCode());
+            assertTrue(response.body().contains("src/B.java"));
+            assertTrue(response.body().contains("after"));
+            assertFalse(response.body().contains("src/A.java"));
+        }
+    }
+
+    private static HttpResponse<String> postWorkspace(HttpClient client, URI uri, Path repoPath, String revision) {
         try {
             var body = OBJECT_MAPPER.writeValueAsString(Map.of(
+                    "repo_path",
+                    repoPath.toString(),
                     "goal",
                     "Inspect Foo",
                     "revision",

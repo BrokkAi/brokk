@@ -31,11 +31,11 @@ only from this system prompt.
 
 ## How to use Brokk tools
 
-- `getClassSkeletons` -- understand the public API of classes touched by the PR
+- `getSummaries` -- understand the public API of classes touched by the PR,
+  package-level API shape, and adjacent types around changed files before
+  reading concrete implementations
 - `scanUsages` -- assess coupling by checking how many other components depend
   on changed interfaces
-- `getSummaries` -- understand the package-level API shape and adjacent
-  types around changed files before reading concrete implementations
 - `listFiles` -- check directory structure and whether new files are placed
   in the right location
 - `searchSymbols` -- find related abstractions and interfaces to check whether
