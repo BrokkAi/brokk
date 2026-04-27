@@ -2,8 +2,10 @@ package ai.brokk.acp;
 
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
+import ai.brokk.IAppContextManager;
 import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.concurrent.AtomicWrites;
+import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
@@ -11,6 +13,7 @@ import ai.brokk.mcpclient.HttpMcpServer;
 import ai.brokk.mcpclient.McpServer;
 import ai.brokk.mcpclient.McpUtils;
 import ai.brokk.mcpclient.StdioMcpServer;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -70,6 +73,8 @@ public class BrokkAcpAgent {
     private final Map<String, Map<String, PermissionVerdict>> stickyPermissionsBySession = new ConcurrentHashMap<>();
     private final Map<String, List<McpServer>> mcpServersBySession = new ConcurrentHashMap<>();
     private static final InheritableThreadLocal<List<McpServer>> SESSION_MCP_SCOPE = new InheritableThreadLocal<>();
+    private final Map<String, TaskList.TaskListData> lastTaskListBySession = new ConcurrentHashMap<>();
+    private @Nullable IAppContextManager.ContextListener taskListListener;
 
     public enum PermissionVerdict {
         ALLOW,
@@ -101,6 +106,62 @@ public class BrokkAcpAgent {
 
     public void setSessionUpdateSender(SessionUpdateSender sessionUpdateSender) {
         this.sessionUpdateSender = sessionUpdateSender;
+    }
+
+    /** Registers a listener that emits {@code plan} session updates whenever the task list changes. */
+    public void start() {
+        if (taskListListener != null) {
+            return;
+        }
+        taskListListener = this::onContextChanged;
+        cm.addContextListener(taskListListener);
+    }
+
+    /** Removes the task-list listener. Idempotent. */
+    public void stop() {
+        var listener = taskListListener;
+        if (listener != null) {
+            cm.removeContextListener(listener);
+            taskListListener = null;
+        }
+    }
+
+    private void onContextChanged(Context newCtx) {
+        var sender = sessionUpdateSender;
+        if (sender == null) {
+            return;
+        }
+        var sessionId = cm.getCurrentSessionId().toString();
+        TaskList.TaskListData data;
+        try {
+            data = newCtx.getTaskListDataOrEmpty();
+        } catch (Exception e) {
+            logger.debug("Could not read task list for session {}", sessionId, e);
+            return;
+        }
+        var previous = lastTaskListBySession.get(sessionId);
+        if (data.equals(previous)) {
+            return;
+        }
+        lastTaskListBySession.put(sessionId, data);
+        // Always dispatch off the EDT — listeners may fire there and session.sendNotification blocks.
+        Thread.startVirtualThread(() -> {
+            try {
+                sender.sendSessionUpdate(sessionId, buildPlanUpdate(data));
+            } catch (Exception e) {
+                logger.warn("Failed to send plan update for session {}", sessionId, e);
+            }
+        });
+    }
+
+    private static AcpSchema.Plan buildPlanUpdate(TaskList.TaskListData data) {
+        var entries = data.tasks().stream()
+                .map(t -> new AcpSchema.PlanEntry(
+                        t.title(),
+                        AcpSchema.PlanEntryPriority.MEDIUM,
+                        t.done() ? AcpSchema.PlanEntryStatus.COMPLETED : AcpSchema.PlanEntryStatus.PENDING))
+                .toList();
+        return new AcpSchema.Plan("plan", entries);
     }
 
     public AcpProtocol.InitializeResponse initialize() {

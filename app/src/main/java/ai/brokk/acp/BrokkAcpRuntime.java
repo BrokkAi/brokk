@@ -24,6 +24,7 @@ final class BrokkAcpRuntime implements AutoCloseable {
         this.session = new AcpAgentSession(Duration.ofMinutes(5), transport, requestHandlers(), notificationHandlers());
         agent.setSessionUpdateSender(
                 (sessionId, update) -> AcpRequestContext.sendSessionUpdate(session, sessionId, update));
+        agent.start();
     }
 
     void run() {
@@ -91,6 +92,7 @@ final class BrokkAcpRuntime implements AutoCloseable {
 
     @Override
     public void close() {
+        agent.stop();
         session.close();
     }
 }
