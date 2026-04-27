@@ -207,4 +207,47 @@ public class JavaCloneDetectionSmellTest extends AbstractCloneDetectionSmellTest
                 .noneMatch(f -> f.enclosingFqName().contains("Alpha.compute")
                         && f.peerEnclosingFqName().contains("Beta.unrelated")));
     }
+
+    @Test
+    void doesNotReturnSymmetricPairsWhenBothFilesAreRequested() {
+        String a =
+                """
+                package com.example;
+                class Alpha {
+                    int compute(int input) {
+                        int total = input + 1;
+                        if (total > 10) {
+                            return total * 2;
+                        }
+                        return total - 3;
+                    }
+                }
+                """;
+        String b =
+                """
+                package com.example;
+                class Beta {
+                    int calculate(int seed) {
+                        int amount = seed + 1;
+                        if (amount > 10) {
+                            return amount * 2;
+                        }
+                        return amount - 3;
+                    }
+                }
+                """;
+
+        var findings = analyzeBothRequested(
+                "com/example/Alpha.java", a, "com/example/Beta.java", b, IAnalyzer.CloneSmellWeights.defaults());
+        long forwardCount = findings.stream()
+                .filter(f -> f.enclosingFqName().contains("Alpha.compute"))
+                .filter(f -> f.peerEnclosingFqName().contains("Beta.calculate"))
+                .count();
+        long reverseCount = findings.stream()
+                .filter(f -> f.enclosingFqName().contains("Beta.calculate"))
+                .filter(f -> f.peerEnclosingFqName().contains("Alpha.compute"))
+                .count();
+
+        assertEquals(1, forwardCount + reverseCount);
+    }
 }
