@@ -3,6 +3,7 @@ mod shell;
 
 use crate::bifrost_client::BifrostClient;
 use crate::llm_client::{FunctionDef, ToolDefinition};
+use agent_client_protocol::schema::ToolKind;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -248,6 +249,26 @@ impl ToolRegistry {
                 status: ToolStatus::InternalError,
                 output: format!("Bifrost tool '{name}' failed: {err}"),
             },
+        }
+    }
+
+    /// ACP `ToolKind` for a tool, used by the permission gate to classify calls.
+    /// Built-in tools have hardcoded kinds; Bifrost-loaded tools fall through
+    /// to `Other` until Bifrost exposes kind metadata in its descriptors.
+    pub fn tool_kind(tool_name: &str) -> ToolKind {
+        match tool_name {
+            "think" => ToolKind::Think,
+            "readFile" | "listDirectory" | "get_file_summaries" | "skim_files" => ToolKind::Read,
+            "searchFileContents"
+            | "search_symbols"
+            | "get_symbol_locations"
+            | "get_symbol_summaries"
+            | "get_symbol_sources"
+            | "summarize_symbols"
+            | "most_relevant_files" => ToolKind::Search,
+            "writeFile" => ToolKind::Edit,
+            "runShellCommand" => ToolKind::Execute,
+            _ => ToolKind::Other,
         }
     }
 

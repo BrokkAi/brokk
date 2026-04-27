@@ -2,13 +2,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use agent_client_protocol::schema::{
-    AgentCapabilities, CancelNotification, ContentBlock, ContentChunk, InitializeRequest,
-    InitializeResponse, ListSessionsRequest, ListSessionsResponse, LoadSessionRequest,
-    LoadSessionResponse, NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest,
-    PromptResponse, ResumeSessionRequest, ResumeSessionResponse, SessionCapabilities, SessionInfo,
-    SessionListCapabilities, SessionMode as AcpSessionMode, SessionModeState, SessionNotification,
-    SessionResumeCapabilities, SessionUpdate, SetSessionModeRequest, SetSessionModeResponse,
-    StopReason, TextContent,
+    AgentCapabilities, CancelNotification, ConfigOptionUpdate, ContentBlock, ContentChunk,
+    InitializeRequest, InitializeResponse, ListSessionsRequest, ListSessionsResponse,
+    LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse,
+    PromptCapabilities, PromptRequest, PromptResponse, ResumeSessionRequest, ResumeSessionResponse,
+    SessionCapabilities, SessionConfigOption, SessionConfigOptionCategory,
+    SessionConfigSelectOption, SessionInfo, SessionListCapabilities, SessionMode as AcpSessionMode,
+    SessionModeState, SessionNotification, SessionResumeCapabilities, SessionUpdate,
+    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
+    SetSessionModeResponse, StopReason, TextContent,
 };
 use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo, Dispatch, Handled, Responder, on_receive_dispatch,
@@ -17,7 +19,14 @@ use agent_client_protocol::{
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::llm_client::{ChatMessage, LlmBackend};
-use crate::session::{ConversationTurn, SessionMode, SessionStore};
+use crate::session::{ConversationTurn, PermissionMode, SessionMode, SessionStore};
+
+/// Stable ids for our `SessionConfigOption` selectors. We expose both
+/// dropdowns via configOptions because the ACP spec says clients SHOULD
+/// ignore the legacy `modes` channel when configOptions is present (Zed
+/// does), so once we expose any configOption we have to expose all of them.
+const PERMISSION_CONFIG_ID: &str = "permission_mode";
+const BEHAVIOR_CONFIG_ID: &str = "behavior_mode";
 
 /// Available session modes exposed to ACP clients.
 fn available_modes() -> Vec<AcpSessionMode> {
@@ -31,6 +40,50 @@ fn available_modes() -> Vec<AcpSessionMode> {
 
 fn mode_state(current: &str) -> SessionModeState {
     SessionModeState::new(current.to_string(), available_modes())
+}
+
+/// Build the permission-mode `SessionConfigOption` reflecting `current`.
+fn permission_config_option(current: PermissionMode) -> SessionConfigOption {
+    let options = vec![
+        SessionConfigSelectOption::new("default", "Default")
+            .description("Ask for permission before each tool call"),
+        SessionConfigSelectOption::new("acceptEdits", "Accept Edits")
+            .description("Auto-allow edits; ask for everything else"),
+        SessionConfigSelectOption::new("readOnly", "Read-only")
+            .description("Refuse every edit, deletion, move, or shell command"),
+        SessionConfigSelectOption::new("bypassPermissions", "Bypass Permissions")
+            .description("Allow all tool calls without prompting (use with care)"),
+    ];
+    SessionConfigOption::select(PERMISSION_CONFIG_ID, "Permission", current.as_str(), options)
+        .description("Controls which tool calls require user approval.")
+        .category(SessionConfigOptionCategory::Mode)
+}
+
+/// Build the behavior-mode `SessionConfigOption` reflecting `current`. This
+/// is the configOptions-channel counterpart to the legacy `SessionMode` menu
+/// and drives system-prompt selection.
+fn behavior_config_option(current: SessionMode) -> SessionConfigOption {
+    let options = vec![
+        SessionConfigSelectOption::new("LUTZ", "LUTZ")
+            .description("Agentic loop with task list"),
+        SessionConfigSelectOption::new("CODE", "CODE").description("Code changes only"),
+        SessionConfigSelectOption::new("ASK", "ASK").description("Question answering"),
+        SessionConfigSelectOption::new("PLAN", "PLAN").description("Planning only"),
+    ];
+    SessionConfigOption::select(BEHAVIOR_CONFIG_ID, "Mode", current.as_str(), options)
+        .description("Controls Brokk's overall behavior style for this session.")
+        .category(SessionConfigOptionCategory::Mode)
+}
+
+/// All configOption selectors we expose, in display order.
+fn all_config_options(
+    behavior: SessionMode,
+    permission: PermissionMode,
+) -> Vec<SessionConfigOption> {
+    vec![
+        behavior_config_option(behavior),
+        permission_config_option(permission),
+    ]
 }
 
 /// Build and run the ACP agent over stdio.
@@ -55,6 +108,7 @@ pub async fn run_agent(
 
     let sessions_cancel = sessions.clone();
     let sessions_mode = sessions.clone();
+    let sessions_perm = sessions.clone();
 
     Agent
         .builder()
@@ -123,6 +177,7 @@ pub async fn run_agent(
 
                 let response = NewSessionResponse::new(session.id.clone())
                     .modes(mode_state(session.mode.as_str()))
+                    .config_options(all_config_options(session.mode, session.permission_mode))
                     .meta(meta_map);
 
                 responder.respond(response)
@@ -163,7 +218,8 @@ pub async fn run_agent(
 
                 responder.respond(
                     LoadSessionResponse::new()
-                        .modes(mode_state(session.mode.as_str())),
+                        .modes(mode_state(session.mode.as_str()))
+                        .config_options(all_config_options(session.mode, session.permission_mode)),
                 )
             },
             on_receive_request!(),
@@ -182,7 +238,11 @@ pub async fn run_agent(
                         sessions_resume.update_cwd(&session_id, cwd).await;
                         responder.respond(
                             ResumeSessionResponse::new()
-                                .modes(mode_state(session.mode.as_str())),
+                                .modes(mode_state(session.mode.as_str()))
+                                .config_options(all_config_options(
+                                    session.mode,
+                                    session.permission_mode,
+                                )),
                         )
                     }
                     None => {
@@ -260,7 +320,7 @@ pub async fn run_agent(
                 // Create a cancellation token for this prompt
                 let cancel = sessions_prompt.start_prompt(&session_id).await;
 
-                // Run the agentic tool loop
+                // Build the tool registry up-front so we don't pay for it inside the spawn.
                 let registry = sessions_prompt
                     .get_or_create_registry(
                         &session_id,
@@ -268,45 +328,65 @@ pub async fn run_agent(
                         bifrost_binary_prompt.as_deref(),
                     )
                     .await;
-                let cx_text = cx.clone();
-                let sid_text = session_id.clone();
-                let cx_tool = cx.clone();
-                let sid_tool = session_id.clone();
 
-                // Text tokens stream to the client in real time via this shared sink.
-                let text_sink: crate::tool_loop::TextSink = std::sync::Arc::new(
-                    std::sync::Mutex::new(move |token: &str| {
-                        send_message(&cx_text, &sid_text, token);
-                    }),
-                );
+                // Capture everything the spawned task needs before we move into it.
+                // The tool loop calls `block_task()` to await `session/request_permission`,
+                // which is only safe when run inside `cx.spawn` (per the ACP SDK docs --
+                // calling it directly from a request handler can deadlock the dispatch loop).
+                let llm_for_loop = llm_prompt.clone();
+                let sessions_for_loop = sessions_prompt.clone();
+                let cx_for_loop = cx.clone();
+                let session_id_for_loop = session_id.clone();
+                let prompt_text_for_turn = prompt_text;
+                let model_for_loop = session.model.clone();
 
-                let response_text = crate::tool_loop::run(
-                    &llm_prompt,
-                    &registry,
-                    &session.model,
-                    messages,
-                    max_turns,
-                    cancel,
-                    text_sink,
-                    |headline| send_message(&cx_tool, &sid_tool, headline),
-                )
-                .await;
+                cx.spawn(async move {
+                    let cx_text = cx_for_loop.clone();
+                    let sid_text = session_id_for_loop.clone();
+                    let cx_tool = cx_for_loop.clone();
+                    let sid_tool = session_id_for_loop.clone();
 
-                // Clean up cancellation token
-                sessions_prompt.finish_prompt(&session_id).await;
+                    // Text tokens stream to the client in real time via this shared sink.
+                    let text_sink: crate::tool_loop::TextSink = std::sync::Arc::new(
+                        std::sync::Mutex::new(move |token: &str| {
+                            send_message(&cx_text, &sid_text, token);
+                        }),
+                    );
 
-                // Save conversation turn
-                sessions_prompt
-                    .add_turn(
-                        &session_id,
-                        ConversationTurn {
-                            user_prompt: prompt_text,
-                            agent_response: response_text,
-                        },
+                    let response_text = crate::tool_loop::run(
+                        &llm_for_loop,
+                        &registry,
+                        &model_for_loop,
+                        messages,
+                        max_turns,
+                        cancel,
+                        text_sink,
+                        |headline| send_message(&cx_tool, &sid_tool, headline),
+                        cx_for_loop.clone(),
+                        session_id_for_loop.clone(),
+                        sessions_for_loop.clone(),
                     )
                     .await;
 
-                responder.respond(PromptResponse::new(StopReason::EndTurn))
+                    // Clean up cancellation token
+                    sessions_for_loop.finish_prompt(&session_id_for_loop).await;
+
+                    // Save conversation turn
+                    sessions_for_loop
+                        .add_turn(
+                            &session_id_for_loop,
+                            ConversationTurn {
+                                user_prompt: prompt_text_for_turn,
+                                agent_response: response_text,
+                            },
+                        )
+                        .await;
+
+                    let _ = responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    Ok(())
+                })?;
+
+                Ok(())
             },
             on_receive_request!(),
         )
@@ -352,6 +432,110 @@ pub async fn run_agent(
                 }
 
                 responder.respond(SetSessionModeResponse::new())
+            },
+            on_receive_request!(),
+        )
+        // Handle session/set_config_option
+        .on_receive_request(
+            async move |req: SetSessionConfigOptionRequest,
+                        responder: Responder<SetSessionConfigOptionResponse>,
+                        cx: ConnectionTo<Client>| {
+                let session_id = req.session_id.to_string();
+                let config_id = req.config_id.to_string();
+                let value = req.value.to_string();
+                tracing::info!(
+                    "ACP set_config_option session={session_id} config={config_id} value={value}"
+                );
+
+                match config_id.as_str() {
+                    PERMISSION_CONFIG_ID => {
+                        let Some(permission_mode) = PermissionMode::parse(&value) else {
+                            return responder.respond_with_error(
+                                agent_client_protocol::Error::invalid_params().data(
+                                    serde_json::json!({
+                                        "reason": format!("unknown permission mode '{value}'"),
+                                        "supported": [
+                                            "default",
+                                            "acceptEdits",
+                                            "readOnly",
+                                            "bypassPermissions",
+                                        ],
+                                    }),
+                                ),
+                            );
+                        };
+                        if !sessions_perm
+                            .set_permission_mode(&session_id, permission_mode)
+                            .await
+                        {
+                            return responder.respond_with_error(
+                                agent_client_protocol::Error::invalid_params().data(
+                                    serde_json::json!({
+                                        "reason": format!("unknown session '{session_id}'"),
+                                    }),
+                                ),
+                            );
+                        }
+                    }
+                    BEHAVIOR_CONFIG_ID => {
+                        let Some(behavior_mode) = SessionMode::parse(&value) else {
+                            return responder.respond_with_error(
+                                agent_client_protocol::Error::invalid_params().data(
+                                    serde_json::json!({
+                                        "reason": format!("unknown behavior mode '{value}'"),
+                                        "supported": ["LUTZ", "CODE", "ASK", "PLAN"],
+                                    }),
+                                ),
+                            );
+                        };
+                        if !sessions_perm.set_mode(&session_id, behavior_mode).await {
+                            return responder.respond_with_error(
+                                agent_client_protocol::Error::invalid_params().data(
+                                    serde_json::json!({
+                                        "reason": format!("unknown session '{session_id}'"),
+                                    }),
+                                ),
+                            );
+                        }
+                    }
+                    other => {
+                        return responder.respond_with_error(
+                            agent_client_protocol::Error::invalid_params().data(
+                                serde_json::json!({
+                                    "reason": format!("unknown configOption '{other}'"),
+                                    "supported": [BEHAVIOR_CONFIG_ID, PERMISSION_CONFIG_ID],
+                                }),
+                            ),
+                        );
+                    }
+                }
+
+                // Re-fetch the session so the returned options reflect the
+                // latest values for *both* selectors (the spec says the
+                // response carries the full updated set, not just the one we
+                // changed).
+                let fallback_cwd = std::env::current_dir().unwrap_or_default();
+                let Some(session) = sessions_perm.get_session(&session_id, &fallback_cwd).await
+                else {
+                    return responder.respond_with_error(
+                        agent_client_protocol::Error::invalid_params().data(serde_json::json!({
+                            "reason": format!("unknown session '{session_id}'"),
+                        })),
+                    );
+                };
+                let updated_options = all_config_options(session.mode, session.permission_mode);
+
+                let notification = SessionNotification::new(
+                    session_id.clone(),
+                    SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(
+                        updated_options.clone(),
+                    )),
+                );
+                if let Err(e) = cx.send_notification(notification) {
+                    tracing::warn!("failed to send config_option_update: {e}");
+                }
+
+                responder.respond(SetSessionConfigOptionResponse::new(updated_options))
             },
             on_receive_request!(),
         )
