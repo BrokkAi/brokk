@@ -1,9 +1,11 @@
 mod filesystem;
 mod shell;
 
+use crate::bifrost_client::BifrostClient;
 use crate::llm_client::{FunctionDef, ToolDefinition};
 use serde_json::json;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Result of executing a tool.
 pub struct ToolResult {
@@ -17,20 +19,40 @@ pub enum ToolStatus {
     InternalError,
 }
 
-/// Unified tool registry: filesystem tools + shell + think.
-/// Bifrost (brokk_analyzer) will be added here when integrated as a dependency.
+/// Unified tool registry: filesystem tools + shell + think + (optionally) bifrost.
 pub struct ToolRegistry {
     cwd: PathBuf,
+    bifrost: Option<Arc<BifrostClient>>,
 }
 
 impl ToolRegistry {
-    pub fn new(cwd: PathBuf) -> Self {
-        Self { cwd }
+    pub async fn new(cwd: PathBuf, bifrost_binary: Option<&Path>) -> Self {
+        let bifrost = match bifrost_binary {
+            Some(bin) => match BifrostClient::spawn(bin, &cwd).await {
+                Ok(client) => Some(Arc::new(client)),
+                Err(err) => {
+                    tracing::warn!(
+                        cwd = %cwd.display(),
+                        binary = %bin.display(),
+                        %err,
+                        "bifrost subprocess failed to start; code-intelligence tools disabled for this session"
+                    );
+                    None
+                }
+            },
+            None => {
+                tracing::debug!(
+                    "bifrost binary not configured; code-intelligence tools disabled"
+                );
+                None
+            }
+        };
+        Self { cwd, bifrost }
     }
 
     /// All tool definitions for the OpenAI tools parameter.
     pub fn tool_definitions(&self) -> Vec<ToolDefinition> {
-        vec![
+        let mut defs = vec![
             tool_def(
                 "think",
                 "Use this tool to think through a problem step by step before acting. The input is not used for anything -- it is just a scratchpad for your thoughts.",
@@ -133,7 +155,13 @@ impl ToolRegistry {
                     "required": ["command"]
                 }),
             ),
-        ]
+        ];
+        if let Some(client) = self.bifrost.as_ref() {
+            for tool in client.tools() {
+                defs.push(tool_def(&tool.name, &tool.description, tool.input_schema.clone()));
+            }
+        }
+        defs
     }
 
     /// Execute a tool by name with JSON arguments.
@@ -176,9 +204,48 @@ impl ToolRegistry {
                     .unwrap_or(60);
                 shell::run_shell_command(&self.cwd, command, timeout).await
             }
+            "search_symbols"
+            | "get_symbol_locations"
+            | "get_symbol_summaries"
+            | "get_symbol_sources"
+            | "get_file_summaries"
+            | "summarize_symbols"
+            | "skim_files"
+            | "most_relevant_files"
+            | "refresh" => self.execute_bifrost(name, args).await,
             _ => ToolResult {
                 status: ToolStatus::RequestError,
                 output: format!("Unknown tool: {name}"),
+            },
+        }
+    }
+
+    async fn execute_bifrost(&self, name: &str, args: serde_json::Value) -> ToolResult {
+        let Some(client) = self.bifrost.clone() else {
+            return ToolResult {
+                status: ToolStatus::RequestError,
+                output: format!(
+                    "Code-intelligence tool '{name}' is unavailable: bifrost subprocess not running."
+                ),
+            };
+        };
+        match client.call_tool(name, args).await {
+            Ok(value) => {
+                let output = if let Some(s) = value.as_str() {
+                    s.to_string()
+                } else {
+                    serde_json::to_string_pretty(&value).unwrap_or_else(|e| {
+                        format!("<failed to serialize bifrost result: {e}>")
+                    })
+                };
+                ToolResult {
+                    status: ToolStatus::Success,
+                    output,
+                }
+            }
+            Err(err) => ToolResult {
+                status: ToolStatus::InternalError,
+                output: format!("Bifrost tool '{name}' failed: {err}"),
             },
         }
     }
@@ -194,10 +261,13 @@ impl ToolRegistry {
             "runShellCommand" => "Running shell command",
             "search_symbols" => "Searching for symbols",
             "get_symbol_locations" => "Finding symbol locations",
+            "get_symbol_summaries" => "Getting symbol summaries",
             "get_symbol_sources" => "Fetching symbol source",
             "get_file_summaries" => "Getting file summaries",
+            "summarize_symbols" => "Summarizing symbols",
             "skim_files" => "Skimming files",
             "most_relevant_files" => "Finding related files",
+            "refresh" => "Refreshing analyzer index",
             _ => "Executing tool",
         }
     }

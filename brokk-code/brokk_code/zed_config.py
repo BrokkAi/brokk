@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from brokk_code.rust_acp_install import RustAcpPaths
+
 
 class ExistingBrokkCodeEntryError(Exception):
     """Raised when an IDE configuration already has a Brokk Code agent server entry."""
@@ -186,8 +188,32 @@ def loads_json_or_jsonc(text: str) -> Any:
 
 
 def _brokk_code_agent_server_config(
-    uvx_command: str = "uvx", native: bool = False
+    uvx_command: str = "uvx",
+    native: bool = False,
+    rust_paths: RustAcpPaths | None = None,
 ) -> dict[str, Any]:
+    if rust_paths is not None:
+        args: list[str] = [
+            "--default-model",
+            rust_paths.model,
+            "--bifrost-binary",
+            str(rust_paths.bifrost),
+        ]
+        if rust_paths.endpoint_url:
+            args += ["--endpoint-url", rust_paths.endpoint_url]
+        if rust_paths.api_key:
+            args += ["--api-key", rust_paths.api_key]
+        return {
+            "favorite_config_option_values": {
+                "reasoning": ["medium"],
+                "mode": ["LUTZ"],
+                "model": [rust_paths.model],
+            },
+            "type": "custom",
+            "command": str(rust_paths.brokk_acp),
+            "args": args,
+            "env": {},
+        }
     return {
         "favorite_config_option_values": {
             "reasoning": ["medium"],
@@ -248,6 +274,7 @@ def configure_zed_acp_settings(
     settings_path: Path | None = None,
     uvx_command: str = "uvx",
     native: bool = False,
+    rust_paths: RustAcpPaths | None = None,
 ) -> Path:
     path = settings_path or _default_zed_settings_path()
     prefix = ""
@@ -280,7 +307,9 @@ def configure_zed_acp_settings(
             "agent_servers['Brokk Code'] already exists; use --force to overwrite it"
         )
 
-    agent_servers["Brokk Code"] = _brokk_code_agent_server_config(uvx_command, native=native)
+    agent_servers["Brokk Code"] = _brokk_code_agent_server_config(
+        uvx_command, native=native, rust_paths=rust_paths
+    )
 
     path.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write_zed_settings(path, settings, prefix=prefix)

@@ -937,6 +937,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Use native Java ACP server instead of Python bridge (for zed/intellij targets)",
     )
     install_parser.add_argument(
+        "--rust",
+        action="store_true",
+        default=False,
+        help=(
+            "Wire the editor at the Rust ACP server (brokk-acp) instead of the Python or "
+            "Java implementations. Both `brokk-acp` and `bifrost` must already be on PATH "
+            "(see `--brokk-acp-binary` to override the brokk-acp path). Requires "
+            "--provider-model. Mutually exclusive with --native. zed/intellij only."
+        ),
+    )
+    install_parser.add_argument(
+        "--brokk-acp-binary",
+        type=Path,
+        default=None,
+        help=(
+            "Use a pre-built brokk-acp binary at this absolute path instead of looking it "
+            "up on PATH. The path is written verbatim into the editor's agent_servers "
+            "args. Dev use only."
+        ),
+    )
+    install_parser.add_argument(
         "--force",
         action="store_true",
         default=False,
@@ -1952,20 +1973,95 @@ def _main_dispatch(
         if args.provider_url and args.provider != "custom":
             print("Error: --provider-url requires --provider custom", file=sys.stderr)
             sys.exit(1)
-
-        # Apply provider settings if specified
-        if args.provider == "custom":
-            write_brokk_properties(
-                {
-                    "llmProxySetting": "CUSTOM",
-                    "customEndpointUrl": args.provider_url,
-                    "customEndpointApiKey": args.provider_api_key or "",
-                    "customEndpointModel": args.provider_model or "",
-                }
+        if args.rust and args.native:
+            print(
+                "Error: --rust and --native are mutually exclusive; pass only one.",
+                file=sys.stderr,
             )
-            print(f"Provider set to custom endpoint: {args.provider_url}")
-        elif args.provider == "brokk":
-            write_brokk_properties({"llmProxySetting": "BROKK"})
+            sys.exit(1)
+        if args.rust and args.target not in {"zed", "intellij"}:
+            print(
+                "Error: --rust is only supported for install targets zed/intellij.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if args.rust and not args.provider_model:
+            print(
+                "Error: --rust requires --provider-model "
+                "(passed to brokk-acp as --default-model).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if args.brokk_acp_binary and not args.rust:
+            print(
+                "Error: --brokk-acp-binary requires --rust.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Apply provider settings if specified. Skipped for --rust because the
+        # Rust ACP binary doesn't read brokk.properties; its provider settings
+        # are baked into the editor's agent_servers args instead.
+        if not args.rust:
+            if args.provider == "custom":
+                write_brokk_properties(
+                    {
+                        "llmProxySetting": "CUSTOM",
+                        "customEndpointUrl": args.provider_url,
+                        "customEndpointApiKey": args.provider_api_key or "",
+                        "customEndpointModel": args.provider_model or "",
+                    }
+                )
+                print(f"Provider set to custom endpoint: {args.provider_url}")
+            elif args.provider == "brokk":
+                write_brokk_properties({"llmProxySetting": "BROKK"})
+
+        # Rust ACP path: self-contained. Skips the Brokk API key, GitHub token,
+        # jbang/uv prefetch -- the Rust binary connects directly to the user's
+        # chosen LLM endpoint and never talks to Brokk's service.
+        # brokk-code does NOT build or fetch brokk-acp/bifrost; the user is
+        # responsible for installing them. We just resolve their paths.
+        if args.rust:
+            from brokk_code.rust_acp_install import (
+                RustAcpInstallError,
+                RustAcpPaths,
+                resolve_rust_paths,
+            )
+
+            try:
+                brokk_acp_path, bifrost_path = resolve_rust_paths(
+                    brokk_acp_override=args.brokk_acp_binary,
+                )
+            except RustAcpInstallError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(1)
+            rust_paths = RustAcpPaths(
+                brokk_acp=brokk_acp_path,
+                bifrost=bifrost_path,
+                model=args.provider_model,
+                endpoint_url=args.provider_url,
+                api_key=args.provider_api_key,
+            )
+            try:
+                if args.target == "zed":
+                    settings_path = configure_zed_acp_settings(
+                        force=args.force, rust_paths=rust_paths
+                    )
+                    integration = "Zed"
+                else:
+                    settings_path = configure_intellij_acp_settings(
+                        force=args.force, rust_paths=rust_paths
+                    )
+                    integration = "IntelliJ"
+            except (ExistingBrokkCodeEntryError, ValueError) as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(1)
+            print(
+                f"Wired Rust ACP server at {brokk_acp_path} "
+                f"(bifrost at {bifrost_path})"
+            )
+            print(f"Configured {integration} ACP integration in {settings_path}")
+            return
 
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
@@ -1979,6 +2075,7 @@ def _main_dispatch(
                 jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
                 if args.verbose and not jbang_binary:
                     jbang_binary = "jbang"
+
             if args.target == "zed":
                 _ensure_install_api_key()
                 _ensure_install_github_token(
@@ -1988,7 +2085,9 @@ def _main_dispatch(
                     executor_snapshot=args.executor_snapshot,
                 )
                 settings_path = configure_zed_acp_settings(
-                    force=args.force, uvx_command=uvx_command, native=args.native
+                    force=args.force,
+                    uvx_command=uvx_command,
+                    native=args.native,
                 )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
@@ -2005,7 +2104,9 @@ def _main_dispatch(
                     executor_snapshot=args.executor_snapshot,
                 )
                 settings_path = configure_intellij_acp_settings(
-                    force=args.force, uvx_command=uvx_command, native=args.native
+                    force=args.force,
+                    uvx_command=uvx_command,
+                    native=args.native,
                 )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,

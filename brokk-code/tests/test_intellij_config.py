@@ -1,9 +1,11 @@
 import json
 import stat
+from pathlib import Path
 
 import pytest
 
 from brokk_code.intellij_config import configure_intellij_acp_settings
+from brokk_code.rust_acp_install import RustAcpPaths
 from brokk_code.zed_config import ExistingBrokkCodeEntryError
 
 
@@ -149,3 +151,50 @@ def test_configure_intellij_acp_settings_invalid_json(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="Could not parse .* as JSON/JSONC"):
         configure_intellij_acp_settings(settings_path=settings_path)
+
+
+def test_configure_intellij_acp_settings_rust_paths_minimal(tmp_path) -> None:
+    settings_path = tmp_path / ".jetbrains" / "acp.json"
+    rust_paths = RustAcpPaths(
+        brokk_acp=Path("/home/u/.brokk/bin/brokk-acp"),
+        bifrost=Path("/home/u/.brokk/bin/bifrost"),
+        model="qwen2.5-coder:7b",
+    )
+
+    configure_intellij_acp_settings(settings_path=settings_path, rust_paths=rust_paths)
+
+    entry = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"]["Brokk Code"]
+    assert entry["command"] == "/home/u/.brokk/bin/brokk-acp"
+    assert entry["args"] == [
+        "--default-model",
+        "qwen2.5-coder:7b",
+        "--bifrost-binary",
+        "/home/u/.brokk/bin/bifrost",
+    ]
+
+
+def test_configure_intellij_acp_settings_rust_paths_with_custom_endpoint(tmp_path) -> None:
+    settings_path = tmp_path / ".jetbrains" / "acp.json"
+    rust_paths = RustAcpPaths(
+        brokk_acp=Path("/opt/brokk-acp"),
+        bifrost=Path("/opt/bifrost"),
+        model="claude-haiku-4-5",
+        endpoint_url="http://example.invalid:8080",
+        api_key="sk-test-123",
+    )
+
+    configure_intellij_acp_settings(settings_path=settings_path, rust_paths=rust_paths)
+
+    args = json.loads(settings_path.read_text(encoding="utf-8"))[
+        "agent_servers"
+    ]["Brokk Code"]["args"]
+    assert args == [
+        "--default-model",
+        "claude-haiku-4-5",
+        "--bifrost-binary",
+        "/opt/bifrost",
+        "--endpoint-url",
+        "http://example.invalid:8080",
+        "--api-key",
+        "sk-test-123",
+    ]
