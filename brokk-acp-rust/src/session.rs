@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -37,6 +37,46 @@ impl SessionMode {
             "CODE" => Some(Self::Code),
             "ASK" => Some(Self::Ask),
             "PLAN" => Some(Self::Plan),
+            _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Permission mode
+// ---------------------------------------------------------------------------
+
+/// Per-session permission policy, mirroring the four reference modes that
+/// `claude-agent-acp` exposes (default / acceptEdits / plan / bypassPermissions).
+/// Surfaced to clients as a `SessionConfigOption` (its own dropdown), independent
+/// of `SessionMode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionMode {
+    Default,
+    AcceptEdits,
+    /// Hard read-only: refuses every Edit / Delete / Move / Execute tool call.
+    /// Renamed from the reference's "plan" to avoid colliding with Brokk's
+    /// PLAN behavior mode (LUTZ/CODE/ASK/PLAN), which is a separate dropdown.
+    ReadOnly,
+    BypassPermissions,
+}
+
+impl PermissionMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::AcceptEdits => "acceptEdits",
+            Self::ReadOnly => "readOnly",
+            Self::BypassPermissions => "bypassPermissions",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "default" => Some(Self::Default),
+            "acceptEdits" => Some(Self::AcceptEdits),
+            "readOnly" => Some(Self::ReadOnly),
+            "bypassPermissions" => Some(Self::BypassPermissions),
             _ => None,
         }
     }
@@ -93,6 +133,10 @@ pub struct Session {
     pub model: String,
     pub history: Vec<ConversationTurn>,
     pub manifest: SessionManifest,
+    pub permission_mode: PermissionMode,
+    /// Tool names the user has chosen "Always allow" for this session.
+    /// In-memory only (matches `claude-agent-acp` behavior).
+    pub always_allow_tools: HashSet<String>,
 }
 
 impl Session {
@@ -102,6 +146,7 @@ impl Session {
             .unwrap_or_default()
             .as_millis() as u64;
         let mode = SessionMode::Lutz;
+        let permission_mode = PermissionMode::Default;
         let manifest = SessionManifest {
             id: id.clone(),
             name,
@@ -122,6 +167,8 @@ impl Session {
             model,
             history: Vec::new(),
             manifest,
+            permission_mode,
+            always_allow_tools: HashSet::new(),
         }
     }
 }
@@ -707,6 +754,10 @@ impl SessionStore {
             _ => self.default_model.read().await.clone(),
         };
 
+        // Permission mode is intentionally NOT persisted across sessions: a
+        // resumed session always restarts at `Default`. This mirrors
+        // `claude-agent-acp` and prevents a stale or tampered manifest from
+        // silently auto-allowing every tool call on launch.
         let session = Session {
             id: manifest.id.clone(),
             cwd: cwd.to_path_buf(),
@@ -714,6 +765,8 @@ impl SessionStore {
             model,
             history,
             manifest,
+            permission_mode: PermissionMode::Default,
+            always_allow_tools: HashSet::new(),
         };
         self.sessions
             .write()
@@ -725,6 +778,45 @@ impl SessionStore {
     pub async fn update_cwd(&self, id: &str, cwd: PathBuf) {
         if let Some(session) = self.sessions.write().await.get_mut(id) {
             session.cwd = cwd;
+        }
+    }
+
+    /// Update the session's permission mode. Returns false if the session is unknown.
+    /// Permission mode is intentionally session-only (not persisted to the manifest).
+    pub async fn set_permission_mode(&self, id: &str, permission_mode: PermissionMode) -> bool {
+        let mut sessions = self.sessions.write().await;
+        match sessions.get_mut(id) {
+            Some(session) => {
+                session.permission_mode = permission_mode;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Read the current permission_mode for a session. Returns None if unknown.
+    pub async fn permission_mode(&self, id: &str) -> Option<PermissionMode> {
+        self.sessions
+            .read()
+            .await
+            .get(id)
+            .map(|s| s.permission_mode)
+    }
+
+    /// True if the session has previously chosen "Always allow" for `tool_name`.
+    pub async fn is_always_allowed(&self, id: &str, tool_name: &str) -> bool {
+        self.sessions
+            .read()
+            .await
+            .get(id)
+            .map(|s| s.always_allow_tools.contains(tool_name))
+            .unwrap_or(false)
+    }
+
+    /// Add `tool_name` to the session's in-memory always-allow set.
+    pub async fn add_always_allow(&self, id: &str, tool_name: &str) {
+        if let Some(session) = self.sessions.write().await.get_mut(id) {
+            session.always_allow_tools.insert(tool_name.to_string());
         }
     }
 
