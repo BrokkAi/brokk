@@ -24,6 +24,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.JOptionPane;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -36,6 +38,8 @@ import org.jetbrains.annotations.Nullable;
  * <p>Constructed per-prompt-turn and set as the active console on ContextManager.
  */
 public class AcpConsoleIO extends MemoryConsole {
+    private static final Logger logger = LogManager.getLogger(AcpConsoleIO.class);
+
     private final AcpPromptContext context;
     private final String sessionId;
 
@@ -47,6 +51,18 @@ public class AcpConsoleIO extends MemoryConsole {
 
     /** Tracks tool call ID for commandStart/commandResult lifecycle. */
     private volatile @Nullable String activeCommandToolCallId;
+
+    /**
+     * Per-stream state for suppressing SEARCH/REPLACE block content from agent_message_chunk.
+     * The canonical edit visualization is delivered via {@link #afterFileEdits}'s
+     * tool_call_update with structured diff content; the raw SR prose duplicates that.
+     */
+    private final StringBuilder lineBuffer = new StringBuilder();
+
+    private boolean inSrBlock = false;
+
+    private static final String SR_START_PREFIX = "<<<<<<< SEARCH";
+    private static final String SR_END_PREFIX = ">>>>>>> REPLACE";
 
     /**
      * Tools whose result text is the agent's user-facing answer and is also streamed via
@@ -130,8 +146,55 @@ public class AcpConsoleIO extends MemoryConsole {
                 emitSyntheticToolCall(banner.get(), AcpSchema.ToolKind.THINK);
                 return;
             }
+            var filtered = filterSearchReplaceTokens(token);
+            if (!filtered.isEmpty()) {
+                context.sendMessage(filtered);
+            }
+            return;
         }
         context.sendMessage(token);
+    }
+
+    /**
+     * Strip SEARCH/REPLACE block content from a streamed AI token. State is held across calls
+     * via {@link #lineBuffer} and {@link #inSrBlock}.
+     *
+     * <p>Detection is line-based: a line starting with {@link #SR_START_PREFIX} opens the block;
+     * a line starting with {@link #SR_END_PREFIX} closes it. Lines between (and the marker
+     * lines themselves) are dropped. No placeholder is emitted; the structured edit visualization
+     * comes from {@link #afterFileEdits}'s tool_call_update.
+     *
+     * <p>Prose outside SR blocks streams through char-by-char, except a partial line starting
+     * with {@code '<'} or {@code '>'} is buffered until newline so a forming SR marker isn't
+     * accidentally emitted.
+     */
+    private synchronized String filterSearchReplaceTokens(String token) {
+        var out = new StringBuilder();
+        for (int i = 0; i < token.length(); i++) {
+            char c = token.charAt(i);
+            if (c == '\n') {
+                String line = lineBuffer.toString();
+                lineBuffer.setLength(0);
+                String trimmed = line.stripTrailing();
+                if (!inSrBlock && trimmed.startsWith(SR_START_PREFIX)) {
+                    inSrBlock = true;
+                } else if (inSrBlock && trimmed.startsWith(SR_END_PREFIX)) {
+                    inSrBlock = false;
+                } else if (!inSrBlock) {
+                    out.append(line).append('\n');
+                }
+            } else {
+                lineBuffer.append(c);
+                if (!inSrBlock) {
+                    char first = lineBuffer.charAt(0);
+                    if (first != '<' && first != '>') {
+                        out.append(lineBuffer);
+                        lineBuffer.setLength(0);
+                    }
+                }
+            }
+        }
+        return out.toString();
     }
 
     /**
@@ -193,10 +256,31 @@ public class AcpConsoleIO extends MemoryConsole {
             if (!approved) {
                 pendingToolKinds.remove(toolCallId);
                 pendingToolTitles.remove(toolCallId);
+                emitDeniedToolCallUpdate(toolCallId, title, kind);
             }
             return approved ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
         }
         return ApprovalResult.APPROVED;
+    }
+
+    /**
+     * Emit a terminal {@code tool_call_update} with status FAILED so the client has a signal that
+     * the originally-requested tool call won't proceed. Clients that bind a permission dialog to
+     * the tool-call lifecycle can dismiss the dialog on this update.
+     */
+    private void emitDeniedToolCallUpdate(String toolCallId, String title, AcpSchema.ToolKind kind) {
+        var failed = new AcpSchema.ToolCallUpdateNotification(
+                "tool_call_update",
+                toolCallId,
+                title,
+                kind,
+                AcpSchema.ToolCallStatus.FAILED,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null);
+        context.sendUpdate(sessionId, failed);
     }
 
     @Override
@@ -223,6 +307,7 @@ public class AcpConsoleIO extends MemoryConsole {
         if (!approved) {
             pendingToolKinds.remove(toolCallId);
             pendingToolTitles.remove(toolCallId);
+            emitDeniedToolCallUpdate(toolCallId, title, AcpSchema.ToolKind.EXECUTE);
         }
         return approved ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
     }
@@ -288,6 +373,12 @@ public class AcpConsoleIO extends MemoryConsole {
                 ? AcpSchema.ToolCallStatus.COMPLETED
                 : AcpSchema.ToolCallStatus.FAILED;
         var toolId = result.toolId();
+        if (toolId == null) {
+            // Without a correlation id we have nothing to update, and ConcurrentHashMap operations
+            // below would NPE on a null key.
+            logger.warn("afterToolOutput called with null toolId for tool '{}' status={}", result.toolName(), status);
+            return;
+        }
         var kind = pendingToolKinds.getOrDefault(toolId, AcpSchema.ToolKind.OTHER);
         pendingToolKinds.remove(toolId);
         var title = pendingToolTitles.getOrDefault(toolId, displayTitle(result.toolName(), null));
