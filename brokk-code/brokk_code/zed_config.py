@@ -187,6 +187,21 @@ def loads_json_or_jsonc(text: str) -> Any:
         return json.loads(cleaned)
 
 
+def brokk_code_entry_name(
+    *, native: bool = False, rust_paths: RustAcpPaths | None = None
+) -> str:
+    """Returns the agent_servers key for a given install variant.
+
+    Distinct keys per variant let the default, --native, and --rust installs
+    coexist in the same editor config instead of overwriting each other.
+    """
+    if rust_paths is not None:
+        return "Brokk Code (Rust)"
+    if native:
+        return "Brokk Code (Native)"
+    return "Brokk Code"
+
+
 def _brokk_code_agent_server_config(
     uvx_command: str = "uvx",
     native: bool = False,
@@ -197,7 +212,7 @@ def _brokk_code_agent_server_config(
             "--default-model",
             rust_paths.model,
             "--bifrost-binary",
-            str(rust_paths.bifrost),
+            rust_paths.bifrost.as_posix(),
         ]
         if rust_paths.endpoint_url:
             args += ["--endpoint-url", rust_paths.endpoint_url]
@@ -210,7 +225,7 @@ def _brokk_code_agent_server_config(
                 "model": [rust_paths.model],
             },
             "type": "custom",
-            "command": str(rust_paths.brokk_acp),
+            "command": rust_paths.brokk_acp.as_posix(),
             "args": args,
             "env": {},
         }
@@ -302,12 +317,13 @@ def configure_zed_acp_settings(
     if not isinstance(agent_servers, dict):
         raise ValueError("Expected 'agent_servers' to be a JSON object")
 
-    if "Brokk Code" in agent_servers and not force:
+    entry_name = brokk_code_entry_name(native=native, rust_paths=rust_paths)
+    if entry_name in agent_servers and not force:
         raise ExistingBrokkCodeEntryError(
-            "agent_servers['Brokk Code'] already exists; use --force to overwrite it"
+            f"agent_servers['{entry_name}'] already exists; use --force to overwrite it"
         )
 
-    agent_servers["Brokk Code"] = _brokk_code_agent_server_config(
+    agent_servers[entry_name] = _brokk_code_agent_server_config(
         uvx_command, native=native, rust_paths=rust_paths
     )
 

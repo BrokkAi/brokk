@@ -341,7 +341,7 @@ mod tests {
             "get_symbol_locations",
             "get_symbol_summaries",
             "get_symbol_sources",
-            "get_summaries",
+            "get_file_summaries",
             "summarize_symbols",
             "skim_files",
             "most_relevant_files",
@@ -364,13 +364,13 @@ mod tests {
 
         let result = client
             .call_tool(
-                "get_summaries",
-                json!({ "targets": ["brokk-acp-rust/src/bifrost_client.rs"] }),
+                "get_file_summaries",
+                json!({ "file_patterns": ["brokk-acp-rust/src/bifrost_client.rs"] }),
             )
             .await
-            .expect("get_summaries call should succeed");
+            .expect("get_file_summaries call should succeed");
         eprintln!(
-            "get_summaries result: {}",
+            "get_file_summaries result: {}",
             serde_json::to_string_pretty(&result).unwrap_or_default()
         );
     }

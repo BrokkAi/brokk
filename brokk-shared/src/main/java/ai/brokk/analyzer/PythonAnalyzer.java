@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.python.Constants.*;
 import static org.treesitter.PythonNodeType.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.python.CognitiveComplexityAnalysis;
 import ai.brokk.project.ICoreProject;
@@ -37,6 +38,40 @@ import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
+
+    @Override
+    public boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
+        return topLevel
+                && cu.isModule()
+                && parentOf(cu).isEmpty()
+                && languages().stream().anyMatch(language -> language.getExtensions()
+                        .contains(cu.source().extension()));
+    }
+
+    @Override
+    public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
+        return super.getSkeletons(file).entrySet().stream()
+                .filter(entry -> !isFileLevelModule(entry.getKey(), true))
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey, Map.Entry::getValue, (left, right) -> left, LinkedHashMap::new));
+    }
+
+    @Override
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        if (isFileLevelModule(cu, true)) {
+            return Optional.empty();
+        }
+        return super.getSkeleton(cu);
+    }
+
+    @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
+                .filter(cu -> cu.isClass() || cu.isFunction())
+                .collect(Collectors.toSet());
+
+        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
+    }
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -1959,7 +1994,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         CodeUnit targetCu = (existing != null && existing.isModule()) ? existing : moduleCu;
 
         if (existing == null) {
-            acc.addLookupKey(targetCu.fqName(), targetCu);
+            var moduleRange = new Range(
+                    rootNode.getStartByte(),
+                    rootNode.getEndByte(),
+                    rootNode.getStartPoint().getRow(),
+                    rootNode.getEndPoint().getRow(),
+                    rootNode.getStartByte());
+            acc.addTopLevel(targetCu).addRange(targetCu, moduleRange);
         }
 
         acc.addSignature(targetCu, "# module " + modulePackageName)

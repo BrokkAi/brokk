@@ -29,6 +29,11 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
+    /// Working directory this registry is rooted in.
+    pub(crate) fn cwd(&self) -> &Path {
+        &self.cwd
+    }
+
     pub async fn new(cwd: PathBuf, bifrost_binary: Option<&Path>) -> Self {
         // Best-effort sweep of any stale seatbelt policy files left by a
         // previous SIGKILL/panic. Bounded by file age so we don't yank a
@@ -231,7 +236,7 @@ impl ToolRegistry {
             | "get_symbol_locations"
             | "get_symbol_summaries"
             | "get_symbol_sources"
-            | "get_summaries"
+            | "get_file_summaries"
             | "summarize_symbols"
             | "skim_files"
             | "most_relevant_files"
@@ -283,7 +288,7 @@ impl ToolRegistry {
     pub fn tool_kind(tool_name: &str) -> ToolKind {
         match tool_name {
             "think" => ToolKind::Think,
-            "readFile" | "listDirectory" | "skim_files" | "get_summaries" => ToolKind::Read,
+            "readFile" | "listDirectory" | "skim_files" | "get_file_summaries" => ToolKind::Read,
             "searchFileContents"
             | "search_symbols"
             | "get_symbol_locations"
@@ -303,8 +308,10 @@ impl ToolRegistry {
         }
     }
 
-    /// Human-readable headline for a tool call (shown to ACP client).
-    pub fn headline(tool_name: &str) -> &'static str {
+    /// Static display name for a tool. Used as a fallback when a richer
+    /// title can't be derived from the call's input args (notably for
+    /// Bifrost-loaded tools we don't introspect by name in `announce`).
+    pub fn display_name(tool_name: &str) -> &'static str {
         match tool_name {
             "think" => "Thinking",
             "readFile" => "Reading file",
@@ -316,7 +323,7 @@ impl ToolRegistry {
             "get_symbol_locations" => "Finding symbol locations",
             "get_symbol_summaries" => "Getting symbol summaries",
             "get_symbol_sources" => "Fetching symbol source",
-            "get_summaries" => "Getting summaries",
+            "get_file_summaries" => "Getting file summaries",
             "summarize_symbols" => "Summarizing symbols",
             "skim_files" => "Skimming files",
             "most_relevant_files" => "Finding related files",

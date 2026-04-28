@@ -245,13 +245,15 @@ def test_configure_zed_acp_settings_rust_paths_minimal(tmp_path) -> None:
 
     configure_zed_acp_settings(settings_path=settings_path, rust_paths=rust_paths)
 
-    entry = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"]["Brokk Code"]
-    assert entry["command"] == str(brokk_acp)
+    entry = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"][
+        "Brokk Code (Rust)"
+    ]
+    assert entry["command"] == brokk_acp.as_posix()
     assert entry["args"] == [
         "--default-model",
         "qwen2.5-coder:7b",
         "--bifrost-binary",
-        str(bifrost),
+        bifrost.as_posix(),
     ]
     assert entry["favorite_config_option_values"]["model"] == ["qwen2.5-coder:7b"]
 
@@ -270,16 +272,44 @@ def test_configure_zed_acp_settings_rust_paths_with_custom_endpoint(tmp_path) ->
 
     configure_zed_acp_settings(settings_path=settings_path, rust_paths=rust_paths)
 
-    args = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"]["Brokk Code"][
-        "args"
-    ]
+    args = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"][
+        "Brokk Code (Rust)"
+    ]["args"]
     assert args == [
         "--default-model",
         "claude-haiku-4-5",
         "--bifrost-binary",
-        str(bifrost),
+        bifrost.as_posix(),
         "--endpoint-url",
         "http://example.invalid:8080",
         "--api-key",
         "sk-test-123",
     ]
+
+
+def test_configure_zed_acp_settings_default_native_rust_coexist(tmp_path) -> None:
+    settings_path = tmp_path / ".config" / "zed" / "settings.json"
+    rust_paths = RustAcpPaths(
+        brokk_acp=Path("/opt/brokk-acp"),
+        bifrost=Path("/opt/bifrost"),
+        model="claude-haiku-4-5",
+    )
+
+    # Each install variant writes a distinct key, so all three coexist
+    # without --force.
+    configure_zed_acp_settings(settings_path=settings_path)
+    configure_zed_acp_settings(settings_path=settings_path, native=True)
+    configure_zed_acp_settings(settings_path=settings_path, rust_paths=rust_paths)
+
+    agent_servers = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"]
+    assert agent_servers["Brokk Code"]["args"] == ["brokk", "acp"]
+    assert agent_servers["Brokk Code (Native)"]["args"] == ["brokk", "acp-native"]
+    assert agent_servers["Brokk Code (Rust)"]["command"] == "/opt/brokk-acp"
+
+
+def test_configure_zed_acp_settings_rejects_existing_native_entry(tmp_path) -> None:
+    settings_path = tmp_path / ".config" / "zed" / "settings.json"
+    configure_zed_acp_settings(settings_path=settings_path, native=True)
+
+    with pytest.raises(ExistingBrokkCodeEntryError, match=r"Brokk Code \(Native\)"):
+        configure_zed_acp_settings(settings_path=settings_path, native=True)

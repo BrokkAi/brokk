@@ -61,9 +61,33 @@ public class BrokkAcpAgent {
             new AcpSchema.SessionMode("ASK", "ASK", "Question answering"),
             new AcpSchema.SessionMode("PLAN", "PLAN", "Planning only"));
 
-    private final ContextManager cm;
-    private final JobRunner jobRunner;
-    private final JobStore jobStore;
+    /**
+     * One workspace's worth of state. ACP supports per-session {@code cwd}, so each distinct
+     * project root gets its own bundle. Bundles are created lazily on the first session that
+     * names that root and reused for later sessions on the same root, mirroring the swap-on-cwd
+     * logic in {@code brokk-code/brokk_code/acp_server.py:ensure_ready}.
+     */
+    public record WorkspaceBundle(ContextManager cm, JobRunner jobRunner, JobStore jobStore, Path root) {}
+
+    /** Strategy for materializing a bundle for a given canonical project root. */
+    @FunctionalInterface
+    public interface WorkspaceBundleFactory {
+        WorkspaceBundle create(Path root);
+    }
+
+    /** Default workspace dir used when {@code session/new} doesn't supply a {@code cwd}. */
+    private final Path defaultWorkspaceDir;
+
+    private final WorkspaceBundleFactory bundleFactory;
+
+    /** Bundles keyed by canonical absolute project root. */
+    private final Map<Path, WorkspaceBundle> bundlesByRoot = new ConcurrentHashMap<>();
+
+    /** Per-bundle listeners attached to each bundle's ContextManager (for orderly removal). */
+    private final Map<Path, IAppContextManager.ContextListener> listenersByRoot = new ConcurrentHashMap<>();
+
+    /** Maps each active session id to the bundle it belongs to. */
+    private final Map<String, WorkspaceBundle> bundleBySession = new ConcurrentHashMap<>();
 
     // Per-session state
     private final Map<String, String> modeBySession = new ConcurrentHashMap<>();
@@ -76,7 +100,9 @@ public class BrokkAcpAgent {
     private final Map<String, TaskList.TaskListData> lastTaskListBySession = new ConcurrentHashMap<>();
     private final Map<String, AtomicReference<TaskList.TaskListData>> pendingPlanBySession = new ConcurrentHashMap<>();
     private final Map<String, List<String>> rejectedMcpServersBySession = new ConcurrentHashMap<>();
-    private volatile @Nullable IAppContextManager.ContextListener taskListListener;
+
+    /** True once {@link #start()} has been called; new bundles register the listener on creation. */
+    private volatile boolean listenerActive = false;
 
     /**
      * Gate that controls whether stdio MCP servers supplied over ACP are allowed to launch.
@@ -104,37 +130,111 @@ public class BrokkAcpAgent {
         void sendSessionUpdate(String sessionId, AcpSchema.SessionUpdate update);
     }
 
-    public BrokkAcpAgent(ContextManager cm, JobRunner jobRunner, JobStore jobStore) {
-        this.cm = cm;
-        this.jobRunner = jobRunner;
-        this.jobStore = jobStore;
+    /**
+     * Production constructor. Bundles are created lazily by {@code factory} on the first session
+     * that names a given {@code cwd}, with {@code defaultWorkspaceDir} used when a session omits
+     * {@code cwd}. This is the path used by {@link AcpServerMain}.
+     */
+    public BrokkAcpAgent(Path defaultWorkspaceDir, WorkspaceBundleFactory factory) {
+        this.defaultWorkspaceDir = defaultWorkspaceDir.toAbsolutePath().normalize();
+        this.bundleFactory = factory;
 
         var defaults = loadAcpDefaults();
         this.defaultModelId = defaults.defaultModel;
         this.defaultReasoningLevel = defaults.defaultReasoning;
-        logger.info("ACP defaults loaded: model={}, reasoning={}", defaultModelId, defaultReasoningLevel);
+        logger.info(
+                "ACP defaults loaded: model={}, reasoning={}, defaultRoot={}",
+                defaultModelId,
+                defaultReasoningLevel,
+                this.defaultWorkspaceDir);
+    }
+
+    /**
+     * Test/legacy constructor: pre-populates a single bundle bound to the given {@code cm}'s
+     * project root. The factory is a no-op fallback that throws if a session asks for a different
+     * cwd — production callers should use the {@code (Path, WorkspaceBundleFactory)} constructor.
+     */
+    public BrokkAcpAgent(ContextManager cm, JobRunner jobRunner, JobStore jobStore) {
+        this(cm.getProject().getRoot(), root -> {
+            throw new UnsupportedOperationException(
+                    "Legacy BrokkAcpAgent constructor cannot create new bundles for " + root);
+        });
+        var root = this.defaultWorkspaceDir;
+        bundlesByRoot.put(root, new WorkspaceBundle(cm, jobRunner, jobStore, root));
     }
 
     public void setSessionUpdateSender(SessionUpdateSender sessionUpdateSender) {
         this.sessionUpdateSender = sessionUpdateSender;
     }
 
-    /** Registers a listener that emits {@code plan} session updates whenever the task list changes. */
-    public void start() {
-        if (taskListListener != null) {
-            return;
+    /**
+     * Returns the bundle for {@code requestedCwd}, creating it on first use. Defaults to the
+     * configured {@link #defaultWorkspaceDir} when {@code requestedCwd} is null/blank. Bundles are
+     * cached by canonical absolute path; calls for the same cwd reuse the same bundle.
+     */
+    private WorkspaceBundle bundleFor(@Nullable String requestedCwd) {
+        Path canonical;
+        if (requestedCwd == null || requestedCwd.isBlank()) {
+            canonical = defaultWorkspaceDir;
+        } else {
+            canonical = Path.of(requestedCwd).toAbsolutePath().normalize();
         }
-        taskListListener = this::onContextChanged;
-        cm.addContextListener(taskListListener);
+        return bundlesByRoot.computeIfAbsent(canonical, this::createAndRegisterBundle);
     }
 
-    /** Removes the task-list listener. Idempotent. */
-    public void stop() {
-        var listener = taskListListener;
-        if (listener != null) {
-            cm.removeContextListener(listener);
-            taskListListener = null;
+    private WorkspaceBundle createAndRegisterBundle(Path root) {
+        logger.info("Creating workspace bundle for {}", root);
+        var bundle = bundleFactory.create(root);
+        if (listenerActive) {
+            attachListener(bundle);
         }
+        return bundle;
+    }
+
+    private void attachListener(WorkspaceBundle bundle) {
+        IAppContextManager.ContextListener listener = ctx -> onContextChanged(bundle, ctx);
+        listenersByRoot.put(bundle.root(), listener);
+        bundle.cm().addContextListener(listener);
+    }
+
+    /** Returns the bundle that owns {@code sessionId}, or throws if the session is unknown. */
+    private WorkspaceBundle bundleForSession(String sessionId) {
+        var bundle = bundleBySession.get(sessionId);
+        if (bundle == null) {
+            throw new IllegalArgumentException("Unknown session: " + sessionId);
+        }
+        return bundle;
+    }
+
+    /** Returns the bundle for {@code sessionId}, or empty if no session has registered yet. */
+    private Optional<WorkspaceBundle> tryBundleForSession(String sessionId) {
+        return Optional.ofNullable(bundleBySession.get(sessionId));
+    }
+
+    /** Registers a listener that emits {@code plan} session updates whenever the task list changes. */
+    public void start() {
+        if (listenerActive) {
+            return;
+        }
+        listenerActive = true;
+        for (var bundle : bundlesByRoot.values()) {
+            attachListener(bundle);
+        }
+    }
+
+    /** Removes the task-list listener from every bundle. Idempotent. */
+    public void stop() {
+        if (!listenerActive) {
+            return;
+        }
+        listenerActive = false;
+        for (var entry : listenersByRoot.entrySet()) {
+            var bundle = bundlesByRoot.get(entry.getKey());
+            if (bundle != null) {
+                bundle.cm().removeContextListener(entry.getValue());
+            }
+        }
+        listenersByRoot.clear();
     }
 
     /**
@@ -152,9 +252,36 @@ public class BrokkAcpAgent {
         rejectedMcpServersBySession.clear();
         lastTaskListBySession.clear();
         pendingPlanBySession.clear();
+        bundleBySession.clear();
     }
 
-    private void onContextChanged(Context newCtx) {
+    /**
+     * Closes every workspace bundle (cancels active jobs, closes the ContextManager). Called from
+     * {@link AcpServerMain}'s shutdown hook.
+     */
+    public void closeAllBundles() {
+        stop();
+        for (var bundle : bundlesByRoot.values()) {
+            try {
+                bundle.jobRunner().shutdown();
+            } catch (Exception e) {
+                logger.warn("Error shutting down JobRunner for {}", bundle.root(), e);
+            }
+            try {
+                bundle.cm().close();
+            } catch (Exception e) {
+                logger.warn("Error closing ContextManager for {}", bundle.root(), e);
+            }
+        }
+        bundlesByRoot.clear();
+    }
+
+    /** Snapshot of currently-loaded bundles, used by the runtime to advertise project state. */
+    public Set<Path> activeBundleRoots() {
+        return Set.copyOf(bundlesByRoot.keySet());
+    }
+
+    private void onContextChanged(WorkspaceBundle bundle, Context newCtx) {
         var sender = sessionUpdateSender;
         if (sender == null) {
             return;
@@ -162,7 +289,7 @@ public class BrokkAcpAgent {
         // Capture the current session id at listener-fire time. Note: ContextManager has no
         // session-of-origin on Context, so this is a best-effort attribution. The dedup against
         // lastTaskListBySession below makes mis-attribution self-healing on the next change.
-        var sessionId = cm.getCurrentSessionId().toString();
+        var sessionId = bundle.cm().getCurrentSessionId().toString();
         TaskList.TaskListData data;
         try {
             data = newCtx.getTaskListDataOrEmpty();
@@ -235,10 +362,12 @@ public class BrokkAcpAgent {
 
     public AcpSchema.NewSessionResponse newSession(AcpSchema.NewSessionRequest request) {
         logger.info("ACP new session, cwd={}", request.cwd());
+        var bundle = bundleFor(request.cwd());
 
-        // Create session in ContextManager and use its UUID as the ACP session ID
-        cm.createSessionAsync("ACP Session").join();
-        var sessionId = cm.getCurrentSessionId().toString();
+        // Create session in this bundle's ContextManager and use its UUID as the ACP session ID
+        bundle.cm().createSessionAsync("ACP Session").join();
+        var sessionId = bundle.cm().getCurrentSessionId().toString();
+        bundleBySession.put(sessionId, bundle);
 
         modeBySession.put(sessionId, "LUTZ");
         reasoningBySession.put(sessionId, defaultReasoningLevel);
@@ -254,16 +383,18 @@ public class BrokkAcpAgent {
     }
 
     public AcpSchema.LoadSessionResponse loadSession(AcpSchema.LoadSessionRequest request) {
-        logger.info("ACP load session {}", request.sessionId());
+        logger.info("ACP load session {} cwd={}", request.sessionId(), request.cwd());
         var sessionId = request.sessionId();
+        var bundle = bundleFor(request.cwd());
 
-        // Switch to the requested session, or fail if it doesn't exist
-        var sessions = cm.getProject().getSessionManager().listSessions();
+        // Switch to the requested session in this bundle's ContextManager, or fail if not present
+        var sessions = bundle.cm().getProject().getSessionManager().listSessions();
         var target = sessions.stream()
                 .filter(s -> s.id().toString().equals(sessionId))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unknown session: " + sessionId));
-        cm.switchSessionAsync(target.id()).join();
+        bundle.cm().switchSessionAsync(target.id()).join();
+        bundleBySession.put(sessionId, bundle);
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
         reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
@@ -281,9 +412,11 @@ public class BrokkAcpAgent {
     }
 
     public AcpProtocol.ResumeSessionResponse resumeSession(AcpProtocol.ResumeSessionRequest request) {
-        logger.info("ACP resume session {}", request.sessionId());
+        logger.info("ACP resume session {} cwd={}", request.sessionId(), request.cwd());
         var sessionId = request.sessionId();
-        switchToKnownSession(sessionId);
+        var bundle = bundleFor(request.cwd());
+        switchToKnownSession(bundle, sessionId);
+        bundleBySession.put(sessionId, bundle);
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
         reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
@@ -299,16 +432,20 @@ public class BrokkAcpAgent {
 
     public AcpProtocol.ListSessionsResponse listSessions(AcpProtocol.ListSessionsRequest request) {
         logger.info("ACP list sessions cwd={}", request.cwd());
-        var rootPath = cm.getProject().getRoot().toAbsolutePath().normalize();
-        var root = rootPath.toString();
-        if (request.cwd() != null
-                && !request.cwd().isBlank()
-                && !Path.of(request.cwd()).toAbsolutePath().normalize().equals(rootPath)) {
+        // Listing is read-only: return empty when no bundle has been materialized for this cwd
+        // yet (rather than auto-creating one — a client probing a path shouldn't trigger project
+        // initialization).
+        Path canonical = (request.cwd() == null || request.cwd().isBlank())
+                ? defaultWorkspaceDir
+                : Path.of(request.cwd()).toAbsolutePath().normalize();
+        var bundle = bundlesByRoot.get(canonical);
+        if (bundle == null) {
             return new AcpProtocol.ListSessionsResponse(List.of(), null, null);
         }
-        var sessions = cm.getProject().getSessionManager().listSessions().stream()
+        var rootStr = bundle.root().toString();
+        var sessions = bundle.cm().getProject().getSessionManager().listSessions().stream()
                 .map(session -> {
-                    var stats = cm.getProject().getSessionManager().countSessionStats(session.id());
+                    var stats = bundle.cm().getProject().getSessionManager().countSessionStats(session.id());
                     var meta = Map.<String, Object>of(
                             "brokk",
                             Map.of(
@@ -317,7 +454,7 @@ public class BrokkAcpAgent {
                                     "incompleteTasks", stats.tasks().incomplete()));
                     return new AcpProtocol.SessionInfo(
                             session.id().toString(),
-                            root,
+                            rootStr,
                             session.name(),
                             Instant.ofEpochMilli(session.modified()).toString(),
                             meta);
@@ -329,9 +466,10 @@ public class BrokkAcpAgent {
     public AcpProtocol.CloseSessionResponse closeSession(AcpProtocol.CloseSessionRequest request) {
         var sessionId = request.sessionId();
         logger.info("ACP close session {}", sessionId);
+        var bundle = tryBundleForSession(sessionId);
         var jobId = activeJobBySession.remove(sessionId);
         if (jobId != null) {
-            jobRunner.cancel(jobId);
+            bundle.ifPresent(b -> b.jobRunner().cancel(jobId));
         }
         modeBySession.remove(sessionId);
         modelBySession.remove(sessionId);
@@ -341,18 +479,27 @@ public class BrokkAcpAgent {
         rejectedMcpServersBySession.remove(sessionId);
         lastTaskListBySession.remove(sessionId);
         pendingPlanBySession.remove(sessionId);
+        bundleBySession.remove(sessionId);
         return new AcpProtocol.CloseSessionResponse(null);
     }
 
     public AcpProtocol.ForkSessionResponse forkSession(AcpProtocol.ForkSessionRequest request) {
-        logger.info("ACP fork session {}", request.sessionId());
-        assertCompatibleCwd(request.cwd());
+        logger.info("ACP fork session {} cwd={}", request.sessionId(), request.cwd());
+        var bundle = bundleFor(request.cwd());
+        // Forks must originate from a session in the same bundle as the requested cwd.
+        var existingBundle = bundleBySession.get(request.sessionId());
+        if (existingBundle != null && !existingBundle.root().equals(bundle.root())) {
+            throw new IllegalArgumentException("Cannot fork session " + request.sessionId()
+                    + " across workspace roots: " + existingBundle.root() + " vs " + bundle.root());
+        }
 
-        var target = findSession(request.sessionId());
+        var target = findSession(bundle, request.sessionId());
         try {
-            var copied = cm.getProject().getSessionManager().copySession(target.id(), "Fork of " + target.name());
+            var copied =
+                    bundle.cm().getProject().getSessionManager().copySession(target.id(), "Fork of " + target.name());
             var forkSessionId = copied.id().toString();
-            cm.switchSessionAsync(copied.id()).join();
+            bundle.cm().switchSessionAsync(copied.id()).join();
+            bundleBySession.put(forkSessionId, bundle);
 
             modeBySession.put(forkSessionId, modeBySession.getOrDefault(request.sessionId(), "LUTZ"));
             var model = modelBySession.get(request.sessionId());
@@ -396,14 +543,21 @@ public class BrokkAcpAgent {
             return AcpSchema.PromptResponse.endTurn();
         }
 
+        var bundleOpt = tryBundleForSession(sessionId);
+        if (bundleOpt.isEmpty()) {
+            promptContext.sendMessage("Error: unknown session " + sessionId);
+            return AcpSchema.PromptResponse.endTurn();
+        }
+        var bundle = bundleOpt.get();
+
         // Handle slash commands
         if (text.strip().toLowerCase(Locale.ROOT).startsWith("/context")) {
-            handleContextCommand(sessionId, promptContext);
+            handleContextCommand(bundle, promptContext);
             return AcpSchema.PromptResponse.endTurn();
         }
 
         // Switch to the requested session so the job executes against the correct state
-        var sessions = cm.getProject().getSessionManager().listSessions();
+        var sessions = bundle.cm().getProject().getSessionManager().listSessions();
         var target = sessions.stream()
                 .filter(s -> s.id().toString().equals(sessionId))
                 .findFirst();
@@ -411,7 +565,7 @@ public class BrokkAcpAgent {
             promptContext.sendMessage("Error: unknown session " + sessionId);
             return AcpSchema.PromptResponse.endTurn();
         }
-        cm.switchSessionAsync(target.get().id()).join();
+        bundle.cm().switchSessionAsync(target.get().id()).join();
 
         // Build JobSpec with reasoning levels from session state
         var mode = modeBySession.getOrDefault(sessionId, "LUTZ");
@@ -421,7 +575,7 @@ public class BrokkAcpAgent {
         tags.put("mode", mode);
 
         // Fall back to planner model if default code model is not available
-        var availableModels = cm.getService().getAvailableModels();
+        var availableModels = bundle.cm().getService().getAvailableModels();
         var codeModel = availableModels.containsKey(DEFAULT_CODE_MODEL) ? DEFAULT_CODE_MODEL : model;
 
         var spec = new JobSpec(
@@ -450,10 +604,10 @@ public class BrokkAcpAgent {
         try (var mcpScope = installMcpScope(sessionId);
                 var fsScope = AcpFileBridge.install(promptContext, promptContext.getClientCapabilities())) {
             // Create job in store
-            jobStore.createOrGetJob(jobId, spec);
+            bundle.jobStore().createOrGetJob(jobId, spec);
 
             // Run using the ACP console -- JobRunner handles cm.setIo swap internally
-            jobRunner.runAsync(jobId, spec, acpConsole).join();
+            bundle.jobRunner().runAsync(jobId, spec, acpConsole).join();
         } catch (Exception e) {
             logger.error("Job execution failed", e);
             promptContext.sendMessage("\n**Error:** " + e.getMessage() + "\n");
@@ -634,36 +788,32 @@ public class BrokkAcpAgent {
         var sessionId = notification.sessionId();
         logger.info("ACP cancel session={}", sessionId);
         var jobId = activeJobBySession.get(sessionId);
-        if (jobId != null) {
-            jobRunner.cancel(jobId);
-        } else {
+        if (jobId == null) {
             logger.info("ACP cancel: no active job for session {}", sessionId);
+            return;
         }
+        tryBundleForSession(sessionId)
+                .ifPresentOrElse(
+                        b -> b.jobRunner().cancel(jobId),
+                        () -> logger.warn("ACP cancel: no bundle for session {}", sessionId));
     }
 
-    private void switchToKnownSession(String sessionId) {
-        var target = findSession(sessionId);
-        cm.switchSessionAsync(target.id()).join();
+    private void switchToKnownSession(WorkspaceBundle bundle, String sessionId) {
+        var target = findSession(bundle, sessionId);
+        bundle.cm().switchSessionAsync(target.id()).join();
     }
 
-    private SessionInfo findSession(String sessionId) {
-        return cm.getProject().getSessionManager().listSessions().stream()
+    private SessionInfo findSession(WorkspaceBundle bundle, String sessionId) {
+        return bundle.cm().getProject().getSessionManager().listSessions().stream()
                 .filter(s -> s.id().toString().equals(sessionId))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unknown session: " + sessionId));
     }
 
-    private void assertCompatibleCwd(String cwd) {
-        var rootPath = cm.getProject().getRoot().toAbsolutePath().normalize();
-        if (!Path.of(cwd).toAbsolutePath().normalize().equals(rootPath)) {
-            throw new IllegalArgumentException("Session cwd does not match project root: " + cwd);
-        }
-    }
-
     // ---- Model state with reasoning variants ----
 
     private AcpSchema.SessionModelState buildModelState(String sessionId) {
-        var service = cm.getService();
+        var service = bundleForSession(sessionId).cm().getService();
         var availableModels = service.getAvailableModels();
 
         // Build model list with reasoning variants (model/low, model/medium, model/high, etc.)
@@ -698,7 +848,7 @@ public class BrokkAcpAgent {
     private Map<String, Object> buildVariantMeta(String sessionId) {
         var baseModel = modelBySession.getOrDefault(sessionId, defaultModelId);
         var reasoning = reasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL);
-        var variants = modelVariantsFor(baseModel);
+        var variants = modelVariantsFor(sessionId, baseModel);
         var brokk = new HashMap<String, Object>();
         brokk.put("modelId", baseModel);
         brokk.put("variant", reasoning);
@@ -713,8 +863,8 @@ public class BrokkAcpAgent {
         return Map.of("brokk", Map.copyOf(brokk));
     }
 
-    private List<String> modelVariantsFor(String modelName) {
-        var service = cm.getService();
+    private List<String> modelVariantsFor(String sessionId, String modelName) {
+        var service = bundleForSession(sessionId).cm().getService();
         if (!service.supportsReasoningEffort(modelName)) {
             return List.of();
         }
@@ -764,9 +914,16 @@ public class BrokkAcpAgent {
             return;
         }
 
+        var bundleOpt = tryBundleForSession(sessionId);
+        if (bundleOpt.isEmpty()) {
+            logger.debug("No bundle for session {}, skipping conversation replay", sessionId);
+            return;
+        }
+        var bundle = bundleOpt.get();
+
         Thread.startVirtualThread(() -> {
             try {
-                var taskHistory = cm.liveContext().getTaskHistory();
+                var taskHistory = bundle.cm().liveContext().getTaskHistory();
                 for (var task : taskHistory) {
                     // Send user prompt as UserMessageChunk
                     var description = task.description();
@@ -796,9 +953,9 @@ public class BrokkAcpAgent {
 
     // ---- Slash commands ----
 
-    private void handleContextCommand(String sessionId, AcpPromptContext promptContext) {
-        logger.info("ACP /context command for session {}", sessionId);
-        var live = cm.liveContext();
+    private void handleContextCommand(WorkspaceBundle bundle, AcpPromptContext promptContext) {
+        logger.info("ACP /context command for bundle {}", bundle.root());
+        var live = bundle.cm().liveContext();
         var fragments = live.getAllFragmentsInDisplayOrder();
 
         record FragmentRow(String name, int tokens, double pct) {}
