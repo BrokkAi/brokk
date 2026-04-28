@@ -190,7 +190,8 @@ class BrokkAcpAgentTest {
             fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
                 captured.set(fixture.transport.mapper.convertValue(
                         params, new TypeRef<AcpSchema.RequestPermissionRequest>() {}));
-                return new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionSelected("selected", "allow_once"));
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_once"));
             });
 
             assertTrue(fixture.context.askPermission("Allow X?", "myTool"));
@@ -220,7 +221,8 @@ class BrokkAcpAgentTest {
             var calls = new java.util.concurrent.atomic.AtomicInteger();
             fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
                 calls.incrementAndGet();
-                return new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionSelected("selected", "allow_always"));
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_always"));
             });
 
             assertTrue(fixture.context.askPermission("Allow X?", "myTool"));
@@ -236,7 +238,8 @@ class BrokkAcpAgentTest {
             var calls = new java.util.concurrent.atomic.AtomicInteger();
             fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
                 calls.incrementAndGet();
-                return new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionSelected("selected", "reject_always"));
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "reject_always"));
             });
 
             assertFalse(fixture.context.askPermission("Allow X?", "myTool"));
@@ -254,7 +257,8 @@ class BrokkAcpAgentTest {
             var calls = new java.util.concurrent.atomic.AtomicInteger();
             fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
                 calls.incrementAndGet();
-                return new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionSelected("selected", "reject_once"));
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "reject_once"));
             });
 
             // session-B has no sticky verdict, so it must prompt.
@@ -300,7 +304,8 @@ class BrokkAcpAgentTest {
             var calls = new java.util.concurrent.atomic.AtomicInteger();
             fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
                 calls.incrementAndGet();
-                return new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionSelected("selected", "allow_once"));
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_once"));
             });
 
             assertTrue(fixture.context.askPermission("Confirm overwrite?"));
@@ -312,8 +317,7 @@ class BrokkAcpAgentTest {
     /** Spins up a transport + session + AcpRequestContext for permission tests. */
     private final class PermissionFixture implements AutoCloseable {
         final FakeTransport transport = new FakeTransport();
-        final AcpAgentSession session =
-                new AcpAgentSession(Duration.ofSeconds(10), transport, Map.of(), Map.of());
+        final AcpAgentSession session = new AcpAgentSession(Duration.ofSeconds(10), transport, Map.of(), Map.of());
         final String sessionId = "session-A";
         final AcpRequestContext context = new AcpRequestContext(session, sessionId, null, agent);
 
@@ -350,7 +354,9 @@ class BrokkAcpAgentTest {
             assertNotNull(first, "expected a plan update for the initial task list");
             assertEquals(1, first.entries().size());
             assertEquals("Investigate the bug", first.entries().getFirst().content());
-            assertEquals(AcpSchema.PlanEntryStatus.PENDING, first.entries().getFirst().status());
+            assertEquals(
+                    AcpSchema.PlanEntryStatus.PENDING,
+                    first.entries().getFirst().status());
 
             contextManager.setTaskListAsync(new ai.brokk.tasks.TaskList.TaskListData(
                     null,
@@ -358,7 +364,9 @@ class BrokkAcpAgentTest {
 
             var second = plans.poll(5, java.util.concurrent.TimeUnit.SECONDS);
             assertNotNull(second, "expected a follow-up plan update after marking task done");
-            assertEquals(AcpSchema.PlanEntryStatus.COMPLETED, second.entries().getFirst().status());
+            assertEquals(
+                    AcpSchema.PlanEntryStatus.COMPLETED,
+                    second.entries().getFirst().status());
         } finally {
             agent.stop();
         }
@@ -372,14 +380,14 @@ class BrokkAcpAgentTest {
 
         try (var fixture = new PermissionFixture()) {
             fixture.transport.respondTo(AcpSchema.METHOD_FS_READ_TEXT_FILE, params -> {
-                var req = fixture.transport.mapper.convertValue(
-                        params, new TypeRef<AcpSchema.ReadTextFileRequest>() {});
+                var req =
+                        fixture.transport.mapper.convertValue(params, new TypeRef<AcpSchema.ReadTextFileRequest>() {});
                 assertEquals(diskFile.toAbsolutePath().toString(), req.path());
                 return new AcpSchema.ReadTextFileResponse("EDITOR-BUFFER");
             });
 
-            var clientCaps = NegotiatedCapabilities.fromClient(new AcpSchema.ClientCapabilities(
-                    new AcpSchema.FileSystemCapability(true, true), false));
+            var clientCaps = NegotiatedCapabilities.fromClient(
+                    new AcpSchema.ClientCapabilities(new AcpSchema.FileSystemCapability(true, true), false));
             try (var ignored = AcpFileBridge.install(fixture.contextWithCaps(clientCaps), clientCaps)) {
                 var read = ProjectFiles.read(pf);
                 assertEquals("EDITOR-BUFFER", read.orElse(null));
@@ -399,8 +407,8 @@ class BrokkAcpAgentTest {
                 return new AcpSchema.WriteTextFileResponse();
             });
 
-            var clientCaps = NegotiatedCapabilities.fromClient(new AcpSchema.ClientCapabilities(
-                    new AcpSchema.FileSystemCapability(true, true), false));
+            var clientCaps = NegotiatedCapabilities.fromClient(
+                    new AcpSchema.ClientCapabilities(new AcpSchema.FileSystemCapability(true, true), false));
             try (var ignored = AcpFileBridge.install(fixture.contextWithCaps(clientCaps), clientCaps)) {
                 ProjectFiles.write(pf, "NEW-CONTENT");
             }
@@ -455,8 +463,8 @@ class BrokkAcpAgentTest {
                 "http://127.0.0.1:1/mcp",
                 List.of(new AcpSchema.HttpHeader("Authorization", "Bearer abc123")));
 
-        var created =
-                agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.<AcpSchema.McpServer>of(http)));
+        var created = agent.newSession(
+                new AcpSchema.NewSessionRequest(projectRoot.toString(), List.<AcpSchema.McpServer>of(http)));
 
         var registered = agent.mcpServersFor(created.sessionId());
         assertEquals(1, registered.size());
@@ -487,8 +495,8 @@ class BrokkAcpAgentTest {
     @Test
     void closeSessionClearsMcpServers() {
         var http = new AcpSchema.McpServerHttp("test-http", "http://127.0.0.1:1/mcp", List.of());
-        var created =
-                agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.<AcpSchema.McpServer>of(http)));
+        var created = agent.newSession(
+                new AcpSchema.NewSessionRequest(projectRoot.toString(), List.<AcpSchema.McpServer>of(http)));
         assertEquals(1, agent.mcpServersFor(created.sessionId()).size());
 
         agent.closeSession(new AcpProtocol.CloseSessionRequest(created.sessionId(), null));

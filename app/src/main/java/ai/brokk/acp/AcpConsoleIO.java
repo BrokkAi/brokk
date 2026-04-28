@@ -354,8 +354,8 @@ public class AcpConsoleIO extends MemoryConsole {
         if (text.length() <= MAX_DIFF_BLOB_BYTES) {
             return text;
         }
-        return text.substring(0, MAX_DIFF_BLOB_BYTES)
-                + "\n... [truncated " + (text.length() - MAX_DIFF_BLOB_BYTES) + " bytes]";
+        return text.substring(0, MAX_DIFF_BLOB_BYTES) + "\n... [truncated " + (text.length() - MAX_DIFF_BLOB_BYTES)
+                + " bytes]";
     }
 
     private static AcpSchema.ToolKind classifyTool(String toolName, boolean destructive) {

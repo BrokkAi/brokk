@@ -181,8 +181,8 @@ public final class BlitzForge {
                 var future = completionService.submit(new TokenAwareCallable() {
                     @Override
                     public int tokens() {
-                        int fileTokens =
-                                Messages.getApproximateTokens(ProjectFiles.read(file).orElse(""));
+                        int fileTokens = Messages.getApproximateTokens(
+                                ProjectFiles.read(file).orElse(""));
                         int sharedTokens = 0;
                         int perFileCtxTokens = 0;
                         try {

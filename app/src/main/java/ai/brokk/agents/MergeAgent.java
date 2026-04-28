@@ -636,8 +636,9 @@ public class MergeAgent {
         var outcome = mof.merge();
         logger.debug("MergeOneFile for {} completed with status: {}", file.getRelPath(), outcome.status());
 
-        boolean edited =
-                ProjectFiles.read(file).map(current -> !current.equals(ac.contents())).orElse(false);
+        boolean edited = ProjectFiles.read(file)
+                .map(current -> !current.equals(ac.contents()))
+                .orElse(false);
         logger.debug("File {} was edited during merge: {}", file.getRelPath(), edited);
 
         if (outcome.status() == MergeOneFile.Status.UNRESOLVED) {

@@ -78,11 +78,10 @@ class AcpConsoleIOTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("expected a tool_call_update with a diff content block"));
 
-        var diff = (AcpSchema.ToolCallDiff)
-                diffUpdate.content().stream()
-                        .filter(AcpSchema.ToolCallDiff.class::isInstance)
-                        .findFirst()
-                        .orElseThrow();
+        var diff = (AcpSchema.ToolCallDiff) diffUpdate.content().stream()
+                .filter(AcpSchema.ToolCallDiff.class::isInstance)
+                .findFirst()
+                .orElseThrow();
         assertEquals(pf.absPath().toString(), diff.path());
         assertEquals("before\n", diff.oldText());
         assertEquals("after\n", diff.newText());

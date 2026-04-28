@@ -20,7 +20,6 @@ import com.agentclientprotocol.sdk.spec.AcpSchema;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -29,7 +28,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -74,8 +72,8 @@ public class BrokkAcpAgent {
     private final Map<String, List<McpServer>> mcpServersBySession = new ConcurrentHashMap<>();
     private static final InheritableThreadLocal<List<McpServer>> SESSION_MCP_SCOPE = new InheritableThreadLocal<>();
     private final Map<String, TaskList.TaskListData> lastTaskListBySession = new ConcurrentHashMap<>();
-    private final Map<String, java.util.concurrent.atomic.AtomicReference<TaskList.TaskListData>>
-            pendingPlanBySession = new ConcurrentHashMap<>();
+    private final Map<String, java.util.concurrent.atomic.AtomicReference<TaskList.TaskListData>> pendingPlanBySession =
+            new ConcurrentHashMap<>();
     private final Map<String, List<String>> rejectedMcpServersBySession = new ConcurrentHashMap<>();
     private volatile @Nullable IAppContextManager.ContextListener taskListListener;
 
@@ -85,9 +83,8 @@ public class BrokkAcpAgent {
      * default to disallowing it. Operators who trust their ACP client may opt in via the
      * {@code BROKK_ACP_ALLOW_STDIO_MCP} environment variable.
      */
-    private static final boolean ALLOW_ACP_STDIO_MCP =
-            "1".equals(System.getenv("BROKK_ACP_ALLOW_STDIO_MCP"))
-                    || "true".equalsIgnoreCase(System.getenv("BROKK_ACP_ALLOW_STDIO_MCP"));
+    private static final boolean ALLOW_ACP_STDIO_MCP = "1".equals(System.getenv("BROKK_ACP_ALLOW_STDIO_MCP"))
+            || "true".equalsIgnoreCase(System.getenv("BROKK_ACP_ALLOW_STDIO_MCP"));
 
     public enum PermissionVerdict {
         ALLOW,
