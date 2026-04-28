@@ -9,6 +9,7 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.acp.BrokkAcpAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.LoggingFuture;
@@ -245,7 +246,7 @@ public class LutzAgent {
                 }
             }
         }
-        for (var server : ai.brokk.acp.BrokkAcpAgent.currentSessionMcpServers()) {
+        for (var server : BrokkAcpAgent.currentSessionMcpServers()) {
             if (server.tools() != null) {
                 for (var toolName : server.tools()) {
                     tools.add(new McpPrompts.McpTool(server, toolName));

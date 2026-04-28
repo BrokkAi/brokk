@@ -5,8 +5,6 @@ import com.agentclientprotocol.sdk.agent.SyncPromptContext;
 import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
 import java.io.IOException;
 import java.util.Optional;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -20,7 +18,6 @@ import org.jetbrains.annotations.Nullable;
  * spawned inside {@code BrokkAcpAgent.prompt} sees the same client capability scope.
  */
 public final class AcpFileBridge {
-    private static final Logger logger = LogManager.getLogger(AcpFileBridge.class);
     private static final InheritableThreadLocal<AcpFileBridge> CURRENT = new InheritableThreadLocal<>();
 
     private final SyncPromptContext ctx;

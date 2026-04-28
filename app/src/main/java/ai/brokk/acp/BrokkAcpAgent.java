@@ -32,6 +32,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -72,8 +74,7 @@ public class BrokkAcpAgent {
     private final Map<String, List<McpServer>> mcpServersBySession = new ConcurrentHashMap<>();
     private static final InheritableThreadLocal<List<McpServer>> SESSION_MCP_SCOPE = new InheritableThreadLocal<>();
     private final Map<String, TaskList.TaskListData> lastTaskListBySession = new ConcurrentHashMap<>();
-    private final Map<String, java.util.concurrent.atomic.AtomicReference<TaskList.TaskListData>> pendingPlanBySession =
-            new ConcurrentHashMap<>();
+    private final Map<String, AtomicReference<TaskList.TaskListData>> pendingPlanBySession = new ConcurrentHashMap<>();
     private final Map<String, List<String>> rejectedMcpServersBySession = new ConcurrentHashMap<>();
     private volatile @Nullable IAppContextManager.ContextListener taskListListener;
 
@@ -175,8 +176,7 @@ public class BrokkAcpAgent {
         // Single-flight per-session: coalesce concurrent updates so the client always sees the
         // newest plan, never an older one delivered after a newer one (out-of-order virtual threads
         // were a real risk under churn).
-        var pending = pendingPlanBySession.computeIfAbsent(
-                sessionId, k -> new java.util.concurrent.atomic.AtomicReference<>());
+        var pending = pendingPlanBySession.computeIfAbsent(sessionId, k -> new AtomicReference<>());
         var displaced = pending.getAndSet(data);
         if (displaced != null) {
             // A flush is already running; it will pick up our value before sending.
@@ -186,9 +186,7 @@ public class BrokkAcpAgent {
     }
 
     private void drainPendingPlan(
-            String sessionId,
-            SessionUpdateSender sender,
-            java.util.concurrent.atomic.AtomicReference<TaskList.TaskListData> pending) {
+            String sessionId, SessionUpdateSender sender, AtomicReference<TaskList.TaskListData> pending) {
         TaskList.TaskListData latest;
         while ((latest = pending.getAndSet(null)) != null) {
             try {
@@ -596,8 +594,7 @@ public class BrokkAcpAgent {
                 Map<String, String> env = stdio.env() == null
                         ? Map.of()
                         : stdio.env().stream()
-                                .collect(java.util.stream.Collectors.toMap(
-                                        AcpSchema.EnvVariable::name, AcpSchema.EnvVariable::value));
+                                .collect(Collectors.toMap(AcpSchema.EnvVariable::name, AcpSchema.EnvVariable::value));
                 return McpUtils.withDiscoveredTools(
                         new StdioMcpServer(stdio.name(), stdio.command(), List.copyOf(stdio.args()), env, null));
             } catch (Exception e) {

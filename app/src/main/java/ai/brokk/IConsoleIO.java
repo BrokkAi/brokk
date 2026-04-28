@@ -1,6 +1,7 @@
 package ai.brokk;
 
 import ai.brokk.agents.BlitzForge;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.tools.ApprovalResult;
@@ -10,6 +11,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.util.List;
+import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
 public interface IConsoleIO {
@@ -245,9 +247,7 @@ public interface IConsoleIO {
      * its content before and after the edit; only keys for files that successfully changed are present.
      * Default implementation is a no-op.
      */
-    default void afterFileEdits(
-            java.util.Map<ai.brokk.analyzer.ProjectFile, String> originalContents,
-            java.util.Map<ai.brokk.analyzer.ProjectFile, String> newContents) {
+    default void afterFileEdits(Map<ProjectFile, String> originalContents, Map<ProjectFile, String> newContents) {
         // no-op
     }
 

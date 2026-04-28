@@ -10,6 +10,8 @@ import com.agentclientprotocol.sdk.spec.AcpSchema;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -44,8 +46,7 @@ public class AcpConsoleIO extends MemoryConsole {
      * Using a stack (rather than a single ref) supports nested EDIT tools — e.g. an architect tool
      * that calls a code agent tool — without overwriting the outer tool's id.
      */
-    private static final ThreadLocal<java.util.Deque<ActiveEdit>> ACTIVE_EDIT_STACK =
-            ThreadLocal.withInitial(java.util.ArrayDeque::new);
+    private static final ThreadLocal<Deque<ActiveEdit>> ACTIVE_EDIT_STACK = ThreadLocal.withInitial(ArrayDeque::new);
 
     public AcpConsoleIO(AcpPromptContext context) {
         this.context = context;
@@ -192,15 +193,13 @@ public class AcpConsoleIO extends MemoryConsole {
         var toolId = result.toolId();
         var kind = pendingToolKinds.getOrDefault(toolId, AcpSchema.ToolKind.OTHER);
         pendingToolKinds.remove(toolId);
-        if (toolId != null) {
-            var stack = ACTIVE_EDIT_STACK.get();
-            // Pop the matching entry from the top of the per-thread edit stack. We use removeIf
-            // (single match) because nesting may not be perfectly LIFO if an exception unwound
-            // partially without afterToolOutput firing.
-            stack.removeIf(e -> toolId.equals(e.toolCallId()));
-            if (stack.isEmpty()) {
-                ACTIVE_EDIT_STACK.remove();
-            }
+        var stack = ACTIVE_EDIT_STACK.get();
+        // Pop the matching entry from the top of the per-thread edit stack. We use removeIf
+        // (single match) because nesting may not be perfectly LIFO if an exception unwound
+        // partially without afterToolOutput firing.
+        stack.removeIf(e -> toolId.equals(e.toolCallId()));
+        if (stack.isEmpty()) {
+            ACTIVE_EDIT_STACK.remove();
         }
 
         // Build content blocks with the result text
