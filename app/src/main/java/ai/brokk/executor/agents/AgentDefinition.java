@@ -49,6 +49,7 @@ public record AgentDefinition(
             "xmlSelect",
             "jq",
             "computeCyclomaticComplexity",
+            "computeCognitiveComplexity",
             "reportCommentDensityForCodeUnit",
             "reportCommentDensityForFiles",
             "reportExceptionHandlingSmells",
@@ -84,6 +85,7 @@ public record AgentDefinition(
             "xmlSelect",
             "jq",
             "computeCyclomaticComplexity",
+            "computeCognitiveComplexity",
             "reportCommentDensityForCodeUnit",
             "reportCommentDensityForFiles",
             "reportExceptionHandlingSmells",
@@ -135,6 +137,7 @@ public record AgentDefinition(
             "importDependency",
             // CodeQualityTools
             "computeCyclomaticComplexity",
+            "computeCognitiveComplexity",
             "reportCommentDensityForCodeUnit",
             "reportCommentDensityForFiles",
             "reportExceptionHandlingSmells",

@@ -846,6 +846,33 @@ public interface IAnalyzer {
     }
 
     /**
+     * Computes the heuristic cognitive complexity for the given code unit.
+     *
+     * <p>Cognitive complexity starts at zero and grows with control-flow breaks and nested control flow. Language
+     * analyzers should override this when they can use syntax trees; the default is unsupported.
+     */
+    default int computeCognitiveComplexity(CodeUnit cu) {
+        return 0;
+    }
+
+    /**
+     * Computes cognitive complexity for all functions in the given file. Implementations may override this to share
+     * parse state across all functions in the file.
+     */
+    default Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        var complexities = new LinkedHashMap<CodeUnit, Integer>();
+        var work = new ArrayDeque<>(getTopLevelDeclarations(file));
+        while (!work.isEmpty()) {
+            CodeUnit cu = work.pop();
+            if (cu.isFunction()) {
+                complexities.put(cu, computeCognitiveComplexity(cu));
+            }
+            work.addAll(getDirectChildren(cu));
+        }
+        return complexities;
+    }
+
+    /**
      * Comment density for a single declaration. Language-specific analyzers may override; default is unsupported.
      */
     default Optional<CommentDensityStats> commentDensity(CodeUnit cu) {

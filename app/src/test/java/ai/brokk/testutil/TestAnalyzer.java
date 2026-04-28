@@ -23,6 +23,7 @@ public class TestAnalyzer
     private final Map<String, List<CodeUnit>> methodsMap;
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
     private final Map<CodeUnit, Integer> complexityMap = new HashMap<>();
+    private final Map<CodeUnit, Integer> cognitiveComplexityMap = new HashMap<>();
     private final Map<CodeUnit, List<String>> displaySignatures = new HashMap<>();
     private final Map<CodeUnit, String> skeletons = new HashMap<>();
     private final Map<CodeUnit, String> sources = new HashMap<>();
@@ -267,6 +268,20 @@ public class TestAnalyzer
 
     public void setComplexity(CodeUnit cu, int complexity) {
         this.complexityMap.put(cu, complexity);
+    }
+
+    @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return cognitiveComplexityMap.getOrDefault(cu, IAnalyzer.super.computeCognitiveComplexity(cu));
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return IAnalyzer.super.computeCognitiveComplexities(file);
+    }
+
+    public void setCognitiveComplexity(CodeUnit cu, int complexity) {
+        this.cognitiveComplexityMap.put(cu, complexity);
     }
 
     @Override

@@ -5,6 +5,7 @@ import static org.treesitter.JavaNodeType.*;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.java.CognitiveComplexityAnalysis;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import ai.brokk.project.ICoreProject;
 import java.util.*;
@@ -1612,6 +1613,46 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                         fallbackComplexity),
                 fallbackComplexity);
         return result != null ? result : fallbackComplexity;
+    }
+
+    @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        if (!cu.isFunction()) return 0;
+        return computeCognitiveComplexities(cu.source()).getOrDefault(cu, 0);
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        Map<CodeUnit, Integer> result = withTreeOf(
+                file,
+                tree -> withSource(
+                        file,
+                        content -> {
+                            var complexities = new LinkedHashMap<CodeUnit, Integer>();
+                            for (CodeUnit cu : functionCodeUnitsInFile(file)) {
+                                TSNode cuNode = primaryNodeForCodeUnit(tree, cu);
+                                if (cuNode != null) {
+                                    complexities.put(cu, CognitiveComplexityAnalysis.compute(cuNode, content));
+                                }
+                            }
+                            return complexities;
+                        },
+                        Map.of()),
+                Map.of());
+        return result != null ? result : Map.of();
+    }
+
+    private List<CodeUnit> functionCodeUnitsInFile(ProjectFile file) {
+        var functions = new ArrayList<CodeUnit>();
+        var work = new ArrayDeque<>(getTopLevelDeclarations(file));
+        while (!work.isEmpty()) {
+            CodeUnit cu = work.pop();
+            if (cu.isFunction()) {
+                functions.add(cu);
+            }
+            work.addAll(getDirectChildren(cu));
+        }
+        return functions;
     }
 
     @Override

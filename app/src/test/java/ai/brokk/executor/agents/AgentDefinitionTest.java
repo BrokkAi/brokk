@@ -115,6 +115,7 @@ class AgentDefinitionTest {
                 List.of(
                         "getFileContents",
                         "computeCyclomaticComplexity",
+                        "computeCognitiveComplexity",
                         "reportExceptionHandlingSmells",
                         "reportStructuralCloneSmells",
                         "reportSecretLikeCode",

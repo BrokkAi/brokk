@@ -8,6 +8,7 @@
      private static final Pattern WILDCARD_IMPORT_PATTERN = Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
      ```
 1. **CST and TSNode over string splicing**: Prefer traversing the concrete syntax tree with `TSNode` (child relationships, `getChildByFieldName`, `getNamedChild`, `getPrevSibling` / `getNextSibling` when appropriate, and helpers like `collectNodesByType`) instead of parsing or classifying code by stitching, normalizing, or scanning raw source text. Reserve `SourceContent.substringFrom(TSNode)` for **leaf** or token-shaped nodes (identifiers, literals, small spans) where the grammar does not expose a finer structure, not as a substitute for structural analysis of expressions or statements.
+1. **Shared Tree-sitter helpers**: Use `ASTTraversalUtils.typeOf`, `ASTTraversalUtils.isValid`, and `ASTTraversalUtils.sameRange` when code needs to handle Java `null` nodes or Tree-sitter null-node wrappers. Do not add one-off local `getType()` try/catch wrappers or byte-range comparison helpers in language analyzers.
 
 ### 2. Tree-sitter Query Predicates
 1. **Predicates supported**: Our Tree-sitter Java binding supports query predicates such as `#eq?`, `#any-of?`, `#match?`, and `#is?`.
@@ -27,6 +28,7 @@
 ### 5. Expanding Analyzer Capabilities
 1. **Default Implementations**: When adding a new `IAnalyzer` API or capability, add it with a default implementation so that the project compiles.
 1. **Incremental Implementation**: Plan tasks to handle each subclass one at a time. Bringing all subclasses into the context at once will fill up the context and result in either exceeding model context or general context confusion.
+1. **Static Language Helpers**: Keep analyzer subclasses focused on project/analyzer orchestration: snapshot access, `CodeUnit` lookup, `ProjectFile` routing, tree parsing, and capability wiring. Move substantial language-specific analysis logic into static helper classes under that language's package, for example `ai.brokk.analyzer.java.CognitiveComplexityAnalysis` or `ai.brokk.analyzer.python.CognitiveComplexityAnalysis`. Prefer helpers that depend on `TSNode`, `SourceContent`, and language constants rather than analyzer instance state.
 
 ### 6. Tree-sitter Query Architecture
 1. **Multi-Query Structure**: Monolithic `.scm` files (e.g., `treesitter/java.scm`) are being deprecated in favor of a directory-based multi-query structure:
