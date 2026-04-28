@@ -34,7 +34,13 @@ from brokk_code.mcp_config import (
     install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
-from brokk_code.mcp_launcher import run_mcp_core_server, run_mcp_server
+from brokk_code.mcp_launcher import (
+    run_acp_server as run_native_acp_server,
+)
+from brokk_code.mcp_launcher import (
+    run_mcp_core_server,
+    run_mcp_server,
+)
 from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
 from brokk_code.nvim_init_patch import wire_nvim_plugin_setup
 from brokk_code.settings import (
@@ -889,20 +895,22 @@ def _build_parser() -> argparse.ArgumentParser:
     sessions_parser = subparsers.add_parser("sessions", help="List and switch between sessions")
     _add_common_runtime_args(sessions_parser)
 
-    acp_parser = subparsers.add_parser("acp", help="Run in ACP server mode")
+    acp_parser = subparsers.add_parser(
+        "acp", help="Run in ACP server mode (native Java agent over stdio JSON-RPC)"
+    )
     _add_common_runtime_args(acp_parser)
     acp_parser.add_argument(
         "--ide",
         choices=["intellij", "zed"],
         default=None,
         help=(
-            "[Deprecated] Legacy IDE hint (no-op). "
-            "ACP behavior is now derived from client capabilities and client_info."
+            "[Deprecated] Legacy IDE hint (silently ignored). "
+            "Kept for backward compatibility with stale editor configs."
         ),
     )
 
     acp_native_parser = subparsers.add_parser(
-        "acp-native", help="Run native Java ACP server (stdio JSON-RPC, no Python bridge)"
+        "acp-native", help="[Deprecated alias for 'acp'] Run native Java ACP server"
     )
     _add_common_runtime_args(acp_native_parser)
 
@@ -947,7 +955,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--native",
         action="store_true",
         default=False,
-        help="Use native Java ACP server instead of Python bridge (for zed/intellij targets)",
+        help=(
+            "[Deprecated] Native is now the default; this flag is a no-op alias "
+            "kept for compatibility."
+        ),
     )
     install_parser.add_argument(
         "--rust",
@@ -1993,6 +2004,11 @@ def _main_dispatch(
                 file=sys.stderr,
             )
             sys.exit(1)
+        if args.native:
+            print(
+                "Warning: --native is deprecated; the Java native ACP server is now the default.",
+                file=sys.stderr,
+            )
         if args.rust and args.target not in {"zed", "intellij"}:
             print(
                 "Error: --rust is only supported for install targets zed/intellij.",
@@ -2420,31 +2436,16 @@ def _main_dispatch(
         )
         return
 
-    if args.command == "acp":
-        try:
-            from brokk_code.acp_server import run_acp_server
-        except ImportError:
-            print("Error: Could not import ACP server module.", file=sys.stderr)
-            sys.exit(1)
-
-        asyncio.run(
-            run_acp_server(
-                workspace_dir=workspace_path,
-                jar_path=jar_path,
-                executor_version=args.executor_version,
-                executor_snapshot=args.executor_snapshot,
-                vendor=args.vendor,
+    if args.command in ("acp", "acp-native"):
+        if args.command == "acp-native":
+            print(
+                "Warning: 'brokk acp-native' is deprecated; use 'brokk acp' instead.",
+                file=sys.stderr,
             )
-        )
-        return
-
-    if args.command == "acp-native":
-        from brokk_code.mcp_launcher import run_acp_server as run_native_acp
-
         passthrough = ["--workspace-dir", str(workspace_path)]
         if args.vendor:
             passthrough.extend(["--vendor", args.vendor])
-        run_native_acp(
+        run_native_acp_server(
             workspace_dir=workspace_path,
             jar_path=jar_path,
             executor_version=args.executor_version,
