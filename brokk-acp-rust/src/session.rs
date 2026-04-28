@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use crate::tools::ToolRegistry;
+
 // ---------------------------------------------------------------------------
 // Session modes
 // ---------------------------------------------------------------------------
@@ -610,7 +612,7 @@ fn list_manifests_from_disk(cwd: &Path) -> Vec<SessionManifest> {
 // Thread-safe session store
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SessionStore {
     sessions: Arc<RwLock<HashMap<String, Session>>>,
     default_model: Arc<RwLock<String>>,
@@ -618,6 +620,9 @@ pub struct SessionStore {
     /// Used to fulfil `session/new` without re-fetching on every call.
     available_models: Arc<RwLock<Vec<String>>>,
     cancel_tokens: Arc<RwLock<HashMap<String, CancellationToken>>>,
+    /// One ToolRegistry per session, kept warm across turns so any bifrost
+    /// subprocess survives. Populated lazily on first prompt.
+    registries: Arc<RwLock<HashMap<String, Arc<ToolRegistry>>>>,
 }
 
 impl SessionStore {
@@ -627,7 +632,27 @@ impl SessionStore {
             default_model: Arc::new(RwLock::new(default_model)),
             available_models: Arc::new(RwLock::new(Vec::new())),
             cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
+            registries: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Return the cached ToolRegistry for `session_id`, or build one and cache it.
+    /// `bifrost_binary` is consulted only on the first call for a given session.
+    pub async fn get_or_create_registry(
+        &self,
+        session_id: &str,
+        cwd: PathBuf,
+        bifrost_binary: Option<&Path>,
+    ) -> Arc<ToolRegistry> {
+        if let Some(existing) = self.registries.read().await.get(session_id).cloned() {
+            return existing;
+        }
+        let registry = Arc::new(ToolRegistry::new(cwd, bifrost_binary).await);
+        self.registries
+            .write()
+            .await
+            .insert(session_id.to_string(), registry.clone());
+        registry
     }
 
     pub async fn set_available_models(&self, models: Vec<String>) {

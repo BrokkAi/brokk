@@ -473,7 +473,6 @@ public class AskModeLutzAgentTest {
         var forbiddenSearchTools = new String[] {
             "searchSymbols",
             "getSymbolLocations",
-            "getClassSkeletons",
             "getClassSources",
             "getMethodSources",
             "scanUsages",

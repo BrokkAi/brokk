@@ -539,7 +539,7 @@ Analyze the codebase for OWASP top 10 issues.
 
 The markdown body below the frontmatter is the agent's system prompt.
 
-**Available tools:** `searchSymbols`, `scanUsages`, `getSymbolLocations`, `getSummaries`, `skimFiles`, `findFilesContaining`, `findFilenames`, `searchFileContents`, `getClassSkeletons`, `getClassSources`, `getMethodSources`, `getFileContents`, `listFiles`, `searchGitCommitMessages`, `getGitLog`, `explainCommit`, `xmlSkim`, `xmlSelect`, `jq`, `addFilesToWorkspace`, `addLineRangeToWorkspace`, `addClassesToWorkspace`, `addUrlContentsToWorkspace`, `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`, `addMethodsToWorkspace`, `dropWorkspaceFragments`, `createOrReplaceTaskList`, `runShellCommand`, `importDependency`. Terminal tools (`answer`, `abortSearch`) and `think` are always included.
+**Available tools:** `searchSymbols`, `scanUsages`, `getSymbolLocations`, `getSummaries`, `skimFiles`, `findFilesContaining`, `findFilenames`, `searchFileContents`, `getClassSources`, `getMethodSources`, `getFileContents`, `listFiles`, `searchGitCommitMessages`, `getGitLog`, `explainCommit`, `xmlSkim`, `xmlSelect`, `jq`, `addFilesToWorkspace`, `addLineRangeToWorkspace`, `addClassesToWorkspace`, `addUrlContentsToWorkspace`, `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`, `addMethodsToWorkspace`, `dropWorkspaceFragments`, `createOrReplaceTaskList`, `runShellCommand`, `importDependency`. Terminal tools (`answer`, `abortSearch`) and `think` are always included.
 
 **API endpoints:**
 

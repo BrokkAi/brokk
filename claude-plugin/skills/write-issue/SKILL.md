@@ -61,7 +61,7 @@ has provided both a title and a description.
    - Extract keywords, class names, and technical terms from the draft.
    - Use `searchSymbols` and `searchFileContents` to locate relevant
      code in the codebase.
-   - Use `getClassSkeletons` and `getMethodSources` to understand the
+   - Use `getSummaries` and `getMethodSources` to understand the
      affected components.
    - Enhance the description with:
      - References to actual source files and symbols

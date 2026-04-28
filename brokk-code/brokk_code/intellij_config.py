@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from brokk_code.rust_acp_install import RustAcpPaths
 from brokk_code.zed_config import (
     ExistingBrokkCodeEntryError,
     atomic_write_settings,
@@ -14,6 +15,7 @@ def configure_intellij_acp_settings(
     settings_path: Path | None = None,
     uvx_command: str = "uvx",
     native: bool = False,
+    rust_paths: RustAcpPaths | None = None,
 ) -> Path:
     """Configures IntelliJ for ACP mode."""
     path = settings_path or Path.home() / ".jetbrains" / "acp.json"
@@ -42,11 +44,28 @@ def configure_intellij_acp_settings(
             "agent_servers['Brokk Code'] already exists; use --force to overwrite it"
         )
 
-    agent_servers["Brokk Code"] = {
-        "command": uvx_command,
-        "args": ["brokk", "acp-native" if native else "acp"],
-        "env": {},
-    }
+    if rust_paths is not None:
+        rust_args: list[str] = [
+            "--default-model",
+            rust_paths.model,
+            "--bifrost-binary",
+            str(rust_paths.bifrost),
+        ]
+        if rust_paths.endpoint_url:
+            rust_args += ["--endpoint-url", rust_paths.endpoint_url]
+        if rust_paths.api_key:
+            rust_args += ["--api-key", rust_paths.api_key]
+        agent_servers["Brokk Code"] = {
+            "command": str(rust_paths.brokk_acp),
+            "args": rust_args,
+            "env": {},
+        }
+    else:
+        agent_servers["Brokk Code"] = {
+            "command": uvx_command,
+            "args": ["brokk", "acp-native" if native else "acp"],
+            "env": {},
+        }
 
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_settings(path, settings)

@@ -38,7 +38,6 @@ issue that includes:
   codebase
 - `getMethodSources` -- read the implementation of methods that are
   relevant
-- `getClassSkeletons` -- understand the API surface of related classes
 - `getSummaries` -- get API-level and package-level summaries of files,
   classes, or directories related to the issue
 - `searchFileContents` -- search for patterns, error messages, or
@@ -52,8 +51,7 @@ issue that includes:
    from the draft title and description.
 2. Use `searchSymbols` and `searchFileContents` to locate relevant
    code.
-3. Use `getClassSkeletons` to understand the structure of related
-   classes.
+3. Use `getSummaries` to understand the structure of related classes.
 4. Use `getMethodSources` for key methods that the issue would affect.
 5. Use `scanUsages` if you need to understand how something is called
    or consumed.

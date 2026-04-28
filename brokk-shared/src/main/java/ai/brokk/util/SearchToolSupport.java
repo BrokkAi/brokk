@@ -65,18 +65,19 @@ public final class SearchToolSupport {
             Thread.currentThread().interrupt();
             logger.warn("Interrupted while ranking files for SearchTools; falling back to alphabetical order");
             return alphabeticalFiles;
-        } catch (RuntimeException e) {
-            logger.debug("Failed to rank files for SearchTools; falling back to alphabetical order", e);
-            return alphabeticalFiles;
         }
     }
 
-    public List<ProjectFile> selectFilesForDisplay(Collection<ProjectFile> files, int limit) {
+    public List<ProjectFile> selectFilesForDisplay(
+            Collection<ProjectFile> files, int limit, @Nullable IGitRepo gitRepo) {
         var alphabeticalFiles = files.stream().sorted().toList();
         if (alphabeticalFiles.size() <= limit) {
             return alphabeticalFiles;
         }
-        return alphabeticalFiles.stream().limit(limit).toList();
+        return prioritizeFilesForSelection(alphabeticalFiles, gitRepo).stream()
+                .limit(limit)
+                .sorted()
+                .toList();
     }
 
     public String appendRelatedContent(
@@ -146,8 +147,6 @@ public final class SearchToolSupport {
                 Thread.currentThread().interrupt();
                 logger.warn("Interrupted while computing Git-based related files for {}", ineligibleSources, e);
                 return List.of();
-            } catch (RuntimeException e) {
-                logger.warn("Failed to compute Git-based related files; falling back to imports.", e);
             }
         }
 

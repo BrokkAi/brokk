@@ -188,7 +188,7 @@ public final class GitDistance {
             throws InterruptedException {
         Map<ProjectFile, Double> scores;
         try {
-            var commits = repo.getFileHistories(files, Integer.MAX_VALUE);
+            var commits = repo.listCommitsDetailed(repo.getCurrentBranch(), COMMITS_TO_PROCESS);
             scores = computeImportanceScores(repo, commits);
             logger.trace("Computed importance scores for sortByImportance: {}", scores);
         } catch (UnsupportedOperationException e) {
