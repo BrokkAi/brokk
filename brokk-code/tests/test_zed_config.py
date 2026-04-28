@@ -248,12 +248,12 @@ def test_configure_zed_acp_settings_rust_paths_minimal(tmp_path) -> None:
     entry = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"][
         "Brokk Code (Rust)"
     ]
-    assert entry["command"] == str(brokk_acp)
+    assert entry["command"] == brokk_acp.as_posix()
     assert entry["args"] == [
         "--default-model",
         "qwen2.5-coder:7b",
         "--bifrost-binary",
-        str(bifrost),
+        bifrost.as_posix(),
     ]
     assert entry["favorite_config_option_values"]["model"] == ["qwen2.5-coder:7b"]
 
@@ -279,7 +279,7 @@ def test_configure_zed_acp_settings_rust_paths_with_custom_endpoint(tmp_path) ->
         "--default-model",
         "claude-haiku-4-5",
         "--bifrost-binary",
-        str(bifrost),
+        bifrost.as_posix(),
         "--endpoint-url",
         "http://example.invalid:8080",
         "--api-key",
