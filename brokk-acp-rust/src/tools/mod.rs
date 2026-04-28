@@ -168,7 +168,11 @@ impl ToolRegistry {
     }
 
     /// Execute a tool by name with JSON arguments.
-    pub async fn execute(&self, name: &str, args: serde_json::Value) -> ToolResult {
+    ///
+    /// SECURITY: callers MUST consult `tool_loop::consult_gate` first.
+    /// `pub(crate)` is intentional -- this is the trust boundary; outside
+    /// callers should not be able to dispatch tools without the gate.
+    pub(crate) async fn execute(&self, name: &str, args: serde_json::Value) -> ToolResult {
         match name {
             "think" => {
                 let thought = args.get("thought").and_then(|v| v.as_str()).unwrap_or("");
@@ -255,10 +259,15 @@ impl ToolRegistry {
     /// ACP `ToolKind` for a tool, used by the permission gate to classify calls.
     /// Built-in tools have hardcoded kinds; Bifrost-loaded tools fall through
     /// to `Other` until Bifrost exposes kind metadata in its descriptors.
+    ///
+    /// Must stay in lockstep with `execute` and `headline` above. `refresh`
+    /// is intentionally `Other` rather than `Read` -- it mutates analyzer
+    /// state, so we want the user prompted in `default` and refused in
+    /// `readOnly`.
     pub fn tool_kind(tool_name: &str) -> ToolKind {
         match tool_name {
             "think" => ToolKind::Think,
-            "readFile" | "listDirectory" | "get_file_summaries" | "skim_files" => ToolKind::Read,
+            "readFile" | "listDirectory" | "skim_files" | "get_summaries" => ToolKind::Read,
             "searchFileContents"
             | "search_symbols"
             | "get_symbol_locations"
@@ -268,7 +277,13 @@ impl ToolRegistry {
             | "most_relevant_files" => ToolKind::Search,
             "writeFile" => ToolKind::Edit,
             "runShellCommand" => ToolKind::Execute,
-            _ => ToolKind::Other,
+            other => {
+                tracing::debug!(
+                    tool_name = other,
+                    "tool_kind: unrecognized tool, classifying as Other"
+                );
+                ToolKind::Other
+            }
         }
     }
 

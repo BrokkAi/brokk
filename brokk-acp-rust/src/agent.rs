@@ -341,6 +341,9 @@ pub async fn run_agent(
                 let model_for_loop = session.model.clone();
 
                 cx.spawn(async move {
+                    use futures::FutureExt;
+                    use std::panic::AssertUnwindSafe;
+
                     let cx_text = cx_for_loop.clone();
                     let sid_text = session_id_for_loop.clone();
                     let cx_tool = cx_for_loop.clone();
@@ -353,7 +356,16 @@ pub async fn run_agent(
                         }),
                     );
 
-                    let response_text = crate::tool_loop::run(
+                    // Catch panics so cleanup (finish_prompt, respond) always runs.
+                    // Without this, a panic inside the tool loop would leak the cancel
+                    // token in `cancel_tokens` and leave the dispatcher waiting on a
+                    // PromptResponse that never arrives.
+                    //
+                    // SpawnedCx is constructed here, inside the cx.spawn body -- the
+                    // tool loop's `block_task` calls require this proof of context.
+                    let cx_for_gate = cx_for_loop.clone();
+                    let spawned_cx = crate::tool_loop::SpawnedCx::new(&cx_for_gate);
+                    let loop_result = AssertUnwindSafe(crate::tool_loop::run(
                         &llm_for_loop,
                         &registry,
                         &model_for_loop,
@@ -362,16 +374,29 @@ pub async fn run_agent(
                         cancel,
                         text_sink,
                         |headline| send_message(&cx_tool, &sid_tool, headline),
-                        cx_for_loop.clone(),
+                        spawned_cx,
                         session_id_for_loop.clone(),
                         sessions_for_loop.clone(),
-                    )
+                    ))
+                    .catch_unwind()
                     .await;
 
-                    // Clean up cancellation token
+                    // Clean up cancellation token even on panic.
                     sessions_for_loop.finish_prompt(&session_id_for_loop).await;
 
-                    // Save conversation turn
+                    let response_text = match loop_result {
+                        Ok(text) => text,
+                        Err(panic) => {
+                            tracing::error!(
+                                session_id = %session_id_for_loop,
+                                "tool loop panicked: {:?}",
+                                panic
+                            );
+                            "Error: agent loop panicked. See server logs.".to_string()
+                        }
+                    };
+
+                    // Save conversation turn (best effort -- logged on failure inside the store).
                     sessions_for_loop
                         .add_turn(
                             &session_id_for_loop,
@@ -382,7 +407,12 @@ pub async fn run_agent(
                         )
                         .await;
 
-                    let _ = responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    if let Err(e) = responder.respond(PromptResponse::new(StopReason::EndTurn)) {
+                        tracing::warn!(
+                            session_id = %session_id_for_loop,
+                            "failed to deliver PromptResponse: {e}"
+                        );
+                    }
                     Ok(())
                 })?;
 
