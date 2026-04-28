@@ -125,6 +125,16 @@ uv run brokk acp
 
 This mode is headless and intended for ACP-compatible clients. The default `brokk` command still launches the interactive TUI.
 
+### Bifrost MCP Mode
+
+Run the [bifrost](https://github.com/BrokkAi/bifrost) (Rust) MCP server over stdio:
+
+```bash
+uv run brokk bifrost --workspace .
+```
+
+On first use brokk-code resolves the binary in this order: `--bifrost-binary` override > `bifrost` on `$PATH` > a downloaded release pinned to `BUNDLED_BIFROST_VERSION` (cached under the platform cache dir, e.g. `~/Library/Caches/Brokk/bifrost/<version>/` on macOS). Bifrost ships native binaries for arm64 macOS, x86_64/aarch64 Linux, and x86_64/aarch64 Windows; Intel macOS is not supported by upstream.
+
 ### Editor Integration Installers
 
 You can generate integration settings for supported clients:

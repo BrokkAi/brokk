@@ -341,6 +341,38 @@ def test_main_mcp_routes_to_launcher(monkeypatch, tmp_path) -> None:
     assert "ide" not in captured["kwargs"]
 
 
+def test_main_bifrost_routes_to_launcher(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {}
+    binary = tmp_path / "bifrost"
+    binary.write_text("stub")
+
+    from brokk_code import bifrost_launcher as bifrost_launcher_module
+
+    def fake_run_bifrost_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(bifrost_launcher_module, "run_bifrost_server", fake_run_bifrost_server)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "bifrost",
+            "--workspace",
+            str(tmp_path),
+            "--bifrost-binary",
+            str(binary),
+            "--debug",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["binary_override"] == binary
+    assert captured["kwargs"]["passthrough_args"] == ["--debug"]
+
+
 def test_main_mcp_forwards_unknown_args_as_passthrough(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {}
 

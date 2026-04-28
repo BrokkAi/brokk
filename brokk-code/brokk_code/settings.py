@@ -40,6 +40,20 @@ def get_global_config_dir() -> Path:
     return base / "Brokk"
 
 
+def get_global_cache_dir() -> Path:
+    """Returns the platform-appropriate global cache directory for Brokk."""
+    home = Path.home()
+    if sys.platform == "win32":
+        local_app_data = os.getenv("LOCALAPPDATA")
+        base = Path(local_app_data) if local_app_data else home / "AppData" / "Local"
+        return base / "Brokk" / "Cache"
+    if sys.platform == "darwin":
+        return home / "Library" / "Caches" / "Brokk"
+    xdg = os.getenv("XDG_CACHE_HOME")
+    base = Path(xdg) if xdg else home / ".cache"
+    return base / "Brokk"
+
+
 def settings_dir() -> Path:
     """Returns the legacy .brokk directory in home for settings.json and prompt history."""
     return Path.home() / ".brokk"
