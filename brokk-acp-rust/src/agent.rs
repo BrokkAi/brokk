@@ -350,8 +350,6 @@ pub async fn run_agent(
 
                     let cx_text = cx_for_loop.clone();
                     let sid_text = session_id_for_loop.clone();
-                    let cx_tool = cx_for_loop.clone();
-                    let sid_tool = session_id_for_loop.clone();
 
                     // Text tokens stream to the client in real time via this shared sink.
                     let text_sink: crate::tool_loop::TextSink = std::sync::Arc::new(
@@ -377,7 +375,6 @@ pub async fn run_agent(
                         max_turns,
                         cancel,
                         text_sink,
-                        |headline| send_message(&cx_tool, &sid_tool, headline),
                         spawned_cx,
                         session_id_for_loop.clone(),
                         sessions_for_loop.clone(),
