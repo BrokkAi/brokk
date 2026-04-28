@@ -1,5 +1,8 @@
 package ai.brokk.analyzer.rust;
 
+import static ai.brokk.analyzer.rust.Constants.nodeType;
+import static org.treesitter.RustNodeType.*;
+
 import ai.brokk.analyzer.CognitiveComplexitySupport;
 import ai.brokk.analyzer.SourceContent;
 import java.util.Set;
@@ -8,18 +11,21 @@ import org.treesitter.TSNode;
 public final class CognitiveComplexityAnalysis {
 
     private static final CognitiveComplexitySupport.Config CONFIG = new CognitiveComplexitySupport.Config(
-            Set.of("if_expression"),
-            Set.of("for_expression", "while_expression", "loop_expression"),
+            Set.of(nodeType(IF_EXPRESSION)),
+            Set.of(),
+            Set.of(nodeType(FOR_EXPRESSION), nodeType(WHILE_EXPRESSION), nodeType(LOOP_EXPRESSION)),
             Set.of(),
             Set.of(),
-            Set.of("match_arm"),
+            Set.of(nodeType(MATCH_ARM)),
             Set.of(),
-            Set.of("binary_expression"),
+            Set.of(nodeType(BINARY_EXPRESSION)),
             Set.of("&&", "||"),
-            Set.of("break_expression", "continue_expression"),
-            Set.of("function_item"),
-            Set.of("closure_expression"),
-            Set.of("else_clause"));
+            Set.of(nodeType(BREAK_EXPRESSION), nodeType(CONTINUE_EXPRESSION)),
+            Set.of(nodeType(FUNCTION_ITEM)),
+            Set.of(nodeType(CLOSURE_EXPRESSION)),
+            Set.of(nodeType(ELSE_CLAUSE)),
+            CognitiveComplexitySupport::isWildcardCase,
+            node -> false);
 
     private CognitiveComplexityAnalysis() {}
 

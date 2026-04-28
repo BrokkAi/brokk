@@ -1,12 +1,16 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.analyzer.ASTTraversalUtils.children;
+import static ai.brokk.analyzer.ASTTraversalUtils.directNamedChildOfAnyType;
+import static ai.brokk.analyzer.ASTTraversalUtils.namedChildren;
 import static ai.brokk.analyzer.ASTTraversalUtils.sameRange;
 import static ai.brokk.analyzer.ASTTraversalUtils.typeOf;
-import static java.util.Objects.requireNonNull;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Set;
+import java.util.function.BiPredicate;
+import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSNode;
 
@@ -16,6 +20,7 @@ public final class CognitiveComplexitySupport {
 
     public record Config(
             Set<String> ifTypes,
+            Set<String> alternateIfTypes,
             Set<String> loopTypes,
             Set<String> catchTypes,
             Set<String> conditionalTypes,
@@ -26,7 +31,46 @@ public final class CognitiveComplexitySupport {
             Set<String> jumpTypes,
             Set<String> namedFunctionBoundaryTypes,
             Set<String> anonymousFunctionTypes,
-            Set<String> elseClauseTypes) {}
+            Set<String> elseClauseTypes,
+            BiPredicate<TSNode, SourceContent> defaultCasePredicate,
+            Predicate<TSNode> namedFunctionBoundaryPredicate) {
+        public Config(
+                Set<String> ifTypes,
+                Set<String> loopTypes,
+                Set<String> catchTypes,
+                Set<String> conditionalTypes,
+                Set<String> caseTypes,
+                Set<String> defaultCaseTypes,
+                Set<String> binaryTypes,
+                Set<String> logicalOperators,
+                Set<String> jumpTypes,
+                Set<String> namedFunctionBoundaryTypes,
+                Set<String> anonymousFunctionTypes,
+                Set<String> elseClauseTypes) {
+            this(
+                    ifTypes,
+                    Set.of(),
+                    loopTypes,
+                    catchTypes,
+                    conditionalTypes,
+                    caseTypes,
+                    defaultCaseTypes,
+                    binaryTypes,
+                    logicalOperators,
+                    jumpTypes,
+                    namedFunctionBoundaryTypes,
+                    anonymousFunctionTypes,
+                    elseClauseTypes,
+                    (node, sourceContent) -> false,
+                    node -> false);
+        }
+
+        Set<String> allIfTypes() {
+            var allTypes = new java.util.HashSet<>(ifTypes);
+            allTypes.addAll(alternateIfTypes);
+            return allTypes;
+        }
+    }
 
     public static int compute(TSNode root, SourceContent sourceContent, Config config) {
         int complexity = 0;
@@ -41,7 +85,7 @@ public final class CognitiveComplexitySupport {
                 continue;
             }
 
-            if (config.ifTypes().contains(type)) {
+            if (config.ifTypes().contains(type) || config.alternateIfTypes().contains(type)) {
                 complexity += frame.elseIfContinuation() ? 1 : controlFlowIncrement(frame.nesting());
                 pushIfChildren(work, node, frame.nesting(), config);
             } else if (config.loopTypes().contains(type)
@@ -50,7 +94,7 @@ public final class CognitiveComplexitySupport {
                 complexity += controlFlowIncrement(frame.nesting());
                 pushNamedChildren(work, node, frame.nesting() + 1);
             } else if (config.caseTypes().contains(type)) {
-                if (!isWildcardCase(node, sourceContent)) {
+                if (!config.defaultCasePredicate().test(node, sourceContent)) {
                     complexity += controlFlowIncrement(frame.nesting());
                 }
                 pushNamedChildren(work, node, frame.nesting() + 1);
@@ -67,67 +111,58 @@ public final class CognitiveComplexitySupport {
                 }
                 pushNamedChildren(work, node, frame.nesting());
             } else {
-                if (!frame.root() && config.namedFunctionBoundaryTypes().contains(type)) {
+                boolean namedFunctionBoundary =
+                        config.namedFunctionBoundaryTypes().contains(type)
+                                || config.namedFunctionBoundaryPredicate().test(node);
+                if (!frame.root() && namedFunctionBoundary) {
                     continue;
                 }
                 int childNesting =
                         config.anonymousFunctionTypes().contains(type) ? frame.nesting() + 1 : frame.nesting();
-                pushNamedChildren(work, node, childNesting);
+                pushNamedChildren(work, node, childNesting, frame.root() && !namedFunctionBoundary);
             }
         }
         return complexity;
     }
 
     private static void pushIfChildren(ArrayDeque<CognitiveFrame> work, TSNode node, int nesting, Config config) {
-        for (int i = node.getNamedChildCount() - 1; i >= 0; i--) {
-            TSNode child = node.getNamedChild(i);
+        var children = namedChildren(node);
+        for (int i = children.size() - 1; i >= 0; i--) {
+            TSNode child = children.get(i);
             String type = typeOf(child);
-            if (type == null) {
-                continue;
-            }
-            TSNode childNode = requireNonNull(child);
             if (config.elseClauseTypes().contains(type)) {
-                TSNode elseIf = directChildOfAnyType(childNode, config.ifTypes());
+                TSNode elseIf = directNamedChildOfAnyType(child, config.allIfTypes());
                 if (elseIf != null) {
                     work.push(new CognitiveFrame(elseIf, nesting, true, false));
-                    pushNamedChildrenExcept(work, childNode, elseIf, nesting + 1);
+                    pushNamedChildrenExcept(work, child, elseIf, nesting + 1);
                 } else {
-                    work.push(new CognitiveFrame(childNode, nesting + 1, false, false));
+                    work.push(new CognitiveFrame(child, nesting + 1, false, false));
                 }
-            } else if (config.ifTypes().contains(type)) {
-                work.push(new CognitiveFrame(childNode, nesting, true, false));
+            } else if (config.ifTypes().contains(type)
+                    || config.alternateIfTypes().contains(type)) {
+                work.push(new CognitiveFrame(child, nesting, true, false));
             } else {
-                work.push(new CognitiveFrame(childNode, nesting + 1, false, false));
+                work.push(new CognitiveFrame(child, nesting + 1, false, false));
             }
         }
-    }
-
-    private static @Nullable TSNode directChildOfAnyType(TSNode node, Set<String> types) {
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
-            if (types.contains(typeOf(child))) {
-                return child;
-            }
-        }
-        return null;
     }
 
     private static void pushNamedChildren(ArrayDeque<CognitiveFrame> work, TSNode node, int nesting) {
-        for (int i = node.getNamedChildCount() - 1; i >= 0; i--) {
-            TSNode child = node.getNamedChild(i);
-            if (child != null && typeOf(child) != null) {
-                work.push(new CognitiveFrame(child, nesting, false, false));
-            }
+        pushNamedChildren(work, node, nesting, false);
+    }
+
+    private static void pushNamedChildren(ArrayDeque<CognitiveFrame> work, TSNode node, int nesting, boolean root) {
+        var children = namedChildren(node);
+        for (int i = children.size() - 1; i >= 0; i--) {
+            work.push(new CognitiveFrame(children.get(i), nesting, false, root));
         }
     }
 
     private static void pushNamedChildrenExcept(
             ArrayDeque<CognitiveFrame> work, TSNode node, @Nullable TSNode except, int nesting) {
-        for (int i = node.getNamedChildCount() - 1; i >= 0; i--) {
-            TSNode child = node.getNamedChild(i);
-            if (child == null || typeOf(child) == null) {
-                continue;
-            }
+        var children = namedChildren(node);
+        for (int i = children.size() - 1; i >= 0; i--) {
+            TSNode child = children.get(i);
             if (except != null && sameRange(child, except)) {
                 continue;
             }
@@ -153,21 +188,19 @@ public final class CognitiveComplexitySupport {
         work.push(node);
         while (!work.isEmpty()) {
             TSNode current = work.pop();
-            for (int i = current.getChildCount() - 1; i >= 0; i--) {
-                TSNode child = current.getChild(i);
+            var children = children(current);
+            for (int i = children.size() - 1; i >= 0; i--) {
+                TSNode child = children.get(i);
                 String type = typeOf(child);
-                if (type == null) {
-                    continue;
-                }
                 if (config.binaryTypes().contains(type)) {
-                    work.push(requireNonNull(child));
+                    work.push(child);
                     continue;
                 }
                 if (config.logicalOperators().contains(type)) {
                     operators.add(type);
                     continue;
                 }
-                if (child != null && isLogicalOperatorToken(child, sourceContent, config.logicalOperators())) {
+                if (isLogicalOperatorToken(child, sourceContent, config.logicalOperators())) {
                     operators.add(sourceContent.substringFrom(child));
                 }
             }
@@ -196,7 +229,7 @@ public final class CognitiveComplexitySupport {
         return operators.contains(sourceContent.substringFrom(node));
     }
 
-    private static boolean isWildcardCase(TSNode node, SourceContent sourceContent) {
+    public static boolean isWildcardCase(TSNode node, SourceContent sourceContent) {
         String text = sourceContent.substringFrom(node).stripLeading();
         return text.startsWith("_") || text.startsWith("case _ =>");
     }

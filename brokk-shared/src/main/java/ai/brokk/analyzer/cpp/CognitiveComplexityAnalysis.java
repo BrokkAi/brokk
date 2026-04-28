@@ -1,5 +1,8 @@
 package ai.brokk.analyzer.cpp;
 
+import static ai.brokk.analyzer.cpp.Constants.nodeType;
+import static org.treesitter.CppNodeType.*;
+
 import ai.brokk.analyzer.CognitiveComplexitySupport;
 import ai.brokk.analyzer.SourceContent;
 import java.util.Set;
@@ -8,18 +11,18 @@ import org.treesitter.TSNode;
 public final class CognitiveComplexityAnalysis {
 
     private static final CognitiveComplexitySupport.Config CONFIG = new CognitiveComplexitySupport.Config(
-            Set.of("if_statement"),
-            Set.of("for_statement", "while_statement", "do_statement", "range_based_for_statement"),
-            Set.of("catch_clause"),
-            Set.of("conditional_expression"),
-            Set.of("case_statement"),
+            Set.of(nodeType(IF_STATEMENT)),
+            Set.of(nodeType(FOR_STATEMENT), nodeType(WHILE_STATEMENT), nodeType(DO_STATEMENT)),
+            Set.of(nodeType(CATCH_CLAUSE)),
+            Set.of(nodeType(CONDITIONAL_EXPRESSION)),
+            Set.of(nodeType(CASE_STATEMENT)),
             Set.of("default_statement"),
-            Set.of("binary_expression"),
+            Set.of(nodeType(BINARY_EXPRESSION)),
             Set.of("&&", "||", "and", "or"),
-            Set.of("break_statement", "continue_statement"),
-            Set.of("function_definition"),
-            Set.of("lambda_expression"),
-            Set.of("else_clause"));
+            Set.of(nodeType(BREAK_STATEMENT), nodeType(CONTINUE_STATEMENT)),
+            Set.of(nodeType(FUNCTION_DEFINITION)),
+            Set.of(nodeType(LAMBDA_EXPRESSION)),
+            Set.of(nodeType(ELSE_CLAUSE)));
 
     private CognitiveComplexityAnalysis() {}
 
