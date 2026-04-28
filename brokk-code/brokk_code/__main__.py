@@ -914,6 +914,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_common_runtime_args(mcp_core_parser)
 
+    bifrost_parser = subparsers.add_parser(
+        "bifrost",
+        help="Run the bifrost (Rust) MCP server (downloads the bundled binary on first use)",
+        add_help=False,
+    )
+    _add_common_runtime_args(bifrost_parser)
+    bifrost_parser.add_argument(
+        "--bifrost-binary",
+        type=str,
+        default=None,
+        help="Path to a bifrost binary (default: $PATH bifrost, else cached release binary)",
+    )
+
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
@@ -1930,7 +1943,7 @@ def main():
     parser = _build_parser()
     args, unknown = parser.parse_known_args()
 
-    if unknown and args.command not in ("mcp", "mcp-core"):
+    if unknown and args.command not in ("mcp", "mcp-core", "bifrost"):
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     # Resolve paths early so they are available to all commands
@@ -2453,6 +2466,19 @@ def _main_dispatch(
             workspace_dir=workspace_path,
             jar_path=jar_path,
             executor_version=args.executor_version,
+            passthrough_args=unknown,
+        )
+        return
+
+    if args.command == "bifrost":
+        from brokk_code.bifrost_launcher import run_bifrost_server
+
+        bifrost_override = (
+            Path(args.bifrost_binary) if getattr(args, "bifrost_binary", None) else None
+        )
+        run_bifrost_server(
+            workspace_dir=workspace_path,
+            binary_override=bifrost_override,
             passthrough_args=unknown,
         )
         return
