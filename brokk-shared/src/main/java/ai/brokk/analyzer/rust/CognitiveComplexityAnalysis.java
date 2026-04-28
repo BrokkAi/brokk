@@ -5,27 +5,22 @@ import static org.treesitter.RustNodeType.*;
 
 import ai.brokk.analyzer.CognitiveComplexitySupport;
 import ai.brokk.analyzer.SourceContent;
-import java.util.Set;
 import org.treesitter.TSNode;
 
 public final class CognitiveComplexityAnalysis {
 
-    private static final CognitiveComplexitySupport.Config CONFIG = new CognitiveComplexitySupport.Config(
-            Set.of(nodeType(IF_EXPRESSION)),
-            Set.of(),
-            Set.of(nodeType(FOR_EXPRESSION), nodeType(WHILE_EXPRESSION), nodeType(LOOP_EXPRESSION)),
-            Set.of(),
-            Set.of(),
-            Set.of(nodeType(MATCH_ARM)),
-            Set.of(),
-            Set.of(nodeType(BINARY_EXPRESSION)),
-            Set.of("&&", "||"),
-            Set.of(nodeType(BREAK_EXPRESSION), nodeType(CONTINUE_EXPRESSION)),
-            Set.of(nodeType(FUNCTION_ITEM)),
-            Set.of(nodeType(CLOSURE_EXPRESSION)),
-            Set.of(nodeType(ELSE_CLAUSE)),
-            CognitiveComplexitySupport::isWildcardCase,
-            node -> false);
+    private static final CognitiveComplexitySupport.Config CONFIG = CognitiveComplexitySupport.config()
+            .ifTypes(nodeType(IF_EXPRESSION))
+            .loopTypes(nodeType(FOR_EXPRESSION), nodeType(WHILE_EXPRESSION), nodeType(LOOP_EXPRESSION))
+            .caseTypes(nodeType(MATCH_ARM))
+            .binaryTypes(nodeType(BINARY_EXPRESSION))
+            .logicalOperators("&&", "||")
+            .jumpTypes(nodeType(BREAK_EXPRESSION), nodeType(CONTINUE_EXPRESSION))
+            .namedFunctionBoundaryTypes(nodeType(FUNCTION_ITEM))
+            .anonymousFunctionTypes(nodeType(CLOSURE_EXPRESSION))
+            .elseClauseTypes(nodeType(ELSE_CLAUSE))
+            .defaultCasePredicate(CognitiveComplexitySupport::isWildcardCase)
+            .build();
 
     private CognitiveComplexityAnalysis() {}
 

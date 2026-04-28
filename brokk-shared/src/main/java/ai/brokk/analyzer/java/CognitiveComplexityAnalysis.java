@@ -5,31 +5,26 @@ import static org.treesitter.JavaNodeType.*;
 
 import ai.brokk.analyzer.CognitiveComplexitySupport;
 import ai.brokk.analyzer.SourceContent;
-import java.util.Set;
 import org.treesitter.TSNode;
 
 public final class CognitiveComplexityAnalysis {
 
-    private static final CognitiveComplexitySupport.Config CONFIG = new CognitiveComplexitySupport.Config(
-            Set.of(nodeType(IF_STATEMENT)),
-            Set.of(),
-            Set.of(
+    private static final CognitiveComplexitySupport.Config CONFIG = CognitiveComplexitySupport.config()
+            .ifTypes(nodeType(IF_STATEMENT))
+            .loopTypes(
                     nodeType(FOR_STATEMENT),
                     nodeType(ENHANCED_FOR_STATEMENT),
                     nodeType(WHILE_STATEMENT),
-                    nodeType(DO_STATEMENT)),
-            Set.of(nodeType(CATCH_CLAUSE)),
-            Set.of(nodeType(TERNARY_EXPRESSION)),
-            Set.of(nodeType(SWITCH_LABEL), nodeType(SWITCH_RULE)),
-            Set.of(),
-            Set.of(nodeType(BINARY_EXPRESSION)),
-            Set.of("&&", "||"),
-            Set.of(nodeType(BREAK_STATEMENT), nodeType(CONTINUE_STATEMENT)),
-            Set.of(),
-            Set.of(nodeType(LAMBDA_EXPRESSION)),
-            Set.of(),
-            CognitiveComplexityAnalysis::isDefaultSwitchLabel,
-            node -> false);
+                    nodeType(DO_STATEMENT))
+            .catchTypes(nodeType(CATCH_CLAUSE))
+            .conditionalTypes(nodeType(TERNARY_EXPRESSION))
+            .caseTypes(nodeType(SWITCH_LABEL), nodeType(SWITCH_RULE))
+            .binaryTypes(nodeType(BINARY_EXPRESSION))
+            .logicalOperators("&&", "||")
+            .jumpTypes(nodeType(BREAK_STATEMENT), nodeType(CONTINUE_STATEMENT))
+            .anonymousFunctionTypes(nodeType(LAMBDA_EXPRESSION))
+            .defaultCasePredicate(CognitiveComplexityAnalysis::isDefaultSwitchLabel)
+            .build();
 
     private CognitiveComplexityAnalysis() {}
 

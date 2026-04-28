@@ -5,34 +5,33 @@ import static org.treesitter.TsxNodeType.*;
 
 import ai.brokk.analyzer.CognitiveComplexitySupport;
 import ai.brokk.analyzer.SourceContent;
-import java.util.Set;
 import org.treesitter.TSNode;
 
 public final class CognitiveComplexityAnalysis {
 
-    private static final CognitiveComplexitySupport.Config CONFIG = new CognitiveComplexitySupport.Config(
-            Set.of(nodeType(IF_STATEMENT)),
-            Set.of(
+    private static final CognitiveComplexitySupport.Config CONFIG = CognitiveComplexitySupport.config()
+            .ifTypes(nodeType(IF_STATEMENT))
+            .loopTypes(
                     nodeType(FOR_STATEMENT),
                     nodeType(FOR_IN_STATEMENT),
                     nodeType(WHILE_STATEMENT),
-                    nodeType(DO_STATEMENT)),
-            Set.of(nodeType(CATCH_CLAUSE)),
-            Set.of(nodeType(TERNARY_EXPRESSION)),
-            Set.of(nodeType(SWITCH_CASE)),
-            Set.of(nodeType(SWITCH_DEFAULT)),
-            Set.of(nodeType(BINARY_EXPRESSION)),
-            Set.of("&&", "||", "??"),
-            Set.of(nodeType(BREAK_STATEMENT), nodeType(CONTINUE_STATEMENT)),
-            Set.of(
+                    nodeType(DO_STATEMENT))
+            .catchTypes(nodeType(CATCH_CLAUSE))
+            .conditionalTypes(nodeType(TERNARY_EXPRESSION))
+            .caseTypes(nodeType(SWITCH_CASE))
+            .defaultCaseTypes(nodeType(SWITCH_DEFAULT))
+            .binaryTypes(nodeType(BINARY_EXPRESSION))
+            .logicalOperators("&&", "||", "??")
+            .jumpTypes(nodeType(BREAK_STATEMENT), nodeType(CONTINUE_STATEMENT))
+            .namedFunctionBoundaryTypes(
                     nodeType(FUNCTION_DECLARATION),
                     nodeType(FUNCTION_EXPRESSION),
                     nodeType(GENERATOR_FUNCTION),
                     nodeType(GENERATOR_FUNCTION_DECLARATION),
                     nodeType(METHOD_DEFINITION),
-                    nodeType(ARROW_FUNCTION)),
-            Set.of(),
-            Set.of(nodeType(ELSE_CLAUSE)));
+                    nodeType(ARROW_FUNCTION))
+            .elseClauseTypes(nodeType(ELSE_CLAUSE))
+            .build();
 
     private static final SourceContent EMPTY_SOURCE = SourceContent.of("");
 

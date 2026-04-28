@@ -7,27 +7,23 @@ import static org.treesitter.PythonNodeType.*;
 
 import ai.brokk.analyzer.CognitiveComplexitySupport;
 import ai.brokk.analyzer.SourceContent;
-import java.util.Set;
 import org.treesitter.TSNode;
 
 public final class CognitiveComplexityAnalysis {
 
-    private static final CognitiveComplexitySupport.Config CONFIG = new CognitiveComplexitySupport.Config(
-            Set.of(nodeType(IF_STATEMENT)),
-            Set.of(nodeType(ELIF_CLAUSE)),
-            Set.of(nodeType(FOR_STATEMENT), nodeType(WHILE_STATEMENT)),
-            Set.of(nodeType(EXCEPT_CLAUSE)),
-            Set.of(nodeType(CONDITIONAL_EXPRESSION)),
-            Set.of(nodeType(CASE_CLAUSE)),
-            Set.of(),
-            Set.of(nodeType(BOOLEAN_OPERATOR)),
-            Set.of("and", "or"),
-            Set.of(),
-            Set.of(nodeType(FUNCTION_DEFINITION)),
-            Set.of(nodeType(LAMBDA)),
-            Set.of(),
-            (node, sourceContent) -> false,
-            CognitiveComplexityAnalysis::isDecoratedFunctionBoundary);
+    private static final CognitiveComplexitySupport.Config CONFIG = CognitiveComplexitySupport.config()
+            .ifTypes(nodeType(IF_STATEMENT))
+            .alternateIfTypes(nodeType(ELIF_CLAUSE))
+            .loopTypes(nodeType(FOR_STATEMENT), nodeType(WHILE_STATEMENT))
+            .catchTypes(nodeType(EXCEPT_CLAUSE))
+            .conditionalTypes(nodeType(CONDITIONAL_EXPRESSION))
+            .caseTypes(nodeType(CASE_CLAUSE))
+            .binaryTypes(nodeType(BOOLEAN_OPERATOR))
+            .logicalOperators("and", "or")
+            .namedFunctionBoundaryTypes(nodeType(FUNCTION_DEFINITION))
+            .anonymousFunctionTypes(nodeType(LAMBDA))
+            .namedFunctionBoundaryPredicate(CognitiveComplexityAnalysis::isDecoratedFunctionBoundary)
+            .build();
 
     private CognitiveComplexityAnalysis() {}
 

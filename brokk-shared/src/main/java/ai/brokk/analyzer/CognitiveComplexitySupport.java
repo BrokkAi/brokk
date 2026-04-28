@@ -8,6 +8,7 @@ import static ai.brokk.analyzer.ASTTraversalUtils.typeOf;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
@@ -34,22 +35,115 @@ public final class CognitiveComplexitySupport {
             Set<String> elseClauseTypes,
             BiPredicate<TSNode, SourceContent> defaultCasePredicate,
             Predicate<TSNode> namedFunctionBoundaryPredicate) {
-        public Config(
-                Set<String> ifTypes,
-                Set<String> loopTypes,
-                Set<String> catchTypes,
-                Set<String> conditionalTypes,
-                Set<String> caseTypes,
-                Set<String> defaultCaseTypes,
-                Set<String> binaryTypes,
-                Set<String> logicalOperators,
-                Set<String> jumpTypes,
-                Set<String> namedFunctionBoundaryTypes,
-                Set<String> anonymousFunctionTypes,
-                Set<String> elseClauseTypes) {
-            this(
+        Set<String> allIfTypes() {
+            var allTypes = new HashSet<>(ifTypes);
+            allTypes.addAll(alternateIfTypes);
+            return allTypes;
+        }
+    }
+
+    public static ConfigBuilder config() {
+        return new ConfigBuilder();
+    }
+
+    public static final class ConfigBuilder {
+        private Set<String> ifTypes = Set.of();
+        private Set<String> alternateIfTypes = Set.of();
+        private Set<String> loopTypes = Set.of();
+        private Set<String> catchTypes = Set.of();
+        private Set<String> conditionalTypes = Set.of();
+        private Set<String> caseTypes = Set.of();
+        private Set<String> defaultCaseTypes = Set.of();
+        private Set<String> binaryTypes = Set.of();
+        private Set<String> logicalOperators = Set.of();
+        private Set<String> jumpTypes = Set.of();
+        private Set<String> namedFunctionBoundaryTypes = Set.of();
+        private Set<String> anonymousFunctionTypes = Set.of();
+        private Set<String> elseClauseTypes = Set.of();
+        private BiPredicate<TSNode, SourceContent> defaultCasePredicate = (node, sourceContent) -> false;
+        private Predicate<TSNode> namedFunctionBoundaryPredicate = node -> false;
+
+        private ConfigBuilder() {}
+
+        public ConfigBuilder ifTypes(String... types) {
+            ifTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder alternateIfTypes(String... types) {
+            alternateIfTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder loopTypes(String... types) {
+            loopTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder catchTypes(String... types) {
+            catchTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder conditionalTypes(String... types) {
+            conditionalTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder caseTypes(String... types) {
+            caseTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder defaultCaseTypes(String... types) {
+            defaultCaseTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder binaryTypes(String... types) {
+            binaryTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder logicalOperators(String... operators) {
+            logicalOperators = Set.of(operators);
+            return this;
+        }
+
+        public ConfigBuilder jumpTypes(String... types) {
+            jumpTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder namedFunctionBoundaryTypes(String... types) {
+            namedFunctionBoundaryTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder anonymousFunctionTypes(String... types) {
+            anonymousFunctionTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder elseClauseTypes(String... types) {
+            elseClauseTypes = Set.of(types);
+            return this;
+        }
+
+        public ConfigBuilder defaultCasePredicate(BiPredicate<TSNode, SourceContent> predicate) {
+            defaultCasePredicate = predicate;
+            return this;
+        }
+
+        public ConfigBuilder namedFunctionBoundaryPredicate(Predicate<TSNode> predicate) {
+            namedFunctionBoundaryPredicate = predicate;
+            return this;
+        }
+
+        public Config build() {
+            return new Config(
                     ifTypes,
-                    Set.of(),
+                    alternateIfTypes,
                     loopTypes,
                     catchTypes,
                     conditionalTypes,
@@ -61,14 +155,8 @@ public final class CognitiveComplexitySupport {
                     namedFunctionBoundaryTypes,
                     anonymousFunctionTypes,
                     elseClauseTypes,
-                    (node, sourceContent) -> false,
-                    node -> false);
-        }
-
-        Set<String> allIfTypes() {
-            var allTypes = new java.util.HashSet<>(ifTypes);
-            allTypes.addAll(alternateIfTypes);
-            return allTypes;
+                    defaultCasePredicate,
+                    namedFunctionBoundaryPredicate);
         }
     }
 
