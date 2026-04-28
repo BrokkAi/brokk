@@ -8,6 +8,7 @@
      private static final Pattern WILDCARD_IMPORT_PATTERN = Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
      ```
 1. **CST and TSNode over string splicing**: Prefer traversing the concrete syntax tree with `TSNode` (child relationships, `getChildByFieldName`, `getNamedChild`, `getPrevSibling` / `getNextSibling` when appropriate, and helpers like `collectNodesByType`) instead of parsing or classifying code by stitching, normalizing, or scanning raw source text. Reserve `SourceContent.substringFrom(TSNode)` for **leaf** or token-shaped nodes (identifiers, literals, small spans) where the grammar does not expose a finer structure, not as a substitute for structural analysis of expressions or statements.
+1. **Shared Tree-sitter helpers**: Use `ASTTraversalUtils.typeOf`, `ASTTraversalUtils.isValid`, and `ASTTraversalUtils.sameRange` when code needs to handle Java `null` nodes or Tree-sitter null-node wrappers. Do not add one-off local `getType()` try/catch wrappers or byte-range comparison helpers in language analyzers.
 
 ### 2. Tree-sitter Query Predicates
 1. **Predicates supported**: Our Tree-sitter Java binding supports query predicates such as `#eq?`, `#any-of?`, `#match?`, and `#is?`.
