@@ -5,6 +5,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.tools.ApprovalResult;
+import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
@@ -66,6 +67,29 @@ public interface IConsoleIO {
     }
 
     void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta);
+
+    /**
+     * Emit a structured status banner — a headline plus key/value details — to the user. The
+     * default implementation renders the banner via {@link ExplanationRenderer} and emits it
+     * through {@link #llmOutput} as an AI-typed chunk, preserving the legacy text-stream shape
+     * for GUI consoles. Consoles that support structured tool calls may override to emit a
+     * synthetic tool call directly, which avoids relying on downstream pattern matching of
+     * banner-shaped prose.
+     */
+    default void showStatusBanner(String headline, Map<String, Object> details) {
+        var formatted = ExplanationRenderer.renderExplanation(headline, details);
+        llmOutput(formatted, ChatMessageType.AI, LlmOutputMeta.newMessage());
+    }
+
+    /**
+     * Emit a compact, single-line status update (e.g. {@code "Code Agent finished — message"}).
+     * Default implementation forwards through {@link #llmOutput} as a CUSTOM chunk so the GUI
+     * keeps its existing rendering. Consoles that support structured tool calls may override
+     * to emit a title-only tool_call with empty content for an unobtrusive single-line display.
+     */
+    default void showStatusLine(String message) {
+        llmOutput("\n" + message + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
+    }
 
     /**
      * default implementation just forwards to systemOutput but the Chrome GUI implementation wraps JOptionPane;

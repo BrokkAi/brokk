@@ -1,10 +1,12 @@
 package ai.brokk.acp;
 
 import ai.brokk.LlmOutputMeta;
+import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.tools.ApprovalResult;
+import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.util.Json;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
@@ -16,7 +18,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.UUID;
@@ -119,6 +120,18 @@ public class AcpConsoleIO extends MemoryConsole {
 
     // ---- Core LLM output ----
 
+    /**
+     * No-op: the user's prompt is already known to the client via the JSON-RPC
+     * {@code session/prompt} request. The default implementation re-emits the prompt as a
+     * CUSTOM-typed {@code <task sequence=N>...</task>} blob, which the synthetic tool_call
+     * path then renders with an XML-tag title that the client strips, producing an empty
+     * checkmark card.
+     */
+    @Override
+    public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
+        // intentionally empty
+    }
+
     @Override
     public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         super.llmOutput(token, type, meta);
@@ -133,19 +146,6 @@ public class AcpConsoleIO extends MemoryConsole {
             return;
         }
         if (type == ChatMessageType.AI) {
-            // Brokk's agents emit "**Brokk Context Engine** analyzing…" /
-            // "`Adding context to workspace`\n```yaml\n…" status banners as full-message AI
-            // emissions. Detect them by *complete* `**Header**` or `` `Header` `` shape with
-            // content after — this excludes streaming tokens (partial markers) and bare bold
-            // emphasis (no content after the closing marker), and catches banners regardless
-            // of the LlmOutputMeta.newMessage flag (which Brokk doesn't set consistently).
-            // Final-answer text from terminal-answer tools is emitted as `# Answer\n\n…`
-            // (h1, not bold/backtick), so it doesn't match and continues flowing to chat.
-            var banner = tryDetectBanner(token);
-            if (banner.isPresent()) {
-                emitSyntheticToolCall(banner.get(), AcpSchema.ToolKind.THINK);
-                return;
-            }
             var filtered = filterSearchReplaceTokens(token);
             if (!filtered.isEmpty()) {
                 context.sendMessage(filtered);
@@ -203,25 +203,35 @@ public class AcpConsoleIO extends MemoryConsole {
      * Empty when the text is normal chat content (incl. streaming tokens that are partial
      * markers, bare bold/code emphasis with no body, or h1/plain text).
      */
-    private static Optional<HeaderAndBody> tryDetectBanner(String text) {
-        var trimmed = text.strip();
-        Matcher m = BOLD_HEADER.matcher(trimmed);
-        if (m.matches()) {
-            var header = m.group(1).strip();
-            var rest = m.group(2).stripLeading();
-            if (!header.isBlank() && !rest.isBlank()) {
-                return Optional.of(new HeaderAndBody(header, rest));
-            }
-        }
-        m = BACKTICK_HEADER.matcher(trimmed);
-        if (m.matches()) {
-            var header = m.group(1).strip();
-            var rest = m.group(2).stripLeading();
-            if (!header.isBlank() && !rest.isBlank()) {
-                return Optional.of(new HeaderAndBody(header, rest));
-            }
-        }
-        return Optional.empty();
+    @Override
+    public void showStatusBanner(String headline, Map<String, Object> details) {
+        var body = "```yaml\n" + ExplanationRenderer.toYaml(details) + "```";
+        emitSyntheticToolCall(new HeaderAndBody(headline, body), AcpSchema.ToolKind.THINK);
+    }
+
+    @Override
+    public void showStatusLine(String message) {
+        emitCompactStatus(message, AcpSchema.ToolKind.THINK);
+    }
+
+    /**
+     * Emit a single completed {@link AcpSchema.ToolCall} carrying just a title — no body. The
+     * client renders this as a one-line entry alongside its peers (matching how
+     * {@code projectFinished} appears as a compact "Project complete" line).
+     */
+    private void emitCompactStatus(String title, AcpSchema.ToolKind kind) {
+        var toolCall = new AcpSchema.ToolCall(
+                "tool_call",
+                UUID.randomUUID().toString(),
+                title,
+                kind,
+                AcpSchema.ToolCallStatus.COMPLETED,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                Map.of("brokk", Map.of("synthetic", true)));
+        context.sendUpdate(sessionId, toolCall);
     }
 
     // ---- Tool call hooks ----
@@ -421,7 +431,7 @@ public class AcpConsoleIO extends MemoryConsole {
         if (role == NotificationRole.COST) {
             return;
         }
-        emitSyntheticToolCall(new HeaderAndBody("Notification", message), AcpSchema.ToolKind.OTHER);
+        emitCompactStatus(message, AcpSchema.ToolKind.OTHER);
     }
 
     @Override
@@ -440,6 +450,8 @@ public class AcpConsoleIO extends MemoryConsole {
 
     @Override
     public void toolError(String msg, String title) {
+        // Errors keep a body — the message can be multi-line stack traces or actionable detail
+        // that's harder to fit in a title alone.
         emitSyntheticToolCall(new HeaderAndBody("Error: " + title, msg), AcpSchema.ToolKind.OTHER);
     }
 
@@ -751,10 +763,31 @@ public class AcpConsoleIO extends MemoryConsole {
         if (unwrapped != null) {
             return truncate(unwrapped, MAX_RENDERED_BODY_BYTES);
         }
+        // Unwrap {"explanation": "<text>"} envelopes — the wrapping JSON is internal
+        // bookkeeping; the chat should show the explanation prose.
+        var explanation = unwrapExplanation(parsed);
+        if (explanation != null) {
+            return truncate(explanation, MAX_RENDERED_BODY_BYTES);
+        }
         if (parsed.isArray() && (kind == AcpSchema.ToolKind.SEARCH || kind == AcpSchema.ToolKind.READ)) {
             return renderArrayAsBullets(parsed);
         }
         return renderJsonAsCodeBlock(parsed);
+    }
+
+    /**
+     * If {@code node} matches {@code {"explanation": "<text>"}} (an object with a single
+     * textual {@code explanation} field), return the text; otherwise null.
+     */
+    private static @Nullable String unwrapExplanation(JsonNode node) {
+        if (!node.isObject() || node.size() != 1) {
+            return null;
+        }
+        var explanation = node.get("explanation");
+        if (explanation == null || !explanation.isTextual()) {
+            return null;
+        }
+        return explanation.asText();
     }
 
     private static @Nullable JsonNode tryParseJson(String text) {

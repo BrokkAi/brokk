@@ -31,7 +31,6 @@ import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.Destructive;
-import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionHelper;
@@ -772,8 +771,7 @@ public class LutzAgent {
             details.put("fragments", descriptions);
         }
 
-        var explanation = ExplanationRenderer.renderExplanation("Adding context to workspace", details);
-        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+        io.showStatusBanner("Adding context to workspace", details);
     }
 
     // public for ToolRegistry
@@ -1860,9 +1858,6 @@ public class LutzAgent {
     void reportComplete(TaskResult.StopReason reason, String message) {
         logger.debug("SearchAgent completed: {}: {}", reason, message);
         var badge = StatusBadge.badgeFor(reason);
-        io.llmOutput(
-                "\n## Search Agent Finished\n" + badge + "\n\n**Reason:** " + message,
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.DEFAULT);
+        io.showStatusLine(badge + " Search Agent finished — " + message);
     }
 }

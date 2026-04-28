@@ -312,7 +312,7 @@ class AcpConsoleIOTest {
     }
 
     @Test
-    void showNotificationEmitsSyntheticToolCallNotChat() {
+    void showNotificationEmitsCompactToolCall() {
         var ctx = new RecordingPromptContext();
         var io = new AcpConsoleIO(ctx);
 
@@ -324,8 +324,10 @@ class AcpConsoleIOTest {
                 .map(AcpSchema.ToolCall.class::cast)
                 .findFirst()
                 .orElseThrow();
-        assertEquals("Notification", call.title());
+        // Title carries the message; body stays empty so the IDE renders a single-line entry.
+        assertEquals("build started", call.title());
         assertEquals(AcpSchema.ToolCallStatus.COMPLETED, call.status());
+        assertTrue(call.content().isEmpty(), "compact notifications must have empty content");
     }
 
     @Test
@@ -340,45 +342,31 @@ class AcpConsoleIOTest {
     }
 
     @Test
-    void aiBoldBannerWrapsAsSyntheticToolCall() {
+    void aiBoldBannerShapedTokenFlowsAsChat() {
         var ctx = new RecordingPromptContext();
         var io = new AcpConsoleIO(ctx);
 
-        io.llmOutput(
-                "\n**Brokk Context Engine** analyzing repository context…\n",
-                ChatMessageType.AI,
-                LlmOutputMeta.newMessage());
+        // After removing the AI-stream banner-detection heuristic, banner-shaped text in the
+        // AI prose stream is treated as plain prose. Agents that want a synthetic tool_call
+        // must call showStatusBanner directly.
+        var token = "\n**Brokk Context Engine** analyzing repository context\n";
+        io.llmOutput(token, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
-        assertTrue(ctx.messages.isEmpty(), "Bold-banner AI emissions must not flow to chat");
-        var call = ctx.updates.stream()
-                .filter(AcpSchema.ToolCall.class::isInstance)
-                .map(AcpSchema.ToolCall.class::cast)
-                .findFirst()
-                .orElseThrow();
-        assertEquals("Brokk Context Engine", call.title());
-        assertEquals(AcpSchema.ToolKind.THINK, call.kind());
+        assertEquals(List.of(token), ctx.messages);
+        assertTrue(ctx.updates.isEmpty(), "AI prose must not be auto-promoted to a synthetic tool_call");
     }
 
     @Test
-    void aiBacktickBannerWithDefaultMetaStillWraps() {
+    void aiBacktickBannerShapedTokenFlowsAsChat() {
         var ctx = new RecordingPromptContext();
         var io = new AcpConsoleIO(ctx);
 
-        // LutzAgent.emitContextAddedExplanation emits the YAML-bodied banner with
-        // LlmOutputMeta.DEFAULT (not newMessage), so banner detection must be shape-driven,
-        // not meta-driven. The full `Header` + body pattern marks this as a banner regardless
-        // of the newMessage flag.
         var explanation =
                 "`Adding context to workspace`\n```yaml\nfragmentCount: 2\nfragments:\n  - foo\n  - bar\n```\n";
         io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
-        assertTrue(ctx.messages.isEmpty(), "shape-detected banners must not flow to chat regardless of meta");
-        var call = ctx.updates.stream()
-                .filter(AcpSchema.ToolCall.class::isInstance)
-                .map(AcpSchema.ToolCall.class::cast)
-                .findFirst()
-                .orElseThrow();
-        assertEquals("Adding context to workspace", call.title());
+        assertEquals(List.of(explanation), ctx.messages);
+        assertTrue(ctx.updates.isEmpty(), "Backtick-shaped AI prose must not be auto-promoted");
     }
 
     @Test
@@ -397,21 +385,22 @@ class AcpConsoleIOTest {
     }
 
     @Test
-    void aiBacktickBannerWithNewMessageWrapsAsSyntheticToolCall() {
+    void showStatusBannerEmitsSyntheticToolCall() {
         var ctx = new RecordingPromptContext();
         var io = new AcpConsoleIO(ctx);
 
-        var explanation =
-                "`Adding context to workspace`\n```yaml\nfragmentCount: 2\nfragments:\n  - foo\n  - bar\n```\n";
-        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        io.showStatusBanner(
+                "Adding context to workspace",
+                java.util.Map.of("fragmentCount", 2, "fragments", List.of("foo", "bar")));
 
-        assertTrue(ctx.messages.isEmpty(), "backtick banners with newMessage must be wrapped");
+        assertTrue(ctx.messages.isEmpty(), "showStatusBanner must not flow to chat");
         var call = ctx.updates.stream()
                 .filter(AcpSchema.ToolCall.class::isInstance)
                 .map(AcpSchema.ToolCall.class::cast)
                 .findFirst()
                 .orElseThrow();
         assertEquals("Adding context to workspace", call.title());
+        assertEquals(AcpSchema.ToolKind.THINK, call.kind());
         var block = (AcpSchema.ToolCallContentBlock) call.content().getFirst();
         var text = ((AcpSchema.TextContent) block.content()).text();
         assertTrue(text.contains("fragmentCount"), "yaml body should be carried into content");
