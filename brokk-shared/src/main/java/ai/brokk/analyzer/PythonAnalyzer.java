@@ -39,6 +39,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
 
     @Override
+    public boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
+        return topLevel
+                && cu.isModule()
+                && parentOf(cu).isEmpty()
+                && languages().stream().anyMatch(language -> language.getExtensions()
+                        .contains(cu.source().extension()));
+    }
+
+    @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPython(reference);
     }
@@ -1959,7 +1968,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         CodeUnit targetCu = (existing != null && existing.isModule()) ? existing : moduleCu;
 
         if (existing == null) {
-            acc.addLookupKey(targetCu.fqName(), targetCu);
+            var moduleRange = new Range(
+                    rootNode.getStartByte(),
+                    rootNode.getEndByte(),
+                    rootNode.getStartPoint().getRow(),
+                    rootNode.getEndPoint().getRow(),
+                    rootNode.getStartByte());
+            acc.addTopLevel(targetCu).addRange(targetCu, moduleRange);
         }
 
         acc.addSignature(targetCu, "# module " + modulePackageName)

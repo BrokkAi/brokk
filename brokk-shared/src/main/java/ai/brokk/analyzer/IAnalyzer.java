@@ -413,7 +413,8 @@ public interface IAnalyzer {
             int godObjectDirectChildren,
             int godObjectFunctions,
             int helperSprawlFunctions,
-            int helperSprawlWorkflowLines) {
+            int helperSprawlWorkflowLines,
+            int fileModuleLeewayMultiplier) {
 
         public static MaintainabilitySizeSmellWeights defaults() {
             return new MaintainabilitySizeSmellWeights(
@@ -423,7 +424,8 @@ public interface IAnalyzer {
                     20, // Many direct members suggest mixed responsibilities.
                     15, // Many functions under one parent suggest a god object/module.
                     10, // Helper sprawl threshold around a larger workflow.
-                    60 // Workflow size large enough to make surrounding helpers suspicious.
+                    60, // Workflow size large enough to make surrounding helpers suspicious.
+                    2 // JS/TS modules and Python files are expected to be broader than class-like units.
                     );
         }
     }
@@ -897,7 +899,7 @@ public interface IAnalyzer {
         var findings = new ArrayList<MaintainabilitySizeSmell>();
         var visited = new HashSet<CodeUnit>();
         for (CodeUnit cu : getTopLevelDeclarations(file)) {
-            collectMaintainabilitySizeSmells(cu, weights, visited, findings);
+            collectMaintainabilitySizeSmells(cu, weights, true, visited, findings);
         }
         return findings.stream().sorted(maintainabilitySizeSmellComparator()).toList();
     }
@@ -912,6 +914,7 @@ public interface IAnalyzer {
     private MaintainabilitySizeMetrics collectMaintainabilitySizeSmells(
             CodeUnit cu,
             MaintainabilitySizeSmellWeights weights,
+            boolean topLevel,
             Set<CodeUnit> visited,
             List<MaintainabilitySizeSmell> findings) {
         if (!visited.add(cu)) {
@@ -931,7 +934,7 @@ public interface IAnalyzer {
                 children.stream().filter(child -> !child.isSynthetic()).toList();
 
         for (CodeUnit child : children) {
-            var childMetrics = collectMaintainabilitySizeSmells(child, weights, visited, findings);
+            var childMetrics = collectMaintainabilitySizeSmells(child, weights, false, visited, findings);
             functionCount += childMetrics.functionCount();
             nestedTypeCount += childMetrics.nestedTypeCount();
             descendantSpanLines += childMetrics.descendantSpanLines();
@@ -952,22 +955,27 @@ public interface IAnalyzer {
                     reasons.add("high cyclomatic complexity " + maxCyclomaticComplexity);
                 }
             } else if (cu.isClass() || cu.isModule()) {
+                int moduleLeewayMultiplier = isFileLevelModule(cu, topLevel) ? weights.fileModuleLeewayMultiplier() : 1;
+                int godObjectSpanLines = weights.godObjectSpanLines() * moduleLeewayMultiplier;
+                int godObjectDirectChildren = weights.godObjectDirectChildren() * moduleLeewayMultiplier;
+                int godObjectFunctions = weights.godObjectFunctions() * moduleLeewayMultiplier;
+                int helperSprawlFunctions = weights.helperSprawlFunctions() * moduleLeewayMultiplier;
                 boolean responsibilityCluster = cu.isClass() || nonSyntheticChildren.size() > 1;
-                if (ownSpanLines >= weights.godObjectSpanLines()) {
-                    score += (ownSpanLines - weights.godObjectSpanLines()) / 4 + 20;
+                if (ownSpanLines >= godObjectSpanLines) {
+                    score += (ownSpanLines - godObjectSpanLines) / 4 + 20;
                     reasons.add(
                             "large " + cu.kind().name().toLowerCase(Locale.ROOT) + " spans " + ownSpanLines + " lines");
                 }
-                if (responsibilityCluster && nonSyntheticChildren.size() >= weights.godObjectDirectChildren()) {
-                    score += (nonSyntheticChildren.size() - weights.godObjectDirectChildren()) * 2 + 15;
+                if (responsibilityCluster && nonSyntheticChildren.size() >= godObjectDirectChildren) {
+                    score += (nonSyntheticChildren.size() - godObjectDirectChildren) * 2 + 15;
                     reasons.add("many direct members (" + nonSyntheticChildren.size() + ")");
                 }
-                if (responsibilityCluster && functionCount >= weights.godObjectFunctions()) {
-                    score += (functionCount - weights.godObjectFunctions()) * 2 + 15;
+                if (responsibilityCluster && functionCount >= godObjectFunctions) {
+                    score += (functionCount - godObjectFunctions) * 2 + 15;
                     reasons.add("many functions in one responsibility cluster (" + functionCount + ")");
                 }
                 if (responsibilityCluster
-                        && functionCount >= weights.helperSprawlFunctions()
+                        && functionCount >= helperSprawlFunctions
                         && maxFunctionSpanLines >= weights.helperSprawlWorkflowLines()) {
                     score += functionCount + maxFunctionSpanLines / 4;
                     reasons.add("helper sprawl around a " + maxFunctionSpanLines + "-line workflow");
@@ -999,6 +1007,10 @@ public interface IAnalyzer {
 
         return new MaintainabilitySizeMetrics(
                 descendantSpanLines, functionCount, nestedTypeCount, maxFunctionSpanLines, maxCyclomaticComplexity);
+    }
+
+    default boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
+        return false;
     }
 
     private Range primaryRangeOf(CodeUnit cu) {

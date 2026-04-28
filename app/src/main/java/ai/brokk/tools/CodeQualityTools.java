@@ -163,7 +163,8 @@ public class CodeQualityTools {
                 pickPositive(godObjectDirectChildren, defaults.godObjectDirectChildren()),
                 pickPositive(godObjectFunctions, defaults.godObjectFunctions()),
                 pickPositive(helperSprawlFunctions, defaults.helperSprawlFunctions()),
-                pickPositive(helperSprawlWorkflowLines, defaults.helperSprawlWorkflowLines()));
+                pickPositive(helperSprawlWorkflowLines, defaults.helperSprawlWorkflowLines()),
+                defaults.fileModuleLeewayMultiplier());
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         var files = filePaths.stream()
                 .map(contextManager::toFile)
@@ -705,8 +706,12 @@ public class CodeQualityTools {
                                 w.highComplexityThreshold(),
                                 w.godObjectSpanLines(),
                                 w.godObjectDirectChildren())
-                + " godObjectFunctions=%d, helperSprawlFunctions=%d, helperSprawlWorkflowLines=%d"
-                        .formatted(w.godObjectFunctions(), w.helperSprawlFunctions(), w.helperSprawlWorkflowLines());
+                + " godObjectFunctions=%d, helperSprawlFunctions=%d, helperSprawlWorkflowLines=%d, fileModuleLeeway=%dx"
+                        .formatted(
+                                w.godObjectFunctions(),
+                                w.helperSprawlFunctions(),
+                                w.helperSprawlWorkflowLines(),
+                                w.fileModuleLeewayMultiplier());
     }
 
     private static String formatWeights(IAnalyzer.ExceptionSmellWeights w) {

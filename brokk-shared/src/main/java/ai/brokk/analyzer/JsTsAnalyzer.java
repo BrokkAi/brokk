@@ -94,6 +94,15 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         super(project, language, state, listener, cache);
     }
 
+    @Override
+    public boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
+        return topLevel
+                && cu.isModule()
+                && parentOf(cu).isEmpty()
+                && languages().stream().anyMatch(language -> language.getExtensions()
+                        .contains(cu.source().extension()));
+    }
+
     public TSLanguage tsLanguage() {
         return getTSLanguage();
     }

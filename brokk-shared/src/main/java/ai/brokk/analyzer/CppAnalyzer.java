@@ -135,6 +135,15 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             "qcritical");
 
     @Override
+    public boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
+        return topLevel
+                && cu.isModule()
+                && parentOf(cu).isEmpty()
+                && languages().stream().anyMatch(language -> language.getExtensions()
+                        .contains(cu.source().extension()));
+    }
+
+    @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCpp(reference);
     }
