@@ -437,7 +437,13 @@ def test_main_exec_resolves_workspace_to_repo_root(monkeypatch, tmp_path) -> Non
     assert captured["kwargs"]["tags"] == {"mode": "LITE_AGENT"}
 
 
-def test_main_acp_rejects_legacy_ide_flag(monkeypatch, tmp_path) -> None:
+def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_run_native_acp_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(main_module, "run_native_acp_server", fake_run_native_acp_server)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -451,10 +457,11 @@ def test_main_acp_rejects_legacy_ide_flag(monkeypatch, tmp_path) -> None:
         ],
     )
 
-    with pytest.raises(SystemExit) as exc:
-        main_module.main()
+    main_module.main()
 
-    assert exc.value.code == 2
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert "--ide" not in captured["kwargs"]["passthrough_args"]
+    assert "zed" not in captured["kwargs"]["passthrough_args"]
 
 
 def test_main_acp_rejects_extra_positional(monkeypatch, tmp_path) -> None:

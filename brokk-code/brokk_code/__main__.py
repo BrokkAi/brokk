@@ -899,6 +899,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "acp", help="Run in ACP server mode (native Java agent over stdio JSON-RPC)"
     )
     _add_common_runtime_args(acp_parser)
+    acp_parser.add_argument(
+        "--ide",
+        choices=["intellij", "zed"],
+        default=None,
+        help=(
+            "[Deprecated] Legacy IDE hint (silently ignored). "
+            "Kept for backward compatibility with stale editor configs."
+        ),
+    )
 
     acp_native_parser = subparsers.add_parser(
         "acp-native", help="[Deprecated alias for 'acp'] Run native Java ACP server"
