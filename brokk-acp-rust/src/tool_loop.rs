@@ -258,9 +258,7 @@ pub(crate) async fn run(
                                     Some(Value::String(reason.clone())),
                                 )),
                             );
-                            messages.push(ChatMessage::tool_result(
-                                &call.id, &tool_name, &reason,
-                            ));
+                            messages.push(ChatMessage::tool_result(&call.id, &tool_name, &reason));
                             continue;
                         }
                     };
@@ -351,13 +349,9 @@ pub(crate) async fn run(
                                 policy
                             );
 
-                            let exec = execute_tool(
-                                registry,
-                                &tool_name,
-                                parsed_input.clone(),
-                                policy,
-                            )
-                            .await;
+                            let exec =
+                                execute_tool(registry, &tool_name, parsed_input.clone(), policy)
+                                    .await;
 
                             // Build the terminal update -- Completed (with a
                             // Diff for writeFile when we have prior content)
@@ -369,9 +363,8 @@ pub(crate) async fn run(
                                     Some(Value::String(exec.output.clone())),
                                 )
                             } else {
-                                let diff = pre_write.and_then(|prior| {
-                                    build_write_diff(&parsed_input, prior)
-                                });
+                                let diff = pre_write
+                                    .and_then(|prior| build_write_diff(&parsed_input, prior));
                                 announce::update_completed(&call.id, &exec.output, diff)
                             };
                             send_session_update(
