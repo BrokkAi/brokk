@@ -45,7 +45,7 @@ The `tree-sitter-ng` Java bindings now generate strongly-typed per-language cons
 - field names: `org.treesitter.<Language>NodeField` (e.g., `JavaNodeField`)
 - schema helpers: `org.treesitter.<Language>NodeSchema` (e.g., `JavaNodeSchema`)
 
-Prefer these generated constants over hard-coded strings and over our hand-maintained `*TreeSitterNodeTypes` files when they exist for the language you are working on.
+Prefer these generated constants over hard-coded strings. If a generated constant is missing for the language you are working on, add a narrowly scoped fallback to that language's `Constants` file instead of using a hand-maintained legacy node-type file.
 
 1. **Node type comparisons**: Use `nodeType(<Language>NodeType.X)` (or `X.getType()` directly) instead of string literals like `"method_declaration"`.
 2. **Field name access**: Use `nodeField(<Language>NodeField.X)` (or `X.getName()` directly) instead of string literals like `"name"`, `"body"`, etc.
@@ -74,6 +74,5 @@ TSNode nameNode = methodNode.getChildByFieldName(nodeField(JavaNodeField.NAME));
 
 **Migration guidance**
 1. When editing analyzers, replace string node type checks (`"foo_bar".equals(node.getType())`) with the generated `*NodeType` / `*NodeField` constants where available.
-2. If the language does not have generated schema/constants yet, use the existing `*TreeSitterNodeTypes` / `CommonTreeSitterNodeTypes` constants as a fallback (still avoid raw strings).
+2. If the language does not expose a generated schema/field/type constant yet, use the local language `Constants` file as the fallback (still avoid scattering raw strings).
 3. Query capture names (the names in `.scm` files like `import.declaration` or `test_marker`) are not node types. Keep those as explicit string constants (e.g., `IMPORT_DECLARATION_CAPTURE`), do not try to model them as `NodeType`s.
-

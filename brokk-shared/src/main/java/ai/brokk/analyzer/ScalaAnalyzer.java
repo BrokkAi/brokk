@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.scala.ScalaTreeSitterNodeTypes.*;
+import static ai.brokk.analyzer.scala.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.ICoreProject;
@@ -13,6 +13,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
+import org.treesitter.ScalaNodeField;
+import org.treesitter.ScalaNodeType;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSQueryCapture;
@@ -89,7 +91,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
             ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
         var tryNodes = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(TRY_EXPRESSION), tryNodes);
+        collectNodesByType(root, Set.of(nodeType(ScalaNodeType.TRY_EXPRESSION)), tryNodes);
 
         var findings = new ArrayList<ExceptionHandlingSmell>();
         for (TSNode tryNode : tryNodes) {
@@ -114,12 +116,12 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         // Avoid descendant search: nested try/catch inside the try-body should not be attributed to this
         // try_expression.
         TSNode byField = tryExpression.getChildByFieldName("catch");
-        if (byField != null && CATCH_CLAUSE.equals(byField.getType())) {
+        if (byField != null && nodeType(ScalaNodeType.CATCH_CLAUSE).equals(byField.getType())) {
             return byField;
         }
         for (int i = 0; i < tryExpression.getNamedChildCount(); i++) {
             TSNode child = tryExpression.getNamedChild(i);
-            if (child != null && CATCH_CLAUSE.equals(child.getType())) {
+            if (child != null && nodeType(ScalaNodeType.CATCH_CLAUSE).equals(child.getType())) {
                 return child;
             }
         }
@@ -133,9 +135,12 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
             return Optional.empty();
         }
         String catchType = extractCatchType(caseClause, sourceContent);
-        boolean hasAnyComment = hasDescendantOfAnyType(caseClause, Set.of(COMMENT, LINE_COMMENT, BLOCK_COMMENT));
+        boolean hasAnyComment = hasDescendantOfAnyType(
+                caseClause,
+                Set.of(nodeType(ScalaNodeType.COMMENT), LINE_COMMENT, nodeType(ScalaNodeType.BLOCK_COMMENT)));
         boolean throwPresent = handlerNodes.stream()
-                .anyMatch(n -> THROW_EXPRESSION.equals(n.getType()) || hasDescendantOfType(n, THROW_EXPRESSION));
+                .anyMatch(n -> nodeType(ScalaNodeType.THROW_EXPRESSION).equals(n.getType())
+                        || hasDescendantOfType(n, nodeType(ScalaNodeType.THROW_EXPRESSION)));
         int bodyStatements = countMeaningfulHandlerStatements(handlerNodes, sourceContent);
 
         boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
@@ -207,7 +212,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         int start = 0;
         while (start < named.size()) {
             String type = named.get(start).getType();
-            if (TYPED_PATTERN.equals(type) || GUARD.equals(type)) {
+            if (nodeType(ScalaNodeType.TYPED_PATTERN).equals(type)
+                    || nodeType(ScalaNodeType.GUARD).equals(type)) {
                 start++;
                 continue;
             }
@@ -230,7 +236,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                 continue;
             }
             String type = node.getType();
-            if (CASE_CLAUSE.equals(type)) {
+            if (nodeType(ScalaNodeType.CASE_CLAUSE).equals(type)) {
                 cases.add(node);
                 continue;
             }
@@ -254,16 +260,16 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     }
 
     private static String extractCatchType(TSNode caseClause, SourceContent sourceContent) {
-        TSNode patternNode = caseClause.getChildByFieldName("pattern");
+        TSNode patternNode = caseClause.getChildByFieldName(nodeField(ScalaNodeField.PATTERN));
         if (patternNode == null) {
             // Fall back to the clause itself; this should still be useful in the markdown output.
             return sourceContent.substringFrom(caseClause).strip();
         }
-        TSNode typedPattern = findFirstNamedDescendant(patternNode, TYPED_PATTERN);
+        TSNode typedPattern = findFirstNamedDescendant(patternNode, nodeType(ScalaNodeType.TYPED_PATTERN));
         if (typedPattern == null) {
             return sourceContent.substringFrom(patternNode).strip();
         }
-        TSNode typeNode = typedPattern.getChildByFieldName("type");
+        TSNode typeNode = typedPattern.getChildByFieldName(nodeField(ScalaNodeField.TYPE));
         if (typeNode == null) {
             return sourceContent.substringFrom(typedPattern).strip();
         }
@@ -280,13 +286,17 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
             if (type == null) {
                 continue;
             }
-            if (COMMENT.equals(type) || LINE_COMMENT.equals(type) || BLOCK_COMMENT.equals(type)) {
+            if (nodeType(ScalaNodeType.COMMENT).equals(type)
+                    || LINE_COMMENT.equals(type)
+                    || nodeType(ScalaNodeType.BLOCK_COMMENT).equals(type)) {
                 continue;
             }
-            if (UNIT.equals(type)) {
+            if (nodeType(ScalaNodeType.UNIT).equals(type)) {
                 continue;
             }
-            if (SPAN.equals(type) || BLOCK.equals(type) || INDENTED_BLOCK.equals(type)) {
+            if (SPAN.equals(type)
+                    || nodeType(ScalaNodeType.BLOCK).equals(type)
+                    || nodeType(ScalaNodeType.INDENTED_BLOCK).equals(type)) {
                 statements += countTopLevelSpanElements(node);
                 continue;
             }
@@ -308,10 +318,12 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
             if (elementType == null) {
                 continue;
             }
-            if (UNIT.equals(elementType)) {
+            if (nodeType(ScalaNodeType.UNIT).equals(elementType)) {
                 continue;
             }
-            if (COMMENT.equals(elementType) || LINE_COMMENT.equals(elementType) || BLOCK_COMMENT.equals(elementType)) {
+            if (nodeType(ScalaNodeType.COMMENT).equals(elementType)
+                    || LINE_COMMENT.equals(elementType)
+                    || nodeType(ScalaNodeType.BLOCK_COMMENT).equals(elementType)) {
                 continue;
             }
             statements++;
@@ -326,7 +338,9 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                 continue;
             }
             String type = child.getType();
-            if (SPAN.equals(type) || BLOCK.equals(type) || INDENTED_BLOCK.equals(type)) {
+            if (SPAN.equals(type)
+                    || nodeType(ScalaNodeType.BLOCK).equals(type)
+                    || nodeType(ScalaNodeType.INDENTED_BLOCK).equals(type)) {
                 collectTopLevelSpanElements(child, out);
                 continue;
             }
@@ -340,11 +354,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
             if (node == null) {
                 continue;
             }
-            if (CALL_EXPRESSION.equals(node.getType())) {
+            if (nodeType(ScalaNodeType.CALL_EXPRESSION).equals(node.getType())) {
                 call = node;
                 break;
             }
-            call = findFirstNamedDescendant(node, CALL_EXPRESSION);
+            call = findFirstNamedDescendant(node, nodeType(ScalaNodeType.CALL_EXPRESSION));
             if (call != null) {
                 break;
             }
@@ -356,15 +370,15 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     }
 
     private static boolean isLikelyLoggerCall(TSNode callExpression, SourceContent sourceContent) {
-        TSNode functionNode = callExpression.getChildByFieldName("function");
+        TSNode functionNode = callExpression.getChildByFieldName(nodeField(ScalaNodeField.FUNCTION));
         if (functionNode == null) {
             return false;
         }
-        if (!FIELD_EXPRESSION.equals(functionNode.getType())) {
+        if (!nodeType(ScalaNodeType.FIELD_EXPRESSION).equals(functionNode.getType())) {
             return false;
         }
-        TSNode receiverNode = functionNode.getChildByFieldName("value");
-        TSNode fieldNode = functionNode.getChildByFieldName("field");
+        TSNode receiverNode = functionNode.getChildByFieldName(nodeField(ScalaNodeField.VALUE));
+        TSNode fieldNode = functionNode.getChildByFieldName(nodeField(ScalaNodeField.FIELD));
         if (receiverNode == null || fieldNode == null) {
             return false;
         }
@@ -439,7 +453,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
     @Override
     protected String determineClassName(@Nullable String nodeType, String shortName) {
-        if (OBJECT_DEFINITION.equals(nodeType)) {
+        if (nodeType(ScalaNodeType.OBJECT_DEFINITION).equals(nodeType)) {
             // Companion objects append '$' on a bytecode level to avoid naming conflicts
             return shortName + "$";
         } else {
@@ -453,7 +467,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         return JavaAnalyzer.determineJvmPackageName(
                 rootNode,
                 sourceContent,
-                PACKAGE_CLAUSE,
+                nodeType(ScalaNodeType.PACKAGE_CLAUSE),
                 SCALA_SYNTAX_PROFILE.classLikeNodeTypes(),
                 (node, sourceContent1) -> sourceContent1.substringFrom(node));
     }
@@ -511,10 +525,17 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     }
 
     private static final LanguageSyntaxProfile SCALA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(CLASS_DEFINITION, OBJECT_DEFINITION, INTERFACE_DEFINITION, ENUM_DEFINITION),
-            Set.of(FUNCTION_DEFINITION),
-            Set.of(VAL_DEFINITION, VAR_DEFINITION, SIMPLE_ENUM_CASE),
-            Set.of(ANNOTATION, MARKER_ANNOTATION),
+            Set.of(
+                    nodeType(ScalaNodeType.CLASS_DEFINITION),
+                    nodeType(ScalaNodeType.OBJECT_DEFINITION),
+                    nodeType(ScalaNodeType.TRAIT_DEFINITION),
+                    nodeType(ScalaNodeType.ENUM_DEFINITION)),
+            Set.of(nodeType(ScalaNodeType.FUNCTION_DEFINITION)),
+            Set.of(
+                    nodeType(ScalaNodeType.VAL_DEFINITION),
+                    nodeType(ScalaNodeType.VAR_DEFINITION),
+                    nodeType(ScalaNodeType.SIMPLE_ENUM_CASE)),
+            Set.of(nodeType(ScalaNodeType.ANNOTATION), MARKER_ANNOTATION),
             Set.of(),
             IMPORT_DECLARATION,
             "name", // identifier field name
@@ -556,7 +577,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
             String baseIndent,
             ProjectFile file) {
         String nodeType = fieldNode.getType();
-        if (!VAL_DEFINITION.equals(nodeType) && !VAR_DEFINITION.equals(nodeType)) {
+        if (!nodeType(ScalaNodeType.VAL_DEFINITION).equals(nodeType)
+                && !nodeType(ScalaNodeType.VAR_DEFINITION).equals(nodeType)) {
             return super.formatFieldSignature(
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
@@ -564,11 +586,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         String trimmedSignature = signatureText.strip();
 
         // Single-name fast path: preserve the raw slice (modifiers, annotations) but truncate non-literals.
-        TSNode patternNode = fieldNode.getChildByFieldName("pattern");
-        if (patternNode != null && IDENTIFIER.equals(patternNode.getType())) {
+        TSNode patternNode = fieldNode.getChildByFieldName(nodeField(ScalaNodeField.PATTERN));
+        if (patternNode != null && nodeType(ScalaNodeType.IDENTIFIER).equals(patternNode.getType())) {
             String patternText = sourceContent.substringFrom(patternNode).strip();
             if (patternText.equals(simpleName)) {
-                TSNode valueNode = fieldNode.getChildByFieldName("value");
+                TSNode valueNode = fieldNode.getChildByFieldName(nodeField(ScalaNodeField.VALUE));
                 String result = (exportPrefix.isEmpty() ? trimmedSignature : (exportPrefix + trimmedSignature));
 
                 if (valueNode != null && !isLiteral(valueNode)) {
@@ -583,7 +605,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         }
 
         // Multi-name pattern or fallback: reconstruct from AST fields.
-        String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
+        String keyword = nodeType(ScalaNodeType.VAL_DEFINITION).equals(nodeType) ? "val" : "var";
         StringBuilder sb = new StringBuilder();
         sb.append(baseIndent);
         if (!exportPrefix.isEmpty()) {
@@ -591,12 +613,12 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         }
         sb.append(keyword).append(" ").append(simpleName);
 
-        TSNode typeNode = fieldNode.getChildByFieldName("type");
+        TSNode typeNode = fieldNode.getChildByFieldName(nodeField(ScalaNodeField.TYPE));
         if (typeNode != null) {
             sb.append(": ").append(sourceContent.substringFrom(typeNode));
         }
 
-        TSNode valueNode = fieldNode.getChildByFieldName("value");
+        TSNode valueNode = fieldNode.getChildByFieldName(nodeField(ScalaNodeField.VALUE));
         if (valueNode != null && isLiteral(valueNode)) {
             sb.append(" = ").append(sourceContent.substringFrom(valueNode));
         }
@@ -735,7 +757,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         var seenBodies = new HashSet<Integer>();
 
         var callExpressions = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(CALL_EXPRESSION), callExpressions);
+        collectNodesByType(root, Set.of(nodeType(ScalaNodeType.CALL_EXPRESSION)), callExpressions);
         for (TSNode call : callExpressions) {
             if (!callNameOf(call, sourceContent).filter("test"::equals).isPresent()) {
                 continue;
@@ -747,7 +769,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         }
 
         var infixExpressions = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(INFIX_EXPRESSION), infixExpressions);
+        collectNodesByType(root, Set.of(nodeType(ScalaNodeType.INFIX_EXPRESSION)), infixExpressions);
         for (TSNode infix : infixExpressions) {
             TSNode body = flatSpecBodyFromInfix(infix, sourceContent);
             if (body != null && seenBodies.add(body.getStartByte())) {
@@ -756,7 +778,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         }
 
         var functions = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(FUNCTION_DEFINITION), functions);
+        collectNodesByType(root, Set.of(nodeType(ScalaNodeType.FUNCTION_DEFINITION)), functions);
         for (TSNode fn : functions) {
             if (!hasJUnitTestAnnotation(fn, sourceContent)) {
                 continue;
@@ -771,28 +793,28 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     }
 
     private static Optional<String> callNameOf(TSNode callExpression, SourceContent sourceContent) {
-        TSNode functionNode = callExpression.getChildByFieldName("function");
-        if (functionNode != null && IDENTIFIER.equals(functionNode.getType())) {
+        TSNode functionNode = callExpression.getChildByFieldName(nodeField(ScalaNodeField.FUNCTION));
+        if (functionNode != null && nodeType(ScalaNodeType.IDENTIFIER).equals(functionNode.getType())) {
             return Optional.of(sourceContent.substringFrom(functionNode).strip());
         }
 
-        if (functionNode != null && FIELD_EXPRESSION.equals(functionNode.getType())) {
-            TSNode field = functionNode.getChildByFieldName("field");
-            if (field != null && IDENTIFIER.equals(field.getType())) {
+        if (functionNode != null && nodeType(ScalaNodeType.FIELD_EXPRESSION).equals(functionNode.getType())) {
+            TSNode field = functionNode.getChildByFieldName(nodeField(ScalaNodeField.FIELD));
+            if (field != null && nodeType(ScalaNodeType.IDENTIFIER).equals(field.getType())) {
                 return Optional.of(sourceContent.substringFrom(field).strip());
             }
-            TSNode descendant = findFirstNamedDescendant(functionNode, IDENTIFIER);
+            TSNode descendant = findFirstNamedDescendant(functionNode, nodeType(ScalaNodeType.IDENTIFIER));
             if (descendant != null) {
                 return Optional.of(sourceContent.substringFrom(descendant).strip());
             }
         }
 
         TSNode first = callExpression.getNamedChildCount() > 0 ? callExpression.getNamedChild(0) : null;
-        if (first != null && IDENTIFIER.equals(first.getType())) {
+        if (first != null && nodeType(ScalaNodeType.IDENTIFIER).equals(first.getType())) {
             return Optional.of(sourceContent.substringFrom(first).strip());
         }
 
-        TSNode descendant = findFirstNamedDescendant(callExpression, IDENTIFIER);
+        TSNode descendant = findFirstNamedDescendant(callExpression, nodeType(ScalaNodeType.IDENTIFIER));
         if (descendant == null) {
             return Optional.empty();
         }
@@ -818,7 +840,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                 continue;
             }
             String type = child.getType();
-            if (OPERATOR_IDENTIFIER.equals(type) || IDENTIFIER.equals(type)) {
+            if (nodeType(ScalaNodeType.OPERATOR_IDENTIFIER).equals(type)
+                    || nodeType(ScalaNodeType.IDENTIFIER).equals(type)) {
                 return child;
             }
         }
@@ -827,9 +850,10 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
     private boolean hasJUnitTestAnnotation(TSNode functionDefinition, SourceContent sourceContent) {
         var annotations = new ArrayList<TSNode>();
-        collectNodesByType(functionDefinition, Set.of(ANNOTATION, MARKER_ANNOTATION), annotations);
+        collectNodesByType(
+                functionDefinition, Set.of(nodeType(ScalaNodeType.ANNOTATION), MARKER_ANNOTATION), annotations);
         for (TSNode annotation : annotations) {
-            TSNode nameNode = annotation.getChildByFieldName("name");
+            TSNode nameNode = annotation.getChildByFieldName(nodeField(ScalaNodeField.NAME));
             if (nameNode == null || !TYPE_IDENTIFIER.equals(nameNode.getType())) {
                 continue;
             }
@@ -846,13 +870,13 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         var signals = new ArrayList<AssertionSignal>();
 
         var callExpressions = new ArrayList<TSNode>();
-        collectNodesByType(bodyNode, Set.of(CALL_EXPRESSION), callExpressions);
+        collectNodesByType(bodyNode, Set.of(nodeType(ScalaNodeType.CALL_EXPRESSION)), callExpressions);
         for (TSNode call : callExpressions) {
             extractAssertionSignalFromCall(call, sourceContent, w).ifPresent(signals::add);
         }
 
         var infixExpressions = new ArrayList<TSNode>();
-        collectNodesByType(bodyNode, Set.of(INFIX_EXPRESSION), infixExpressions);
+        collectNodesByType(bodyNode, Set.of(nodeType(ScalaNodeType.INFIX_EXPRESSION)), infixExpressions);
         for (TSNode infix : infixExpressions) {
             extractAssertionSignalFromScalatestInfix(infix, sourceContent, w).ifPresent(signals::add);
         }
@@ -958,7 +982,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                     sourceContent.substringFrom(callExpression),
                     callExpression.getStartByte());
         }
-        if (NULL.equals(left.getType()) || NULL.equals(right.getType())) {
+        if (nodeType(ScalaNodeType.NULL_LITERAL).equals(left.getType())
+                || nodeType(ScalaNodeType.NULL_LITERAL).equals(right.getType())) {
             return new AssertionSignal(
                     true,
                     false,
@@ -1014,11 +1039,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                     callExpression.getStartByte());
         }
 
-        if (INFIX_EXPRESSION.equals(condition.getType())) {
+        if (nodeType(ScalaNodeType.INFIX_EXPRESSION).equals(condition.getType())) {
             return signalFromEqualityExpression(condition, sourceContent, w, callExpression.getStartByte());
         }
 
-        TSNode descendantInfix = findFirstNamedDescendant(condition, INFIX_EXPRESSION);
+        TSNode descendantInfix = findFirstNamedDescendant(condition, nodeType(ScalaNodeType.INFIX_EXPRESSION));
         if (descendantInfix != null) {
             return signalFromEqualityExpression(descendantInfix, sourceContent, w, callExpression.getStartByte());
         }
@@ -1087,7 +1112,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                     sourceContent.substringFrom(infixExpression),
                     startByte);
         }
-        if (NULL.equals(left.getType()) || NULL.equals(right.getType())) {
+        if (nodeType(ScalaNodeType.NULL_LITERAL).equals(left.getType())
+                || nodeType(ScalaNodeType.NULL_LITERAL).equals(right.getType())) {
             return new AssertionSignal(
                     true, false, true, "", 0, List.of(), sourceContent.substringFrom(infixExpression), startByte);
         }
@@ -1142,7 +1168,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                     sourceContent.substringFrom(infixExpression),
                     infixExpression.getStartByte()));
         }
-        if (NULL.equals(left.getType()) || NULL.equals(right.getType())) {
+        if (nodeType(ScalaNodeType.NULL_LITERAL).equals(left.getType())
+                || nodeType(ScalaNodeType.NULL_LITERAL).equals(right.getType())) {
             return Optional.of(new AssertionSignal(
                     true,
                     false,
@@ -1173,7 +1200,13 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     private @Nullable AssertionSignal overspecifiedLiteralSignal(
             TSNode node, SourceContent sourceContent, TestAssertionWeights w) {
         var strings = new ArrayList<TSNode>();
-        collectNodesByType(node, Set.of(STRING, INTERPOLATED_STRING, INTERPOLATED_VERBATIM_STRING), strings);
+        collectNodesByType(
+                node,
+                Set.of(
+                        nodeType(ScalaNodeType.STRING),
+                        nodeType(ScalaNodeType.INTERPOLATED_STRING),
+                        INTERPOLATED_VERBATIM_STRING),
+                strings);
         for (TSNode stringNode : strings) {
             if (sourceContent.substringFrom(stringNode).length() > w.largeLiteralLengthThreshold()) {
                 return new AssertionSignal(
@@ -1191,9 +1224,9 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     }
 
     private static @Nullable TSNode nthNamedArgument(TSNode callExpression, int idx) {
-        TSNode args = callExpression.getChildByFieldName(ARGUMENTS);
+        TSNode args = callExpression.getChildByFieldName(nodeType(ScalaNodeType.ARGUMENTS));
         if (args == null) {
-            args = callExpression.getChildByFieldName(ARGUMENT);
+            args = callExpression.getChildByFieldName(nodeField(ScalaNodeField.ARGUMENTS));
         }
         if (args == null) {
             for (int i = 0; i < callExpression.getNamedChildCount(); i++) {
@@ -1202,8 +1235,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                     continue;
                 }
                 String type = child.getType();
-                if (ARGUMENTS.equals(type)
-                        || ARGUMENT.equals(type)
+                if (nodeType(ScalaNodeType.ARGUMENTS).equals(type)
+                        || nodeField(ScalaNodeField.ARGUMENTS).equals(type)
                         || ARGUMENT_LIST.equals(type)
                         || ARGUMENTS_LIST.equals(type)) {
                     args = child;
@@ -1221,7 +1254,9 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                 return null;
             }
             String type = child.getType();
-            if (ARGUMENTS.equals(type) || ARGUMENT_LIST.equals(type) || ARGUMENTS_LIST.equals(type)) {
+            if (nodeType(ScalaNodeType.ARGUMENTS).equals(type)
+                    || ARGUMENT_LIST.equals(type)
+                    || ARGUMENTS_LIST.equals(type)) {
                 return child.getNamedChildCount() > idx ? child.getNamedChild(idx) : null;
             }
             return child;
@@ -1236,7 +1271,9 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                 continue;
             }
             String type = child.getType();
-            if (BLOCK.equals(type) || INDENTED_BLOCK.equals(type) || BLOCK_EXPRESSION.equals(type)) {
+            if (nodeType(ScalaNodeType.BLOCK).equals(type)
+                    || nodeType(ScalaNodeType.INDENTED_BLOCK).equals(type)
+                    || BLOCK_EXPRESSION.equals(type)) {
                 return child;
             }
         }
@@ -1244,11 +1281,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     }
 
     private static @Nullable TSNode firstBlockLikeDescendant(TSNode node) {
-        TSNode block = findFirstNamedDescendant(node, BLOCK);
+        TSNode block = findFirstNamedDescendant(node, nodeType(ScalaNodeType.BLOCK));
         if (block != null) {
             return block;
         }
-        TSNode indented = findFirstNamedDescendant(node, INDENTED_BLOCK);
+        TSNode indented = findFirstNamedDescendant(node, nodeType(ScalaNodeType.INDENTED_BLOCK));
         if (indented != null) {
             return indented;
         }
@@ -1259,13 +1296,13 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         String type = node.getType();
         if (type == null) return false;
         return type.endsWith("_literal")
-                || STRING.equals(type)
-                || INTERPOLATED_STRING.equals(type)
+                || nodeType(ScalaNodeType.STRING).equals(type)
+                || nodeType(ScalaNodeType.INTERPOLATED_STRING).equals(type)
                 || INTERPOLATED_VERBATIM_STRING.equals(type)
                 || BOOLEAN.equals(type)
-                || CHARACTER.equals(type)
+                || nodeType(ScalaNodeType.CHARACTER_LITERAL).equals(type)
                 || SYMBOL.equals(type)
-                || NULL.equals(type);
+                || nodeType(ScalaNodeType.NULL_LITERAL).equals(type);
     }
 
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
@@ -1311,7 +1348,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
                     // Fallback via direct syntax traversal (no string parsing).
                     var callExpressions = new ArrayList<TSNode>();
-                    collectNodesByType(rootNode, Set.of(CALL_EXPRESSION), callExpressions);
+                    collectNodesByType(rootNode, Set.of(nodeType(ScalaNodeType.CALL_EXPRESSION)), callExpressions);
                     if (callExpressions.stream().anyMatch(call -> callNameOf(call, sourceContent)
                             .filter("test"::equals)
                             .isPresent())) {
@@ -1319,7 +1356,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                     }
 
                     var infixExpressions = new ArrayList<TSNode>();
-                    collectNodesByType(rootNode, Set.of(INFIX_EXPRESSION), infixExpressions);
+                    collectNodesByType(rootNode, Set.of(nodeType(ScalaNodeType.INFIX_EXPRESSION)), infixExpressions);
                     if (infixExpressions.stream().anyMatch(infix -> {
                         TSNode op = operatorNodeOfInfix(infix);
                         return op != null
@@ -1330,9 +1367,10 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                     }
 
                     var annotations = new ArrayList<TSNode>();
-                    collectNodesByType(rootNode, Set.of(ANNOTATION, MARKER_ANNOTATION), annotations);
+                    collectNodesByType(
+                            rootNode, Set.of(nodeType(ScalaNodeType.ANNOTATION), MARKER_ANNOTATION), annotations);
                     return annotations.stream().anyMatch(annotation -> {
-                        TSNode nameNode = annotation.getChildByFieldName("name");
+                        TSNode nameNode = annotation.getChildByFieldName(nodeField(ScalaNodeField.NAME));
                         return nameNode != null
                                 && TYPE_IDENTIFIER.equals(nameNode.getType())
                                 && TEST_ANNOTATIONS.contains(

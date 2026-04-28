@@ -62,6 +62,9 @@ import org.treesitter.*;
 public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider, TestDetectionProvider {
 
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
+    private static final Set<String> COMMENT_NODE_TYPES =
+            Set.of("comment", "line_comment", "block_comment", "doc_comment", "documentation_comment");
+    private static final Set<String> WHITESPACE_NODE_TYPES = Set.of("whitespace", "newline");
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
     /**
@@ -4275,11 +4278,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         String nodeType = node.getType();
         if (nodeType == null) return false;
-        return nodeType.equals(CommonTreeSitterNodeTypes.COMMENT)
-                || nodeType.equals(CommonTreeSitterNodeTypes.LINE_COMMENT)
-                || nodeType.equals(CommonTreeSitterNodeTypes.BLOCK_COMMENT)
-                || nodeType.equals(CommonTreeSitterNodeTypes.DOC_COMMENT)
-                || nodeType.equals(CommonTreeSitterNodeTypes.DOCUMENTATION_COMMENT);
+        return COMMENT_NODE_TYPES.contains(nodeType);
     }
 
     /**
@@ -4334,10 +4333,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Common whitespace node types in Tree-Sitter grammars
         String nodeType = node.getType();
         if (nodeType == null) return false;
-        return nodeType.equals(CommonTreeSitterNodeTypes.WHITESPACE)
-                || nodeType.equals(CommonTreeSitterNodeTypes.NEWLINE)
-                || nodeType.equals("\n")
-                || nodeType.equals(" ");
+        return WHITESPACE_NODE_TYPES.contains(nodeType) || nodeType.equals("\n") || nodeType.equals(" ");
     }
 
     /**

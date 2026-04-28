@@ -16,12 +16,17 @@ import org.treesitter.TSQueryException;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJavascript;
+import org.treesitter.TsxNodeType;
 
 public class JavascriptAnalyzer extends JsTsAnalyzer {
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
-            Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
-            Set.of(VARIABLE_DECLARATOR),
+            Set.of(nodeType(TsxNodeType.CLASS_DECLARATION), CLASS_EXPRESSION, nodeType(TsxNodeType.CLASS_)),
+            Set.of(
+                    nodeType(TsxNodeType.FUNCTION_DECLARATION),
+                    nodeType(TsxNodeType.ARROW_FUNCTION),
+                    nodeType(TsxNodeType.METHOD_DEFINITION),
+                    nodeType(TsxNodeType.FUNCTION_EXPRESSION)),
+            Set.of(nodeType(TsxNodeType.VARIABLE_DECLARATOR)),
             Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
             Set.of(),
             CaptureNames.IMPORT_DECLARATION,
@@ -146,7 +151,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         TSNode nodeForContent = definitionNode;
 
         // 1. Unwrap export statement
-        if (EXPORT_STATEMENT.equals(definitionNode.getType())) {
+        if (nodeType(TsxNodeType.EXPORT_STATEMENT).equals(definitionNode.getType())) {
             TSNode declarationInExport = definitionNode.getChildByFieldName(FIELD_DECLARATION);
             if (declarationInExport != null) {
                 nodeForSignature = declarationInExport;
@@ -157,10 +162,11 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         // 2. Unwrap variable declaration to specific declarator for content/body extraction
         if (refined == SkeletonType.FIELD_LIKE || refined == SkeletonType.FUNCTION_LIKE) {
             String nodeType = nodeForContent.getType();
-            if (LEXICAL_DECLARATION.equals(nodeType) || VARIABLE_DECLARATION.equals(nodeType)) {
+            if (nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(nodeType)
+                    || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(nodeType)) {
                 // Find the variable_declarator child that matches the simpleName
                 for (TSNode child : nodeForContent.getChildren()) {
-                    if (VARIABLE_DECLARATOR.equals(child.getType())) {
+                    if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(child.getType())) {
                         TSNode nameNode = child.getChildByFieldName(
                                 getLanguageSyntaxProfile().identifierFieldName());
                         if (nameNode != null
@@ -215,7 +221,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
         String nodeType = funcNode.getType();
 
-        if (ARROW_FUNCTION.equals(nodeType)) {
+        if (nodeType(TsxNodeType.ARROW_FUNCTION).equals(nodeType)) {
             // For arrow functions, we need to strip const/let/var from the exportPrefix
             String cleanedExportPrefix = exportPrefix;
             if (exportPrefix.contains("const")) {
@@ -241,7 +247,9 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     private boolean isJsxNode(@Nullable TSNode node) {
         if (node == null) return false;
         String type = node.getType();
-        return JSX_ELEMENT.equals(type) || JSX_SELF_CLOSING_ELEMENT.equals(type) || JSX_FRAGMENT.equals(type);
+        return nodeType(TsxNodeType.JSX_ELEMENT).equals(type)
+                || nodeType(TsxNodeType.JSX_SELF_CLOSING_ELEMENT).equals(type)
+                || JSX_FRAGMENT.equals(type);
     }
 
     private boolean returnsJsxElement(TSNode funcNode, SourceContent sourceContent) {
@@ -252,7 +260,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         }
 
         // Case 1: Arrow function with implicit return: () => <div />
-        if (ARROW_FUNCTION.equals(funcNode.getType())) {
+        if (nodeType(TsxNodeType.ARROW_FUNCTION).equals(funcNode.getType())) {
             if (isJsxNode(bodyNode)) { // bodyNode is the expression itself for implicit return
                 return true;
             }
@@ -345,8 +353,9 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             // Check if 'node' is a variable_declarator and its parent is lexical_declaration or variable_declaration
             // This is for field definitions like `const a = 1;` or `export let b = 2;`
             // where `node` is the `variable_declarator` (e.g., `a = 1`).
-            if ((LEXICAL_DECLARATION.equals(parent.getType()) || VARIABLE_DECLARATION.equals(parent.getType()))
-                    && VARIABLE_DECLARATOR.equals(node.getType())) {
+            if ((nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(parent.getType())
+                            || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(parent.getType()))
+                    && nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(node.getType())) {
                 // lexical_declaration or variable_declaration
                 String keyword = "";
                 // The first child of lexical/variable_declaration is the keyword (const, let, var)
@@ -357,7 +366,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
                 String exportStr = "";
                 TSNode exportStatementNode = parent.getParent(); // Parent of lexical/variable_declaration
-                if (exportStatementNode != null && EXPORT_STATEMENT.equals(exportStatementNode.getType())) {
+                if (exportStatementNode != null
+                        && nodeType(TsxNodeType.EXPORT_STATEMENT).equals(exportStatementNode.getType())) {
                     exportStr = "export ";
                 }
 
@@ -375,7 +385,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
             // Original logic for other types of nodes (e.g., class_declaration, function_declaration, arrow_function)
             // Case 1: node is class_declaration, function_declaration, etc., and its parent is an export_statement.
-            if (EXPORT_STATEMENT.equals(parent.getType())) {
+            if (nodeType(TsxNodeType.EXPORT_STATEMENT).equals(parent.getType())) {
                 // This handles `export class Foo {}`, `export function bar() {}`
                 return "export ";
             }
@@ -383,13 +393,14 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             // Case 2: node is the value of a variable declarator (e.g., an arrow_function or class_expression),
             // and the containing lexical_declaration or variable_declaration is exported.
             // e.g., `export const foo = () => {}` -> `node` is `arrow_function`, `parent` is `variable_declarator`.
-            if (VARIABLE_DECLARATOR.equals(parent.getType())) {
+            if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(parent.getType())) {
                 TSNode lexicalOrVarDeclNode = parent.getParent();
                 if (lexicalOrVarDeclNode != null
-                        && (LEXICAL_DECLARATION.equals(lexicalOrVarDeclNode.getType())
-                                || VARIABLE_DECLARATION.equals(lexicalOrVarDeclNode.getType()))) {
+                        && (nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(lexicalOrVarDeclNode.getType())
+                                || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(lexicalOrVarDeclNode.getType()))) {
                     TSNode exportStatementNode = lexicalOrVarDeclNode.getParent();
-                    if (exportStatementNode != null && EXPORT_STATEMENT.equals(exportStatementNode.getType())) {
+                    if (exportStatementNode != null
+                            && nodeType(TsxNodeType.EXPORT_STATEMENT).equals(exportStatementNode.getType())) {
                         // For `export const Foo = () => {}`, this returns "export "
                         return "export ";
                     }
@@ -443,13 +454,13 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     private boolean isLiteralType(@Nullable String type) {
         if (type == null) return false;
         return type.endsWith("literal")
-                || NUMBER.equals(type)
-                || STRING.equals(type)
-                || TEMPLATE_STRING.equals(type)
-                || TRUE.equals(type)
-                || FALSE.equals(type)
-                || NULL.equals(type)
-                || UNDEFINED.equals(type);
+                || nodeType(TsxNodeType.NUMBER).equals(type)
+                || nodeType(TsxNodeType.STRING).equals(type)
+                || nodeType(TsxNodeType.TEMPLATE_STRING).equals(type)
+                || nodeType(TsxNodeType.TRUE).equals(type)
+                || nodeType(TsxNodeType.FALSE).equals(type)
+                || nodeType(TsxNodeType.NULL).equals(type)
+                || nodeType(TsxNodeType.UNDEFINED).equals(type);
     }
 
     @Override
@@ -464,7 +475,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         // JavaScript field signatures shouldn't have semicolons.
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
 
-        if (VARIABLE_DECLARATOR.equals(fieldNode.getType())) {
+        if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(fieldNode.getType())) {
             TSNode valueNode = fieldNode.getChildByFieldName(FIELD_VALUE);
             if (valueNode != null && !isLiteralType(valueNode.getType())) {
                 String valueText = sourceContent.substringFrom(valueNode).strip();

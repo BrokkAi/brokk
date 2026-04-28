@@ -40,6 +40,7 @@ import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
+import org.treesitter.TsxNodeType;
 
 /**
  * Static helper for JS/TS exported-symbol usages analysis.
@@ -493,7 +494,7 @@ public final class JsTsExportUsageExtractor {
 
         TSNode parent = node.getParent();
         if (parent != null
-                && CALL_EXPRESSION.equals(parent.getType())
+                && nodeType(TsxNodeType.CALL_EXPRESSION).equals(parent.getType())
                 && node.equals(parent.getChildByFieldName(FIELD_FUNCTION))) {
             if (analyzer.isAccessExpression(file, node.getStartByte(), node.getEndByte())) {
                 addCandidate(
@@ -536,7 +537,7 @@ public final class JsTsExportUsageExtractor {
             ShadowingIndex shadowingIndex,
             CodeUnit fallbackEnclosing,
             Set<ReferenceCandidate> candidates) {
-        if (!MEMBER_EXPRESSION.equals(node.getType())) {
+        if (!nodeType(TsxNodeType.MEMBER_EXPRESSION).equals(node.getType())) {
             return;
         }
 
@@ -563,8 +564,9 @@ public final class JsTsExportUsageExtractor {
 
         boolean isMethodCall = isMethodCallMember(node);
 
-        if (THIS.equals(objectNode.getType())
-                || THIS.equals(sc.substringFrom(objectNode).strip())) {
+        if (nodeType(TsxNodeType.THIS_).equals(objectNode.getType())
+                || nodeType(TsxNodeType.THIS_)
+                        .equals(sc.substringFrom(objectNode).strip())) {
             String ownerClassName = enclosingClassName(node, sc);
             if (ownerClassName != null && isExportedClass(analyzer, file, ownerClassName)) {
                 addCandidate(
@@ -605,7 +607,7 @@ public final class JsTsExportUsageExtractor {
             return;
         }
 
-        if (MEMBER_EXPRESSION.equals(objectNode.getType())) {
+        if (nodeType(TsxNodeType.MEMBER_EXPRESSION).equals(objectNode.getType())) {
             TSNode namespaceNode = objectNode.getChildByFieldName(FIELD_OBJECT);
             TSNode classNode = objectNode.getChildByFieldName(FIELD_PROPERTY);
             if (namespaceNode != null
@@ -633,7 +635,7 @@ public final class JsTsExportUsageExtractor {
             return;
         }
 
-        if (NEW_EXPRESSION.equals(objectNode.getType())) {
+        if (nodeType(TsxNodeType.NEW_EXPRESSION).equals(objectNode.getType())) {
             TSNode ctorNode = objectNode.getChildByFieldName(FIELD_CONSTRUCTOR);
             if (ctorNode != null
                     && isIdentifierLike(ctorNode)
@@ -727,14 +729,14 @@ public final class JsTsExportUsageExtractor {
         if (isFunctionLike(node)) {
             return true;
         }
-        return STATEMENT_BLOCK.equals(type) && insideFunctionLike;
+        return nodeType(TsxNodeType.STATEMENT_BLOCK).equals(type) && insideFunctionLike;
     }
 
     private static boolean isFunctionLike(TSNode node) {
         String type = node.getType();
-        return FUNCTION_DECLARATION.equals(type)
-                || ARROW_FUNCTION.equals(type)
-                || METHOD_DEFINITION.equals(type)
+        return nodeType(TsxNodeType.FUNCTION_DECLARATION).equals(type)
+                || nodeType(TsxNodeType.ARROW_FUNCTION).equals(type)
+                || nodeType(TsxNodeType.METHOD_DEFINITION).equals(type)
                 || CONSTRUCTOR.equals(type)
                 || FUNCTION.equals(type);
     }
@@ -745,7 +747,7 @@ public final class JsTsExportUsageExtractor {
             Map<String, ImportBinder.ImportBinding> bindings,
             List<LocalUsageEvent> events) {
         TSNode parameters = functionNode.getChildByFieldName(FIELD_PARAMETERS);
-        if (parameters == null || !FORMAL_PARAMETERS.equals(parameters.getType())) {
+        if (parameters == null || !nodeType(TsxNodeType.FORMAL_PARAMETERS).equals(parameters.getType())) {
             return;
         }
         var seenNames = new HashSet<String>();
@@ -760,7 +762,7 @@ public final class JsTsExportUsageExtractor {
             events.add(new LocalUsageEvent.DeclareSymbol(localName));
             TSNode parameterNode = node.getParent() != null ? node.getParent() : node;
             Set<ReceiverTargetRef> targets = receiverTargetsFromTypeAnnotation(
-                    findFirstDescendant(parameterNode, TYPE_ANNOTATION), sc, bindings, true);
+                    findFirstDescendant(parameterNode, nodeType(TsxNodeType.TYPE_ANNOTATION)), sc, bindings, true);
             if (!targets.isEmpty()) {
                 events.add(new LocalUsageEvent.SeedSymbol(localName, targets));
             }
@@ -780,14 +782,14 @@ public final class JsTsExportUsageExtractor {
         if (ownerClassName == null || !isExportedClass(analyzer, file, ownerClassName)) {
             return;
         }
-        events.add(new LocalUsageEvent.DeclareSymbol(THIS));
+        events.add(new LocalUsageEvent.DeclareSymbol(nodeType(TsxNodeType.THIS_)));
         events.add(new LocalUsageEvent.SeedSymbol(
-                THIS, Set.of(new ReceiverTargetRef(null, ownerClassName, true, 0.96, file))));
+                nodeType(TsxNodeType.THIS_), Set.of(new ReceiverTargetRef(null, ownerClassName, true, 0.96, file))));
     }
 
     private static boolean isMethodLikeFunction(TSNode functionNode) {
         TSNode parent = functionNode.getParent();
-        return parent != null && METHOD_DEFINITION.equals(parent.getType());
+        return parent != null && nodeType(TsxNodeType.METHOD_DEFINITION).equals(parent.getType());
     }
 
     private static void emitLocalDeclarationEvents(
@@ -796,7 +798,7 @@ public final class JsTsExportUsageExtractor {
             Map<String, ImportBinder.ImportBinding> bindings,
             Map<String, Set<ReceiverTargetRef>> returnTargetsByFunction,
             List<LocalUsageEvent> events) {
-        if (!VARIABLE_DECLARATOR.equals(node.getType())) {
+        if (!nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(node.getType())) {
             return;
         }
         TSNode nameNode = node.getChildByFieldName(FIELD_NAME);
@@ -828,7 +830,7 @@ public final class JsTsExportUsageExtractor {
             return;
         }
 
-        if (NEW_EXPRESSION.equals(valueNode.getType())) {
+        if (nodeType(TsxNodeType.NEW_EXPRESSION).equals(valueNode.getType())) {
             TSNode ctorNode = valueNode.getChildByFieldName(CONSTRUCTOR);
             if (ctorNode != null && isIdentifierLike(ctorNode)) {
                 ImportBinder.ImportBinding binding =
@@ -839,7 +841,7 @@ public final class JsTsExportUsageExtractor {
             }
         }
 
-        if (CALL_EXPRESSION.equals(valueNode.getType())) {
+        if (nodeType(TsxNodeType.CALL_EXPRESSION).equals(valueNode.getType())) {
             TSNode calleeNode = valueNode.getChildByFieldName(FUNCTION);
             if (calleeNode == null && valueNode.getNamedChildCount() > 0) {
                 calleeNode = valueNode.getNamedChild(0);
@@ -862,7 +864,7 @@ public final class JsTsExportUsageExtractor {
             Map<String, ImportBinder.ImportBinding> bindings,
             CodeUnit fallbackEnclosing,
             List<LocalUsageEvent> events) {
-        if (!MEMBER_EXPRESSION.equals(node.getType())) {
+        if (!nodeType(TsxNodeType.MEMBER_EXPRESSION).equals(node.getType())) {
             return;
         }
 
@@ -882,11 +884,11 @@ public final class JsTsExportUsageExtractor {
             return;
         }
 
-        if (THIS.equals(objectNode.getType())) {
+        if (nodeType(TsxNodeType.THIS_).equals(objectNode.getType())) {
             IAnalyzer.Range range = rangeOf(propertyNode);
             CodeUnit enclosing = analyzer.enclosingCodeUnit(file, range).orElse(fallbackEnclosing);
             events.add(new LocalUsageEvent.ReceiverAccess(
-                    THIS,
+                    nodeType(TsxNodeType.THIS_),
                     sc.substringFrom(propertyNode).strip(),
                     isMethodCallMember(node) ? ReferenceKind.METHOD_CALL : ReferenceKind.FIELD_READ,
                     range,
@@ -934,7 +936,7 @@ public final class JsTsExportUsageExtractor {
             TSNode root, SourceContent sc, Map<String, ImportBinder.ImportBinding> bindings) {
         var returnTargetsByFunction = new java.util.HashMap<String, Set<ReceiverTargetRef>>();
         walk(root, node -> {
-            if (!FUNCTION_DECLARATION.equals(node.getType())) {
+            if (!nodeType(TsxNodeType.FUNCTION_DECLARATION).equals(node.getType())) {
                 return;
             }
             TSNode nameNode = node.getChildByFieldName(FIELD_NAME);
@@ -953,7 +955,7 @@ public final class JsTsExportUsageExtractor {
             TSNode functionNode, SourceContent sc, Map<String, ImportBinder.ImportBinding> bindings) {
         var targets = new LinkedHashSet<ReceiverTargetRef>();
         walk(functionNode, node -> {
-            if (!RETURN_STATEMENT.equals(node.getType())) {
+            if (!nodeType(TsxNodeType.RETURN_STATEMENT).equals(node.getType())) {
                 return;
             }
             TSNode valueNode = node.getChildByFieldName(FIELD_VALUE);
@@ -963,7 +965,7 @@ public final class JsTsExportUsageExtractor {
             if (valueNode == null) {
                 return;
             }
-            if (NEW_EXPRESSION.equals(valueNode.getType())) {
+            if (nodeType(TsxNodeType.NEW_EXPRESSION).equals(valueNode.getType())) {
                 TSNode ctorNode = valueNode.getChildByFieldName(CONSTRUCTOR);
                 if (ctorNode == null && valueNode.getNamedChildCount() > 0) {
                     ctorNode = valueNode.getNamedChild(0);
@@ -996,7 +998,8 @@ public final class JsTsExportUsageExtractor {
         }
 
         boolean functionLike = isFunctionLike(node);
-        boolean opensScope = functionLike || (STATEMENT_BLOCK.equals(node.getType()) && insideFunctionLike);
+        boolean opensScope =
+                functionLike || (nodeType(TsxNodeType.STATEMENT_BLOCK).equals(node.getType()) && insideFunctionLike);
         if (opensScope) {
             localNamesByScope.put(scopeKey(node), new HashSet<>());
         }
@@ -1017,7 +1020,7 @@ public final class JsTsExportUsageExtractor {
             return;
         }
 
-        if (FORMAL_PARAMETERS.equals(node.getType())) {
+        if (nodeType(TsxNodeType.FORMAL_PARAMETERS).equals(node.getType())) {
             addParameterBindingNames(sc, localNamesByScope, nearestShadowScope(node), node);
         }
 
@@ -1039,11 +1042,11 @@ public final class JsTsExportUsageExtractor {
 
     private static boolean isShadowingDeclarationNode(TSNode node) {
         String type = node.getType();
-        return VARIABLE_DECLARATOR.equals(type)
-                || FUNCTION_DECLARATION.equals(type)
-                || CLASS_DECLARATION.equals(type)
-                || INTERFACE_DECLARATION.equals(type)
-                || TYPE_ALIAS_DECLARATION.equals(type);
+        return nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(type)
+                || nodeType(TsxNodeType.FUNCTION_DECLARATION).equals(type)
+                || nodeType(TsxNodeType.CLASS_DECLARATION).equals(type)
+                || nodeType(TsxNodeType.INTERFACE_DECLARATION).equals(type)
+                || nodeType(TsxNodeType.TYPE_ALIAS_DECLARATION).equals(type);
     }
 
     private static void addLocalNames(
@@ -1094,7 +1097,8 @@ public final class JsTsExportUsageExtractor {
                 continue;
             }
             String type = child.getType();
-            if (TYPE_ANNOTATION.equals(type) || ACCESSIBILITY_MODIFIER.equals(type)) {
+            if (nodeType(TsxNodeType.TYPE_ANNOTATION).equals(type)
+                    || nodeType(TsxNodeType.ACCESSIBILITY_MODIFIER).equals(type)) {
                 continue;
             }
             return child;
@@ -1130,7 +1134,8 @@ public final class JsTsExportUsageExtractor {
         while (current != null) {
             TSNode parent = current.getParent();
             boolean insideFunctionLike = parent != null && isFunctionLike(parent);
-            if (isFunctionLike(current) || (STATEMENT_BLOCK.equals(current.getType()) && insideFunctionLike)) {
+            if (isFunctionLike(current)
+                    || (nodeType(TsxNodeType.STATEMENT_BLOCK).equals(current.getType()) && insideFunctionLike)) {
                 return current;
             }
             current = parent;
@@ -1199,7 +1204,7 @@ public final class JsTsExportUsageExtractor {
     private static boolean isWithinTypeAnnotation(TSNode node, TSNode stopNode) {
         TSNode current = node;
         while (current != null && !current.equals(stopNode)) {
-            if (TYPE_ANNOTATION.equals(current.getType())) {
+            if (nodeType(TsxNodeType.TYPE_ANNOTATION).equals(current.getType())) {
                 return true;
             }
             current = current.getParent();
@@ -1231,10 +1236,11 @@ public final class JsTsExportUsageExtractor {
             Set<ExportIndex.ClassMember> classMembers) {
         walk(root, node -> {
             String nodeType = node.getType();
-            if (CLASS_DECLARATION.equals(nodeType) || INTERFACE_DECLARATION.equals(nodeType)) {
+            if (nodeType(TsxNodeType.CLASS_DECLARATION).equals(nodeType)
+                    || nodeType(TsxNodeType.INTERFACE_DECLARATION).equals(nodeType)) {
                 collectHeritageEdges(node, sc, heritageEdges);
             }
-            if (CLASS_DECLARATION.equals(nodeType)) {
+            if (nodeType(TsxNodeType.CLASS_DECLARATION).equals(nodeType)) {
                 collectClassMembers(node, sc, classMembers);
             }
         });
@@ -1248,9 +1254,9 @@ public final class JsTsExportUsageExtractor {
         }
         String childName = sc.substringFrom(nameNode).strip();
         walk(classLikeNode, node -> {
-            if (!CLASS_HERITAGE.equals(node.getType())
-                    && !EXTENDS_CLAUSE.equals(node.getType())
-                    && !IMPLEMENTS_CLAUSE.equals(node.getType())) {
+            if (!nodeType(TsxNodeType.CLASS_HERITAGE).equals(node.getType())
+                    && !nodeType(TsxNodeType.EXTENDS_CLAUSE).equals(node.getType())
+                    && !nodeType(TsxNodeType.IMPLEMENTS_CLAUSE).equals(node.getType())) {
                 return;
             }
             collectReferencedTypeNames(node, sc, childName, heritageEdges);
@@ -1281,7 +1287,7 @@ public final class JsTsExportUsageExtractor {
         }
         String className = sc.substringFrom(nameNode).strip();
         for (TSNode child : classNode.getNamedChildren()) {
-            if (child == null || !CLASS_BODY.equals(child.getType())) {
+            if (child == null || !nodeType(TsxNodeType.CLASS_BODY).equals(child.getType())) {
                 continue;
             }
             for (TSNode member : child.getNamedChildren()) {
@@ -1303,7 +1309,9 @@ public final class JsTsExportUsageExtractor {
 
     private static CodeUnitType memberKindOf(TSNode member) {
         String type = member.getType();
-        if (METHOD_DEFINITION.equals(type) || ABSTRACT_METHOD_SIGNATURE.equals(type) || METHOD_SIGNATURE.equals(type)) {
+        if (nodeType(TsxNodeType.METHOD_DEFINITION).equals(type)
+                || nodeType(TsxNodeType.ABSTRACT_METHOD_SIGNATURE).equals(type)
+                || nodeType(TsxNodeType.METHOD_SIGNATURE).equals(type)) {
             return CodeUnitType.FUNCTION;
         }
         return CodeUnitType.FIELD;
@@ -1311,10 +1319,10 @@ public final class JsTsExportUsageExtractor {
 
     private static boolean isClassMemberNode(TSNode node) {
         String type = node.getType();
-        return METHOD_DEFINITION.equals(type)
-                || PUBLIC_FIELD_DEFINITION.equals(type)
-                || ABSTRACT_METHOD_SIGNATURE.equals(type)
-                || METHOD_SIGNATURE.equals(type);
+        return nodeType(TsxNodeType.METHOD_DEFINITION).equals(type)
+                || nodeType(TsxNodeType.PUBLIC_FIELD_DEFINITION).equals(type)
+                || nodeType(TsxNodeType.ABSTRACT_METHOD_SIGNATURE).equals(type)
+                || nodeType(TsxNodeType.METHOD_SIGNATURE).equals(type);
     }
 
     private static boolean hasModifier(TSNode node, String modifierType) {
@@ -1350,7 +1358,9 @@ public final class JsTsExportUsageExtractor {
         TSNode current = node;
         while (current != null) {
             String type = current.getType();
-            if (IMPORT_STATEMENT.equals(type) || IMPORT_DECLARATION.equals(type) || IMPORT_DECLARATION.equals(type)) {
+            if (nodeType(TsxNodeType.IMPORT_STATEMENT).equals(type)
+                    || IMPORT_DECLARATION.equals(type)
+                    || IMPORT_DECLARATION.equals(type)) {
                 return true;
             }
             current = current.getParent();
@@ -1366,19 +1376,19 @@ public final class JsTsExportUsageExtractor {
         if (nameNode == null && parent.getNamedChildCount() > 0) {
             nameNode = parent.getNamedChild(0);
         }
-        if (VARIABLE_DECLARATOR.equals(type) && identifierNode.equals(nameNode)) {
+        if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(type) && identifierNode.equals(nameNode)) {
             return true;
         }
-        if (FUNCTION_DECLARATION.equals(type) && identifierNode.equals(nameNode)) {
+        if (nodeType(TsxNodeType.FUNCTION_DECLARATION).equals(type) && identifierNode.equals(nameNode)) {
             return true;
         }
-        if (CLASS_DECLARATION.equals(type) && identifierNode.equals(nameNode)) {
+        if (nodeType(TsxNodeType.CLASS_DECLARATION).equals(type) && identifierNode.equals(nameNode)) {
             return true;
         }
-        if (INTERFACE_DECLARATION.equals(type) && identifierNode.equals(nameNode)) {
+        if (nodeType(TsxNodeType.INTERFACE_DECLARATION).equals(type) && identifierNode.equals(nameNode)) {
             return true;
         }
-        if (TYPE_ALIAS_DECLARATION.equals(type) && identifierNode.equals(nameNode)) {
+        if (nodeType(TsxNodeType.TYPE_ALIAS_DECLARATION).equals(type) && identifierNode.equals(nameNode)) {
             return true;
         }
         return false;
@@ -1390,7 +1400,8 @@ public final class JsTsExportUsageExtractor {
             return false;
         }
         String type = parent.getType();
-        if (!PAIR.equals(type) && !PAIR_PATTERN.equals(type)) {
+        if (!nodeType(TsxNodeType.PAIR).equals(type)
+                && !nodeType(TsxNodeType.PAIR_PATTERN).equals(type)) {
             return false;
         }
         TSNode keyNode = parent.getChildByFieldName(FIELD_KEY);
@@ -1407,15 +1418,17 @@ public final class JsTsExportUsageExtractor {
         TSNode current = node.getParent();
         while (current != null) {
             String type = current.getType();
-            if (TYPE_ANNOTATION.equals(type)
-                    || TYPE_ALIAS_DECLARATION.equals(type)
-                    || TYPE_ARGUMENTS.equals(type)
-                    || TYPE_QUERY.equals(type)
-                    || IMPLEMENTS_CLAUSE.equals(type)
-                    || EXTENDS_CLAUSE.equals(type)) {
+            if (nodeType(TsxNodeType.TYPE_ANNOTATION).equals(type)
+                    || nodeType(TsxNodeType.TYPE_ALIAS_DECLARATION).equals(type)
+                    || nodeType(TsxNodeType.TYPE_ARGUMENTS).equals(type)
+                    || nodeType(TsxNodeType.TYPE_QUERY).equals(type)
+                    || nodeType(TsxNodeType.IMPLEMENTS_CLAUSE).equals(type)
+                    || nodeType(TsxNodeType.EXTENDS_CLAUSE).equals(type)) {
                 return true;
             }
-            if (CALL_EXPRESSION.equals(type) || MEMBER_EXPRESSION.equals(type) || OBJECT_TYPE.equals(type)) {
+            if (nodeType(TsxNodeType.CALL_EXPRESSION).equals(type)
+                    || nodeType(TsxNodeType.MEMBER_EXPRESSION).equals(type)
+                    || nodeType(TsxNodeType.OBJECT_TYPE).equals(type)) {
                 return false;
             }
             current = current.getParent();
@@ -1425,13 +1438,13 @@ public final class JsTsExportUsageExtractor {
 
     private static boolean isTypeContextRoot(TSNode node) {
         String type = node.getType();
-        return TYPE_ANNOTATION.equals(type)
-                || TYPE_ALIAS_DECLARATION.equals(type)
-                || TYPE_ARGUMENTS.equals(type)
-                || TYPE_QUERY.equals(type)
-                || CLASS_HERITAGE.equals(type)
-                || IMPLEMENTS_CLAUSE.equals(type)
-                || EXTENDS_CLAUSE.equals(type);
+        return nodeType(TsxNodeType.TYPE_ANNOTATION).equals(type)
+                || nodeType(TsxNodeType.TYPE_ALIAS_DECLARATION).equals(type)
+                || nodeType(TsxNodeType.TYPE_ARGUMENTS).equals(type)
+                || nodeType(TsxNodeType.TYPE_QUERY).equals(type)
+                || nodeType(TsxNodeType.CLASS_HERITAGE).equals(type)
+                || nodeType(TsxNodeType.IMPLEMENTS_CLAUSE).equals(type)
+                || nodeType(TsxNodeType.EXTENDS_CLAUSE).equals(type);
     }
 
     private static void collectDeclaredLocalNames(@Nullable TSNode node, SourceContent sc, Set<String> localNames) {
@@ -1439,18 +1452,20 @@ public final class JsTsExportUsageExtractor {
             return;
         }
         String type = node.getType();
-        if (isIdentifierLike(node) || SHORTHAND_PROPERTY_IDENTIFIER_PATTERN.equals(type)) {
+        if (isIdentifierLike(node)
+                || nodeType(TsxNodeType.SHORTHAND_PROPERTY_IDENTIFIER_PATTERN).equals(type)) {
             String localName = sc.substringFrom(node).strip();
             if (!localName.isEmpty()) {
                 localNames.add(localName);
             }
             return;
         }
-        if (PAIR_PATTERN.equals(type)) {
+        if (nodeType(TsxNodeType.PAIR_PATTERN).equals(type)) {
             collectDeclaredLocalNames(node.getChildByFieldName(FIELD_VALUE), sc, localNames);
             return;
         }
-        if (!OBJECT_PATTERN.equals(type) && !ARRAY_PATTERN.equals(type)) {
+        if (!nodeType(TsxNodeType.OBJECT_PATTERN).equals(type)
+                && !nodeType(TsxNodeType.ARRAY_PATTERN).equals(type)) {
             return;
         }
         for (TSNode child : node.getNamedChildren()) {
@@ -1463,7 +1478,7 @@ public final class JsTsExportUsageExtractor {
     private static @Nullable String enclosingClassName(TSNode node, SourceContent sc) {
         TSNode current = node;
         while (current != null) {
-            if (CLASS_DECLARATION.equals(current.getType())) {
+            if (nodeType(TsxNodeType.CLASS_DECLARATION).equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName(FIELD_NAME);
                 return nameNode != null ? sc.substringFrom(nameNode).strip() : null;
             }
@@ -1485,16 +1500,16 @@ public final class JsTsExportUsageExtractor {
 
     private static boolean isIdentifierLike(TSNode node) {
         String type = node.getType();
-        return IDENTIFIER.equals(type)
-                || PROPERTY_IDENTIFIER.equals(type)
-                || TYPE_IDENTIFIER.equals(type)
-                || NESTED_TYPE_IDENTIFIER.equals(type);
+        return nodeType(TsxNodeType.IDENTIFIER).equals(type)
+                || nodeType(TsxNodeType.PROPERTY_IDENTIFIER).equals(type)
+                || nodeType(TsxNodeType.TYPE_IDENTIFIER).equals(type)
+                || nodeType(TsxNodeType.NESTED_TYPE_IDENTIFIER).equals(type);
     }
 
     private static boolean isMethodCallMember(TSNode memberExpression) {
         TSNode parent = memberExpression.getParent();
         return parent != null
-                && CALL_EXPRESSION.equals(parent.getType())
+                && nodeType(TsxNodeType.CALL_EXPRESSION).equals(parent.getType())
                 && memberExpression.equals(parent.getChildByFieldName(FIELD_FUNCTION));
     }
 
