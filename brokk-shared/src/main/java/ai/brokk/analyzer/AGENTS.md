@@ -27,6 +27,7 @@
 ### 5. Expanding Analyzer Capabilities
 1. **Default Implementations**: When adding a new `IAnalyzer` API or capability, add it with a default implementation so that the project compiles.
 1. **Incremental Implementation**: Plan tasks to handle each subclass one at a time. Bringing all subclasses into the context at once will fill up the context and result in either exceeding model context or general context confusion.
+1. **Static Language Helpers**: Keep analyzer subclasses focused on project/analyzer orchestration: snapshot access, `CodeUnit` lookup, `ProjectFile` routing, tree parsing, and capability wiring. Move substantial language-specific analysis logic into static helper classes under that language's package, for example `ai.brokk.analyzer.java.CognitiveComplexityAnalysis` or `ai.brokk.analyzer.python.CognitiveComplexityAnalysis`. Prefer helpers that depend on `TSNode`, `SourceContent`, and language constants rather than analyzer instance state.
 
 ### 6. Tree-sitter Query Architecture
 1. **Multi-Query Structure**: Monolithic `.scm` files (e.g., `treesitter/java.scm`) are being deprecated in favor of a directory-based multi-query structure:
