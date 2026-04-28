@@ -700,7 +700,7 @@ class BrokkAcpAgentTest {
                     AcpSchema.METHOD_SESSION_NEW,
                     "new",
                     Map.of("cwd", projectRoot.toString(), "mcpServers", List.of()));
-            var newSessionResult = assertInstanceOf(AcpSchema.NewSessionResponse.class, newSession.result());
+            var newSessionResult = assertInstanceOf(AcpProtocol.NewSessionResponseExt.class, newSession.result());
 
             var list =
                     transport.exchange(AcpProtocol.METHOD_SESSION_LIST, "list", Map.of("cwd", projectRoot.toString()));
@@ -723,6 +723,335 @@ class BrokkAcpAgentTest {
                     "fork",
                     Map.of("sessionId", newSessionResult.sessionId(), "cwd", projectRoot.toString()));
             assertInstanceOf(AcpProtocol.ForkSessionResponse.class, fork.result());
+        }
+    }
+
+    // ---- PermissionMode and gate ----
+
+    @Test
+    void permissionModeParseRoundTrip() {
+        for (var mode : PermissionMode.values()) {
+            assertEquals(mode, PermissionMode.parse(mode.asString()).orElseThrow());
+        }
+        assertTrue(PermissionMode.parse("not-a-mode").isEmpty());
+        assertTrue(PermissionMode.parse("").isEmpty());
+    }
+
+    @Test
+    void gateBypassAllowsEverything() {
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EDIT, "editFile", false));
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EXECUTE, "shell", false));
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.OTHER, "weird", false));
+    }
+
+    @Test
+    void gateReadOnlyRejectsEditExecuteAndOther() {
+        assertEquals(
+                PermissionGate.Outcome.REJECT,
+                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", false));
+        assertEquals(
+                PermissionGate.Outcome.REJECT,
+                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EXECUTE, "shell", false));
+        assertEquals(
+                PermissionGate.Outcome.REJECT,
+                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.OTHER, "weird", false));
+        // Always-allow does not lift the read-only brake.
+        assertEquals(
+                PermissionGate.Outcome.REJECT,
+                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", true));
+    }
+
+    @Test
+    void gateReadOnlyAllowsInformationalKinds() {
+        for (var k : List.of(
+                AcpSchema.ToolKind.READ,
+                AcpSchema.ToolKind.SEARCH,
+                AcpSchema.ToolKind.THINK,
+                AcpSchema.ToolKind.FETCH)) {
+            assertEquals(
+                    PermissionGate.Outcome.ALLOW,
+                    PermissionGate.decide(PermissionMode.READ_ONLY, k, "anything", false),
+                    "READ_ONLY must allow " + k);
+        }
+    }
+
+    @Test
+    void gateAcceptEditsAllowsEditButPromptsExecute() {
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EDIT, "editFile", false));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EXECUTE, "shell", false));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.OTHER, "weird", false));
+    }
+
+    @Test
+    void gateDefaultPromptsExceptForReadOnlyKinds() {
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.READ, "readFile", false));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", false));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", false));
+    }
+
+    @Test
+    void gateAlwaysAllowSkipsPromptExceptForShell() {
+        // Always-allow short-circuits the prompt for cacheable tools…
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", true));
+        // …but never for shell, where one approval would blanket-allow every future shell command.
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", true));
+    }
+
+    @Test
+    void gateClassifiesBrokkToolNames() {
+        assertEquals(AcpSchema.ToolKind.EXECUTE, PermissionGate.classify("shell"));
+        assertEquals(AcpSchema.ToolKind.SEARCH, PermissionGate.classify("searchAgent"));
+        assertEquals(AcpSchema.ToolKind.SEARCH, PermissionGate.classify("findFiles"));
+        assertEquals(AcpSchema.ToolKind.READ, PermissionGate.classify("getSummaries"));
+        assertEquals(AcpSchema.ToolKind.READ, PermissionGate.classify("listFiles"));
+        assertEquals(AcpSchema.ToolKind.EDIT, PermissionGate.classify("addFiles"));
+        assertEquals(AcpSchema.ToolKind.EDIT, PermissionGate.classify("replaceText"));
+        assertEquals(AcpSchema.ToolKind.THINK, PermissionGate.classify("createOrReplaceTaskList"));
+        assertEquals(AcpSchema.ToolKind.OTHER, PermissionGate.classify("totallyUnknown"));
+    }
+
+    // ---- session/set_config_option handler ----
+
+    @Test
+    void newSessionAdvertisesBothDropdowns() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertNotNull(created.configOptions());
+        // All three selectors must come through configOptions. IntelliJ hides legacy `modes` and
+        // `models` channels once configOptions is non-empty, so dropping any of these would make
+        // the corresponding toolbar element vanish.
+        assertEquals(
+                List.of("behavior_mode", "permission_mode", "model_selection"),
+                created.configOptions().stream()
+                        .map(AcpProtocol.SessionConfigOption::id)
+                        .toList());
+
+        var behavior = created.configOptions().stream()
+                .filter(o -> "behavior_mode".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("LUTZ", behavior.currentValue());
+        assertEquals("select", behavior.type());
+        assertEquals(
+                List.of("LUTZ", "CODE", "ASK", "PLAN"),
+                behavior.options().stream()
+                        .map(AcpProtocol.SessionConfigSelectOption::value)
+                        .toList());
+
+        var permission = created.configOptions().stream()
+                .filter(o -> "permission_mode".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("default", permission.currentValue());
+        assertEquals("select", permission.type());
+        assertEquals(
+                List.of("default", "acceptEdits", "readOnly", "bypassPermissions"),
+                permission.options().stream()
+                        .map(AcpProtocol.SessionConfigSelectOption::value)
+                        .toList());
+    }
+
+    @Test
+    void setSessionConfigOptionRoutesBehaviorMode() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var captured = new ArrayList<AcpSchema.SessionUpdate>();
+        agent.setSessionUpdateSender((sessionId, update) -> captured.add(update));
+
+        var resp = agent.setSessionConfigOption(
+                new AcpProtocol.SetSessionConfigOptionRequest(created.sessionId(), "behavior_mode", "ASK", null));
+
+        // Existing setMode logic must have stored the new mode and emitted current_mode_update.
+        var modeUpdates = captured.stream()
+                .filter(AcpSchema.CurrentModeUpdate.class::isInstance)
+                .map(AcpSchema.CurrentModeUpdate.class::cast)
+                .toList();
+        assertEquals(1, modeUpdates.size());
+        assertEquals("ASK", modeUpdates.getFirst().currentModeId());
+
+        var behavior = resp.configOptions().stream()
+                .filter(o -> "behavior_mode".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("ASK", behavior.currentValue());
+    }
+
+    @Test
+    void newSessionAdvertisesModelDropdownWithModelCategory() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var model = created.configOptions().stream()
+                .filter(o -> "model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("model", model.category());
+        assertEquals("select", model.type());
+        assertNotNull(model.currentValue());
+        assertFalse(model.options().isEmpty());
+    }
+
+    @Test
+    void setSessionConfigOptionRejectsUnknownBehaviorMode() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                        created.sessionId(), "behavior_mode", "BOGUS", null)));
+    }
+
+    @Test
+    void setSessionConfigOptionStoresPermissionMode() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var resp = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "permission_mode", "acceptEdits", null));
+
+        assertEquals(PermissionMode.ACCEPT_EDITS, agent.permissionModeFor(created.sessionId()));
+        var permission = resp.configOptions().stream()
+                .filter(o -> "permission_mode".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("acceptEdits", permission.currentValue());
+    }
+
+    @Test
+    void setSessionConfigOptionRejectsUnknownValue() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var ex = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                        created.sessionId(), "permission_mode", "bogus", null)));
+        assertTrue(ex.getMessage().contains("Unknown permission mode"));
+    }
+
+    @Test
+    void setSessionConfigOptionRejectsUnknownConfigId() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                        created.sessionId(), "made_up", "default", null)));
+    }
+
+    @Test
+    void runtimeRoutesSetSessionConfigOption() {
+        var transport = new FakeTransport();
+        try (var runtime = new BrokkAcpRuntime(transport, agent)) {
+            transport.exchange(AcpSchema.METHOD_INITIALIZE, "init", Map.of("protocolVersion", 1));
+            var newSession = transport.exchange(
+                    AcpSchema.METHOD_SESSION_NEW,
+                    "new",
+                    Map.of("cwd", projectRoot.toString(), "mcpServers", List.of()));
+            var sessionId = ((AcpProtocol.NewSessionResponseExt) newSession.result()).sessionId();
+
+            var setConfig = transport.exchange(
+                    AcpProtocol.METHOD_SESSION_SET_CONFIG_OPTION,
+                    "setcfg",
+                    Map.of("sessionId", sessionId, "configId", "permission_mode", "value", "readOnly"));
+            assertNull(setConfig.error());
+            var result = assertInstanceOf(AcpProtocol.SetSessionConfigOptionResponse.class, setConfig.result());
+            assertEquals(
+                    "readOnly",
+                    result.configOptions().stream()
+                            .filter(o -> "permission_mode".equals(o.id()))
+                            .findFirst()
+                            .orElseThrow()
+                            .currentValue());
+            assertEquals(PermissionMode.READ_ONLY, agent.permissionModeFor(sessionId));
+        }
+    }
+
+    // ---- askPermission honors PermissionMode ----
+
+    @Test
+    void askPermissionShortCircuitsUnderBypass() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "permission_mode", "bypassPermissions", null));
+
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "reject_once"));
+            });
+
+            var ctx = fixture.contextFor(created.sessionId());
+            assertTrue(ctx.askPermission("Allow editFile?", "editFile"));
+            assertTrue(ctx.askPermission("Allow shell?", "shell"));
+            assertEquals(0, calls.get(), "BYPASS must not round-trip to client");
+        }
+    }
+
+    @Test
+    void askPermissionRejectsEditsUnderReadOnly() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "permission_mode", "readOnly", null));
+
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_once"));
+            });
+
+            var ctx = fixture.contextFor(created.sessionId());
+            assertFalse(ctx.askPermission("Allow editFile?", "editFile"));
+            assertFalse(ctx.askPermission("Allow shell?", "shell"));
+            assertTrue(ctx.askPermission("Allow readFile?", "readFile"));
+            assertEquals(0, calls.get(), "READ_ONLY must decide locally without round-tripping");
+
+            var sawDenialMessage = fixture.transport.sessionUpdates().stream()
+                    .anyMatch(n -> n.update() instanceof AcpSchema.AgentMessageChunk a
+                            && a.content() instanceof AcpSchema.TextContent t
+                            && t.text().contains("denied"));
+            assertTrue(sawDenialMessage, "user must see a denial chat message under READ_ONLY");
+        }
+    }
+
+    @Test
+    void askPermissionAutoAllowsEditsUnderAcceptEdits() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "permission_mode", "acceptEdits", null));
+
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_once"));
+            });
+
+            var ctx = fixture.contextFor(created.sessionId());
+            assertTrue(ctx.askPermission("Allow editFile?", "editFile"));
+            assertEquals(0, calls.get(), "ACCEPT_EDITS must not prompt for edits");
+
+            assertTrue(ctx.askPermission("Allow shell?", "shell"));
+            assertEquals(1, calls.get(), "ACCEPT_EDITS must still prompt for shell");
         }
     }
 

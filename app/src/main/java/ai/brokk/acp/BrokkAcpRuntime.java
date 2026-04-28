@@ -79,6 +79,10 @@ final class BrokkAcpRuntime implements AutoCloseable {
             var request = unmarshal(params, new TypeRef<AcpSchema.SetSessionModelRequest>() {});
             return Mono.fromCallable(() -> agent.setModel(request));
         });
+        handlers.put(AcpProtocol.METHOD_SESSION_SET_CONFIG_OPTION, params -> {
+            var request = unmarshal(params, new TypeRef<AcpProtocol.SetSessionConfigOptionRequest>() {});
+            return Mono.fromCallable(() -> agent.setSessionConfigOption(request));
+        });
         return handlers;
     }
 

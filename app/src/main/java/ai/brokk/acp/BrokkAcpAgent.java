@@ -97,6 +97,7 @@ public class BrokkAcpAgent {
     private final Map<String, String> reasoningBySession = new ConcurrentHashMap<>();
     private final Map<String, String> activeJobBySession = new ConcurrentHashMap<>();
     private final Map<String, Map<String, PermissionVerdict>> stickyPermissionsBySession = new ConcurrentHashMap<>();
+    private final Map<String, PermissionMode> permissionModeBySession = new ConcurrentHashMap<>();
     private final Map<String, List<McpServer>> mcpServersBySession = new ConcurrentHashMap<>();
     private static final InheritableThreadLocal<List<McpServer>> SESSION_MCP_SCOPE = new InheritableThreadLocal<>();
     private final Map<String, TaskList.TaskListData> lastTaskListBySession = new ConcurrentHashMap<>();
@@ -250,6 +251,7 @@ public class BrokkAcpAgent {
         reasoningBySession.clear();
         activeJobBySession.clear();
         stickyPermissionsBySession.clear();
+        permissionModeBySession.clear();
         mcpServersBySession.clear();
         rejectedMcpServersBySession.clear();
         lastTaskListBySession.clear();
@@ -362,7 +364,7 @@ public class BrokkAcpAgent {
         return new AcpSchema.AuthenticateResponse();
     }
 
-    public AcpSchema.NewSessionResponse newSession(AcpSchema.NewSessionRequest request) {
+    public AcpProtocol.NewSessionResponseExt newSession(AcpSchema.NewSessionRequest request) {
         logger.info("ACP new session, cwd={}", request.cwd());
         var bundle = bundleFor(request.cwd());
 
@@ -373,18 +375,20 @@ public class BrokkAcpAgent {
 
         modeBySession.put(sessionId, "LUTZ");
         reasoningBySession.put(sessionId, defaultReasoningLevel);
+        permissionModeBySession.put(sessionId, PermissionMode.DEFAULT);
         applySessionMcpServers(sessionId, request.mcpServers());
 
         var modeState = new AcpSchema.SessionModeState("LUTZ", AVAILABLE_MODES);
         var modelState = buildModelState(sessionId);
         var meta = buildVariantMeta(sessionId);
+        var configOptions = buildConfigOptions(sessionId);
 
         scheduleAvailableCommandsUpdate(sessionId);
 
-        return new AcpSchema.NewSessionResponse(sessionId, modeState, modelState, meta);
+        return new AcpProtocol.NewSessionResponseExt(sessionId, modeState, modelState, configOptions, meta);
     }
 
-    public AcpSchema.LoadSessionResponse loadSession(AcpSchema.LoadSessionRequest request) {
+    public AcpProtocol.LoadSessionResponseExt loadSession(AcpSchema.LoadSessionRequest request) {
         logger.info("ACP load session {} cwd={}", request.sessionId(), request.cwd());
         var sessionId = request.sessionId();
         var bundle = bundleFor(request.cwd());
@@ -400,17 +404,19 @@ public class BrokkAcpAgent {
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
         reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
+        permissionModeBySession.putIfAbsent(sessionId, PermissionMode.DEFAULT);
         applySessionMcpServers(sessionId, request.mcpServers());
 
         var modeState = new AcpSchema.SessionModeState(modeBySession.getOrDefault(sessionId, "LUTZ"), AVAILABLE_MODES);
         var modelState = buildModelState(sessionId);
         var meta = buildVariantMeta(sessionId);
+        var configOptions = buildConfigOptions(sessionId);
 
         // Schedule conversation replay and commands advertisement after response is sent
         scheduleConversationReplay(sessionId);
         scheduleAvailableCommandsUpdate(sessionId);
 
-        return new AcpSchema.LoadSessionResponse(modeState, modelState, meta);
+        return new AcpProtocol.LoadSessionResponseExt(modeState, modelState, configOptions, meta);
     }
 
     public AcpProtocol.ResumeSessionResponse resumeSession(AcpProtocol.ResumeSessionRequest request) {
@@ -422,14 +428,16 @@ public class BrokkAcpAgent {
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
         reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
+        permissionModeBySession.putIfAbsent(sessionId, PermissionMode.DEFAULT);
         applySessionMcpServers(sessionId, request.mcpServers());
 
         var modeState = new AcpSchema.SessionModeState(modeBySession.getOrDefault(sessionId, "LUTZ"), AVAILABLE_MODES);
         var modelState = buildModelState(sessionId);
         var meta = buildVariantMeta(sessionId);
+        var configOptions = buildConfigOptions(sessionId);
 
         scheduleAvailableCommandsUpdate(sessionId);
-        return new AcpProtocol.ResumeSessionResponse(modeState, modelState, meta);
+        return new AcpProtocol.ResumeSessionResponse(modeState, modelState, configOptions, meta);
     }
 
     public AcpProtocol.ListSessionsResponse listSessions(AcpProtocol.ListSessionsRequest request) {
@@ -477,6 +485,7 @@ public class BrokkAcpAgent {
         modelBySession.remove(sessionId);
         reasoningBySession.remove(sessionId);
         stickyPermissionsBySession.remove(sessionId);
+        permissionModeBySession.remove(sessionId);
         mcpServersBySession.remove(sessionId);
         rejectedMcpServersBySession.remove(sessionId);
         lastTaskListBySession.remove(sessionId);
@@ -510,6 +519,8 @@ public class BrokkAcpAgent {
             }
             reasoningBySession.put(
                     forkSessionId, reasoningBySession.getOrDefault(request.sessionId(), defaultReasoningLevel));
+            permissionModeBySession.put(
+                    forkSessionId, permissionModeBySession.getOrDefault(request.sessionId(), PermissionMode.DEFAULT));
             // Inherit MCP servers from parent unless the fork request supplies a fresh list.
             if (request.mcpServers() != null) {
                 applySessionMcpServers(forkSessionId, request.mcpServers());
@@ -524,9 +535,10 @@ public class BrokkAcpAgent {
                     new AcpSchema.SessionModeState(modeBySession.getOrDefault(forkSessionId, "LUTZ"), AVAILABLE_MODES);
             var modelState = buildModelState(forkSessionId);
             var meta = buildVariantMeta(forkSessionId);
+            var configOptions = buildConfigOptions(forkSessionId);
 
             scheduleAvailableCommandsUpdate(forkSessionId);
-            return new AcpProtocol.ForkSessionResponse(forkSessionId, modeState, modelState, meta);
+            return new AcpProtocol.ForkSessionResponse(forkSessionId, modeState, modelState, configOptions, meta);
         } catch (Exception e) {
             throw new RuntimeException("Failed to fork session " + request.sessionId(), e);
         }
@@ -641,6 +653,137 @@ public class BrokkAcpAgent {
         }
 
         return new AcpSchema.SetSessionModeResponse();
+    }
+
+    /** Returns the active permission mode for {@code sessionId}, defaulting to {@code DEFAULT}. */
+    public PermissionMode permissionModeFor(String sessionId) {
+        return permissionModeBySession.getOrDefault(sessionId, PermissionMode.DEFAULT);
+    }
+
+    /**
+     * Handler for {@code session/set_config_option}. Routes on {@code configId} to either the
+     * permission-mode store or the existing {@link #setMode} logic for behavior modes. Returns the
+     * updated set of dropdowns so clients can refresh their UI.
+     */
+    public AcpProtocol.SetSessionConfigOptionResponse setSessionConfigOption(
+            AcpProtocol.SetSessionConfigOptionRequest request) {
+        var sessionId = request.sessionId();
+        var configId = request.configId();
+        var value = request.value();
+        logger.info("ACP set config_option session={} config={} value={}", sessionId, configId, value);
+
+        switch (configId) {
+            case "permission_mode" -> {
+                var parsed = PermissionMode.parse(value);
+                if (parsed.isEmpty()) {
+                    throw new IllegalArgumentException("Unknown permission mode '" + value
+                            + "'. Supported: default, acceptEdits, readOnly, bypassPermissions");
+                }
+                permissionModeBySession.put(sessionId, parsed.get());
+            }
+            case "behavior_mode" -> {
+                var validMode = AVAILABLE_MODES.stream().anyMatch(m -> m.id().equals(value));
+                if (!validMode) {
+                    throw new IllegalArgumentException("Unknown behavior mode '" + value
+                            + "'. Supported: "
+                            + AVAILABLE_MODES.stream()
+                                    .map(AcpSchema.SessionMode::id)
+                                    .toList());
+                }
+                setMode(new AcpSchema.SetSessionModeRequest(sessionId, value));
+            }
+            case "model_selection" -> setModel(new AcpSchema.SetSessionModelRequest(sessionId, value));
+            default ->
+                throw new IllegalArgumentException("Unknown configId '" + configId
+                        + "'. Supported: permission_mode, behavior_mode, model_selection");
+        }
+        return new AcpProtocol.SetSessionConfigOptionResponse(buildConfigOptions(sessionId), null);
+    }
+
+    /**
+     * Builds the dropdown advertisement for one session. Behavior, permission, and a flat
+     * model+reasoning dropdown are emitted via {@code configOptions} — IntelliJ hides the legacy
+     * {@code modes} / {@code models} channels once anything appears here, so every selector must
+     * come through this channel or it vanishes from the UI.
+     *
+     * <p>Model and reasoning are presented as a single flat list of {@code name/variant} entries
+     * because IntelliJ doesn't render the spec'd {@code thought_level} category yet. When it does,
+     * we should split this into two adjacent dropdowns to match the legacy two-picker UX.
+     */
+    private List<AcpProtocol.SessionConfigOption> buildConfigOptions(String sessionId) {
+        var currentBehavior = modeBySession.getOrDefault(sessionId, "LUTZ");
+        return List.of(
+                behaviorConfigOption(currentBehavior),
+                permissionConfigOption(permissionModeFor(sessionId)),
+                modelConfigOption(sessionId));
+    }
+
+    private AcpProtocol.SessionConfigOption modelConfigOption(String sessionId) {
+        var service = bundleForSession(sessionId).cm().getService();
+        var availableModels = service.getAvailableModels();
+
+        var options = new ArrayList<AcpProtocol.SessionConfigSelectOption>();
+        availableModels.keySet().stream().sorted().forEach(name -> {
+            options.add(new AcpProtocol.SessionConfigSelectOption(name, name, null));
+            for (var level : List.of("low", "medium", "high", "disable")) {
+                options.add(
+                        new AcpProtocol.SessionConfigSelectOption(name + "/" + level, name + " (" + level + ")", null));
+            }
+        });
+        if (options.isEmpty()) {
+            options.add(new AcpProtocol.SessionConfigSelectOption("default", "Default Model", null));
+        }
+
+        var baseModel = modelBySession.getOrDefault(sessionId, defaultModelId);
+        var modelNames = availableModels.keySet();
+        if (!baseModel.isEmpty() && !modelNames.contains(baseModel) && !modelNames.isEmpty()) {
+            baseModel = modelNames.stream().sorted().findFirst().orElse(baseModel);
+        }
+        var reasoning = reasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL);
+        var currentValue = formatModelIdWithVariant(baseModel, reasoning);
+        if (currentValue.isBlank()) {
+            currentValue = options.getFirst().value();
+        }
+
+        return AcpProtocol.SessionConfigOption.select(
+                "model_selection",
+                "Model",
+                "Selects the LLM and reasoning effort for this session.",
+                "model",
+                currentValue,
+                List.copyOf(options));
+    }
+
+    private static AcpProtocol.SessionConfigOption behaviorConfigOption(String currentValue) {
+        var options = AVAILABLE_MODES.stream()
+                .map(m -> new AcpProtocol.SessionConfigSelectOption(m.id(), m.name(), m.description()))
+                .toList();
+        return AcpProtocol.SessionConfigOption.select(
+                "behavior_mode",
+                "Mode",
+                "Controls Brokk's overall behavior style for this session.",
+                currentValue,
+                options);
+    }
+
+    private static AcpProtocol.SessionConfigOption permissionConfigOption(PermissionMode current) {
+        var options = List.of(
+                new AcpProtocol.SessionConfigSelectOption(
+                        "default", "Default", "Ask for permission before each tool call"),
+                new AcpProtocol.SessionConfigSelectOption(
+                        "acceptEdits", "Accept Edits", "Auto-allow edits; ask for everything else"),
+                new AcpProtocol.SessionConfigSelectOption(
+                        "readOnly", "Read-only", "Refuse every edit, deletion, move, or shell command"),
+                new AcpProtocol.SessionConfigSelectOption(
+                        "bypassPermissions",
+                        "Bypass Permissions",
+                        "Allow all tool calls without prompting (use with care)"));
+        return AcpProtocol.SessionConfigOption.select(
+                "permission_mode",
+                "Permission",
+                "Controls which tool calls require user approval.",
+                current.asString(),
+                options);
     }
 
     public AcpSchema.SetSessionModelResponse setModel(AcpSchema.SetSessionModelRequest request) {
