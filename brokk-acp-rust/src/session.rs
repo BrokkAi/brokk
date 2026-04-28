@@ -796,7 +796,11 @@ impl SessionStore {
 
     /// Read the current permission_mode for a session. Returns None if unknown.
     pub async fn permission_mode(&self, id: &str) -> Option<PermissionMode> {
-        self.sessions.read().await.get(id).map(|s| s.permission_mode)
+        self.sessions
+            .read()
+            .await
+            .get(id)
+            .map(|s| s.permission_mode)
     }
 
     /// True if the session has previously chosen "Always allow" for `tool_name`.
