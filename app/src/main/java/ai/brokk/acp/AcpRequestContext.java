@@ -208,6 +208,33 @@ final class AcpRequestContext implements AcpPromptContext {
     public boolean askPermission(String action, String toolName) {
         boolean cacheable = !NON_CACHEABLE_TOOL_NAMES.contains(toolName);
         var cache = cacheable ? agent : null;
+
+        // Session-level PermissionMode is consulted BEFORE the sticky cache so READ_ONLY can deny
+        // even tools the user previously approved, and BYPASS_PERMISSIONS can short-circuit before
+        // any user-facing prompt fires. Mirrors brokk-acp-rust/src/tool_loop.rs:pure_gate_decision.
+        if (agent != null) {
+            var mode = agent.permissionModeFor(sessionId);
+            var kind = PermissionGate.classify(toolName);
+            boolean alwaysAllowed = cache != null
+                    && cache.stickyPermissionFor(sessionId, toolName)
+                            .filter(v -> v == BrokkAcpAgent.PermissionVerdict.ALLOW)
+                            .isPresent();
+            switch (PermissionGate.decide(mode, kind, toolName, alwaysAllowed)) {
+                case ALLOW -> {
+                    return true;
+                }
+                case REJECT -> {
+                    sendMessage("\n**" + toolName + " denied:** " + PermissionGate.READ_ONLY_REJECTION + "\n");
+                    return false;
+                }
+                case PROMPT -> {
+                    // Fall through to the legacy sticky-cache + prompt path. We still need the
+                    // sticky cache on the deny side (a previous reject_always must continue to deny
+                    // without a round-trip), which gateDecision didn't consult.
+                }
+            }
+        }
+
         if (cache != null) {
             var sticky = cache.stickyPermissionFor(sessionId, toolName);
             if (sticky.isPresent()) {

@@ -770,38 +770,7 @@ public class AcpConsoleIO extends MemoryConsole {
      * tool name prefixes to match the reference ACP implementation's categories.
      */
     private static AcpSchema.ToolKind classifyTool(String toolName, boolean destructive) {
-        if (destructive) {
-            return AcpSchema.ToolKind.EDIT;
-        }
-        return switch (toolName) {
-            case "shell" -> AcpSchema.ToolKind.EXECUTE;
-            case "searchAgent" -> AcpSchema.ToolKind.SEARCH;
-            case "createOrReplaceTaskList" -> AcpSchema.ToolKind.THINK;
-            default -> classifyByPrefix(toolName);
-        };
-    }
-
-    private static AcpSchema.ToolKind classifyByPrefix(String toolName) {
-        if (toolName.startsWith("search") || toolName.startsWith("find")) {
-            return AcpSchema.ToolKind.SEARCH;
-        }
-        if (toolName.startsWith("get")
-                || toolName.startsWith("list")
-                || toolName.startsWith("skim")
-                || toolName.startsWith("explain")
-                || toolName.startsWith("read")
-                || toolName.startsWith("scan")) {
-            return AcpSchema.ToolKind.READ;
-        }
-        if (toolName.startsWith("add")
-                || toolName.startsWith("drop")
-                || toolName.startsWith("replace")
-                || toolName.startsWith("edit")
-                || toolName.startsWith("write")
-                || toolName.startsWith("create")) {
-            return AcpSchema.ToolKind.EDIT;
-        }
-        return AcpSchema.ToolKind.OTHER;
+        return destructive ? AcpSchema.ToolKind.EDIT : PermissionGate.classify(toolName);
     }
 
     // ---- GUI-only methods: all no-op (inherited defaults from IConsoleIO) ----
