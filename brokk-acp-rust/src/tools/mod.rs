@@ -236,7 +236,7 @@ impl ToolRegistry {
             | "get_symbol_locations"
             | "get_symbol_summaries"
             | "get_symbol_sources"
-            | "get_summaries"
+            | "get_file_summaries"
             | "summarize_symbols"
             | "skim_files"
             | "most_relevant_files"
@@ -288,7 +288,7 @@ impl ToolRegistry {
     pub fn tool_kind(tool_name: &str) -> ToolKind {
         match tool_name {
             "think" => ToolKind::Think,
-            "readFile" | "listDirectory" | "skim_files" | "get_summaries" => ToolKind::Read,
+            "readFile" | "listDirectory" | "skim_files" | "get_file_summaries" => ToolKind::Read,
             "searchFileContents"
             | "search_symbols"
             | "get_symbol_locations"
@@ -323,7 +323,7 @@ impl ToolRegistry {
             "get_symbol_locations" => "Finding symbol locations",
             "get_symbol_summaries" => "Getting symbol summaries",
             "get_symbol_sources" => "Fetching symbol source",
-            "get_summaries" => "Getting summaries",
+            "get_file_summaries" => "Getting file summaries",
             "summarize_symbols" => "Summarizing symbols",
             "skim_files" => "Skimming files",
             "most_relevant_files" => "Finding related files",
