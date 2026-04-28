@@ -29,6 +29,11 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
+    /// Working directory this registry is rooted in.
+    pub(crate) fn cwd(&self) -> &Path {
+        &self.cwd
+    }
+
     pub async fn new(cwd: PathBuf, bifrost_binary: Option<&Path>) -> Self {
         // Best-effort sweep of any stale seatbelt policy files left by a
         // previous SIGKILL/panic. Bounded by file age so we don't yank a
@@ -303,8 +308,10 @@ impl ToolRegistry {
         }
     }
 
-    /// Human-readable headline for a tool call (shown to ACP client).
-    pub fn headline(tool_name: &str) -> &'static str {
+    /// Static display name for a tool. Used as a fallback when a richer
+    /// title can't be derived from the call's input args (notably for
+    /// Bifrost-loaded tools we don't introspect by name in `announce`).
+    pub fn display_name(tool_name: &str) -> &'static str {
         match tool_name {
             "think" => "Thinking",
             "readFile" => "Reading file",
