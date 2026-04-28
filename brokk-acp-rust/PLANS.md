@@ -340,7 +340,7 @@ Full review of the Rust ACP server. Issues classified by severity.
 
 6. **Hole in `safe_resolve_for_write`** (`tools/mod.rs:236-255`). If the parent of the requested path does not exist, the `starts_with(cwd)` check is skipped entirely and the non-canonicalized `joined` path is returned. Path traversal is possible via `../new_dir/../../tmp/evil`. Fix: walk up to the first existing ancestor, canonicalize that, and validate the prefix.
 
-7. **`runShellCommand` without sandbox**. `sh -c` runs anything (`cat /etc/passwd`, `curl | sh`, etc.). No seccomp, namespace, or allow-list. For an LLM-driven tool this is a major risk. Fix: out of immediate scope, but document and consider an ACP client confirmation.
+7. **`runShellCommand` without sandbox** -- DONE (#3390). `src/tools/sandbox.rs` now wraps shell calls in `sandbox-exec` (macOS Seatbelt) or `bwrap` (Linux Bubblewrap), driven by `SandboxPolicy::from_permission_mode`: BypassPermissions -> None, ReadOnly/Default -> ReadOnly, AcceptEdits -> WorkspaceWrite. Policy is mirrored from `app/src/main/java/ai/brokk/util/Environment.java`. Windows is log-and-skip. On Linux without `bwrap` installed we log-once and fall back to unwrapped exec.
 
 8. **Symlinks followed blindly**. A symlink under cwd pointing outside lets writes through. Mitigated by `canonicalize` in `safe_resolve` for reads; writes remain exposed.
 
