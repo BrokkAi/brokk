@@ -8,11 +8,17 @@ import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
 import com.agentclientprotocol.sdk.agent.transport.StdioAcpAgentTransport;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
+import com.fasterxml.jackson.databind.BeanDescription;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationConfig;
 import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.ser.BeanPropertyWriter;
 import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
 import io.modelcontextprotocol.json.McpJsonDefaults;
+import io.modelcontextprotocol.json.McpJsonMapper;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -176,14 +182,14 @@ public final class AcpServerMain {
      * <p>Reads still work because {@code @JsonTypeInfo(visible=true)} feeds the discriminator
      * into the canonical record constructor argument; we only suppress the writer side.
      */
-    static void patchAcpDuplicateKeyBug(io.modelcontextprotocol.json.McpJsonMapper jsonMapper) {
-        com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    static void patchAcpDuplicateKeyBug(McpJsonMapper jsonMapper) {
+        ObjectMapper objectMapper;
         try {
             // Both io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper and
             // .jackson2.JacksonMcpJsonMapper expose getObjectMapper(); reflect to avoid
             // hard-coding either internal class.
             var getter = jsonMapper.getClass().getMethod("getObjectMapper");
-            objectMapper = (com.fasterxml.jackson.databind.ObjectMapper) getter.invoke(jsonMapper);
+            objectMapper = (ObjectMapper) getter.invoke(jsonMapper);
         } catch (ReflectiveOperationException e) {
             logger.warn(
                     "Could not access underlying ObjectMapper on {}; ACP output may contain duplicate JSON keys",
@@ -194,10 +200,8 @@ public final class AcpServerMain {
         objectMapper.registerModule(
                 new SimpleModule("AcpDuplicateKeyFix").setSerializerModifier(new BeanSerializerModifier() {
                     @Override
-                    public java.util.List<com.fasterxml.jackson.databind.ser.BeanPropertyWriter> changeProperties(
-                            com.fasterxml.jackson.databind.SerializationConfig config,
-                            com.fasterxml.jackson.databind.BeanDescription beanDesc,
-                            java.util.List<com.fasterxml.jackson.databind.ser.BeanPropertyWriter> properties) {
+                    public List<BeanPropertyWriter> changeProperties(
+                            SerializationConfig config, BeanDescription beanDesc, List<BeanPropertyWriter> properties) {
                         var bean = beanDesc.getBeanClass();
                         if (AcpSchema.SessionUpdate.class.isAssignableFrom(bean)) {
                             properties.removeIf(p -> "sessionUpdate".equals(p.getName()));

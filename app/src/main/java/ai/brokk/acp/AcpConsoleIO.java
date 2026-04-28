@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -453,7 +454,7 @@ public class AcpConsoleIO extends MemoryConsole {
      * them out of the assistant-text stream and lets clients collapse them by default.
      */
     private void emitSyntheticToolCall(HeaderAndBody parts, AcpSchema.ToolKind kind) {
-        var body = parts.body() == null ? "" : parts.body();
+        var body = parts.body();
         List<AcpSchema.ToolCallContent> content = body.isBlank()
                 ? List.of()
                 : List.of(new AcpSchema.ToolCallContentBlock(
@@ -584,7 +585,7 @@ public class AcpConsoleIO extends MemoryConsole {
                 return node.asText();
             }
             if (node.isArray()) {
-                var sb = new java.util.StringJoiner(", ");
+                var sb = new StringJoiner(", ");
                 int i = 0;
                 for (var elt : node) {
                     if (i++ >= 4) {
@@ -642,7 +643,7 @@ public class AcpConsoleIO extends MemoryConsole {
      * <p>All output is capped at {@link #MAX_RENDERED_BODY_BYTES}.
      */
     private static List<AcpSchema.ToolCallContent> renderToolContent(AcpSchema.ToolKind kind, String resultText) {
-        if (resultText == null || resultText.isBlank()) {
+        if (resultText.isBlank()) {
             return List.of();
         }
         var rendered = renderText(kind, resultText);
@@ -755,9 +756,6 @@ public class AcpConsoleIO extends MemoryConsole {
     }
 
     private static String truncate(String text, int maxBytes) {
-        if (text == null) {
-            return "";
-        }
         if (text.length() <= maxBytes) {
             return text;
         }
