@@ -51,14 +51,14 @@ def configure_intellij_acp_settings(
             "--default-model",
             rust_paths.model,
             "--bifrost-binary",
-            str(rust_paths.bifrost),
+            rust_paths.bifrost.as_posix(),
         ]
         if rust_paths.endpoint_url:
             rust_args += ["--endpoint-url", rust_paths.endpoint_url]
         if rust_paths.api_key:
             rust_args += ["--api-key", rust_paths.api_key]
         agent_servers[entry_name] = {
-            "command": str(rust_paths.brokk_acp),
+            "command": rust_paths.brokk_acp.as_posix(),
             "args": rust_args,
             "env": {},
         }

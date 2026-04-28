@@ -212,7 +212,7 @@ def _brokk_code_agent_server_config(
             "--default-model",
             rust_paths.model,
             "--bifrost-binary",
-            str(rust_paths.bifrost),
+            rust_paths.bifrost.as_posix(),
         ]
         if rust_paths.endpoint_url:
             args += ["--endpoint-url", rust_paths.endpoint_url]
@@ -225,7 +225,7 @@ def _brokk_code_agent_server_config(
                 "model": [rust_paths.model],
             },
             "type": "custom",
-            "command": str(rust_paths.brokk_acp),
+            "command": rust_paths.brokk_acp.as_posix(),
             "args": args,
             "env": {},
         }

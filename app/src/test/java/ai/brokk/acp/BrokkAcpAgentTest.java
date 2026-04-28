@@ -609,4 +609,87 @@ class BrokkAcpAgentTest {
             return mapper.convertValue(data, typeRef);
         }
     }
+
+    /**
+     * Verifies the per-cwd workspace bundle behavior added to fix Zed's per-session cwd handling.
+     * Two {@code session/new} calls with different {@code cwd}s must materialize independent
+     * bundles; sessions in one must not appear in {@code listSessions} for the other.
+     */
+    @org.junit.jupiter.api.Nested
+    class PerCwdBundles {
+
+        private Path rootA;
+        private Path rootB;
+        private BrokkAcpAgent multiCwdAgent;
+        private final java.util.List<JobRunner> trackedRunners = new ArrayList<>();
+        private final java.util.List<ContextManager> trackedContextManagers = new ArrayList<>();
+
+        @BeforeEach
+        void setUpBundles(@TempDir Path tempDir) throws Exception {
+            rootA = tempDir.resolve("project-a").toAbsolutePath().normalize();
+            rootB = tempDir.resolve("project-b").toAbsolutePath().normalize();
+            java.nio.file.Files.createDirectories(rootA);
+            java.nio.file.Files.createDirectories(rootB);
+
+            BrokkAcpAgent.WorkspaceBundleFactory factory = root -> {
+                var project = MainProject.forTests(root);
+                var cm = new ContextManager(project, TestService.provider(project));
+                JobStore js;
+                try {
+                    js = new JobStore(root.resolve(".brokk-test-jobs"));
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+                var jr = new JobRunner(cm, js);
+                trackedContextManagers.add(cm);
+                trackedRunners.add(jr);
+                return new BrokkAcpAgent.WorkspaceBundle(cm, jr, js, root);
+            };
+            multiCwdAgent = new BrokkAcpAgent(rootA, factory);
+        }
+
+        @AfterEach
+        void tearDownBundles() {
+            multiCwdAgent.closeAllBundles();
+            trackedRunners.clear();
+            trackedContextManagers.clear();
+        }
+
+        @Test
+        void sessionsForDifferentCwdsDoNotCrossover() {
+            var inA = multiCwdAgent.newSession(new AcpSchema.NewSessionRequest(rootA.toString(), List.of()));
+            var inB = multiCwdAgent.newSession(new AcpSchema.NewSessionRequest(rootB.toString(), List.of()));
+
+            assertNotEquals(inA.sessionId(), inB.sessionId());
+            assertEquals(2, multiCwdAgent.activeBundleRoots().size());
+            assertTrue(multiCwdAgent.activeBundleRoots().contains(rootA));
+            assertTrue(multiCwdAgent.activeBundleRoots().contains(rootB));
+
+            var listedA = multiCwdAgent.listSessions(new AcpProtocol.ListSessionsRequest(null, rootA.toString(), null));
+            assertTrue(listedA.sessions().stream().anyMatch(s -> s.sessionId().equals(inA.sessionId())));
+            assertTrue(listedA.sessions().stream().noneMatch(s -> s.sessionId().equals(inB.sessionId())));
+            assertTrue(listedA.sessions().stream().allMatch(s -> s.cwd().equals(rootA.toString())));
+
+            var listedB = multiCwdAgent.listSessions(new AcpProtocol.ListSessionsRequest(null, rootB.toString(), null));
+            assertTrue(listedB.sessions().stream().anyMatch(s -> s.sessionId().equals(inB.sessionId())));
+            assertTrue(listedB.sessions().stream().noneMatch(s -> s.sessionId().equals(inA.sessionId())));
+            assertTrue(listedB.sessions().stream().allMatch(s -> s.cwd().equals(rootB.toString())));
+        }
+
+        @Test
+        void sessionMissingCwdFallsBackToDefaultRoot() {
+            var session = multiCwdAgent.newSession(new AcpSchema.NewSessionRequest("", List.of()));
+            assertNotNull(session.sessionId());
+            assertTrue(multiCwdAgent.activeBundleRoots().contains(rootA));
+            assertFalse(multiCwdAgent.activeBundleRoots().contains(rootB));
+        }
+
+        @Test
+        void listSessionsForUnseenCwdReturnsEmptyWithoutCreatingBundle() {
+            var unseen = rootA.resolveSibling("never-touched").toAbsolutePath().normalize();
+            var listed = multiCwdAgent.listSessions(new AcpProtocol.ListSessionsRequest(null, unseen.toString(), null));
+            assertTrue(listed.sessions().isEmpty());
+            assertFalse(multiCwdAgent.activeBundleRoots().contains(unseen));
+        }
+    }
 }

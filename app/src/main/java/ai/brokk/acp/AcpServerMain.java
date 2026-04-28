@@ -7,11 +7,22 @@ import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
 import com.agentclientprotocol.sdk.agent.transport.StdioAcpAgentTransport;
+import com.agentclientprotocol.sdk.spec.AcpSchema;
+import com.fasterxml.jackson.databind.BeanDescription;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationConfig;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.ser.BeanPropertyWriter;
+import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
 import io.modelcontextprotocol.json.McpJsonDefaults;
+import io.modelcontextprotocol.json.McpJsonMapper;
+import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Entry point for the native Java ACP server.
@@ -62,46 +73,33 @@ public final class AcpServerMain {
                 System.exit(0);
             }
 
-            // Workspace dir is required
+            // Workspace dir is now optional: ACP's session/new carries a per-session cwd that
+            // each session uses. The CLI flag (or WORKSPACE_DIR env) becomes the default for
+            // sessions that omit cwd, falling back to the process working directory if neither
+            // is set.
             var workspaceDirStr = CliArgParser.getConfigValue(parsedArgs, "workspace-dir", "WORKSPACE_DIR");
-            if (workspaceDirStr == null) {
-                System.err.println("Error: --workspace-dir is required (or set WORKSPACE_DIR env var)");
-                System.exit(1);
-            }
-            var workspaceDir = Path.of(workspaceDirStr);
+            var defaultWorkspaceDir = workspaceDirStr != null
+                    ? Path.of(workspaceDirStr).toAbsolutePath().normalize()
+                    : Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
+            logger.info("Default workspace dir: {}", defaultWorkspaceDir);
 
-            // Build project and apply configuration
-            var project = new MainProject(workspaceDir);
-            CliArgParser.applyVendorPreference(parsedArgs.get("vendor"), project);
             CliArgParser.applyHeadlessOverrides(parsedArgs);
+            var vendorOverride = parsedArgs.get("vendor");
 
-            // Create ContextManager and initialize headless.
-            // Use a silent console (not HeadlessConsole) because stdout is reserved for JSON-RPC.
-            // HeadlessConsole writes to System.out which would corrupt the protocol stream.
-            var contextManager = new ContextManager(project);
-            var initThread = new Thread(
-                    () -> {
-                        contextManager.createHeadless(false, new MemoryConsole() {});
-                        logger.info("ContextManager headless initialization complete");
-                    },
-                    "AcpServer-init");
-            initThread.setDaemon(true);
-            initThread.start();
+            // Bundles are created lazily per-session-cwd. The factory captures the vendor
+            // preference / headless config so each new bundle inherits the same baseline.
+            BrokkAcpAgent.WorkspaceBundleFactory factory = root -> createWorkspaceBundle(root, vendorOverride);
 
-            // Create job infrastructure
-            var jobStore = new JobStore(workspaceDir.resolve(".brokk"));
-            var jobRunner = new JobRunner(contextManager, jobStore);
-
-            // Wait for init
-            initThread.join();
-
-            // Create and start ACP agent
-            var agent = new BrokkAcpAgent(contextManager, jobRunner, jobStore);
-            var transport = new StdioAcpAgentTransport(McpJsonDefaults.getMapper());
+            // Create and start ACP agent. The default workspace seeds list-sessions for clients
+            // that haven't issued a session/new yet, but is otherwise decorative.
+            var agent = new BrokkAcpAgent(defaultWorkspaceDir, factory);
+            var jsonMapper = McpJsonDefaults.getMapper();
+            patchAcpDuplicateKeyBug(jsonMapper);
+            var transport = new StdioAcpAgentTransport(jsonMapper);
             var runtime = new BrokkAcpRuntime(transport, agent);
 
             // Register shutdown hook -- close transport first (stop accepting requests),
-            // then job infrastructure, then context manager
+            // then close every active bundle (cancels active jobs + closes its ContextManager).
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
                             () -> {
@@ -112,14 +110,9 @@ public final class AcpServerMain {
                                     logger.warn("Error closing ACP transport", e);
                                 }
                                 try {
-                                    jobRunner.shutdown();
+                                    agent.closeAllBundles();
                                 } catch (Exception e) {
-                                    logger.warn("Error shutting down JobRunner", e);
-                                }
-                                try {
-                                    contextManager.close();
-                                } catch (Exception e) {
-                                    logger.warn("Error closing ContextManager", e);
+                                    logger.warn("Error closing workspace bundles", e);
                                 }
                                 logger.info("Shutdown complete");
                             },
@@ -137,5 +130,88 @@ public final class AcpServerMain {
             System.err.println("Fatal: " + e.getMessage());
             System.exit(1);
         }
+    }
+
+    /**
+     * Materializes a workspace bundle for {@code root}. Builds a fresh {@link MainProject},
+     * applies the vendor preference, runs headless context-manager initialization on a daemon
+     * thread (joining before returning), and constructs the per-bundle {@link JobStore} +
+     * {@link JobRunner}. Called lazily by {@link BrokkAcpAgent#newSession} when a session names
+     * a {@code cwd} that hasn't been seen before.
+     */
+    private static BrokkAcpAgent.WorkspaceBundle createWorkspaceBundle(Path root, @Nullable String vendorOverride) {
+        logger.info("Materializing workspace bundle for {}", root);
+        try {
+            var project = new MainProject(root);
+            if (vendorOverride != null) {
+                CliArgParser.applyVendorPreference(vendorOverride, project);
+            }
+            var contextManager = new ContextManager(project);
+            var initThread = new Thread(
+                    () -> {
+                        contextManager.createHeadless(false, new MemoryConsole() {});
+                        logger.info("ContextManager headless init complete for {}", root);
+                    },
+                    "AcpServer-init-" + root.getFileName());
+            initThread.setDaemon(true);
+            initThread.start();
+            initThread.join();
+            var jobStore = new JobStore(root.resolve(".brokk"));
+            var jobRunner = new JobRunner(contextManager, jobStore);
+            return new BrokkAcpAgent.WorkspaceBundle(contextManager, jobRunner, jobStore, root);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while initializing workspace " + root, e);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to initialize workspace " + root, e);
+        }
+    }
+
+    /**
+     * Workaround for the upstream acp-core schema's duplicate-key serialization bug.
+     *
+     * <p>The {@code SessionUpdate}, {@code ContentBlock}, and {@code ToolCallContent} interfaces
+     * declare their discriminated unions with {@code @JsonTypeInfo(visible=true, property=…)} AND
+     * the subtype records each carry a property of the same name. Jackson dutifully emits both,
+     * producing duplicate JSON keys (e.g. {@code "sessionUpdate":"tool_call","sessionUpdate":"tool_call"}).
+     * Zed's serde-based ACP layer enforces strict tagged-enum decoding and rejects every such
+     * notification silently — observable in {@code ~/Library/Logs/Zed/Zed.log} as
+     * {@code "duplicate field `sessionUpdate`"}. Strip the record-level property from
+     * serialization so only the type-info path emits the discriminator.
+     *
+     * <p>Reads still work because {@code @JsonTypeInfo(visible=true)} feeds the discriminator
+     * into the canonical record constructor argument; we only suppress the writer side.
+     */
+    static void patchAcpDuplicateKeyBug(McpJsonMapper jsonMapper) {
+        ObjectMapper objectMapper;
+        try {
+            // Both io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper and
+            // .jackson2.JacksonMcpJsonMapper expose getObjectMapper(); reflect to avoid
+            // hard-coding either internal class.
+            var getter = jsonMapper.getClass().getMethod("getObjectMapper");
+            objectMapper = (ObjectMapper) getter.invoke(jsonMapper);
+        } catch (ReflectiveOperationException e) {
+            logger.warn(
+                    "Could not access underlying ObjectMapper on {}; ACP output may contain duplicate JSON keys",
+                    jsonMapper.getClass().getName(),
+                    e);
+            return;
+        }
+        objectMapper.registerModule(
+                new SimpleModule("AcpDuplicateKeyFix").setSerializerModifier(new BeanSerializerModifier() {
+                    @Override
+                    public List<BeanPropertyWriter> changeProperties(
+                            SerializationConfig config, BeanDescription beanDesc, List<BeanPropertyWriter> properties) {
+                        var bean = beanDesc.getBeanClass();
+                        if (AcpSchema.SessionUpdate.class.isAssignableFrom(bean)) {
+                            properties.removeIf(p -> "sessionUpdate".equals(p.getName()));
+                        }
+                        if (AcpSchema.ContentBlock.class.isAssignableFrom(bean)
+                                || AcpSchema.ToolCallContent.class.isAssignableFrom(bean)) {
+                            properties.removeIf(p -> "type".equals(p.getName()));
+                        }
+                        return properties;
+                    }
+                }));
     }
 }
