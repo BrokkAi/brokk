@@ -237,7 +237,6 @@ When you specify a `tools` list, you're choosing which capabilities the agent ha
 | `skimFiles` | Quick overview of files showing declarations |
 | `listFiles` | Directory listing |
 | `getSummaries` | API surface and nearby structure for classes, files, or packages |
-| `getClassSkeletons` | Class skeletons with fields and method signatures |
 | `getClassSources` | Full source of classes by fully qualified name |
 | `getMethodSources` | Source of specific methods |
 | `getFileContents` | Read full file contents |
@@ -335,7 +334,6 @@ description: Explains how a codebase or subsystem is architected
 tools:
   - searchSymbols
   - scanUsages
-  - getClassSkeletons
   - getSummaries
   - skimFiles
   - listFiles
@@ -350,7 +348,7 @@ When asked about a system or subsystem:
 1. **Discover structure**: use listFiles and findFilenames to understand the directory layout
 2. **Identify key abstractions**: use searchSymbols to find main classes, interfaces, and entry points
 3. **Trace relationships**: use scanUsages to understand how components connect
-4. **Read APIs first**: use getClassSkeletons and getSummaries for public APIs, adjacent types, and package-level structure before reading implementation details
+4. **Read APIs first**: use getSummaries for public APIs, adjacent types, and package-level structure before reading implementation details
 5. **Dive selectively**: only read full source when a specific pattern or algorithm needs explanation
 
 Present your analysis as:

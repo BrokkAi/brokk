@@ -40,18 +40,17 @@ All tools require an active workspace. Call `activateWorkspace` first with an ab
 |------|-------------|------------|
 | `searchSymbols` | Find where classes, functions, fields, and modules are defined. Patterns are case-insensitive regex with implicit `^` and `$`, so use wildcarding: `.*Foo.*`, `Abstract.*`, `[a-z]*DAO`. | `patterns` (string[], required), `includeTests` (bool, required), `limit` (int, required; default 50, max 100) |
 | `scanUsages` | Find where/how a symbol is used/called/accessed across the codebase. Requires fully qualified names -- call `searchSymbols` first if you only have a partial name. | `symbols` (string[], required), `includeTests` (bool, required) |
-| `getClassSkeletons` | Returns class skeletons (fields + method signatures) for specific classes by fully qualified name. | `classNames` (string[], required) |
 | `getSymbolLocations` | Returns file locations for given fully qualified symbol names. | `symbols` (string[], required) |
 
 ### Code reading
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `getFileSummaries` | Per-file summaries: class skeletons for source files, structured template summaries for framework DSLs (e.g. Angular `.component.html`). Supports glob patterns (`*` matches one directory, `**` matches recursively). | `filePaths` (string[], required) -- paths relative to project root |
-| `getClassSources` | Full source code of classes (max 10). Prefer `getFileSummaries` or `getMethodSources` when possible. | `classNames` (string[], required) -- fully qualified class names |
-| `getMethodSources` | Full source code of specific methods/functions by fully qualified name. Preferred over `getClassSources` when you only need 1-2 methods. | `methodNames` (string[], required) -- fully qualified method names |
-| `getFileContents` | Read the full contents of one or more files. | `filenames` (string[], required) -- relative file paths |
-| `skimFiles` | Quick overview of files showing top-level declarations without full source. | `filePaths` (string[], required) |
+| Tool | Description                                                                                                                                                                                                                          | Parameters |
+|------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------|
+| `getSummaries` | Per-file and per-class summaries: class skeletons for source files, structured template summaries for framework DSLs (e.g. Angular `.component.html`). Supports glob patterns (`*` matches one directory, `**` matches recursively). | `filePaths` (string[], required) -- paths relative to project root |
+| `getClassSources` | Full source code of classes (max 10). Prefer `getSummaries` or `getMethodSources` when possible.                                                                                                                                      | `classNames` (string[], required) -- fully qualified class names |
+| `getMethodSources` | Full source code of specific methods/functions by fully qualified name. Preferred over `getClassSources` when you only need 1-2 methods.                                                                                             | `methodNames` (string[], required) -- fully qualified method names |
+| `getFileContents` | Read the full contents of one or more files.                                                                                                                                                                                         | `filenames` (string[], required) -- relative file paths |
+| `skimFiles` | Quick overview of files showing top-level declarations without full source.                                                                                                                                                          | `filePaths` (string[], required) |
 
 ### File discovery and search
 

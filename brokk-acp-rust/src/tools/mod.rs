@@ -211,7 +211,7 @@ impl ToolRegistry {
             | "get_symbol_locations"
             | "get_symbol_summaries"
             | "get_symbol_sources"
-            | "get_file_summaries"
+            | "get_summaries"
             | "summarize_symbols"
             | "skim_files"
             | "most_relevant_files"
@@ -285,7 +285,7 @@ impl ToolRegistry {
             "get_symbol_locations" => "Finding symbol locations",
             "get_symbol_summaries" => "Getting symbol summaries",
             "get_symbol_sources" => "Fetching symbol source",
-            "get_file_summaries" => "Getting file summaries",
+            "get_summaries" => "Getting summaries",
             "summarize_symbols" => "Summarizing symbols",
             "skim_files" => "Skimming files",
             "most_relevant_files" => "Finding related files",

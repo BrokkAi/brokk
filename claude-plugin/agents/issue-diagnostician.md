@@ -40,7 +40,6 @@ Brokk MCP tools to explore the codebase and identify:
 - `scanUsages` -- trace how affected symbols are used across the codebase
 - `getMethodSources` -- read the full implementation of methods relevant
   to the issue
-- `getClassSkeletons` -- understand the API surface of classes involved
 - `getSummaries` -- get API-level and package-level summaries of files,
   classes, and packages related to the issue
 - `searchFileContents` -- search for error messages, configuration keys,
@@ -54,8 +53,7 @@ Brokk MCP tools to explore the codebase and identify:
 1. Start by extracting keywords, class names, error messages, and file
    references from the issue text.
 2. Use `searchSymbols` and `searchFileContents` to locate relevant code.
-3. Use `getMethodSources` and `getClassSkeletons` to understand the
-   implementation.
+3. Use `getMethodSources` and `getSummaries` to understand the implementation.
 4. Use `scanUsages` to trace data flow and call chains.
 5. Use `getGitLog` to check recent changes to affected files.
 6. Synthesize your findings into the structured output below.

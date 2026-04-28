@@ -34,6 +34,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.SequencedSet;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,20 +46,15 @@ public final class SftServer implements AutoCloseable {
     private static final Logger logger = LogManager.getLogger(SftServer.class);
     private static final int DEFAULT_PORT = 7999;
 
-    private final MainProject project;
-    private final ContextManager contextManager;
     private final SimpleHttpServer httpServer;
+    private final ConcurrentMap<Path, CachedContext> repoContexts = new ConcurrentHashMap<>();
     private final CountDownLatch shutdownLatch = new CountDownLatch(1);
 
-    public SftServer(Path projectRoot) throws IOException {
-        this(projectRoot, DEFAULT_PORT);
+    public SftServer() throws IOException {
+        this(DEFAULT_PORT);
     }
 
-    public SftServer(Path projectRoot, int port) throws IOException {
-        this.project = new MainProject(projectRoot.toAbsolutePath().normalize());
-        this.project.setBuildDetails(BuildAgent.BuildDetails.EMPTY);
-        this.contextManager = new ContextManager(project);
-        this.contextManager.createHeadless(true, new HeadlessConsole());
+    public SftServer(int port) throws IOException {
         this.httpServer = new SimpleHttpServer(
                 "localhost", port, "", Math.max(4, Runtime.getRuntime().availableProcessors()));
         registerContexts();
@@ -68,16 +65,16 @@ public final class SftServer implements AutoCloseable {
     }
 
     static int run(String[] args) throws Exception {
-        Path projectRoot = null;
+        int port = DEFAULT_PORT;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
-                case "--project" -> {
+                case "--port" -> {
                     if (i + 1 >= args.length) {
-                        System.err.println("--project requires a path");
+                        System.err.println("--port requires a value");
                         return 1;
                     }
-                    projectRoot = Path.of(args[++i]).toAbsolutePath().normalize();
+                    port = Integer.parseInt(args[++i]);
                 }
                 case "--help", "-h" -> {
                     printHelp();
@@ -91,12 +88,7 @@ public final class SftServer implements AutoCloseable {
             }
         }
 
-        if (projectRoot == null) {
-            printHelp();
-            return 1;
-        }
-
-        try (var server = new SftServer(projectRoot)) {
+        try (var server = new SftServer(port)) {
             var shutdownHook = new Thread(server::close, "sft-server-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdownHook);
             server.start();
@@ -112,7 +104,7 @@ public final class SftServer implements AutoCloseable {
     }
 
     private static void printHelp() {
-        System.out.println("Usage: java ai.brokk.tools.SftServer --project <project-root>");
+        System.out.println("Usage: java ai.brokk.tools.SftServer [--port <port>]");
     }
 
     public void start() {
@@ -131,19 +123,24 @@ public final class SftServer implements AutoCloseable {
     @Override
     public void close() {
         httpServer.stop(1);
-        contextManager.close();
-        project.close();
+        for (var context : repoContexts.values()) {
+            context.close();
+        }
+        repoContexts.clear();
         shutdownLatch.countDown();
     }
 
     @Blocking
     public List<SftMessage> format_workspace(
+            String repoPath,
             String goal,
             String revision,
             List<String> editable,
             List<String> readonly,
             List<String> summarized,
             String buildError) {
+        var cachedContext = contextFor(repoPath);
+        var contextManager = cachedContext.contextManager();
         var normalizedEditable = normalizePaths(editable);
         var normalizedReadonly = normalizePaths(readonly);
         var normalizedSummarized = normalizePaths(summarized);
@@ -153,23 +150,23 @@ public final class SftServer implements AutoCloseable {
         var readonlyFragments = new ArrayList<ContextFragment>();
 
         for (var path : normalizedEditable) {
-            var file = validateProjectFile(path);
-            fragments.add(
-                    new ContextFragments.ProjectPathFragment(file, contextManager, loadRevisionText(file, revision)));
+            var file = validateProjectFile(cachedContext, path);
+            fragments.add(new ContextFragments.ProjectPathFragment(
+                    file, contextManager, loadRevisionText(cachedContext, file, revision)));
         }
 
         for (var path : normalizedReadonly) {
-            var file = validateProjectFile(path);
-            var fragment =
-                    new ContextFragments.ProjectPathFragment(file, contextManager, loadRevisionText(file, revision));
+            var file = validateProjectFile(cachedContext, path);
+            var fragment = new ContextFragments.ProjectPathFragment(
+                    file, contextManager, loadRevisionText(cachedContext, file, revision));
             fragments.add(fragment);
             readonlyFragments.add(fragment);
         }
 
         var analyzer = contextManager.getAnalyzerUninterrupted();
         for (var path : normalizedSummarized) {
-            var file = validateProjectFile(path);
-            var summaryText = analyzer.summarizeSymbols(file, loadRevisionText(file, revision));
+            var file = validateProjectFile(cachedContext, path);
+            var summaryText = analyzer.summarizeSymbols(file, loadRevisionText(cachedContext, file, revision));
             fragments.add(ContextFragments.SummaryFragment.precomputedFileSummary(contextManager, file, summaryText));
         }
 
@@ -191,20 +188,21 @@ public final class SftServer implements AutoCloseable {
     }
 
     @Blocking
-    public Map<String, String> format_patch(String from, String to) {
-        return format_patch(from, to, List.of());
+    public Map<String, String> format_patch(String repoPath, String from, String to) {
+        return format_patch(repoPath, from, to, List.of());
     }
 
     @Blocking
-    public Map<String, String> format_patch(String from, String to, List<String> filenames) {
+    public Map<String, String> format_patch(String repoPath, String from, String to, List<String> filenames) {
+        var cachedContext = contextFor(repoPath);
         if (from.isBlank() || to.isBlank()) {
             throw new IllegalArgumentException("from and to must not be blank");
         }
 
-        var includedFiles = normalizePathSet(defaultIfNull(filenames));
+        var includedFiles = normalizePathSet(cachedContext, defaultIfNull(filenames));
         List<GitRepoData.FileDiff> fileDiffs;
         try {
-            fileDiffs = requireGitRepo().data().getFileDiffs(from, to);
+            fileDiffs = requireGitRepo(cachedContext).data().getFileDiffs(from, to);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to diff revisions '%s' and '%s'".formatted(from, to), e);
         }
@@ -254,6 +252,7 @@ public final class SftServer implements AutoCloseable {
 
         try {
             var result = format_workspace(
+                    requireNonBlank(request.repo_path(), "repo_path"),
                     requireNonBlank(request.goal(), "goal"),
                     requireNonBlank(request.revision(), "revision"),
                     request.editable(),
@@ -281,6 +280,7 @@ public final class SftServer implements AutoCloseable {
 
         try {
             var result = format_patch(
+                    requireNonBlank(request.repo_path(), "repo_path"),
                     requireNonBlank(request.from(), "from"),
                     requireNonBlank(request.to(), "to"),
                     defaultIfNull(request.filenames()));
@@ -300,15 +300,29 @@ public final class SftServer implements AutoCloseable {
                 new UserMessage(Messages.getText(request) + "\n\n" + WorkspacePrompts.formatToc(context, Set.of())));
     }
 
-    private GitRepo requireGitRepo() {
-        var repo = contextManager.getRepo();
+    private CachedContext contextFor(String repoPath) {
+        var root =
+                Path.of(requireNonBlank(repoPath, "repo_path")).toAbsolutePath().normalize();
+        return repoContexts.computeIfAbsent(root, SftServer::createContext);
+    }
+
+    private static CachedContext createContext(Path projectRoot) {
+        var project = new MainProject(projectRoot);
+        project.setBuildDetails(BuildAgent.BuildDetails.EMPTY);
+        var contextManager = new ContextManager(project);
+        contextManager.createHeadless(true, new HeadlessConsole());
+        return new CachedContext(project, contextManager);
+    }
+
+    private GitRepo requireGitRepo(CachedContext cachedContext) {
+        var repo = cachedContext.contextManager().getRepo();
         if (repo instanceof GitRepo gitRepo) {
             return gitRepo;
         }
         throw new IllegalArgumentException("Project does not have a git repository");
     }
 
-    private ProjectFile validateProjectFile(String relativePath) {
+    private ProjectFile validateProjectFile(CachedContext cachedContext, String relativePath) {
         if (relativePath.isBlank()) {
             throw new IllegalArgumentException("Path must not be blank");
         }
@@ -318,7 +332,7 @@ public final class SftServer implements AutoCloseable {
             throw new IllegalArgumentException("Path must be project-relative: " + relativePath);
         }
 
-        var root = project.getRoot().toAbsolutePath().normalize();
+        var root = cachedContext.project().getRoot().toAbsolutePath().normalize();
         var normalized = root.resolve(relPath).normalize();
         if (!normalized.startsWith(root)) {
             throw new IllegalArgumentException("Path escapes the project root: " + relativePath);
@@ -327,7 +341,7 @@ public final class SftServer implements AutoCloseable {
         return new ProjectFile(root, relPath);
     }
 
-    private String loadRevisionText(ProjectFile file, String revision) {
+    private String loadRevisionText(CachedContext cachedContext, ProjectFile file, String revision) {
         try {
             if ("WORKING".equals(revision)) {
                 if (!Files.isRegularFile(file.absPath())) {
@@ -335,7 +349,7 @@ public final class SftServer implements AutoCloseable {
                 }
                 return file.read().orElseThrow(() -> new IllegalArgumentException("Failed to read file: " + file));
             }
-            return requireGitRepo().data().getFileContent(revision, file);
+            return requireGitRepo(cachedContext).data().getFileContent(revision, file);
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {
@@ -356,8 +370,8 @@ public final class SftServer implements AutoCloseable {
         }
     }
 
-    private static String requireNonBlank(String value, String name) {
-        if (value.isBlank()) {
+    private static String requireNonBlank(@Nullable String value, String name) {
+        if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(name + " must not be blank");
         }
         return value;
@@ -375,14 +389,14 @@ public final class SftServer implements AutoCloseable {
         return new SftMessage(toSftRole(message), Messages.getText(message));
     }
 
-    private Set<String> normalizePathSet(List<String> paths) {
+    private Set<String> normalizePathSet(CachedContext cachedContext, List<String> paths) {
         var normalized = new LinkedHashSet<String>();
         for (var path : normalizePaths(defaultIfNull(paths))) {
             if (path.isBlank()) {
                 throw new IllegalArgumentException("Path list must not contain blank entries");
             }
 
-            normalized.add(validateProjectFile(path).toString().replace('\\', '/'));
+            normalized.add(validateProjectFile(cachedContext, path).toString().replace('\\', '/'));
         }
         return Set.copyOf(normalized);
     }
@@ -417,6 +431,7 @@ public final class SftServer implements AutoCloseable {
     }
 
     private record FormatWorkspaceRequest(
+            String repo_path,
             String goal,
             String revision,
             List<String> editable,
@@ -424,11 +439,19 @@ public final class SftServer implements AutoCloseable {
             List<String> summarized,
             @Nullable String build_error) {}
 
-    private record FormatPatchRequest(String from, String to, @Nullable List<String> filenames) {}
+    private record FormatPatchRequest(String repo_path, String from, String to, @Nullable List<String> filenames) {}
 
     public record SftMessage(String role, String content) {}
 
     private record FormatWorkspaceResponse(List<SftMessage> result) {}
 
     private record FormatPatchResponse(Map<String, String> result) {}
+
+    private record CachedContext(MainProject project, ContextManager contextManager) implements AutoCloseable {
+        @Override
+        public void close() {
+            contextManager.close();
+            project.close();
+        }
+    }
 }

@@ -352,17 +352,6 @@ public class BrokkCoreMcpServer {
                 })));
 
         specs.add(tool(
-                "getClassSkeletons",
-                "Returns class skeletons (fields + method signatures) for specific classes by fully qualified name.",
-                schema(
-                        Map.of("classNames", arrayProp("Fully qualified class names to retrieve skeletons for.")),
-                        List.of("classNames")),
-                (exchange, request) -> withReadLock(() -> {
-                    var classNames = stringListArg(request, "classNames");
-                    return textResult(searchTools.getClassSkeletons(classNames));
-                })));
-
-        specs.add(tool(
                 "getSymbolLocations",
                 "Returns file locations for given fully qualified symbol names.",
                 schema(Map.of("symbols", arrayProp("Fully qualified symbol names to locate.")), List.of("symbols")),

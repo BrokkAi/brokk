@@ -240,25 +240,17 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testfindFilenames_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
+    void testfindFilenames_limitUsesGitImportanceBeforeAlphabeticalDisplay() throws Exception {
         commitTrackedFile("a-low.txt", "low\n", Instant.parse("2020-01-01T00:00:00Z"));
         commitTrackedFile("z-high.txt", "high\n", Instant.parse("2025-01-01T00:00:00Z"));
-        commitTrackedFile("z-high.txt", "high again\n", Instant.parse("2025-02-01T00:00:00Z"));
         recreateSearchTools();
-        var aLow = new ProjectFile(projectRoot, "a-low.txt");
-        var zHigh = new ProjectFile(projectRoot, "z-high.txt");
-
-        assertEquals(
-                zHigh,
-                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
-                "Test setup should give z-high.txt a higher Git rank");
 
         String result = searchTools.findFilenames(List.of(".*\\.txt"), 1);
         String mainSection = mainResultSection(result);
 
-        assertTrue(mainSection.contains("a-low.txt"), "Alphabetically first file should be retained when limit is hit");
+        assertTrue(mainSection.contains("z-high.txt"), "More important file should be selected when limit is hit");
         assertFalse(
-                mainSection.contains("z-high.txt"), "Later files should be truncated even if Git ranks them higher");
+                mainSection.contains("a-low.txt"), "Alphabetically earlier file should be dropped when less important");
     }
 
     @Test
@@ -272,26 +264,6 @@ public class SearchToolsTest {
         assertTrue(
                 result.indexOf("a-low.txt") < result.indexOf("z-high.txt"),
                 "Selected files should still render alphabetically");
-    }
-
-    @Test
-    void testfindFilesContaining_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
-        commitTrackedFile("a-low.txt", "MATCH low\n", Instant.parse("2020-01-01T00:00:00Z"));
-        commitTrackedFile("z-high.txt", "MATCH high\n", Instant.parse("2025-01-01T00:00:00Z"));
-        commitTrackedFile("z-high.txt", "MATCH high again\n", Instant.parse("2025-02-01T00:00:00Z"));
-        recreateSearchTools();
-        var aLow = new ProjectFile(projectRoot, "a-low.txt");
-        var zHigh = new ProjectFile(projectRoot, "z-high.txt");
-
-        assertEquals(
-                zHigh,
-                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
-                "Test setup should give z-high.txt a higher Git rank");
-
-        String result = searchTools.findFilesContaining(List.of("MATCH"), 1);
-
-        assertTrue(result.contains("a-low.txt"), "Alphabetically first match should be retained when limit is hit");
-        assertFalse(result.contains("z-high.txt"), "Later matches should be truncated even if Git ranks them higher");
     }
 
     @Test
@@ -574,56 +546,6 @@ public class SearchToolsTest {
         } finally {
             deleteRecursively(projectRootCopy);
         }
-    }
-
-    @Test
-    void testGetClassSkeletons() {
-        TestContextManager ctxWithAnalyzer = new TestContextManager(
-                javaTestProject, new TestConsoleIO(), Set.of(), javaAnalyzer, new TestRepo(javaTestProject.getRoot()));
-
-        SearchTools tools = new SearchTools(ctxWithAnalyzer);
-
-        // Test 1: Valid class names - verify skeleton structure
-        String result = tools.getClassSkeletons(List.of("A", "D"));
-        assertFalse(result.isEmpty(), "Result should not be empty for valid classes");
-
-        // Split by double newline to get individual skeletons
-        String[] skeletons = result.split("\n\n");
-        assertTrue(skeletons.length >= 2, "Should have at least 2 skeletons");
-
-        // Verify that skeletons contain class declarations
-        boolean foundA = false;
-        boolean foundD = false;
-        for (String skeleton : skeletons) {
-            if (skeleton.contains("class A") && !skeleton.contains("class AB")) {
-                foundA = true;
-                // Verify it's a skeleton (should not contain method bodies)
-                assertFalse(skeleton.contains("System.out"), "Skeleton should not contain method body");
-            }
-            if (skeleton.contains("class D")) {
-                foundD = true;
-                assertFalse(skeleton.contains("System.out"), "Skeleton should not contain method body");
-            }
-        }
-        assertTrue(foundA, "Should find skeleton for class A");
-        assertTrue(foundD, "Should find skeleton for class D");
-
-        // Test 2: Mix of valid and invalid class names
-        String result2 = tools.getClassSkeletons(List.of("A", "NonExistent"));
-        assertFalse(result2.isEmpty(), "Should return results even with some invalid names");
-        assertTrue(result2.contains("class A"), "Should still contain skeleton for valid class A");
-
-        // Test 3: Non-existent class only
-        String result3 = tools.getClassSkeletons(List.of("CompletelyFake"));
-        assertTrue(
-                result3.contains("No classes found") || result3.isEmpty(),
-                "Should handle non-existent class gracefully");
-
-        // Test 4: Verify CodeUnit-native API is used (not String-based)
-        // This is implicitly tested by the fact that the method works correctly
-        // The refactored code uses getDefinition(String) -> filter(isClass) -> getSkeleton(CodeUnit)
-        String result4 = tools.getClassSkeletons(List.of("A"));
-        assertTrue(result4.contains("class A"), "CodeUnit-native API should work correctly");
     }
 
     @Test
@@ -1058,43 +980,6 @@ public class SearchToolsTest {
         assertTrue(
                 result.contains("- 3: public void bar(T value)"),
                 "Should keep the second overload when display signatures collide. Result: " + result);
-    }
-
-    @Test
-    void testSearchSymbols_limitUsesAlphabeticalTruncationWhenGitPriorityDiffers() throws Exception {
-        commitTrackedFile("a-low.java", "class A {}", Instant.parse("2020-01-01T00:00:00Z"));
-        commitTrackedFile("z-high.java", "class Z {}", Instant.parse("2025-01-01T00:00:00Z"));
-        commitTrackedFile("z-high.java", "class Z { int value; }", Instant.parse("2025-02-01T00:00:00Z"));
-        recreateSearchTools();
-
-        ProjectFile aLow = new ProjectFile(projectRoot, "a-low.java");
-        ProjectFile zHigh = new ProjectFile(projectRoot, "z-high.java");
-        assertEquals(
-                zHigh,
-                GitDistance.sortByImportance(List.of(aLow, zHigh), repo).getFirst(),
-                "Test setup should give z-high.java a higher Git rank");
-
-        TestAnalyzer analyzer = new TestAnalyzer();
-        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(aLow, "", "A"));
-        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(zHigh, "", "Z"));
-
-        TestContextManager ctx = new TestContextManager(
-                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
-                new TestConsoleIO(),
-                Set.of(),
-                analyzer,
-                repo);
-        SearchTools tools = new SearchTools(ctx);
-
-        String result = tools.searchSymbols(List.of(".*"), false, 1);
-        String mainSection = mainResultSection(result);
-
-        assertTrue(
-                mainSection.contains("<file path=\"a-low.java\""),
-                "Alphabetically first file should be retained when limit is hit");
-        assertFalse(
-                mainSection.contains("<file path=\"z-high.java\""),
-                "Later files should be truncated even if Git ranks them higher");
     }
 
     @Test

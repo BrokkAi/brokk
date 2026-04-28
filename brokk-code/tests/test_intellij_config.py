@@ -189,9 +189,9 @@ def test_configure_intellij_acp_settings_rust_paths_with_custom_endpoint(tmp_pat
 
     configure_intellij_acp_settings(settings_path=settings_path, rust_paths=rust_paths)
 
-    args = json.loads(settings_path.read_text(encoding="utf-8"))[
-        "agent_servers"
-    ]["Brokk Code"]["args"]
+    args = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"]["Brokk Code"][
+        "args"
+    ]
     assert args == [
         "--default-model",
         "claude-haiku-4-5",

@@ -393,3 +393,182 @@ Full review of the Rust ACP server. Issues classified by severity.
 9. Model cache
 10. `set_mode` validation
 11. Truncated tool calls on cancel
+
+---
+
+# Future plan: Rich ACP `tool_call` notifications
+
+## Context
+
+PR #3391 added per-call permission gating to the Rust ACP server, but the
+client (Zed) still only sees a one-line italic chunk like `_Reading file..._`
+emitted as an `agent_message_chunk`. There's no file path, no input
+summary, no output, no progress — the user can't tell what the agent is
+actually doing or what came back.
+
+ACP already provides the right surface: `SessionUpdate::ToolCall` and
+`SessionUpdate::ToolCallUpdate`, which clients render as proper expandable
+cards with title / kind / status / content / locations / raw input+output.
+We just don't emit them. The reference (`claude-agent-acp`) emits these
+for every tool, with kind-appropriate content (text for reads, diffs for
+writes, terminal output for shell).
+
+This plan wires those notifications into our existing tool loop, drops
+the redundant italic headlines, and gives `writeFile` a real Diff content
+block by capturing prior file content before dispatch.
+
+Out of scope: ACP Terminal protocol embed for shell (separate, larger
+piece), parsing Bifrost JSON outputs for file locations (tracked at #3390
+already covers the related sandbox piece — file a follow-up if we want
+location parsing).
+
+---
+
+## Design
+
+### Lifecycle (per tool call, uniform across all tools)
+
+1. **Pending** — emit `SessionUpdate::ToolCall { status: Pending }` immediately when the call arrives, before the permission gate runs. Same `tool_call_id` is reused throughout.
+2. **Permission gate** — existing logic. The `RequestPermissionRequest` we already build includes a `ToolCallUpdate` for the pending call so the client renders the card alongside the prompt; no change there.
+3. **Rejected** (gate auto-rejects, user picks Reject, or cancels) — emit `SessionUpdate::ToolCallUpdate { status: Failed, content: [denial reason] }`, then push the synthetic `"Tool use denied..."` tool result to the LLM (existing behavior).
+4. **InProgress** — emit `SessionUpdate::ToolCallUpdate { status: InProgress }` once the gate has cleared and we're about to call `registry.execute(...)`.
+5. **Completed / Failed** — emit `SessionUpdate::ToolCallUpdate { status, content, raw_output }`. `Failed` if `ToolStatus::RequestError` or `InternalError`; `Completed` otherwise.
+
+### Per-tool title, locations, content
+
+| Tool | title | kind | locations | content (Completed) |
+| --- | --- | --- | --- | --- |
+| `readFile` | ``Read `<path>` `` | Read | `[{path}]` | text(output, truncated) |
+| `writeFile` | ``Write `<path>` `` | Edit | `[{path}]` | **Diff{path, old_text, new_text}** |
+| `listDirectory` | ``List `<path>` `` | Read | `[{path}]` | text(output) |
+| `searchFileContents` | ``Search `<pattern>` `` | Search | `[]` (v1 — could parse later) | text(output) |
+| `runShellCommand` | ``Run `<first line of command>` `` | Execute | `[]` | text(output) |
+| `think` | `Think` | Think | `[]` | text(thought) |
+| Bifrost tools | `<existing headline> — <brief input>` | from `ToolRegistry::tool_kind` | `[]` (v1) | text(output) |
+
+`raw_input` is always the parsed JSON args; `raw_output` is always the tool's stringified output.
+
+### Diff capture for `writeFile`
+
+The current `filesystem::write_file` (`brokk-acp-rust/src/tools/filesystem.rs:36-65`) doesn't read the existing file. To produce a Diff content block:
+
+- In `tool_loop.rs`, immediately before dispatching `writeFile`, attempt to read the existing content via `std::fs::read_to_string(safe_resolve_for_write(...))`. If the file doesn't exist, treat as `old_text = ""`.
+- After execution succeeds, build `Diff { path, old_text, new_text: <content arg> }` and put it in the `Completed` update.
+- On failure, fall back to text content (the error message).
+- Failure to read the old content (e.g. binary file) — emit a text content with a note like ``"(prior content unavailable; new content written)"``, still Completed.
+
+This is the only tool that needs special pre-dispatch handling. Everything else just observes the input args and the output string.
+
+### Drop the italic headlines
+
+- Remove the `on_tool_event: impl FnMut(&str)` parameter from `tool_loop::run` (`brokk-acp-rust/src/tool_loop.rs`).
+- Remove the headline-emit closure in `agent.rs` (the `|headline| send_message(...)` lambda passed into `tool_loop::run` at the prompt handler).
+- The `ToolRegistry::headline(...)` static-string mapping (`tools/mod.rs:276-295`) becomes the source of titles for Bifrost tools. Rename it to `display_name(...)` for clarity, keep the same content.
+- Tool-event tracing logs (`tracing::info!`) stay — they're stderr-only debug, not user-visible.
+
+---
+
+## Implementation
+
+### New file: `brokk-acp-rust/src/tool_loop/announce.rs`
+
+Free functions, no state:
+
+```rust
+pub fn initial_tool_call(
+    tool_call_id: &str,
+    tool_name: &str,
+    kind: ToolKind,
+    raw_input: &serde_json::Value,
+) -> ToolCall;
+
+pub fn update_in_progress(tool_call_id: &str) -> ToolCallUpdate;
+
+pub fn update_failed(
+    tool_call_id: &str,
+    reason: &str,
+    raw_output: Option<serde_json::Value>,
+) -> ToolCallUpdate;
+
+pub fn update_completed(
+    tool_call_id: &str,
+    tool_name: &str,
+    output: &str,
+    diff: Option<Diff>,
+) -> ToolCallUpdate;
+
+fn tool_title(tool_name: &str, raw_input: &serde_json::Value) -> String;
+fn tool_locations(tool_name: &str, raw_input: &serde_json::Value) -> Vec<ToolCallLocation>;
+```
+
+Internally the title / location builders match on `tool_name` per the table above. Bifrost tools fall through to the generic `<display_name> — <brief input>` form.
+
+### Modify `brokk-acp-rust/src/tool_loop.rs`
+
+Make `tool_loop::run` no longer take `on_tool_event`. The per-call body becomes:
+
+1. Parse `raw_input` as JSON (we already do this for arg validation).
+2. Call `announce::initial_tool_call(...)`; send as `SessionUpdate::ToolCall`.
+3. Run `consult_gate(...)` (existing).
+4. On `GateDecision::Reject(msg)` — emit `update_failed(...)` and push synthetic tool result; continue loop.
+5. On `GateDecision::Allow` — emit `update_in_progress(...)`.
+6. **Special-case writeFile**: read existing file content before dispatch.
+7. Call `execute_tool(...)` (existing).
+8. Map `ToolStatus` → `ToolCallStatus`. Build `Diff` if writeFile succeeded; otherwise text content.
+9. Emit `update_completed(...)` or `update_failed(...)` accordingly.
+10. Push the existing tool-result message to the LLM (unchanged).
+
+### Modify `brokk-acp-rust/src/agent.rs`
+
+Drop the headline-emitting lambda passed to `tool_loop::run` (the `|headline| send_message(...)` block in the prompt handler at the spawned task). `cx` is already passed through to `tool_loop` for permission requests; we'll reuse it for the new notifications.
+
+### Modify `brokk-acp-rust/src/tools/filesystem.rs`
+
+No structural change needed — the diff capture happens upstream in the tool loop. Just verify `write_file` still returns its existing string success message; that becomes the `raw_output` (the Diff is the user-facing content).
+
+### Modify `brokk-acp-rust/src/tools/mod.rs`
+
+Rename `ToolRegistry::headline(...)` to `display_name(...)` — no behavior change, clearer name now that this is a title builder rather than a status announcer.
+
+---
+
+## Critical files
+
+- `brokk-acp-rust/src/tool_loop.rs` — main lifecycle wiring
+- `brokk-acp-rust/src/tool_loop/announce.rs` — new helper module
+- `brokk-acp-rust/src/agent.rs` — drop the old headline lambda (prompt handler in the spawned task)
+- `brokk-acp-rust/src/tools/mod.rs` — rename `headline` → `display_name`
+- `brokk-acp-rust/src/tools/filesystem.rs` — read-only audit; no change
+
+ACP schema (read-only reference, all already in our pinned `agent-client-protocol = 0.11`):
+
+- `SessionUpdate::ToolCall(ToolCall)`, `SessionUpdate::ToolCallUpdate(ToolCallUpdate)` — `client.rs` in `agent-client-protocol-schema-0.12.0`
+- `ToolCall`, `ToolCallUpdate`, `ToolCallUpdateFields`, `ToolCallStatus`, `ToolCallContent { Content | Diff | Terminal }`, `ToolCallLocation`, `Diff` — `tool_call.rs` in the schema crate
+
+---
+
+## Verification
+
+End-to-end in Zed against `brokk install --rust`:
+
+1. Ask the agent to **read a file**. Expect: a tool-call card with title `Read <path>`, status transitions Pending → InProgress → Completed, file content visible inline.
+2. Ask the agent to **write a new file**. Expect: card with title `Write <path>`, **inline diff** showing empty → new content, status Completed.
+3. Ask the agent to **modify an existing file**. Expect: inline diff showing old → new content.
+4. Ask the agent to **run a shell command** like `ls`. Expect: card with title ``Run `ls` ``, output text inline. (In `default` mode this also shows the permission prompt before the card progresses past Pending.)
+5. Ask the agent to **search for a symbol** via Bifrost's `search_symbols`. Expect: card with the bifrost tool's display name, JSON results inline.
+6. **Reject** a write via the permission prompt. Expect: card status flips to Failed with the denial message, and the LLM gets the synthetic tool-result.
+7. **Verify the italic `_Reading file..._` chunks are gone** from the agent's text stream — the cards should be the only surface.
+8. **Cancel** an in-flight prompt. Expect: any pending tool-call card cleanly resolves to Failed.
+
+Automated:
+
+- `cargo build`, `cargo clippy --all-targets -- -D warnings`, `cargo test` all clean.
+- Add at least one unit test in `tool_loop/announce.rs` covering `tool_title` and `tool_locations` for the seven built-in tools (so renames don't silently break the wire output).
+
+---
+
+## Out of scope (follow-ups)
+
+- ACP Terminal protocol embed for `runShellCommand` (live streaming output via `terminal/create`). Significantly larger work; would replace our synchronous shell runner.
+- Parsing Bifrost JSON output to extract file paths into `locations`. Per-tool schema work; defer.
+- `tool_call_update` mid-execution streaming (e.g. progress messages). v1 is start → end only.

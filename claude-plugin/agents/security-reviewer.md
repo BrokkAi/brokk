@@ -39,7 +39,7 @@ only from this system prompt.
   method that is modified or called by the diff
 - `searchFileContents` -- find whether a known-safe pattern exists elsewhere
   in the codebase that was NOT followed in this PR
-- `getClassSkeletons` -- understand the API surface of security-related
+- `getSummaries` -- understand the API surface of security-related
   classes to check if the PR bypasses existing safeguards
 
 ## Output format

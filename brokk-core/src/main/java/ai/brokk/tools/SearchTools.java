@@ -978,7 +978,7 @@ public class SearchTools {
                 .collect(Collectors.groupingBy(
                         CodeUnit::source, Collectors.groupingBy(cu -> cu.kind().name())));
 
-        // Build output deterministically so truncation does not depend on Git state.
+        // Build output: select by Git importance, then render the selected files alphabetically.
         var result = new StringBuilder();
         boolean truncated = fileGroups.size() > effectiveLimit;
         var filesToRender = selectFilesForDisplay(fileGroups.keySet(), effectiveLimit);
@@ -986,9 +986,12 @@ public class SearchTools {
         if (truncated) {
             result.append("### WARNING: Result limit reached (max ")
                     .append(effectiveLimit)
-                    .append(" files). Showing first ")
+                    .append(" files). Showing ")
                     .append(effectiveLimit)
-                    .append(" files. Retrying the same tool call will return the same results.\n\n");
+                    .append(" of ")
+                    .append(fileGroups.size())
+                    .append(" files selected by recent activity when available. Results are displayed alphabetically. "
+                            + "Retrying the same tool call will return the same results.\n\n");
         }
 
         filesToRender.forEach(file -> {
@@ -1084,28 +1087,6 @@ public class SearchTools {
             return "No usages found for: " + String.join(", ", symbols);
         }
         return recordResearchTokens(String.join("\n\n", results));
-    }
-
-    public String getClassSkeletons(List<String> classNames) {
-        // Sanitize classNames: remove potential `(params)` suffix from LLM.
-        classNames = stripParams(classNames);
-        if (classNames.isEmpty()) {
-            throw new IllegalArgumentException("Cannot get skeletons: class names list is empty");
-        }
-
-        var analyzer = getAnalyzer();
-        List<String> skeletons = new ArrayList<>();
-        classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(fqcn -> AnalyzerUtil.getSkeleton(
-                        analyzer, fqcn)
-                .ifPresent(skeletons::add));
-
-        var result = String.join("\n\n", skeletons);
-
-        if (result.isEmpty()) {
-            return "No classes found in: " + String.join(", ", classNames);
-        }
-
-        return recordResearchTokens(result);
     }
 
     public String getClassSources(List<String> classNames) {
@@ -1516,8 +1497,10 @@ public class SearchTools {
         }
         String prefix = "";
         if (truncated) {
-            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " files). Showing first "
-                    + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
+            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " files). Showing "
+                    + effectiveLimit + " of " + searchResult.matches().size()
+                    + " matches selected by recent activity when available. Results are displayed alphabetically. "
+                    + "Retrying the same tool call will return the same results.\n\n";
         }
 
         var matchingStrings = matchingFilenames.stream()
@@ -1557,7 +1540,7 @@ public class SearchTools {
     }
 
     private List<ProjectFile> selectFilesForDisplay(Collection<ProjectFile> files, int limit) {
-        return searchToolSupport.selectFilesForDisplay(files, limit);
+        return searchToolSupport.selectFilesForDisplay(files, limit, codeIntelligence.getRepo());
     }
 
     private IGitRepo.SearchCommitsResult getCachedCommitSearchResult(IGitRepo gitRepo, String pattern, int limit)
@@ -2232,8 +2215,10 @@ public class SearchTools {
 
         String prefix = "";
         if (truncated) {
-            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " filenames). Showing first "
-                    + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
+            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " filenames). Showing "
+                    + effectiveLimit + " of " + allMatches.size()
+                    + " matches selected by recent activity when available. Results are displayed alphabetically. "
+                    + "Retrying the same tool call will return the same results.\n\n";
         }
 
         return recordResearchTokens(
@@ -2439,9 +2424,12 @@ public class SearchTools {
         if (truncatedByFileLimit) {
             prefix.append("### WARNING: Result limit reached (max ")
                     .append(FILE_SKIM_LIMIT)
-                    .append(" files). Showing first ")
+                    .append(" files). Showing ")
                     .append(FILE_SKIM_LIMIT)
-                    .append(" files. Retrying the same tool call will return the same results.\n\n");
+                    .append(" of ")
+                    .append(projectFiles.size())
+                    .append(" files selected by recent activity when available. Results are displayed alphabetically. "
+                            + "Retrying the same tool call will return the same results.\n\n");
         }
 
         String fullSkim = selectedBlocks.stream()
