@@ -846,6 +846,16 @@ public interface IAnalyzer {
     }
 
     /**
+     * Computes the heuristic cognitive complexity for the given code unit.
+     *
+     * <p>Cognitive complexity starts at zero and grows with control-flow breaks and nested control flow. Language
+     * analyzers should override this when they can use syntax trees; the default is unsupported.
+     */
+    default int computeCognitiveComplexity(CodeUnit cu) {
+        return 0;
+    }
+
+    /**
      * Comment density for a single declaration. Language-specific analyzers may override; default is unsupported.
      */
     default Optional<CommentDensityStats> commentDensity(CodeUnit cu) {

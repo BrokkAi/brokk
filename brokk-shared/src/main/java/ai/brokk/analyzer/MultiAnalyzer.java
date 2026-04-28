@@ -224,6 +224,13 @@ public class MultiAnalyzer
     }
 
     @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return delegateFor(cu)
+                .map(delegate -> delegate.computeCognitiveComplexity(cu))
+                .orElse(0);
+    }
+
+    @Override
     public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
         return delegateFor(cu).flatMap(delegate -> delegate.commentDensity(cu));
     }

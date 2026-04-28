@@ -1615,6 +1615,150 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        if (!cu.isFunction()) return 0;
+
+        Integer result = withTreeOf(
+                cu.source(),
+                tree -> withSource(
+                        cu.source(),
+                        content -> {
+                            TSNode cuNode = primaryNodeForCodeUnit(tree, cu);
+                            if (cuNode == null) {
+                                return 0;
+                            }
+                            return computeJavaCognitiveComplexity(cuNode, content, 0, false);
+                        },
+                        0),
+                0);
+        return result != null ? result : 0;
+    }
+
+    private int computeJavaCognitiveComplexity(
+            TSNode node, SourceContent sourceContent, int nesting, boolean elseIfContinuation) {
+        if (node == null) {
+            return 0;
+        }
+
+        String type = node.getType();
+        if (type == null) {
+            return 0;
+        }
+
+        var nodeType = JavaNodeType.fromType(type);
+        return switch (nodeType) {
+            case IF_STATEMENT -> computeIfCognitiveComplexity(node, sourceContent, nesting, elseIfContinuation);
+            case FOR_STATEMENT,
+                    ENHANCED_FOR_STATEMENT,
+                    WHILE_STATEMENT,
+                    DO_STATEMENT,
+                    CATCH_CLAUSE,
+                    TERNARY_EXPRESSION ->
+                controlFlowIncrement(nesting) + computeChildrenCognitiveComplexity(node, sourceContent, nesting + 1);
+            case SWITCH_LABEL ->
+                isDefaultSwitchLabel(node, sourceContent)
+                        ? computeChildrenCognitiveComplexity(node, sourceContent, nesting)
+                        : controlFlowIncrement(nesting)
+                                + computeChildrenCognitiveComplexity(node, sourceContent, nesting + 1);
+            case BINARY_EXPRESSION ->
+                isNestedBinaryExpression(node)
+                        ? computeChildrenCognitiveComplexity(node, sourceContent, nesting)
+                        : logicalOperatorSequenceCount(node)
+                                + computeChildrenCognitiveComplexity(node, sourceContent, nesting);
+            default -> {
+                int childNesting = nodeType(LAMBDA_EXPRESSION).equals(type) ? nesting + 1 : nesting;
+                yield computeChildrenCognitiveComplexity(node, sourceContent, childNesting);
+            }
+        };
+    }
+
+    private int computeIfCognitiveComplexity(
+            TSNode node, SourceContent sourceContent, int nesting, boolean elseIfContinuation) {
+        int complexity = elseIfContinuation ? 1 : controlFlowIncrement(nesting);
+        TSNode alternative = node.getChildByFieldName(nodeField(JavaNodeField.ALTERNATIVE));
+
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child == null || (alternative != null && sameNode(child, alternative))) {
+                continue;
+            }
+            complexity += computeJavaCognitiveComplexity(child, sourceContent, nesting + 1, false);
+        }
+
+        if (alternative != null) {
+            complexity += computeAlternativeCognitiveComplexity(alternative, sourceContent, nesting);
+        }
+        return complexity;
+    }
+
+    private int computeAlternativeCognitiveComplexity(TSNode alternative, SourceContent sourceContent, int nesting) {
+        TSNode elseIf = nodeType(IF_STATEMENT).equals(alternative.getType())
+                ? alternative
+                : firstNamedChildOfType(alternative, nodeType(IF_STATEMENT));
+        if (elseIf != null) {
+            return computeJavaCognitiveComplexity(elseIf, sourceContent, nesting, true);
+        }
+        return computeJavaCognitiveComplexity(alternative, sourceContent, nesting + 1, false);
+    }
+
+    private int computeChildrenCognitiveComplexity(TSNode node, SourceContent sourceContent, int nesting) {
+        int complexity = 0;
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child != null) {
+                complexity += computeJavaCognitiveComplexity(child, sourceContent, nesting, false);
+            }
+        }
+        return complexity;
+    }
+
+    private static int controlFlowIncrement(int nesting) {
+        return 1 + nesting;
+    }
+
+    private static boolean isDefaultSwitchLabel(TSNode node, SourceContent sourceContent) {
+        return sourceContent.substringFrom(node).strip().startsWith("default");
+    }
+
+    private static boolean isNestedBinaryExpression(TSNode node) {
+        TSNode parent = node.getParent();
+        return parent != null && nodeType(BINARY_EXPRESSION).equals(parent.getType());
+    }
+
+    private static int logicalOperatorSequenceCount(TSNode node) {
+        var operators = new ArrayList<String>();
+        collectLogicalOperators(node, operators);
+        int sequences = 0;
+        String previous = "";
+        for (String operator : operators) {
+            if (!operator.equals(previous)) {
+                sequences++;
+                previous = operator;
+            }
+        }
+        return sequences;
+    }
+
+    private static void collectLogicalOperators(TSNode node, List<String> operators) {
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child == null) {
+                continue;
+            }
+            String type = child.getType();
+            if ("&&".equals(type) || "||".equals(type)) {
+                operators.add(type);
+            } else if (nodeType(BINARY_EXPRESSION).equals(type)) {
+                collectLogicalOperators(child, operators);
+            }
+        }
+    }
+
+    private static boolean sameNode(TSNode left, TSNode right) {
+        return left.getStartByte() == right.getStartByte() && left.getEndByte() == right.getEndByte();
+    }
+
+    @Override
     public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
         checkStale("findExceptionHandlingSmells");
         ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();

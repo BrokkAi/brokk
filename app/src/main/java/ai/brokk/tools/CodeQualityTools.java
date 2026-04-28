@@ -94,6 +94,57 @@ public class CodeQualityTools {
 
     @Tool(
             """
+            Computes cognitive complexity for methods in the given files.
+            Flags methods above the threshold (typical default 15) for maintainability-focused review or refactor.
+            Returns a markdown-friendly report of flagged methods.""")
+    public String computeCognitiveComplexity(
+            @P("File paths relative to the project root.") List<String> filePaths,
+            @P("Complexity threshold; methods above this are flagged. Use 0 or negative for default (15).")
+                    int threshold) {
+
+        int limit = threshold > 0 ? threshold : 15;
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        var lines = new ArrayList<String>();
+        lines.add("Cognitive complexity (threshold: " + limit + "):");
+        boolean foundAny = false;
+
+        for (String path : filePaths) {
+            ProjectFile file = contextManager.toFile(path);
+            if (!file.exists()) continue;
+
+            List<CodeUnit> declarations = analyzer.getTopLevelDeclarations(file);
+            for (CodeUnit cu : declarations) {
+                foundAny |= analyzeUnitCognitiveComplexity(analyzer, cu, limit, lines);
+            }
+        }
+
+        return foundAny
+                ? String.join("\n", lines)
+                : "No methods exceeded the cognitive complexity threshold of " + limit + ".";
+    }
+
+    private boolean analyzeUnitCognitiveComplexity(IAnalyzer analyzer, CodeUnit cu, int threshold, List<String> lines) {
+        boolean flagged = false;
+        if (cu.isFunction()) {
+            int complexity = analyzer.computeCognitiveComplexity(cu);
+
+            if (complexity > threshold) {
+                String finding = "%s High cognitive complexity: %s (CogC: %d) in %s"
+                        .formatted(FINDING_PREFIX, cu.fqName(), complexity, cu.source());
+                contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, finding);
+                lines.add("- " + cu.fqName() + ": " + complexity);
+                flagged = true;
+            }
+        }
+
+        for (CodeUnit child : analyzer.getDirectChildren(cu)) {
+            flagged |= analyzeUnitCognitiveComplexity(analyzer, child, threshold, lines);
+        }
+        return flagged;
+    }
+
+    @Tool(
+            """
             Comment density for one symbol identified by fully qualified name (same resolution as getDefinitions).
             Works for analyzers that provide comment-density stats (for example Java, JavaScript, or TypeScript).
             Reports header vs inline comment line counts, declaration span lines, and rolled-up totals for class-like units.
