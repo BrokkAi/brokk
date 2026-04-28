@@ -39,9 +39,13 @@ public class AnalyzerUtil {
 
         var fieldUses = uses.stream().filter(CodeUnit::isField).sorted().toList();
         for (var field : fieldUses) {
-            analyzer.parentOf(field)
-                    .flatMap(analyzer::getSkeletonHeader)
-                    .ifPresent(header -> results.add(new CodeWithSource(header, field)));
+            var parentOpt = analyzer.parentOf(field);
+            if (parentOpt.isEmpty()) {
+                continue;
+            }
+
+            var parent = parentOpt.get();
+            analyzer.getSkeletonHeader(parent).ifPresent(header -> results.add(new CodeWithSource(header, parent)));
         }
 
         return results;
