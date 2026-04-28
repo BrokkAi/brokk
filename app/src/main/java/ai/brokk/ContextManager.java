@@ -36,6 +36,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.*;
@@ -774,6 +775,11 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     @Override
     public AbstractService getService() {
         return serviceProvider.get();
+    }
+
+    @Override
+    public StreamingChatModel getCodeModel() {
+        return getService().getModel(ModelProperties.ModelType.CODE);
     }
 
     @Override
