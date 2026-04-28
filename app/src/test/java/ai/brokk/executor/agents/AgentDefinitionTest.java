@@ -116,6 +116,7 @@ class AgentDefinitionTest {
                         "getFileContents",
                         "computeCyclomaticComplexity",
                         "computeCognitiveComplexity",
+                        "reportLongMethodAndGodObjectSmells",
                         "reportExceptionHandlingSmells",
                         "reportStructuralCloneSmells",
                         "reportSecretLikeCode",

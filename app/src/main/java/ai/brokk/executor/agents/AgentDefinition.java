@@ -50,6 +50,7 @@ public record AgentDefinition(
             "jq",
             "computeCyclomaticComplexity",
             "computeCognitiveComplexity",
+            "reportLongMethodAndGodObjectSmells",
             "reportCommentDensityForCodeUnit",
             "reportCommentDensityForFiles",
             "reportExceptionHandlingSmells",
@@ -86,6 +87,7 @@ public record AgentDefinition(
             "jq",
             "computeCyclomaticComplexity",
             "computeCognitiveComplexity",
+            "reportLongMethodAndGodObjectSmells",
             "reportCommentDensityForCodeUnit",
             "reportCommentDensityForFiles",
             "reportExceptionHandlingSmells",
@@ -138,6 +140,7 @@ public record AgentDefinition(
             // CodeQualityTools
             "computeCyclomaticComplexity",
             "computeCognitiveComplexity",
+            "reportLongMethodAndGodObjectSmells",
             "reportCommentDensityForCodeUnit",
             "reportCommentDensityForFiles",
             "reportExceptionHandlingSmells",
