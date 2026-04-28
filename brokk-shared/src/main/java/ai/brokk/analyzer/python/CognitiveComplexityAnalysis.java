@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.python;
 
+import static ai.brokk.analyzer.ASTTraversalUtils.typeOf;
 import static ai.brokk.analyzer.python.Constants.nodeType;
 import static org.treesitter.PythonNodeType.*;
 
@@ -21,7 +22,7 @@ public final class CognitiveComplexityAnalysis {
         while (!work.isEmpty()) {
             var frame = work.pop();
             TSNode node = frame.node();
-            String type = node.getType();
+            String type = typeOf(node);
             if (type == null) {
                 continue;
             }
@@ -68,7 +69,7 @@ public final class CognitiveComplexityAnalysis {
             if (child == null) {
                 continue;
             }
-            String type = child.getType();
+            String type = typeOf(child);
             if (nodeType(ELIF_CLAUSE).equals(type)) {
                 work.push(new CognitiveFrame(child, nesting, true, false));
             } else {
@@ -85,7 +86,7 @@ public final class CognitiveComplexityAnalysis {
             ArrayDeque<CognitiveFrame> work, TSNode node, int nesting, boolean rootChildren) {
         for (int i = node.getNamedChildCount() - 1; i >= 0; i--) {
             TSNode child = node.getNamedChild(i);
-            if (child != null) {
+            if (child != null && typeOf(child) != null) {
                 work.push(new CognitiveFrame(child, nesting, false, rootChildren));
             }
         }
@@ -97,11 +98,11 @@ public final class CognitiveComplexityAnalysis {
 
     private static boolean isNestedBooleanOperator(TSNode node) {
         TSNode parent = node.getParent();
-        return parent != null && nodeType(BOOLEAN_OPERATOR).equals(parent.getType());
+        return nodeType(BOOLEAN_OPERATOR).equals(typeOf(parent));
     }
 
     private static boolean isFunctionBoundary(TSNode node) {
-        String type = node.getType();
+        String type = typeOf(node);
         if (nodeType(FUNCTION_DEFINITION).equals(type)) {
             return true;
         }
@@ -110,7 +111,7 @@ public final class CognitiveComplexityAnalysis {
         }
         for (int i = 0; i < node.getNamedChildCount(); i++) {
             TSNode child = node.getNamedChild(i);
-            if (child != null && nodeType(FUNCTION_DEFINITION).equals(child.getType())) {
+            if (child != null && nodeType(FUNCTION_DEFINITION).equals(typeOf(child))) {
                 return true;
             }
         }
@@ -128,7 +129,7 @@ public final class CognitiveComplexityAnalysis {
                 if (child == null) {
                     continue;
                 }
-                String type = child.getType();
+                String type = typeOf(child);
                 if (nodeType(BOOLEAN_OPERATOR).equals(type)) {
                     work.push(child);
                     continue;

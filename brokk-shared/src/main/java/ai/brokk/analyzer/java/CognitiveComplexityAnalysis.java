@@ -1,5 +1,7 @@
 package ai.brokk.analyzer.java;
 
+import static ai.brokk.analyzer.ASTTraversalUtils.sameRange;
+import static ai.brokk.analyzer.ASTTraversalUtils.typeOf;
 import static ai.brokk.analyzer.java.Constants.nodeField;
 import static ai.brokk.analyzer.java.Constants.nodeType;
 import static org.treesitter.JavaNodeType.*;
@@ -24,7 +26,7 @@ public final class CognitiveComplexityAnalysis {
         while (!work.isEmpty()) {
             var frame = work.pop();
             TSNode node = frame.node();
-            String type = node.getType();
+            String type = typeOf(node);
             if (type == null) {
                 continue;
             }
@@ -79,7 +81,7 @@ public final class CognitiveComplexityAnalysis {
         if (alternative == null) {
             return;
         }
-        if (nodeType(IF_STATEMENT).equals(alternative.getType())) {
+        if (nodeType(IF_STATEMENT).equals(typeOf(alternative))) {
             work.push(new CognitiveFrame(alternative, nesting, true));
         } else {
             work.push(new CognitiveFrame(alternative, nesting + 1, false));
@@ -89,7 +91,7 @@ public final class CognitiveComplexityAnalysis {
     private static void pushNamedChildren(ArrayDeque<CognitiveFrame> work, TSNode node, int nesting) {
         for (int i = node.getNamedChildCount() - 1; i >= 0; i--) {
             TSNode child = node.getNamedChild(i);
-            if (child != null) {
+            if (child != null && typeOf(child) != null) {
                 work.push(new CognitiveFrame(child, nesting, false));
             }
         }
@@ -99,10 +101,10 @@ public final class CognitiveComplexityAnalysis {
             ArrayDeque<CognitiveFrame> work, TSNode node, @Nullable TSNode except, int nesting) {
         for (int i = node.getNamedChildCount() - 1; i >= 0; i--) {
             TSNode child = node.getNamedChild(i);
-            if (child == null) {
+            if (child == null || typeOf(child) == null) {
                 continue;
             }
-            if (except != null && sameNode(child, except)) {
+            if (except != null && sameRange(child, except)) {
                 continue;
             }
             work.push(new CognitiveFrame(child, nesting, false));
@@ -119,7 +121,7 @@ public final class CognitiveComplexityAnalysis {
 
     private static boolean isNestedBinaryExpression(TSNode node) {
         TSNode parent = node.getParent();
-        return parent != null && nodeType(BINARY_EXPRESSION).equals(parent.getType());
+        return nodeType(BINARY_EXPRESSION).equals(typeOf(parent));
     }
 
     private static boolean isLabeledJump(TSNode node) {
@@ -137,7 +139,7 @@ public final class CognitiveComplexityAnalysis {
                 if (child == null) {
                     continue;
                 }
-                String type = child.getType();
+                String type = typeOf(child);
                 if ("&&".equals(type) || "||".equals(type)) {
                     operators.add(type);
                 } else if (nodeType(BINARY_EXPRESSION).equals(type)) {
@@ -156,10 +158,6 @@ public final class CognitiveComplexityAnalysis {
             }
         }
         return sequences;
-    }
-
-    private static boolean sameNode(TSNode left, TSNode right) {
-        return left.getStartByte() == right.getStartByte() && left.getEndByte() == right.getEndByte();
     }
 
     private record CognitiveFrame(TSNode node, int nesting, boolean elseIfContinuation) {}

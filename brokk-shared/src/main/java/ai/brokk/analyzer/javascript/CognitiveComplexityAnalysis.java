@@ -1,5 +1,7 @@
 package ai.brokk.analyzer.javascript;
 
+import static ai.brokk.analyzer.ASTTraversalUtils.sameRange;
+import static ai.brokk.analyzer.ASTTraversalUtils.typeOf;
 import static ai.brokk.analyzer.javascript.Constants.nodeField;
 import static ai.brokk.analyzer.javascript.Constants.nodeType;
 import static java.util.Objects.requireNonNull;
@@ -8,7 +10,6 @@ import static org.treesitter.TsxNodeType.*;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import org.jetbrains.annotations.Nullable;
-import org.treesitter.TSException;
 import org.treesitter.TSNode;
 import org.treesitter.TsxNodeField;
 import org.treesitter.TsxNodeType;
@@ -127,7 +128,7 @@ public final class CognitiveComplexityAnalysis {
             if (child == null || typeOf(child) == null) {
                 continue;
             }
-            if (except != null && sameNode(child, except)) {
+            if (except != null && sameRange(child, except)) {
                 continue;
             }
             work.push(new CognitiveFrame(child, nesting, false, false));
@@ -148,7 +149,7 @@ public final class CognitiveComplexityAnalysis {
     }
 
     private static boolean isFunctionBoundary(TSNode node) {
-        return switch (TsxNodeType.fromType(node.getType())) {
+        return switch (TsxNodeType.fromType(typeOf(node))) {
             case FUNCTION_DECLARATION,
                     FUNCTION_EXPRESSION,
                     GENERATOR_FUNCTION,
@@ -193,24 +194,6 @@ public final class CognitiveComplexityAnalysis {
 
     private static boolean isLogicalOperator(@Nullable String type) {
         return "&&".equals(type) || "||".equals(type) || "??".equals(type);
-    }
-
-    private static @Nullable String typeOf(@Nullable TSNode node) {
-        if (node == null) {
-            return null;
-        }
-        try {
-            return node.getType();
-        } catch (TSException e) {
-            return null;
-        }
-    }
-
-    private static boolean sameNode(TSNode left, TSNode right) {
-        if (typeOf(left) == null || typeOf(right) == null) {
-            return false;
-        }
-        return left.getStartByte() == right.getStartByte() && left.getEndByte() == right.getEndByte();
     }
 
     private record CognitiveFrame(TSNode node, int nesting, boolean elseIfContinuation, boolean root) {}
