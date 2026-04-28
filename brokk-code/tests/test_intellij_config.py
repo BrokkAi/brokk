@@ -165,7 +165,9 @@ def test_configure_intellij_acp_settings_rust_paths_minimal(tmp_path) -> None:
 
     configure_intellij_acp_settings(settings_path=settings_path, rust_paths=rust_paths)
 
-    entry = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"]["Brokk Code"]
+    entry = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"][
+        "Brokk Code (Rust)"
+    ]
     assert entry["command"] == str(brokk_acp)
     assert entry["args"] == [
         "--default-model",
@@ -189,9 +191,9 @@ def test_configure_intellij_acp_settings_rust_paths_with_custom_endpoint(tmp_pat
 
     configure_intellij_acp_settings(settings_path=settings_path, rust_paths=rust_paths)
 
-    args = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"]["Brokk Code"][
-        "args"
-    ]
+    args = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"][
+        "Brokk Code (Rust)"
+    ]["args"]
     assert args == [
         "--default-model",
         "claude-haiku-4-5",
@@ -202,3 +204,23 @@ def test_configure_intellij_acp_settings_rust_paths_with_custom_endpoint(tmp_pat
         "--api-key",
         "sk-test-123",
     ]
+
+
+def test_configure_intellij_acp_settings_default_native_rust_coexist(tmp_path) -> None:
+    settings_path = tmp_path / ".jetbrains" / "acp.json"
+    rust_paths = RustAcpPaths(
+        brokk_acp=Path("/opt/brokk-acp"),
+        bifrost=Path("/opt/bifrost"),
+        model="claude-haiku-4-5",
+    )
+
+    # Each install variant writes a distinct key, so all three coexist
+    # without --force.
+    configure_intellij_acp_settings(settings_path=settings_path)
+    configure_intellij_acp_settings(settings_path=settings_path, native=True)
+    configure_intellij_acp_settings(settings_path=settings_path, rust_paths=rust_paths)
+
+    agent_servers = json.loads(settings_path.read_text(encoding="utf-8"))["agent_servers"]
+    assert agent_servers["Brokk Code"]["args"] == ["brokk", "acp"]
+    assert agent_servers["Brokk Code (Native)"]["args"] == ["brokk", "acp-native"]
+    assert agent_servers["Brokk Code (Rust)"]["command"] == "/opt/brokk-acp"
