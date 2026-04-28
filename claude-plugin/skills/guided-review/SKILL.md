@@ -263,28 +263,30 @@ available, present it as a menu. Otherwise, present this lettered list and
 
 ```
 ### What would you like to do?
-a. **Next** -- Move to the next finding
-b. **Fix it now** -- Apply the recommended fix (use Edit/Write/Bash tools)
+a. **Next** -- Move to the next finding without queuing
+b. **Queue fix for batch execution** -- Record this finding's fix; apply later
 c. **Create GitHub issue** -- File a new issue for this finding
 d. **Show more code context** -- Use Brokk tools to explore related code
-e. **Skip remaining** -- Jump to the summary
-f. **Done** -- End the review
+e. **Skip remaining** -- Jump to batch execution / summary
+f. **Done** -- End the review (queued fixes still execute)
 ```
 
 Do NOT pick a default. Do NOT proceed until the user has chosen.
 
-### Fix it now
+### Queue fix for batch execution
 
-If the user chooses to fix:
-1. Apply the recommended changes using Edit/Write tools.
-2. If the finding involves multiple files, fix them all.
-3. Run any available build/test infrastructure to verify:
-   - If `gradlew` exists: `./gradlew build`
-   - If `package.json` exists: `npm test` or `yarn test`
-   - If `Makefile` exists: `make test`
-   - If `pyproject.toml` exists: `pytest` or `uv run pytest`
-4. If tests fail, fix the issues.
-5. After fixing, move to the next finding automatically.
+If the user chooses to queue:
+
+1. Append the finding to an internal **fix queue**. Each queue entry must
+   capture enough context to apply the fix later without re-running the
+   reviewers:
+   - Finding number and title
+   - File(s) involved
+   - Full recommendation text
+   - Any code excerpts already gathered for this finding
+2. Confirm briefly to the user: `Queued finding #N for batch fix.`
+3. Do NOT edit any files. Do NOT run build/test. Move to the next finding
+   automatically.
 
 ### Create GitHub issue
 
@@ -325,10 +327,43 @@ If the user wants more context, ask what they'd like to see:
 After showing the requested context, return to the action menu for this
 same finding.
 
+## Step 6.5 -- Execute Queued Fixes
+
+Trigger this step once the walk-through has ended -- whether the user
+reached the last finding, picked **Skip remaining**, or picked **Done** --
+AND the fix queue is non-empty. If the queue is empty, skip this step
+entirely and proceed to Step 7.
+
+For each queued finding, **in queue order**:
+
+1. Announce: `Applying fix <i>/<total>: Finding #N -- <title>`.
+2. Re-read the recommendation and code context from the queue entry.
+3. Apply the recommended edits using Edit/Write tools. If the finding
+   spans multiple files, edit all of them before verification.
+4. Run the project's verification command:
+   - If `gradlew` exists: `./gradlew build`
+   - If `package.json` exists: `npm test` or `yarn test`
+   - If `Makefile` exists: `make test`
+   - If `pyproject.toml` exists: `pytest` or `uv run pytest`
+   - If none of the above exist, mark the finding as
+     **applied-unverified** and continue.
+5. **On verification failure**: stop the batch immediately. Do NOT roll
+   back the failing fix's edits -- leave them in place so the user can
+   inspect. Then report:
+   - Which finding failed (number, title, files touched)
+   - The verification command output (or a tail if very long)
+   - Which queued findings were already successfully applied
+   - Which queued findings remain unapplied
+   Then jump to Step 7 with whatever was successfully applied.
+6. On success, advance to the next queued finding.
+
+Track per-finding outcome (`applied`, `applied-unverified`, `failed`,
+`unapplied`) -- you will use these counts in Step 8.
+
 ## Step 7 -- Commit & Push (if fixes were applied)
 
-If any findings were fixed in Step 6, offer to commit and push the changes.
-Skip this step entirely if no fixes were applied.
+If any findings were applied in Step 6.5, offer to commit and push the
+changes. Skip this step entirely if no fixes were applied.
 
 1. Run `git status` and present the list of modified files to the user.
 2. Check whether a remote tracking branch exists:
@@ -349,9 +384,9 @@ Skip this step entirely if no fixes were applied.
 4. If the user chose to commit (with or without push):
    - Stage only the files that were modified as part of the fixes -- do NOT
      use `git add -A`. Stage files explicitly by name.
-   - Commit with a descriptive message:
+   - Commit with a descriptive message that reflects the batch nature:
      ```bash
-     git commit -m "Address review findings: <short summary of fixes>"
+     git commit -m "Address review findings: <N> fixes from guided review"
      ```
    - If the user also chose to push:
      - If a remote tracking branch exists, push to it:
@@ -373,12 +408,14 @@ remaining" or "Done"), present a final summary:
 # Review Complete
 
 ## Actions Taken
-- Fixed: <count> findings
+- Queued and applied: <count>
+- Queued but failed verification: <count> (<finding numbers>)
+- Queued but not reached (batch stopped early): <count> (<finding numbers>)
 - Issues created: <count> (<list of issue numbers>)
-- Skipped: <count>
+- Skipped (no action): <count>
 
 ## Remaining Items
-<list any CRITICAL or HIGH findings that were neither fixed nor filed as issues>
+<list any CRITICAL or HIGH findings that were neither applied nor filed as issues, including queued-but-failed and queued-but-unapplied>
 
 ## Verdict: [BLOCK / APPROVE WITH CHANGES / APPROVE]
 <1-2 sentence final assessment>
@@ -386,7 +423,9 @@ remaining" or "Done"), present a final summary:
 
 ### Verdict Rules
 
-- **BLOCK** -- any CRITICAL findings remain unresolved (not fixed, not filed)
+- **BLOCK** -- any CRITICAL findings remain unresolved. A CRITICAL finding
+  is unresolved if it was not applied (skipped, queued-but-failed, or
+  queued-but-unapplied) AND not filed as a GitHub issue.
 - **APPROVE WITH CHANGES** -- HIGH or MEDIUM findings remain but no unresolved CRITICAL
 - **APPROVE** -- only LOW findings remain or no findings at all
 
