@@ -125,30 +125,31 @@ impl WrappedCommand {
 /// returned value MUST be held alive until the spawned process exits so the
 /// `TempPolicyFile` Drop guard doesn't race the `sandbox-exec` open.
 ///
-/// Errors out if `cwd` is not absolute or its bytes aren't valid UTF-8 — both
-/// would corrupt the seatbelt subpath rule or the bwrap argv.
+/// For non-`None` policies, `cwd` must be absolute and valid UTF-8 — both
+/// properties are required to interpolate it safely into a seatbelt subpath
+/// rule or a bwrap argv. `Policy::None` is a passthrough and skips this
+/// check so callers in `BypassPermissions` mode aren't forced to canonicalize.
 pub fn wrap_command(
     policy: SandboxPolicy,
     cwd: &Path,
     command: &str,
 ) -> std::io::Result<WrappedCommand> {
-    if !cwd.is_absolute() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("sandbox cwd must be absolute, got '{}'", cwd.display()),
-        ));
-    }
-    if cwd.to_str().is_none() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "sandbox cwd must be valid UTF-8 (non-UTF-8 paths cannot be safely \
-             interpolated into seatbelt or bwrap rules)",
-        ));
-    }
-
     match policy {
         SandboxPolicy::None => Ok(WrappedCommand::unwrapped(command)),
         SandboxPolicy::ReadOnly | SandboxPolicy::WorkspaceWrite => {
+            if !cwd.is_absolute() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("sandbox cwd must be absolute, got '{}'", cwd.display()),
+                ));
+            }
+            if cwd.to_str().is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "sandbox cwd must be valid UTF-8 (non-UTF-8 paths cannot be safely \
+                     interpolated into seatbelt or bwrap rules)",
+                ));
+            }
             wrap_platform(policy, cwd, command)
         }
     }
