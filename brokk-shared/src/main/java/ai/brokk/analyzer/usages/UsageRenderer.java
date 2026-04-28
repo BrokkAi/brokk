@@ -18,7 +18,7 @@ public final class UsageRenderer {
         SAMPLE
     }
 
-    public record Output(String text, Set<ProjectFile> files, boolean hasUsages) {}
+    public record Output(String text, Set<ProjectFile> files, boolean hasUsages, int hitCount) {}
 
     public static Output render(
             IAnalyzer analyzer, String targetIdentifier, List<CodeUnit> overloads, FuzzyResult result, Mode mode) {
@@ -28,7 +28,7 @@ public final class UsageRenderer {
 
         var either = result.toEither();
         if (!either.hasUsages()) {
-            return new Output(either.getErrorMessage(), Set.of(), false);
+            return new Output(either.getErrorMessage(), Set.of(), false, 0);
         }
 
         CodeUnit definingOwner = analyzer.parentOf(overloads.getFirst()).orElse(overloads.getFirst());
@@ -59,12 +59,16 @@ public final class UsageRenderer {
                                         .toList());
                 };
         var sourceText = sources.stream().map(AnalyzerUtil.CodeWithSource::code).collect(Collectors.joining("\n\n"));
-        var examplesHeader = mode == Mode.SAMPLE ? "\n\nExamples:\n\n" : "\n\n";
+        var sourcePrefix =
+                switch (mode) {
+                    case SAMPLE -> "\n\nExamples:\n\n";
+                    case FULL -> sourceText.isEmpty() ? "" : "\n";
+                };
         var files = hits.stream().map(UsageHit::file).collect(Collectors.toSet());
         var text = "# Usages of %s\n\nCall sites (%d):\n%s%s%s"
-                .formatted(targetIdentifier, hits.size(), callSites, examplesHeader, sourceText)
+                .formatted(targetIdentifier, hits.size(), callSites, sourcePrefix, sourceText)
                 .trim();
 
-        return new Output(text, files, true);
+        return new Output(text, files, true, hits.size());
     }
 }

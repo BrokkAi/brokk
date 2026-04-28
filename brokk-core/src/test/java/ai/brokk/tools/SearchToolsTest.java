@@ -175,6 +175,84 @@ class SearchToolsTest {
     }
 
     @Test
+    void scanUsages_FindsJavaFieldUsagesThroughJdt() throws Exception {
+        Path projectRoot = initRepo();
+        commitTrackedFiles(
+                projectRoot,
+                Map.of(
+                        "src/main/java/com/example/Target.java",
+                        """
+                        package com.example;
+
+                        public class Target {
+                            public String field;
+                        }
+                        """
+                                .stripIndent(),
+                        "src/main/java/com/consumer/Consumer.java",
+                        """
+                        package com.consumer;
+
+                        import com.example.Target;
+
+                        public class Consumer {
+                            public void use(Target target) {
+                                target.field = "value";
+                                System.out.println(target.field);
+                            }
+                        }
+                        """
+                                .stripIndent()),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add Java field usage");
+
+        project = new CoreProject(projectRoot);
+        IAnalyzer analyzer = Languages.JAVA.createAnalyzer(project);
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
+
+        String result = tools.scanUsages(List.of("com.example.Target.field"), true);
+
+        assertTrue(result.contains("# Usages of com.example.Target.field"), "Should render Java field usages");
+        assertTrue(result.contains("Consumer.java"), "Should include the Java consumer file");
+        assertTrue(result.contains("target.field"), "Should include source examples with the field access");
+        assertFalse(result.contains("No usages found"), "Should not miss Java field usages");
+    }
+
+    @Test
+    void scanUsages_SkipsSuccessfulResultsWithNoHits() throws Exception {
+        Path projectRoot = initRepo();
+        commitTrackedFiles(
+                projectRoot,
+                Map.of(
+                        "go.mod",
+                        """
+                        module example.com/test
+
+                        go 1.21
+                        """
+                                .stripIndent(),
+                        "model/album.go",
+                        """
+                        package model
+
+                        type Album struct {
+                            ImageFiles string
+                        }
+                        """
+                                .stripIndent()),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add unused Go field");
+
+        project = new CoreProject(projectRoot);
+        IAnalyzer analyzer = Languages.GO.createAnalyzer(project);
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
+
+        String result = tools.scanUsages(List.of("model.Album.ImageFiles"), true);
+
+        assertEquals("No usages found for: model.Album.ImageFiles", result);
+    }
+
+    @Test
     void searchFileContents_ReadsMatchingFileOnce() throws Exception {
         Path projectRoot = initRepo();
         Path filePath = projectRoot.resolve("counted.txt");

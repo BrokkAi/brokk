@@ -10,16 +10,10 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
-import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
-import ai.brokk.analyzer.usages.FuzzyResult;
-import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
-import ai.brokk.analyzer.usages.JsTsExportUsageGraphStrategy;
-import ai.brokk.analyzer.usages.RegexUsageAnalyzer;
-import ai.brokk.analyzer.usages.UsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageAnalyzerSelector;
 import ai.brokk.analyzer.usages.UsageRenderer;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.ExecutorsUtil;
@@ -1503,7 +1497,7 @@ public class ContextFragments {
                         false);
             }
 
-            var usageAnalyzer = usageAnalyzerFor(overloads.getFirst(), analyzer, project);
+            var usageAnalyzer = UsageAnalyzerSelector.forTarget(overloads.getFirst(), analyzer, project);
             logger.debug(
                     "UsageFragment analyzing {} with {} overloads using {} across {} candidate files",
                     targetIdentifier,
@@ -1511,13 +1505,20 @@ public class ContextFragments {
                     usageAnalyzer.getClass().getSimpleName(),
                     candidates.size());
 
-            FuzzyResult result;
             try {
-                result = usageAnalyzer.findUsages(overloads, candidates, 500);
-                if (shouldFallbackToRegex(result, usageAnalyzer)) {
-                    logger.debug("UsageFragment falling back to RegexUsageAnalyzer for {}", targetIdentifier);
-                    result = new RegexUsageAnalyzer(analyzer).findUsages(overloads, candidates, 500);
+                var result = UsageAnalyzerSelector.findUsages(usageAnalyzer, analyzer, overloads, candidates);
+                var rendered = UsageRenderer.render(
+                        analyzer,
+                        targetIdentifier,
+                        overloads,
+                        result,
+                        mode == UsageMode.SAMPLE ? UsageRenderer.Mode.SAMPLE : UsageRenderer.Mode.FULL);
+                if (!rendered.hasUsages()) {
+                    logger.debug("UsageFragment found no usages for {} via {}", targetIdentifier, usageAnalyzer);
+                    return new ContentSnapshot(rendered.text(), Set.of(), Set.of(), (List<Byte>) null, false);
                 }
+
+                return new ContentSnapshot(rendered.text(), Set.of(), rendered.files(), (List<Byte>) null, true);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return new ContentSnapshot(
@@ -1527,46 +1528,6 @@ public class ContextFragments {
                         (List<Byte>) null,
                         false);
             }
-
-            var rendered = UsageRenderer.render(
-                    analyzer,
-                    targetIdentifier,
-                    overloads,
-                    result,
-                    mode == UsageMode.SAMPLE ? UsageRenderer.Mode.SAMPLE : UsageRenderer.Mode.FULL);
-            if (!rendered.hasUsages()) {
-                logger.debug("UsageFragment found no usages for {} via {}", targetIdentifier, usageAnalyzer);
-                return new ContentSnapshot(rendered.text(), Set.of(), Set.of(), (List<Byte>) null, false);
-            }
-
-            return new ContentSnapshot(rendered.text(), Set.of(), rendered.files(), (List<Byte>) null, true);
-        }
-
-        private static UsageAnalyzer usageAnalyzerFor(
-                CodeUnit target, IAnalyzer analyzer, ai.brokk.project.ICoreProject project) {
-            Language lang = Languages.fromExtension(target.source().extension());
-            if (lang.contains(Languages.JAVA)) {
-                return new JdtUsageAnalyzerStrategy(project);
-            }
-            if (lang.contains(Languages.JAVASCRIPT) || lang.contains(Languages.TYPESCRIPT)) {
-                var graph = new JsTsExportUsageGraphStrategy(analyzer);
-                if (graph.canHandle(target)) {
-                    return graph;
-                }
-            }
-            return new RegexUsageAnalyzer(analyzer);
-        }
-
-        private static boolean shouldFallbackToRegex(FuzzyResult result, UsageAnalyzer usageAnalyzer) {
-            if (!(usageAnalyzer instanceof JsTsExportUsageGraphStrategy)) {
-                return false;
-            }
-            return switch (result) {
-                case FuzzyResult.Success success -> success.hits().isEmpty();
-                case FuzzyResult.Failure ignored -> true;
-                case FuzzyResult.Ambiguous ambiguous -> ambiguous.hits().isEmpty();
-                case FuzzyResult.TooManyCallsites ignored -> false;
-            };
         }
 
         @Override
