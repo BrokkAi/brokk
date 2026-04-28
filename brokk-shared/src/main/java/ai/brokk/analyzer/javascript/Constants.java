@@ -1,26 +1,26 @@
 package ai.brokk.analyzer.javascript;
 
-import ai.brokk.analyzer.CommonTreeSitterNodeTypes;
+import static java.util.Objects.requireNonNull;
+
 import java.util.Set;
+import org.treesitter.TsxNodeField;
+import org.treesitter.TsxNodeType;
 
 /** Shared constants for JavaScript and TypeScript analyzer node types, field names, and semantic names. */
 public final class Constants {
 
     private Constants() {}
 
+    public static String nodeType(TsxNodeType nodeType) {
+        return requireNonNull(nodeType.getType());
+    }
+
+    public static String nodeField(TsxNodeField nodeField) {
+        return requireNonNull(nodeField.getName());
+    }
+
     // Common node types.
-    public static final String CLASS_DECLARATION = CommonTreeSitterNodeTypes.CLASS_DECLARATION;
-    public static final String INTERFACE_DECLARATION = CommonTreeSitterNodeTypes.INTERFACE_DECLARATION;
-    public static final String ENUM_DECLARATION = CommonTreeSitterNodeTypes.ENUM_DECLARATION;
-    public static final String FUNCTION_DECLARATION = CommonTreeSitterNodeTypes.FUNCTION_DECLARATION;
-    public static final String METHOD_DEFINITION = CommonTreeSitterNodeTypes.METHOD_DEFINITION;
-    public static final String ARROW_FUNCTION = CommonTreeSitterNodeTypes.ARROW_FUNCTION;
-    public static final String CONSTRUCTOR_DECLARATION = CommonTreeSitterNodeTypes.CONSTRUCTOR_DECLARATION;
-    public static final String VARIABLE_DECLARATOR = CommonTreeSitterNodeTypes.VARIABLE_DECLARATOR;
-    public static final String LEXICAL_DECLARATION = CommonTreeSitterNodeTypes.LEXICAL_DECLARATION;
-    public static final String VARIABLE_DECLARATION = CommonTreeSitterNodeTypes.VARIABLE_DECLARATION;
-    public static final String EXPORT_STATEMENT = CommonTreeSitterNodeTypes.EXPORT_STATEMENT;
-    public static final String DECORATOR = CommonTreeSitterNodeTypes.DECORATOR;
+    public static final String CONSTRUCTOR_DECLARATION = "constructor";
 
     // Statement and block node types.
     public static final String IF_STATEMENT = "if_statement";
@@ -30,87 +30,26 @@ public final class Constants {
     public static final String DO_STATEMENT = "do_statement";
     public static final String CATCH_CLAUSE = "catch_clause";
     public static final String SWITCH_CASE = "switch_case";
-    public static final String SWITCH_STATEMENT = "switch_statement";
-    public static final String TRY_STATEMENT = "try_statement";
-    public static final String THROW_STATEMENT = "throw_statement";
-    public static final String RETURN_STATEMENT = "return_statement";
-    public static final String BREAK_STATEMENT = "break_statement";
-    public static final String CONTINUE_STATEMENT = "continue_statement";
-    public static final String EXPRESSION_STATEMENT = "expression_statement";
-    public static final String STATEMENT_BLOCK = "statement_block";
-    public static final String IMPORT_STATEMENT = "import_statement";
 
     // Expression and identifier node types.
     public static final String TERNARY_EXPRESSION = "ternary_expression";
     public static final String BINARY_EXPRESSION = "binary_expression";
-    public static final String CALL_EXPRESSION = "call_expression";
-    public static final String MEMBER_EXPRESSION = "member_expression";
-    public static final String ARGUMENTS = "arguments";
-    public static final String IDENTIFIER = "identifier";
-    public static final String STRING = "string";
-    public static final String TEMPLATE_STRING = "template_string";
-    public static final String NUMBER = "number";
-    public static final String TRUE = "true";
-    public static final String FALSE = "false";
-    public static final String PROPERTY_IDENTIFIER = "property_identifier";
-    public static final String TYPE_IDENTIFIER = "type_identifier";
-    public static final String NESTED_TYPE_IDENTIFIER = "nested_type_identifier";
-    public static final String NULL = "null";
-    public static final String UNDEFINED = "undefined";
-    public static final String THIS = "this";
-    public static final String OBJECT = "object";
 
     // JavaScript-specific node types.
     public static final String CLASS_EXPRESSION = "class_expression";
-    public static final String CLASS = "class";
-    public static final String FUNCTION_EXPRESSION = "function_expression";
     public static final String IMPORT_DECLARATION = "import_declaration";
-    public static final String JSX_ELEMENT = "jsx_element";
-    public static final String JSX_SELF_CLOSING_ELEMENT = "jsx_self_closing_element";
     public static final String JSX_FRAGMENT = "jsx_fragment";
 
     // TypeScript-specific node types.
-    public static final String ABSTRACT_CLASS_DECLARATION = "abstract_class_declaration";
-    public static final String MODULE = "module";
-    public static final String INTERNAL_MODULE = "internal_module";
-    public static final String GENERATOR_FUNCTION_DECLARATION = "generator_function_declaration";
-    public static final String FUNCTION_SIGNATURE = "function_signature";
-    public static final String METHOD_SIGNATURE = "method_signature";
-    public static final String ABSTRACT_METHOD_SIGNATURE = "abstract_method_signature";
-    public static final String CONSTRUCT_SIGNATURE = "construct_signature";
-    public static final String CALL_SIGNATURE = "call_signature";
-    public static final String PUBLIC_FIELD_DEFINITION = "public_field_definition";
-    public static final String PROPERTY_SIGNATURE = "property_signature";
-    public static final String INDEX_SIGNATURE = "index_signature";
     public static final String ENUM_MEMBER = "enum_member";
-    public static final String AMBIENT_DECLARATION = "ambient_declaration";
-    public static final String ENUM_BODY = "enum_body";
-    public static final String ENUM_ASSIGNMENT = "enum_assignment";
-    public static final String ACCESSIBILITY_MODIFIER = "accessibility_modifier";
     public static final String MODIFIERS = "modifiers";
-    public static final String TYPE_PARAMETERS = "type_parameters";
-    public static final String TYPE_ALIAS_DECLARATION = "type_alias_declaration";
-    public static final String TYPE_ANNOTATION = "type_annotation";
-    public static final String TYPE_ARGUMENTS = "type_arguments";
-    public static final String TYPE_QUERY = "type_query";
-    public static final String CLASS_BODY = "class_body";
-    public static final String CLASS_HERITAGE = "class_heritage";
-    public static final String EXTENDS_CLAUSE = "extends_clause";
-    public static final String IMPLEMENTS_CLAUSE = "implements_clause";
-    public static final String OBJECT_TYPE = "object_type";
-    public static final String NEW_EXPRESSION = "new_expression";
-    public static final String OBJECT_PATTERN = "object_pattern";
-    public static final String ARRAY_PATTERN = "array_pattern";
-    public static final String PAIR = "pair";
-    public static final String PAIR_PATTERN = "pair_pattern";
-    public static final String SHORTHAND_PROPERTY_IDENTIFIER_PATTERN = "shorthand_property_identifier_pattern";
-    public static final String FORMAL_PARAMETERS = "formal_parameters";
 
     // Token node types and keyword-like node types.
     public static final String INTERFACE = "interface";
     public static final String ENUM = "enum";
     public static final String NAMESPACE = "namespace";
     public static final String ABSTRACT_CLASS = "abstract class";
+    public static final String CLASS = "class";
     public static final String CONSTRUCTOR = "constructor";
     public static final String FUNCTION = "function";
     public static final String STATIC = "static";
@@ -129,25 +68,25 @@ public final class Constants {
     public static final String NEW = "new";
 
     // Field names.
-    public static final String FIELD_NAME = "name";
-    public static final String FIELD_BODY = "body";
-    public static final String FIELD_PARAMETERS = "parameters";
-    public static final String FIELD_RETURN_TYPE = "return_type";
-    public static final String FIELD_TYPE_PARAMETERS = "type_parameters";
-    public static final String FIELD_DECLARATION = "declaration";
-    public static final String FIELD_FUNCTION = "function";
-    public static final String FIELD_ARGUMENTS = "arguments";
-    public static final String FIELD_OBJECT = "object";
-    public static final String FIELD_PROPERTY = "property";
-    public static final String FIELD_LEFT = "left";
-    public static final String FIELD_RIGHT = "right";
-    public static final String FIELD_VALUE = "value";
-    public static final String FIELD_PARAMETER = "parameter";
-    public static final String FIELD_OPERATOR = "operator";
-    public static final String FIELD_PATTERN = "pattern";
-    public static final String FIELD_TYPE = "type";
-    public static final String FIELD_KEY = "key";
-    public static final String FIELD_CONSTRUCTOR = "constructor";
+    public static final String FIELD_NAME = nodeField(TsxNodeField.NAME);
+    public static final String FIELD_BODY = nodeField(TsxNodeField.BODY);
+    public static final String FIELD_PARAMETERS = nodeField(TsxNodeField.PARAMETERS);
+    public static final String FIELD_RETURN_TYPE = nodeField(TsxNodeField.RETURN_TYPE);
+    public static final String FIELD_TYPE_PARAMETERS = nodeField(TsxNodeField.TYPE_PARAMETERS);
+    public static final String FIELD_DECLARATION = nodeField(TsxNodeField.DECLARATION);
+    public static final String FIELD_FUNCTION = nodeField(TsxNodeField.FUNCTION);
+    public static final String FIELD_ARGUMENTS = nodeField(TsxNodeField.ARGUMENTS);
+    public static final String FIELD_OBJECT = nodeField(TsxNodeField.OBJECT);
+    public static final String FIELD_PROPERTY = nodeField(TsxNodeField.PROPERTY);
+    public static final String FIELD_LEFT = nodeField(TsxNodeField.LEFT);
+    public static final String FIELD_RIGHT = nodeField(TsxNodeField.RIGHT);
+    public static final String FIELD_VALUE = nodeField(TsxNodeField.VALUE);
+    public static final String FIELD_PARAMETER = nodeField(TsxNodeField.PARAMETER);
+    public static final String FIELD_OPERATOR = nodeField(TsxNodeField.OPERATOR);
+    public static final String FIELD_PATTERN = nodeField(TsxNodeField.PATTERN);
+    public static final String FIELD_TYPE = nodeField(TsxNodeField.TYPE);
+    public static final String FIELD_KEY = nodeField(TsxNodeField.KEY);
+    public static final String FIELD_CONSTRUCTOR = nodeField(TsxNodeField.CONSTRUCTOR);
 
     // Query capture names.
     public static final String IMPORT_DECLARATION_CAPTURE = "import.declaration";
@@ -191,26 +130,6 @@ public final class Constants {
     public static final String TO_HAVE_BEEN_CALLED_TIMES = "toHaveBeenCalledTimes";
     public static final String TO_HAVE_BEEN_CALLED_WITH = "toHaveBeenCalledWith";
 
-    public static final Set<String> COMMENT_NODE_TYPES = Set.of(
-            CommonTreeSitterNodeTypes.COMMENT,
-            CommonTreeSitterNodeTypes.LINE_COMMENT,
-            CommonTreeSitterNodeTypes.BLOCK_COMMENT);
-
-    public static final Set<String> CATCH_BODY_MEANINGFUL_STATEMENT_TYPES = Set.of(
-            EXPRESSION_STATEMENT,
-            THROW_STATEMENT,
-            RETURN_STATEMENT,
-            BREAK_STATEMENT,
-            CONTINUE_STATEMENT,
-            IF_STATEMENT,
-            FOR_STATEMENT,
-            FOR_IN_STATEMENT,
-            WHILE_STATEMENT,
-            DO_STATEMENT,
-            SWITCH_STATEMENT,
-            TRY_STATEMENT,
-            TERNARY_EXPRESSION);
-
     public static final Set<String> TEST_FUNCTION_NAMES = Set.of(TEST_FN_TEST, TEST_FN_IT, TEST_FN_DESCRIBE);
 
     public static final Set<String> EXPECT_TERMINAL_NAMES = Set.of(
@@ -239,25 +158,38 @@ public final class Constants {
     public static final Set<String> MOCK_VERIFY_TERMINAL_NAMES =
             Set.of(TO_HAVE_BEEN_CALLED, TO_HAVE_BEEN_CALLED_TIMES, TO_HAVE_BEEN_CALLED_WITH);
 
-    public static final Set<String> CONSTANT_LITERAL_TYPES =
-            Set.of(STRING, TEMPLATE_STRING, NUMBER, TRUE, FALSE, NULL, UNDEFINED);
+    public static final Set<String> COMMENT_NODE_TYPES =
+            Set.of(nodeType(TsxNodeType.COMMENT), nodeType(TsxNodeType.HTML_COMMENT), "line_comment", "block_comment");
 
-    public static final Set<String> JS_TS_IDENTIFIER_TYPES = Set.of(IDENTIFIER, PROPERTY_IDENTIFIER);
-    public static final Set<String> JS_TS_STRING_TYPES = Set.of(STRING, TEMPLATE_STRING);
-    public static final Set<String> JS_TS_NUMBER_TYPES = Set.of(NUMBER);
+    public static final Set<String> CATCH_BODY_MEANINGFUL_STATEMENT_TYPES = Set.of(
+            nodeType(TsxNodeType.EXPRESSION_STATEMENT),
+            nodeType(TsxNodeType.THROW_STATEMENT),
+            nodeType(TsxNodeType.RETURN_STATEMENT),
+            nodeType(TsxNodeType.BREAK_STATEMENT),
+            nodeType(TsxNodeType.CONTINUE_STATEMENT),
+            nodeType(TsxNodeType.IF_STATEMENT),
+            nodeType(TsxNodeType.FOR_STATEMENT),
+            nodeType(TsxNodeType.FOR_IN_STATEMENT),
+            nodeType(TsxNodeType.WHILE_STATEMENT),
+            nodeType(TsxNodeType.DO_STATEMENT),
+            nodeType(TsxNodeType.SWITCH_STATEMENT),
+            nodeType(TsxNodeType.TRY_STATEMENT),
+            nodeType(TsxNodeType.TERNARY_EXPRESSION));
+
+    public static final Set<String> CONSTANT_LITERAL_TYPES = Set.of(
+            nodeType(TsxNodeType.STRING),
+            nodeType(TsxNodeType.TEMPLATE_STRING),
+            nodeType(TsxNodeType.NUMBER),
+            nodeType(TsxNodeType.TRUE),
+            nodeType(TsxNodeType.FALSE),
+            nodeType(TsxNodeType.NULL),
+            nodeType(TsxNodeType.UNDEFINED));
+
+    public static final Set<String> JS_TS_IDENTIFIER_TYPES =
+            Set.of(nodeType(TsxNodeType.IDENTIFIER), nodeType(TsxNodeType.PROPERTY_IDENTIFIER));
+    public static final Set<String> JS_TS_STRING_TYPES =
+            Set.of(nodeType(TsxNodeType.STRING), nodeType(TsxNodeType.TEMPLATE_STRING));
+    public static final Set<String> JS_TS_NUMBER_TYPES = Set.of(nodeType(TsxNodeType.NUMBER));
     public static final Set<String> JS_TS_CLONE_AST_IGNORED_TYPES =
-            Set.of(ACCESSIBILITY_MODIFIER, MODIFIERS, TYPE_PARAMETERS);
-    public static final Set<String> TS_MODIFIER_NODE_TYPES = Set.of(
-            EXPORT,
-            DEFAULT,
-            DECLARE,
-            ABSTRACT,
-            STATIC,
-            READONLY,
-            ACCESSIBILITY_MODIFIER,
-            ASYNC,
-            CONST,
-            LET,
-            VAR,
-            OVERRIDE);
+            Set.of(nodeType(TsxNodeType.ACCESSIBILITY_MODIFIER), MODIFIERS, nodeType(TsxNodeType.TYPE_PARAMETERS));
 }

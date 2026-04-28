@@ -33,6 +33,7 @@ import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSTree;
 import org.treesitter.TSTreeCursor;
+import org.treesitter.TsxNodeType;
 
 /**
  * Shared base class for JavaScript and TypeScript analyzers.
@@ -61,10 +62,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static final Set<String> JS_LOG_BARE_NAMES = Set.of("log", "warn", "error", "exception");
     private static final Set<String> JS_LOG_RECEIVER_NAMES = Set.of("log", "logger", "console");
     private static final Set<String> JS_LOG_METHOD_NAMES = Set.of("log", "warn", "error", "exception");
-    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES = JS_TS_IDENTIFIER_TYPES;
-    private static final Set<String> CLONE_AST_STRING_TYPES = JS_TS_STRING_TYPES;
-    private static final Set<String> CLONE_AST_NUMBER_TYPES = JS_TS_NUMBER_TYPES;
-    private static final Set<String> CLONE_AST_IGNORED_TYPES = JS_TS_CLONE_AST_IGNORED_TYPES;
 
     private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
@@ -422,19 +419,20 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static String normalizeJsTsAstLabel(TSNode node, SourceContent sourceContent) {
         String type = Objects.toString(node.getType(), "");
         String text = sourceContent.substringFrom(node).strip();
-        if (CLONE_AST_IDENTIFIER_TYPES.contains(type)) {
+        if (JS_TS_IDENTIFIER_TYPES.contains(type)) {
             return "ID";
         }
-        if (CLONE_AST_STRING_TYPES.contains(type)) {
+        if (JS_TS_STRING_TYPES.contains(type)) {
             return "STR";
         }
-        if (CLONE_AST_NUMBER_TYPES.contains(type)) {
+        if (JS_TS_NUMBER_TYPES.contains(type)) {
             return "NUM";
         }
-        if (TRUE.equals(text) || FALSE.equals(text)) {
+        if (nodeType(TsxNodeType.TRUE).equals(text)
+                || nodeType(TsxNodeType.FALSE).equals(text)) {
             return "BOOL";
         }
-        if (CLONE_AST_IGNORED_TYPES.contains(type)) {
+        if (JS_TS_CLONE_AST_IGNORED_TYPES.contains(type)) {
             return "IGN";
         }
         return "N:" + type;
@@ -466,7 +464,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             return false;
         }
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(root, Set.of(nodeType(TsxNodeType.CALL_EXPRESSION)), calls);
         return calls.stream().anyMatch(call -> {
             String name = callExpressionName(call, sourceContent);
             return TEST_FUNCTION_NAMES.contains(name) && testCallback(call).isPresent();
@@ -496,7 +494,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private List<TestAssertionSmell> detectTestAssertionSmells(
             ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(root, Set.of(nodeType(TsxNodeType.CALL_EXPRESSION)), calls);
         var findings = new ArrayList<TestSmellCandidate>();
         calls.stream()
                 .filter(call -> Set.of(TEST_FN_TEST, TEST_FN_IT).contains(callExpressionName(call, sourceContent)))
@@ -521,7 +519,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             body = callback;
         }
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(body, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(body, Set.of(nodeType(TsxNodeType.CALL_EXPRESSION)), calls);
         List<AssertionSignal> assertions = calls.stream()
                 .map(call -> assertionSignal(call, sourceContent, weights))
                 .flatMap(Optional::stream)
@@ -583,7 +581,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (function == null) {
             return Optional.empty();
         }
-        if (MEMBER_EXPRESSION.equals(function.getType())) {
+        if (nodeType(TsxNodeType.MEMBER_EXPRESSION).equals(function.getType())) {
             String property = memberPropertyName(function, sourceContent);
             Optional<TSNode> expectArg = expectArgument(function, sourceContent);
             if (expectArg.isPresent() && EXPECT_TERMINAL_NAMES.contains(property)) {
@@ -690,7 +688,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private static Optional<TSNode> testCallback(TSNode call) {
         return argumentNodes(call).stream()
-                .filter(arg -> ARROW_FUNCTION.equals(arg.getType()) || FUNCTION_EXPRESSION.equals(arg.getType()))
+                .filter(arg -> nodeType(TsxNodeType.ARROW_FUNCTION).equals(arg.getType())
+                        || nodeType(TsxNodeType.FUNCTION_EXPRESSION).equals(arg.getType()))
                 .findFirst();
     }
 
@@ -699,10 +698,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (function == null) {
             return "";
         }
-        if (IDENTIFIER.equals(function.getType())) {
+        if (nodeType(TsxNodeType.IDENTIFIER).equals(function.getType())) {
             return sourceContent.substringFrom(function).strip();
         }
-        if (MEMBER_EXPRESSION.equals(function.getType())) {
+        if (nodeType(TsxNodeType.MEMBER_EXPRESSION).equals(function.getType())) {
             return memberPropertyName(function, sourceContent);
         }
         return "";
@@ -720,7 +719,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private static Optional<TSNode> expectArgument(TSNode member, SourceContent sourceContent) {
         TSNode object = member.getChildByFieldName(FIELD_OBJECT);
-        if (object == null || !CALL_EXPRESSION.equals(object.getType())) {
+        if (object == null || !nodeType(TsxNodeType.CALL_EXPRESSION).equals(object.getType())) {
             return Optional.empty();
         }
         TSNode function = object.getChildByFieldName(FIELD_FUNCTION);
@@ -734,7 +733,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static List<TSNode> argumentNodes(TSNode call) {
         TSNode arguments = call.getChildByFieldName(FIELD_ARGUMENTS);
         if (arguments == null) {
-            arguments = firstNamedChildOfType(call, ARGUMENTS);
+            arguments = firstNamedChildOfType(call, nodeType(TsxNodeType.ARGUMENTS));
         }
         if (arguments == null) {
             return List.of();
@@ -763,7 +762,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static boolean containsOverspecifiedLiteral(
             List<TSNode> args, SourceContent sourceContent, TestAssertionWeights weights) {
         return args.stream()
-                .anyMatch(arg -> Set.of(STRING, TEMPLATE_STRING).contains(arg.getType())
+                .anyMatch(arg -> Set.of(nodeType(TsxNodeType.STRING), nodeType(TsxNodeType.TEMPLATE_STRING))
+                                .contains(arg.getType())
                         && sourceContent.substringFrom(arg).length() >= weights.largeLiteralLengthThreshold());
     }
 
@@ -806,7 +806,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (bodyNode == null) {
             for (int i = 0; i < catchClause.getNamedChildCount(); i++) {
                 TSNode child = catchClause.getNamedChild(i);
-                if (child != null && STATEMENT_BLOCK.equals(child.getType())) {
+                if (child != null && nodeType(TsxNodeType.STATEMENT_BLOCK).equals(child.getType())) {
                     bodyNode = child;
                     break;
                 }
@@ -821,7 +821,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
         boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
         boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
-        boolean throwPresent = hasDescendantOfType(bodyNode, THROW_STATEMENT);
+        boolean throwPresent = hasDescendantOfType(bodyNode, nodeType(TsxNodeType.THROW_STATEMENT));
         boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !throwPresent;
 
         String catchType = extractCatchType(catchClause, sourceContent);
@@ -904,10 +904,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
         TSNode statement = firstNonCommentNamedChild(bodyNode, COMMENT_NODE_TYPES);
-        if (statement == null || !EXPRESSION_STATEMENT.equals(statement.getType())) {
+        if (statement == null || !nodeType(TsxNodeType.EXPRESSION_STATEMENT).equals(statement.getType())) {
             return false;
         }
-        TSNode call = findFirstNamedDescendant(statement, CALL_EXPRESSION);
+        TSNode call = findFirstNamedDescendant(statement, nodeType(TsxNodeType.CALL_EXPRESSION));
         if (call == null) {
             return false;
         }
@@ -915,11 +915,11 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (functionNode == null) {
             return false;
         }
-        if (IDENTIFIER.equals(functionNode.getType())) {
+        if (nodeType(TsxNodeType.IDENTIFIER).equals(functionNode.getType())) {
             String bare = sourceContent.substringFrom(functionNode).strip().toLowerCase(Locale.ROOT);
             return JS_LOG_BARE_NAMES.contains(bare);
         }
-        if (!MEMBER_EXPRESSION.equals(functionNode.getType())) {
+        if (!nodeType(TsxNodeType.MEMBER_EXPRESSION).equals(functionNode.getType())) {
             return false;
         }
         TSNode objectNode = functionNode.getChildByFieldName(FIELD_OBJECT);
@@ -1372,10 +1372,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             TSNode current = requireCallNode;
             while (current != null) {
                 String type = current.getType();
-                if (LEXICAL_DECLARATION.equals(type)
-                        || VARIABLE_DECLARATION.equals(type)
-                        || EXPRESSION_STATEMENT.equals(type)
-                        || VARIABLE_DECLARATOR.equals(type)) {
+                if (nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(type)
+                        || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(type)
+                        || nodeType(TsxNodeType.EXPRESSION_STATEMENT).equals(type)
+                        || nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(type)) {
                     nodeToCapture = current;
                     // If we found a declarator, try one more step for the full declaration
                     TSNode parent = current.getParent();

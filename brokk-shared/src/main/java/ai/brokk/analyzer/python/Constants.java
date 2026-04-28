@@ -2,7 +2,6 @@ package ai.brokk.analyzer.python;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.analyzer.CommonTreeSitterNodeTypes;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.treesitter.PythonNodeField;
@@ -67,10 +66,8 @@ public final class Constants {
     public static final String TEST_ASSERTION_KIND_OVERSPECIFIED_LITERAL = "overspecified-literal";
 
     // Comment node types are common across languages; Python's grammar uses "comment".
-    public static final Set<String> COMMENT_NODE_TYPES = Set.of(
-            CommonTreeSitterNodeTypes.COMMENT,
-            CommonTreeSitterNodeTypes.LINE_COMMENT,
-            CommonTreeSitterNodeTypes.BLOCK_COMMENT);
+    public static final Set<String> COMMENT_NODE_TYPES =
+            Set.of(nodeType(PythonNodeType.COMMENT), "line_comment", "block_comment");
 
     public static final Set<String> UNITTEST_ASSERTION_NAMES = Set.of(
             "assertEqual",
