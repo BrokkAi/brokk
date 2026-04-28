@@ -10,6 +10,7 @@ import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.IAnalyzer.Range;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.IGitRepo;
@@ -120,6 +121,57 @@ class SearchToolsTest {
         assertTrue(result.contains("## Related Content"), "Should include related content header");
         assertTrue(relatedSection.contains("B.java"), "Should include a related file");
         assertFalse(relatedSection.contains("A.java"), "Should not echo the seed file");
+    }
+
+    @Test
+    void scanUsages_FindsGoStructFieldUsages() throws Exception {
+        Path projectRoot = initRepo();
+        commitTrackedFiles(
+                projectRoot,
+                Map.of(
+                        "go.mod",
+                        """
+                        module example.com/test
+
+                        go 1.21
+                        """
+                                .stripIndent(),
+                        "model/album.go",
+                        """
+                        package model
+
+                        type Album struct {
+                            ImageFiles string
+                        }
+                        """
+                                .stripIndent(),
+                        "core/reader.go",
+                        """
+                        package core
+
+                        import "example.com/test/model"
+
+                        func Read(album model.Album) string {
+                            if album.ImageFiles != "" {
+                                return album.ImageFiles
+                            }
+                            return ""
+                        }
+                        """
+                                .stripIndent()),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add Go field usage");
+
+        project = new CoreProject(projectRoot);
+        IAnalyzer analyzer = Languages.GO.createAnalyzer(project);
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
+
+        String result = tools.scanUsages(List.of("model.Album.ImageFiles"), true);
+
+        assertTrue(result.contains("# Usages of model.Album.ImageFiles"), "Should render usage results");
+        assertTrue(result.contains("core/reader.go"), "Should include the file containing the field accesses");
+        assertTrue(result.contains("ImageFiles"), "Should include source examples with the field access");
+        assertFalse(result.contains("No usages found"), "Should not drop field symbols from usage results");
     }
 
     @Test

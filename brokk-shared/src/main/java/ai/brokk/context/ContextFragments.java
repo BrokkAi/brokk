@@ -20,6 +20,7 @@ import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
 import ai.brokk.analyzer.usages.JsTsExportUsageGraphStrategy;
 import ai.brokk.analyzer.usages.RegexUsageAnalyzer;
 import ai.brokk.analyzer.usages.UsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageRenderer;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
@@ -45,7 +46,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -1511,8 +1511,6 @@ public class ContextFragments {
                     usageAnalyzer.getClass().getSimpleName(),
                     candidates.size());
 
-            CodeUnit definingOwner = analyzer.parentOf(overloads.getFirst()).orElse(overloads.getFirst());
-
             FuzzyResult result;
             try {
                 result = usageAnalyzer.findUsages(overloads, candidates, 500);
@@ -1530,56 +1528,18 @@ public class ContextFragments {
                         false);
             }
 
-            var either = result.toEither();
-            if (!either.hasUsages()) {
+            var rendered = UsageRenderer.render(
+                    analyzer,
+                    targetIdentifier,
+                    overloads,
+                    result,
+                    mode == UsageMode.SAMPLE ? UsageRenderer.Mode.SAMPLE : UsageRenderer.Mode.FULL);
+            if (!rendered.hasUsages()) {
                 logger.debug("UsageFragment found no usages for {} via {}", targetIdentifier, usageAnalyzer);
-                return new ContentSnapshot(either.getErrorMessage(), Set.of(), Set.of(), (List<Byte>) null, false);
+                return new ContentSnapshot(rendered.text(), Set.of(), Set.of(), (List<Byte>) null, false);
             }
 
-            var hits = either.getUsages().stream()
-                    .filter(hit -> {
-                        var owner = analyzer.parentOf(hit.enclosing()).orElse(hit.enclosing());
-                        return !owner.equals(definingOwner);
-                    })
-                    .sorted(Comparator.comparing((ai.brokk.analyzer.usages.UsageHit h) ->
-                                    h.enclosing().fqName())
-                            .thenComparing(h -> h.file().toString())
-                            .thenComparingInt(ai.brokk.analyzer.usages.UsageHit::line))
-                    .toList();
-
-            StringBuilder sb =
-                    new StringBuilder("# Usages of ").append(targetIdentifier).append("\n\n");
-            sb.append("Call sites (").append(hits.size()).append("):\n");
-            for (var hit : hits) {
-                sb.append("- `")
-                        .append(hit.enclosing().fqName())
-                        .append("` (")
-                        .append(hit.file().getRelPath())
-                        .append(":")
-                        .append(hit.line())
-                        .append(")\n");
-            }
-
-            List<AnalyzerUtil.CodeWithSource> sources;
-            if (mode == UsageMode.SAMPLE) {
-                sb.append("\nExamples:\n\n");
-                sources = AnalyzerUtil.sampleUsages(analyzer, hits);
-            } else {
-                sources = AnalyzerUtil.processUsages(
-                        analyzer,
-                        hits.stream()
-                                .map(ai.brokk.analyzer.usages.UsageHit::enclosing)
-                                .distinct()
-                                .toList());
-            }
-
-            for (var src : sources) {
-                sb.append(src.code()).append("\n\n");
-            }
-
-            var files =
-                    hits.stream().map(ai.brokk.analyzer.usages.UsageHit::file).collect(Collectors.toSet());
-            return new ContentSnapshot(sb.toString().trim(), Set.of(), files, (List<Byte>) null, true);
+            return new ContentSnapshot(rendered.text(), Set.of(), rendered.files(), (List<Byte>) null, true);
         }
 
         private static UsageAnalyzer usageAnalyzerFor(

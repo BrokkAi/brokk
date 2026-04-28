@@ -16,6 +16,10 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.RelaxedSourceLookupResolver;
 import ai.brokk.analyzer.RelaxedSourceLookupResolver.RelaxedSourceLookup;
 import ai.brokk.analyzer.TestDetectionProvider;
+import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
+import ai.brokk.analyzer.usages.RegexUsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageRenderer;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
@@ -1056,7 +1060,7 @@ public class SearchTools {
         return hit.lineNumber() > 0 ? "%d: %s".formatted(hit.lineNumber(), hit.signature()) : hit.signature();
     }
 
-    public String scanUsages(List<String> symbols, boolean includeTests) {
+    public String scanUsages(List<String> symbols, boolean includeTests) throws InterruptedException {
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -1064,6 +1068,9 @@ public class SearchTools {
         }
 
         var analyzer = getAnalyzer();
+        var candidates = codeIntelligence.getProject().getAllFiles().stream()
+                .filter(file -> includeTests || !isTestFile(file, analyzer))
+                .collect(Collectors.toSet());
         List<String> results = new ArrayList<>();
         for (String symbol : symbols) {
             if (symbol.isBlank()) continue;
@@ -1075,11 +1082,13 @@ public class SearchTools {
             var filteredDefs = definitions.stream()
                     .filter(cu -> includeTests || !isTestFile(cu.source(), analyzer))
                     .toList();
+            if (filteredDefs.isEmpty()) continue;
 
-            var processed = AnalyzerUtil.processUsages(analyzer, filteredDefs);
-            String text = AnalyzerUtil.CodeWithSource.text(analyzer, processed);
-            if (!text.isEmpty()) {
-                results.add(text);
+            var usageAnalyzer = usageAnalyzerFor(filteredDefs.getFirst(), analyzer);
+            var usageResult = usageAnalyzer.findUsages(filteredDefs, candidates, 500);
+            var rendered = UsageRenderer.render(analyzer, symbol, filteredDefs, usageResult, UsageRenderer.Mode.SAMPLE);
+            if (rendered.hasUsages() && !rendered.text().isEmpty()) {
+                results.add(rendered.text());
             }
         }
 
@@ -1087,6 +1096,14 @@ public class SearchTools {
             return "No usages found for: " + String.join(", ", symbols);
         }
         return recordResearchTokens(String.join("\n\n", results));
+    }
+
+    private UsageAnalyzer usageAnalyzerFor(CodeUnit target, IAnalyzer analyzer) {
+        var language = Languages.fromExtension(target.source().extension());
+        if (language.contains(Languages.JAVA)) {
+            return new JdtUsageAnalyzerStrategy(codeIntelligence.getProject());
+        }
+        return new RegexUsageAnalyzer(analyzer);
     }
 
     public String getClassSources(List<String> classNames) {
