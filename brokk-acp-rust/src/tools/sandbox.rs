@@ -82,6 +82,7 @@ pub struct TempPolicyFile {
 }
 
 impl TempPolicyFile {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     fn new(path: PathBuf) -> Self {
         Self { path }
     }
@@ -213,6 +214,7 @@ fn wrap_platform(
 
 /// Tag an io error as coming from the sandbox layer (not the user's command),
 /// so the surface in `shell.rs` can distinguish the two.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn sandbox_io_error(msg: String) -> std::io::Error {
     std::io::Error::other(format!("[sandbox] {msg}"))
 }
@@ -335,7 +337,7 @@ fn build_seatbelt_policy(policy: SandboxPolicy, cwd: &Path) -> String {
 
 /// Atomically create the policy file with mode 0600 to defeat any TOCTOU
 /// substitution between write and `sandbox-exec` open.
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn write_policy_file_secure(path: &Path, content: &str) -> std::io::Result<()> {
     use std::io::Write;
     #[cfg(unix)]
