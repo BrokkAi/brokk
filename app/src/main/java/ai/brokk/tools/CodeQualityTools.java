@@ -163,8 +163,7 @@ public class CodeQualityTools {
                 pickPositive(godObjectDirectChildren, defaults.godObjectDirectChildren()),
                 pickPositive(godObjectFunctions, defaults.godObjectFunctions()),
                 pickPositive(helperSprawlFunctions, defaults.helperSprawlFunctions()),
-                pickPositive(helperSprawlWorkflowLines, defaults.helperSprawlWorkflowLines()),
-                defaults.fileModuleLeewayMultiplier());
+                pickPositive(helperSprawlWorkflowLines, defaults.helperSprawlWorkflowLines()));
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         var files = filePaths.stream()
                 .map(contextManager::toFile)
@@ -188,7 +187,6 @@ public class CodeQualityTools {
             lines.add("No long method or god object smells found.");
             return String.join("\n", lines);
         }
-
         for (var smell : findings) {
             CodeUnit cu = smell.codeUnit();
             var range = smell.range();
@@ -701,18 +699,14 @@ public class CodeQualityTools {
     }
 
     private static String formatWeights(IAnalyzer.MaintainabilitySizeSmellWeights w) {
-        return "longMethodSpan=%d, highComplexity=%d, godObjectSpan=%d, directChildren=%d, functions=%d,"
+        return "longMethodLines=%d, highComplexity=%d, godObjectLines=%d, godObjectDirectChildren=%d,"
                         .formatted(
                                 w.longMethodSpanLines(),
                                 w.highComplexityThreshold(),
                                 w.godObjectSpanLines(),
-                                w.godObjectDirectChildren(),
-                                w.godObjectFunctions())
-                + " helperFunctions=%d, helperWorkflowLines=%d, fileModuleLeewayMultiplier=%d"
-                        .formatted(
-                                w.helperSprawlFunctions(),
-                                w.helperSprawlWorkflowLines(),
-                                w.fileModuleLeewayMultiplier());
+                                w.godObjectDirectChildren())
+                + " godObjectFunctions=%d, helperSprawlFunctions=%d, helperSprawlWorkflowLines=%d"
+                        .formatted(w.godObjectFunctions(), w.helperSprawlFunctions(), w.helperSprawlWorkflowLines());
     }
 
     private static String formatWeights(IAnalyzer.ExceptionSmellWeights w) {

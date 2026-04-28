@@ -406,6 +406,28 @@ public interface IAnalyzer {
             List<String> reasons,
             String excerpt) {}
 
+    record MaintainabilitySizeSmellWeights(
+            int longMethodSpanLines,
+            int highComplexityThreshold,
+            int godObjectSpanLines,
+            int godObjectDirectChildren,
+            int godObjectFunctions,
+            int helperSprawlFunctions,
+            int helperSprawlWorkflowLines) {
+
+        public static MaintainabilitySizeSmellWeights defaults() {
+            return new MaintainabilitySizeSmellWeights(
+                    80, // Long generated workflows become difficult to review.
+                    10, // Matches the default cyclomatic complexity review threshold.
+                    300, // Large class/module bodies are worth triage even before counting members.
+                    20, // Many direct members suggest mixed responsibilities.
+                    15, // Many functions under one parent suggest a god object/module.
+                    10, // Helper sprawl threshold around a larger workflow.
+                    60 // Workflow size large enough to make surrounding helpers suspicious.
+                    );
+        }
+    }
+
     record MaintainabilitySizeSmell(
             CodeUnit codeUnit,
             Range range,
@@ -860,48 +882,56 @@ public interface IAnalyzer {
         return complexity;
     }
 
-    int LONG_METHOD_SPAN_LINES = 80;
-    int HIGH_COMPLEXITY_THRESHOLD = 10;
-    int GOD_OBJECT_SPAN_LINES = 300;
-    int GOD_OBJECT_DIRECT_CHILDREN = 20;
-    int GOD_OBJECT_FUNCTIONS = 15;
-    int HELPER_SPRAWL_FUNCTIONS = 10;
-    int HELPER_SPRAWL_WORKFLOW_LINES = 60;
-
     /**
      * Finds oversized functions, classes, and modules that are likely to carry generated-code maintainability debt.
      */
     default List<MaintainabilitySizeSmell> findLongMethodAndGodObjectSmells(ProjectFile file) {
+        return findLongMethodAndGodObjectSmells(file, MaintainabilitySizeSmellWeights.defaults());
+    }
+
+    /**
+     * Finds oversized functions, classes, and modules using configurable maintainability-size thresholds.
+     */
+    default List<MaintainabilitySizeSmell> findLongMethodAndGodObjectSmells(
+            ProjectFile file, MaintainabilitySizeSmellWeights weights) {
         var findings = new ArrayList<MaintainabilitySizeSmell>();
         var visited = new HashSet<CodeUnit>();
         for (CodeUnit cu : getTopLevelDeclarations(file)) {
-            collectMaintainabilitySizeSmells(cu, visited, findings);
+            collectMaintainabilitySizeSmells(cu, weights, visited, findings);
         }
-        return findings.stream()
-                .sorted(Comparator.comparingInt(MaintainabilitySizeSmell::score)
-                        .reversed()
-                        .thenComparing(smell -> smell.codeUnit().source().toString(), String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(smell -> smell.codeUnit().fqName(), String.CASE_INSENSITIVE_ORDER))
-                .toList();
+        return findings.stream().sorted(maintainabilitySizeSmellComparator()).toList();
+    }
+
+    static Comparator<MaintainabilitySizeSmell> maintainabilitySizeSmellComparator() {
+        return Comparator.comparingInt(MaintainabilitySizeSmell::score)
+                .reversed()
+                .thenComparing(smell -> smell.codeUnit().source().toString(), String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(smell -> smell.codeUnit().fqName(), String.CASE_INSENSITIVE_ORDER);
     }
 
     private MaintainabilitySizeMetrics collectMaintainabilitySizeSmells(
-            CodeUnit cu, Set<CodeUnit> visited, List<MaintainabilitySizeSmell> findings) {
+            CodeUnit cu,
+            MaintainabilitySizeSmellWeights weights,
+            Set<CodeUnit> visited,
+            List<MaintainabilitySizeSmell> findings) {
         if (!visited.add(cu)) {
             return MaintainabilitySizeMetrics.empty();
         }
 
         var range = primaryRangeOf(cu);
-        int ownSpanLines = spanLines(range);
-        int maxFunctionSpanLines = cu.isFunction() ? ownSpanLines : 0;
-        int maxCyclomaticComplexity = cu.isFunction() ? computeCyclomaticComplexity(cu) : 0;
-        int functionCount = cu.isFunction() ? 1 : 0;
-        int nestedTypeCount = cu.isClass() || cu.isModule() ? 1 : 0;
+        boolean synthetic = cu.isSynthetic();
+        int ownSpanLines = synthetic ? 0 : spanLines(range);
+        int maxFunctionSpanLines = !synthetic && cu.isFunction() ? ownSpanLines : 0;
+        int maxCyclomaticComplexity = !synthetic && cu.isFunction() ? computeCyclomaticComplexity(cu) : 0;
+        int functionCount = !synthetic && cu.isFunction() ? 1 : 0;
+        int nestedTypeCount = !synthetic && (cu.isClass() || cu.isModule()) ? 1 : 0;
         int descendantSpanLines = ownSpanLines;
         var children = getDirectChildren(cu);
+        var nonSyntheticChildren =
+                children.stream().filter(child -> !child.isSynthetic()).toList();
 
         for (CodeUnit child : children) {
-            var childMetrics = collectMaintainabilitySizeSmells(child, visited, findings);
+            var childMetrics = collectMaintainabilitySizeSmells(child, weights, visited, findings);
             functionCount += childMetrics.functionCount();
             nestedTypeCount += childMetrics.nestedTypeCount();
             descendantSpanLines += childMetrics.descendantSpanLines();
@@ -909,41 +939,41 @@ public interface IAnalyzer {
             maxCyclomaticComplexity = Math.max(maxCyclomaticComplexity, childMetrics.maxCyclomaticComplexity());
         }
 
-        if (!range.isEmpty()) {
+        if (!synthetic && !range.isEmpty()) {
             var reasons = new ArrayList<String>();
             int score = 0;
             if (cu.isFunction()) {
-                if (ownSpanLines >= LONG_METHOD_SPAN_LINES) {
-                    score += ownSpanLines - LONG_METHOD_SPAN_LINES + 25;
+                if (ownSpanLines >= weights.longMethodSpanLines()) {
+                    score += ownSpanLines - weights.longMethodSpanLines() + 25;
                     reasons.add("long function spans " + ownSpanLines + " lines");
                 }
-                if (maxCyclomaticComplexity > HIGH_COMPLEXITY_THRESHOLD) {
-                    score += (maxCyclomaticComplexity - HIGH_COMPLEXITY_THRESHOLD) * 5;
+                if (maxCyclomaticComplexity > weights.highComplexityThreshold()) {
+                    score += (maxCyclomaticComplexity - weights.highComplexityThreshold()) * 5;
                     reasons.add("high cyclomatic complexity " + maxCyclomaticComplexity);
                 }
             } else if (cu.isClass() || cu.isModule()) {
-                boolean responsibilityCluster = cu.isClass() || children.size() > 1;
-                if (ownSpanLines >= GOD_OBJECT_SPAN_LINES) {
-                    score += (ownSpanLines - GOD_OBJECT_SPAN_LINES) / 4 + 20;
+                boolean responsibilityCluster = cu.isClass() || nonSyntheticChildren.size() > 1;
+                if (ownSpanLines >= weights.godObjectSpanLines()) {
+                    score += (ownSpanLines - weights.godObjectSpanLines()) / 4 + 20;
                     reasons.add(
                             "large " + cu.kind().name().toLowerCase(Locale.ROOT) + " spans " + ownSpanLines + " lines");
                 }
-                if (responsibilityCluster && children.size() >= GOD_OBJECT_DIRECT_CHILDREN) {
-                    score += (children.size() - GOD_OBJECT_DIRECT_CHILDREN) * 2 + 15;
-                    reasons.add("many direct members (" + children.size() + ")");
+                if (responsibilityCluster && nonSyntheticChildren.size() >= weights.godObjectDirectChildren()) {
+                    score += (nonSyntheticChildren.size() - weights.godObjectDirectChildren()) * 2 + 15;
+                    reasons.add("many direct members (" + nonSyntheticChildren.size() + ")");
                 }
-                if (responsibilityCluster && functionCount >= GOD_OBJECT_FUNCTIONS) {
-                    score += (functionCount - GOD_OBJECT_FUNCTIONS) * 2 + 15;
+                if (responsibilityCluster && functionCount >= weights.godObjectFunctions()) {
+                    score += (functionCount - weights.godObjectFunctions()) * 2 + 15;
                     reasons.add("many functions in one responsibility cluster (" + functionCount + ")");
                 }
                 if (responsibilityCluster
-                        && functionCount >= HELPER_SPRAWL_FUNCTIONS
-                        && maxFunctionSpanLines >= HELPER_SPRAWL_WORKFLOW_LINES) {
+                        && functionCount >= weights.helperSprawlFunctions()
+                        && maxFunctionSpanLines >= weights.helperSprawlWorkflowLines()) {
                     score += functionCount + maxFunctionSpanLines / 4;
                     reasons.add("helper sprawl around a " + maxFunctionSpanLines + "-line workflow");
                 }
-                if (maxCyclomaticComplexity > HIGH_COMPLEXITY_THRESHOLD) {
-                    score += (maxCyclomaticComplexity - HIGH_COMPLEXITY_THRESHOLD) * 3;
+                if (maxCyclomaticComplexity > weights.highComplexityThreshold()) {
+                    score += (maxCyclomaticComplexity - weights.highComplexityThreshold()) * 3;
                     reasons.add("contains high-complexity workflow (CC " + maxCyclomaticComplexity + ")");
                 }
                 if (score > 0 && nestedTypeCount > 1) {
@@ -958,7 +988,7 @@ public interface IAnalyzer {
                         score,
                         ownSpanLines,
                         descendantSpanLines,
-                        children.size(),
+                        nonSyntheticChildren.size(),
                         functionCount,
                         nestedTypeCount,
                         maxFunctionSpanLines,

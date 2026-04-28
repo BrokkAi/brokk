@@ -93,6 +93,62 @@ class LongMethodAndGodObjectSmellTest {
         }
     }
 
+    @Test
+    void ignoresSyntheticConstructorAtThresholdBoundary() {
+        String source =
+                """
+                package com.example;
+                public class Boundary {
+                %s
+                }
+                """
+                        .formatted(helpers(14));
+        var weights = new IAnalyzer.MaintainabilitySizeSmellWeights(
+                999, // Disable long-method scoring.
+                999, // Disable high-complexity scoring.
+                999, // Disable span scoring.
+                15, // Would trip if the synthetic constructor counted as a direct child.
+                15, // Would trip if the synthetic constructor counted as a function.
+                999, // Disable helper-sprawl scoring.
+                999);
+
+        try (var project =
+                InlineCoreProject.code(source, "com/example/Boundary.java").build()) {
+            var smells = project.getAnalyzer()
+                    .findLongMethodAndGodObjectSmells(project.file("com/example/Boundary.java"), weights);
+
+            assertTrue(smells.isEmpty(), smells.toString());
+        }
+    }
+
+    @Test
+    void customWeightsCanLowerAndRaiseThresholds() {
+        String source =
+                """
+                package com.example;
+                public class Tunable {
+                    public void smallerWorkflow() {
+                %s
+                    }
+                }
+                """
+                        .formatted(statements(12));
+        var permissive = new IAnalyzer.MaintainabilitySizeSmellWeights(10, 999, 999, 999, 999, 999, 999);
+        var strict = new IAnalyzer.MaintainabilitySizeSmellWeights(200, 999, 999, 999, 999, 999, 999);
+
+        try (var project =
+                InlineCoreProject.code(source, "com/example/Tunable.java").build()) {
+            var file = project.file("com/example/Tunable.java");
+
+            assertFalse(project.getAnalyzer()
+                    .findLongMethodAndGodObjectSmells(file, permissive)
+                    .isEmpty());
+            assertTrue(project.getAnalyzer()
+                    .findLongMethodAndGodObjectSmells(file, strict)
+                    .isEmpty());
+        }
+    }
+
     private static String statements(int count) {
         return IntStream.range(0, count)
                 .mapToObj(i -> "        int value" + i + " = " + i + ";")
