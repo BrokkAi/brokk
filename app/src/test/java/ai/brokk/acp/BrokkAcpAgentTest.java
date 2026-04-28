@@ -505,6 +505,197 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void extractResourceRelPathsHandlesFileUriResourceLink() {
+        var fileUnderRoot = projectRoot.resolve("src/main/java/Foo.java");
+        var blocks = List.<AcpSchema.ContentBlock>of(
+                new AcpSchema.TextContent("summarize @file:Foo.java"),
+                new AcpSchema.ResourceLink(
+                        "resource_link",
+                        "Foo.java",
+                        fileUnderRoot.toUri().toString(),
+                        null,
+                        "manual",
+                        null,
+                        null,
+                        null,
+                        null));
+
+        var paths = BrokkAcpAgent.extractResourceRelPaths(blocks, projectRoot);
+
+        assertEquals(List.of("src/main/java/Foo.java"), paths);
+    }
+
+    @Test
+    void extractResourceRelPathsHandlesEmbeddedTextResource() {
+        var fileUnderRoot = projectRoot.resolve("README.md");
+        var embedded = new AcpSchema.Resource(
+                "resource",
+                new AcpSchema.TextResourceContents("# Hello", fileUnderRoot.toUri().toString(), "text/markdown"),
+                null,
+                null);
+
+        var paths = BrokkAcpAgent.extractResourceRelPaths(List.of(embedded), projectRoot);
+
+        assertEquals(List.of("README.md"), paths);
+    }
+
+    @Test
+    void extractResourceRelPathsRejectsUriOutsideRoot() {
+        var outside = projectRoot.resolveSibling("other-repo").resolve("Secret.java");
+        var blocks = List.<AcpSchema.ContentBlock>of(new AcpSchema.ResourceLink(
+                "resource_link", "Secret.java", outside.toUri().toString(), null, null, null, null, null, null));
+
+        var paths = BrokkAcpAgent.extractResourceRelPaths(blocks, projectRoot);
+
+        assertTrue(paths.isEmpty(), "URI outside root must not produce a relative path");
+    }
+
+    @Test
+    void extractResourceRelPathsDedupesAndIgnoresNonResourceBlocks() {
+        var f = projectRoot.resolve("a/b.java");
+        var blocks = List.<AcpSchema.ContentBlock>of(
+                new AcpSchema.TextContent("ignore me"),
+                new AcpSchema.ResourceLink(
+                        "resource_link", "b.java", f.toUri().toString(), null, null, null, null, null, null),
+                new AcpSchema.ResourceLink(
+                        "resource_link",
+                        "b.java again",
+                        f.toUri().toString(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null));
+
+        var paths = BrokkAcpAgent.extractResourceRelPaths(blocks, projectRoot);
+
+        assertEquals(List.of("a/b.java"), paths);
+    }
+
+    @Test
+    void extractResourceRelPathsAcceptsBareRelativeUri() {
+        var blocks = List.<AcpSchema.ContentBlock>of(new AcpSchema.ResourceLink(
+                "resource_link", "x", "src/X.java", null, null, null, null, null, null));
+
+        var paths = BrokkAcpAgent.extractResourceRelPaths(blocks, projectRoot);
+
+        assertEquals(List.of("src/X.java"), paths);
+    }
+
+    @Test
+    void extractResourceRelPathsReturnsEmptyForNullOrTextOnly() {
+        assertTrue(BrokkAcpAgent.extractResourceRelPaths(null, projectRoot).isEmpty());
+        assertTrue(BrokkAcpAgent.extractResourceRelPaths(List.of(), projectRoot).isEmpty());
+        assertTrue(BrokkAcpAgent.extractResourceRelPaths(
+                        List.of(new AcpSchema.TextContent("hi")), projectRoot)
+                .isEmpty());
+    }
+
+    @Test
+    void inboundActivityTrackerUpdatesTimestampOnRead() throws Exception {
+        var bytes = "hello\nworld\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        var tracker = new AcpServerMain.InboundActivityTracker(new java.io.ByteArrayInputStream(bytes));
+        long initial = tracker.lastReadAtMillis();
+        Thread.sleep(5);
+
+        // Single-byte read advances the timestamp.
+        int b = tracker.read();
+        assertNotEquals(-1, b);
+        long afterSingle = tracker.lastReadAtMillis();
+        assertTrue(afterSingle >= initial, "single-byte read must advance timestamp");
+
+        // Bulk read advances the timestamp again.
+        Thread.sleep(5);
+        var buf = new byte[64];
+        int n = tracker.read(buf, 0, buf.length);
+        assertTrue(n > 0);
+        long afterBulk = tracker.lastReadAtMillis();
+        assertTrue(afterBulk >= afterSingle, "bulk read must advance timestamp");
+
+        // EOF (read returning -1) must NOT advance the timestamp.
+        long beforeEof = tracker.lastReadAtMillis();
+        Thread.sleep(5);
+        assertEquals(-1, tracker.read());
+        assertEquals(beforeEof, tracker.lastReadAtMillis(), "EOF must not advance timestamp");
+    }
+
+    @Test
+    void permissionTimeoutSurfacesAsDenialAndUserMessage() {
+        var transport = new FakeTransport();
+        // 200ms SDK timeout → AcpRequestContext.requestPermission's onErrorResume(TimeoutException)
+        // catches the SDK-emitted TimeoutException and converts it to PermissionCancelled.
+        var shortSession = new AcpAgentSession(Duration.ofMillis(200), transport, Map.of(), Map.of());
+        var ctx = new AcpRequestContext(shortSession, "session-timeout", null, agent);
+        try {
+            // Intentionally do NOT register a respondTo handler — the request will dangle and
+            // the SDK's per-request timeout fires.
+            int outstandingBefore = AcpRequestContext.OUTSTANDING_PERMISSION_REQUESTS.get();
+
+            boolean approved = ctx.askPermission("Allow destructive: doRm?", "doRm");
+
+            assertFalse(approved, "timeout must surface as denial");
+            assertEquals(
+                    outstandingBefore,
+                    AcpRequestContext.OUTSTANDING_PERMISSION_REQUESTS.get(),
+                    "OUTSTANDING_PERMISSION_REQUESTS must decrement even on timeout");
+
+            var notifications = transport.sentMessages.stream()
+                    .filter(AcpSchema.JSONRPCNotification.class::isInstance)
+                    .map(AcpSchema.JSONRPCNotification.class::cast)
+                    .filter(n -> AcpSchema.METHOD_SESSION_UPDATE.equals(n.method()))
+                    .map(n -> transport.mapper.convertValue(n.params(), new TypeRef<AcpSchema.SessionNotification>() {}))
+                    .toList();
+            assertTrue(
+                    notifications.stream().anyMatch(n -> n.update() instanceof AcpSchema.AgentMessageChunk a
+                            && a.content() instanceof AcpSchema.TextContent t
+                            && t.text().toLowerCase().contains("timed out")),
+                    "user must see a 'timed out' chat message on permission timeout");
+        } finally {
+            shortSession.close();
+        }
+    }
+
+    /**
+     * Replays the exact JSON-RPC response shape captured from IntelliJ when the user clicks
+     * "Allow once" on a destructive-tool permission dialog (acp-logs zip 2026-04-28). Includes
+     * the IDE-side {@code "type"} envelope discriminator and the duplicate-name {@code outcome}
+     * discriminator on {@code PermissionSelected}. Verifies that:
+     * <ul>
+     *   <li>{@code AcpSchema.deserializeJsonRpcMessage} routes it as a {@code JSONRPCResponse}
+     *       (the leading {@code type} field must not derail classification),</li>
+     *   <li>{@code unmarshalFrom} produces a {@code PermissionSelected} with the correct
+     *       {@code optionId}, and</li>
+     *   <li>the canonical {@code askPermission} return path treats {@code allow_once} as approval.</li>
+     * </ul>
+     * If this test fails, the "approval click does nothing" bug is in agent-side parsing; if it
+     * passes, the bug is upstream of the parser (response not actually reaching the agent).
+     */
+    @Test
+    void permissionResponseFromIntellijDeserializesAndApproves() throws Exception {
+        var wireLine =
+                "{\"type\":\"com.agentclientprotocol.rpc.JsonRpcResponse\","
+                        + "\"id\":\"1b8d5f1d-0\","
+                        + "\"result\":{\"outcome\":{\"outcome\":\"selected\",\"optionId\":\"allow_once\"}},"
+                        + "\"jsonrpc\":\"2.0\"}";
+
+        var mapper = McpJsonDefaults.getMapper();
+        var message = AcpSchema.deserializeJsonRpcMessage(mapper, wireLine);
+
+        var response = assertInstanceOf(AcpSchema.JSONRPCResponse.class, message);
+        assertEquals("1b8d5f1d-0", response.id());
+        assertNull(response.error());
+
+        var permResponse =
+                mapper.convertValue(response.result(), new TypeRef<AcpSchema.RequestPermissionResponse>() {});
+        var selected = assertInstanceOf(AcpSchema.PermissionSelected.class, permResponse.outcome());
+        assertEquals("allow_once", selected.optionId());
+
+        // askPermission returns true for allow_once / allow_always.
+        assertTrue("allow_once".equals(selected.optionId()) || "allow_always".equals(selected.optionId()));
+    }
+
+    @Test
     void runtimeRoutesNewSessionMethods() {
         var transport = new FakeTransport();
         try (var runtime = new BrokkAcpRuntime(transport, agent)) {
