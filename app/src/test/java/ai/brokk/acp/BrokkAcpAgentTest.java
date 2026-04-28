@@ -741,8 +741,7 @@ class BrokkAcpAgentTest {
     void gateBypassAllowsEverything() {
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
-                PermissionGate.decide(
-                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EDIT, "editFile", false));
+                PermissionGate.decide(PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EDIT, "editFile", false));
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
                 PermissionGate.decide(PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EXECUTE, "shell", false));
@@ -880,8 +879,8 @@ class BrokkAcpAgentTest {
         var captured = new ArrayList<AcpSchema.SessionUpdate>();
         agent.setSessionUpdateSender((sessionId, update) -> captured.add(update));
 
-        var resp = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
-                created.sessionId(), "behavior_mode", "ASK", null));
+        var resp = agent.setSessionConfigOption(
+                new AcpProtocol.SetSessionConfigOptionRequest(created.sessionId(), "behavior_mode", "ASK", null));
 
         // Existing setMode logic must have stored the new mode and emitted current_mode_update.
         var modeUpdates = captured.stream()

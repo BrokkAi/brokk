@@ -520,8 +520,7 @@ public class BrokkAcpAgent {
             reasoningBySession.put(
                     forkSessionId, reasoningBySession.getOrDefault(request.sessionId(), defaultReasoningLevel));
             permissionModeBySession.put(
-                    forkSessionId,
-                    permissionModeBySession.getOrDefault(request.sessionId(), PermissionMode.DEFAULT));
+                    forkSessionId, permissionModeBySession.getOrDefault(request.sessionId(), PermissionMode.DEFAULT));
             // Inherit MCP servers from parent unless the fork request supplies a fresh list.
             if (request.mcpServers() != null) {
                 applySessionMcpServers(forkSessionId, request.mcpServers());
@@ -677,9 +676,8 @@ public class BrokkAcpAgent {
             case "permission_mode" -> {
                 var parsed = PermissionMode.parse(value);
                 if (parsed.isEmpty()) {
-                    throw new IllegalArgumentException(
-                            "Unknown permission mode '" + value
-                                    + "'. Supported: default, acceptEdits, readOnly, bypassPermissions");
+                    throw new IllegalArgumentException("Unknown permission mode '" + value
+                            + "'. Supported: default, acceptEdits, readOnly, bypassPermissions");
                 }
                 permissionModeBySession.put(sessionId, parsed.get());
             }
@@ -688,15 +686,16 @@ public class BrokkAcpAgent {
                 if (!validMode) {
                     throw new IllegalArgumentException("Unknown behavior mode '" + value
                             + "'. Supported: "
-                            + AVAILABLE_MODES.stream().map(AcpSchema.SessionMode::id).toList());
+                            + AVAILABLE_MODES.stream()
+                                    .map(AcpSchema.SessionMode::id)
+                                    .toList());
                 }
                 setMode(new AcpSchema.SetSessionModeRequest(sessionId, value));
             }
             case "model_selection" -> setModel(new AcpSchema.SetSessionModelRequest(sessionId, value));
             default ->
-                throw new IllegalArgumentException(
-                        "Unknown configId '" + configId
-                                + "'. Supported: permission_mode, behavior_mode, model_selection");
+                throw new IllegalArgumentException("Unknown configId '" + configId
+                        + "'. Supported: permission_mode, behavior_mode, model_selection");
         }
         return new AcpProtocol.SetSessionConfigOptionResponse(buildConfigOptions(sessionId), null);
     }
@@ -727,8 +726,8 @@ public class BrokkAcpAgent {
         availableModels.keySet().stream().sorted().forEach(name -> {
             options.add(new AcpProtocol.SessionConfigSelectOption(name, name, null));
             for (var level : List.of("low", "medium", "high", "disable")) {
-                options.add(new AcpProtocol.SessionConfigSelectOption(
-                        name + "/" + level, name + " (" + level + ")", null));
+                options.add(
+                        new AcpProtocol.SessionConfigSelectOption(name + "/" + level, name + " (" + level + ")", null));
             }
         });
         if (options.isEmpty()) {
