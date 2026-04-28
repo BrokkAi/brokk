@@ -530,7 +530,8 @@ class BrokkAcpAgentTest {
         var fileUnderRoot = projectRoot.resolve("README.md");
         var embedded = new AcpSchema.Resource(
                 "resource",
-                new AcpSchema.TextResourceContents("# Hello", fileUnderRoot.toUri().toString(), "text/markdown"),
+                new AcpSchema.TextResourceContents(
+                        "# Hello", fileUnderRoot.toUri().toString(), "text/markdown"),
                 null,
                 null);
 
@@ -558,15 +559,7 @@ class BrokkAcpAgentTest {
                 new AcpSchema.ResourceLink(
                         "resource_link", "b.java", f.toUri().toString(), null, null, null, null, null, null),
                 new AcpSchema.ResourceLink(
-                        "resource_link",
-                        "b.java again",
-                        f.toUri().toString(),
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null));
+                        "resource_link", "b.java again", f.toUri().toString(), null, null, null, null, null, null));
 
         var paths = BrokkAcpAgent.extractResourceRelPaths(blocks, projectRoot);
 
@@ -575,8 +568,8 @@ class BrokkAcpAgentTest {
 
     @Test
     void extractResourceRelPathsAcceptsBareRelativeUri() {
-        var blocks = List.<AcpSchema.ContentBlock>of(new AcpSchema.ResourceLink(
-                "resource_link", "x", "src/X.java", null, null, null, null, null, null));
+        var blocks = List.<AcpSchema.ContentBlock>of(
+                new AcpSchema.ResourceLink("resource_link", "x", "src/X.java", null, null, null, null, null, null));
 
         var paths = BrokkAcpAgent.extractResourceRelPaths(blocks, projectRoot);
 
@@ -587,8 +580,7 @@ class BrokkAcpAgentTest {
     void extractResourceRelPathsReturnsEmptyForNullOrTextOnly() {
         assertTrue(BrokkAcpAgent.extractResourceRelPaths(null, projectRoot).isEmpty());
         assertTrue(BrokkAcpAgent.extractResourceRelPaths(List.of(), projectRoot).isEmpty());
-        assertTrue(BrokkAcpAgent.extractResourceRelPaths(
-                        List.of(new AcpSchema.TextContent("hi")), projectRoot)
+        assertTrue(BrokkAcpAgent.extractResourceRelPaths(List.of(new AcpSchema.TextContent("hi")), projectRoot)
                 .isEmpty());
     }
 
@@ -644,12 +636,14 @@ class BrokkAcpAgentTest {
                     .filter(AcpSchema.JSONRPCNotification.class::isInstance)
                     .map(AcpSchema.JSONRPCNotification.class::cast)
                     .filter(n -> AcpSchema.METHOD_SESSION_UPDATE.equals(n.method()))
-                    .map(n -> transport.mapper.convertValue(n.params(), new TypeRef<AcpSchema.SessionNotification>() {}))
+                    .map(n ->
+                            transport.mapper.convertValue(n.params(), new TypeRef<AcpSchema.SessionNotification>() {}))
                     .toList();
             assertTrue(
-                    notifications.stream().anyMatch(n -> n.update() instanceof AcpSchema.AgentMessageChunk a
-                            && a.content() instanceof AcpSchema.TextContent t
-                            && t.text().toLowerCase().contains("timed out")),
+                    notifications.stream()
+                            .anyMatch(n -> n.update() instanceof AcpSchema.AgentMessageChunk a
+                                    && a.content() instanceof AcpSchema.TextContent t
+                                    && t.text().toLowerCase().contains("timed out")),
                     "user must see a 'timed out' chat message on permission timeout");
         } finally {
             shortSession.close();
@@ -673,11 +667,10 @@ class BrokkAcpAgentTest {
      */
     @Test
     void permissionResponseFromIntellijDeserializesAndApproves() throws Exception {
-        var wireLine =
-                "{\"type\":\"com.agentclientprotocol.rpc.JsonRpcResponse\","
-                        + "\"id\":\"1b8d5f1d-0\","
-                        + "\"result\":{\"outcome\":{\"outcome\":\"selected\",\"optionId\":\"allow_once\"}},"
-                        + "\"jsonrpc\":\"2.0\"}";
+        var wireLine = "{\"type\":\"com.agentclientprotocol.rpc.JsonRpcResponse\","
+                + "\"id\":\"1b8d5f1d-0\","
+                + "\"result\":{\"outcome\":{\"outcome\":\"selected\",\"optionId\":\"allow_once\"}},"
+                + "\"jsonrpc\":\"2.0\"}";
 
         var mapper = McpJsonDefaults.getMapper();
         var message = AcpSchema.deserializeJsonRpcMessage(mapper, wireLine);

@@ -93,8 +93,7 @@ final class BrokkAcpRuntime implements AutoCloseable {
      */
     private Mono<AcpSchema.PromptResponse> runPromptOnWorker(AcpSchema.PromptRequest request) {
         var context = new AcpRequestContext(session, request.sessionId(), clientCapabilities.get(), agent);
-        return Mono.fromCallable(() -> agent.prompt(request, context))
-                .subscribeOn(Schedulers.boundedElastic());
+        return Mono.fromCallable(() -> agent.prompt(request, context)).subscribeOn(Schedulers.boundedElastic());
     }
 
     private Map<String, AcpAgentSession.NotificationHandler> notificationHandlers() {
