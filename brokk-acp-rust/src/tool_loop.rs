@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::llm_client::{ChatMessage, LlmBackend, LlmResponse, ToolDefinition};
 use crate::session::{PermissionMode, SessionStore};
+use crate::tools::sandbox::SandboxPolicy;
 use crate::tools::{ToolRegistry, ToolStatus};
 
 const MAX_TOOL_RESULT_BYTES: usize = 50_000;
@@ -240,13 +241,31 @@ pub(crate) async fn run(
                             let headline = ToolRegistry::headline(&tool_name);
                             on_tool_event(&format!("_{headline}..._\n"));
 
+                            // Resolve the sandbox tier from the session's permission mode.
+                            // If the session disappeared between gate-accept and exec
+                            // (race), fail safe to ReadOnly: the gate already cleared
+                            // the call but we no longer trust the mode lookup.
+                            let policy = match sessions.permission_mode(&session_id).await {
+                                Some(mode) => SandboxPolicy::from_permission_mode(mode),
+                                None => {
+                                    tracing::warn!(
+                                        session_id,
+                                        tool_name,
+                                        "session vanished between gate-accept and exec; falling back to ReadOnly sandbox"
+                                    );
+                                    SandboxPolicy::ReadOnly
+                                }
+                            };
+
                             tracing::info!(
-                                "executing tool {} with args: {}",
+                                "executing tool {} with args: {} (sandbox={:?})",
                                 tool_name,
-                                call.function.arguments
+                                call.function.arguments,
+                                policy
                             );
 
-                            execute_tool(registry, &tool_name, &call.function.arguments).await
+                            execute_tool(registry, &tool_name, &call.function.arguments, policy)
+                                .await
                         }
                     };
 
@@ -436,10 +455,15 @@ async fn request_user_permission(
 }
 
 /// Run the tool against the registry and format the result for the LLM.
-async fn execute_tool(registry: &ToolRegistry, tool_name: &str, raw_args: &str) -> String {
+async fn execute_tool(
+    registry: &ToolRegistry,
+    tool_name: &str,
+    raw_args: &str,
+    policy: SandboxPolicy,
+) -> String {
     match serde_json::from_str::<serde_json::Value>(raw_args) {
         Ok(args) => {
-            let result = registry.execute(tool_name, args).await;
+            let result = registry.execute(tool_name, args, policy).await;
             let status_prefix = match result.status {
                 ToolStatus::Success => "",
                 ToolStatus::RequestError => "Error: ",
