@@ -7,6 +7,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -84,6 +85,38 @@ class CodeQualityToolsCognitiveComplexityTest {
         assertFalse(report.contains("$anon"), report);
         assertTrue(analyzer.batchCalled, "Expected file-level batch API to be used");
         assertFalse(analyzer.singleMethodCalled, "Expected per-method API not to be used by the tool");
+    }
+
+    @Test
+    void computeCognitiveComplexityReportsJavaScriptFindings() throws IOException {
+        try (var project = InlineTestProjectCreator.code(
+                        """
+                function complex(a, b, c) {
+                    if (a) {
+                        for (const item in b) {
+                            if (item.ready && c) {
+                                return item;
+                            }
+                        }
+                    }
+                    return null;
+                }
+
+                function simple() {
+                    return 1;
+                }
+                """,
+                        "src/sample.js")
+                .build()) {
+            var contextManager = new TestContextManager(project, new TestConsoleIO(), Set.of(), project.getAnalyzer());
+            var tools = new CodeQualityTools(contextManager);
+
+            String report = tools.computeCognitiveComplexity(List.of("src/sample.js"), 4);
+
+            assertTrue(report.contains("Cognitive complexity (threshold: 4):"), report);
+            assertTrue(report.contains("- src.complex: 7"), report);
+            assertFalse(report.contains("src.simple"), report);
+        }
     }
 
     private static final class BatchOnlyAnalyzer extends TestAnalyzer {
