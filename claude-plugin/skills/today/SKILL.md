@@ -193,6 +193,10 @@ PRs to address
 Tag each entry internally with its kind (`issue` / `pr-review` /
 `pr-address`) so Step 5 can label it correctly.
 
+If all three queries return zero items, tell the user nothing is on
+their plate today and stop. If only some kinds are empty, omit the
+empty group headers and continue with the items that did come back.
+
 Then run the **mixed post-list menu** below.
 
 ### Issue post-list menu
@@ -285,9 +289,10 @@ pass resolved, strictly-numeric (`^[0-9]+$`) PR numbers to Step 4,
 preserving each one's kind tag (`pr-review` or `pr-address`).
 
 When the user picks "Navigate to a PR", ask for a single PR number
-(or list position, resolved against the displayed list). Validate it
-is strictly numeric. Then ask which navigation action. If the
-`AskUserQuestion` tool is available, call it with these options:
+(or list position, resolved against the displayed list). Validate the
+resolved value matches `^[0-9]+$` and reject anything else. Then ask
+which navigation action. If the `AskUserQuestion` tool is available,
+call it with these options:
 
 | label | description |
 |---|---|
