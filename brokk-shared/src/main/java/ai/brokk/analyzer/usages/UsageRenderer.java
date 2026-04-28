@@ -4,6 +4,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.util.PathNormalizer;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -43,8 +44,7 @@ public final class UsageRenderer {
                 .toList();
 
         var callSites = hits.stream()
-                .map(hit -> "- `%s` (%s:%d)"
-                        .formatted(hit.enclosing().fqName(), hit.file().getRelPath(), hit.line()))
+                .map(hit -> "- `%s` (%s:%d)".formatted(hit.enclosing().fqName(), displayPath(hit.file()), hit.line()))
                 .collect(Collectors.joining("\n"));
 
         List<AnalyzerUtil.CodeWithSource> sources =
@@ -70,5 +70,9 @@ public final class UsageRenderer {
                 .trim();
 
         return new Output(text, files, true, hits.size());
+    }
+
+    private static String displayPath(ProjectFile file) {
+        return PathNormalizer.canonicalizeForProject(file.getRelPath().toString(), file.getRoot());
     }
 }
