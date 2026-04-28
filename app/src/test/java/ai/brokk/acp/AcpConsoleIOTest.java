@@ -1,8 +1,11 @@
 package ai.brokk.acp;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.tools.ToolExecutionResult;
 import com.agentclientprotocol.sdk.agent.Command;
@@ -10,6 +13,7 @@ import com.agentclientprotocol.sdk.agent.CommandResult;
 import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -114,8 +118,323 @@ class AcpConsoleIOTest {
         assertTrue(ctx.updates.isEmpty());
     }
 
+    @Test
+    void titleIsHumanizedForUnknownTool() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+        var request = ToolExecutionRequest.builder()
+                .id("t1")
+                .name("getFileContents")
+                .arguments("{\"filename\":\"app/Foo.java\"}")
+                .build();
+
+        io.beforeToolCall(request, false);
+
+        var call = (AcpSchema.ToolCall) ctx.updates.getFirst();
+        assertEquals("Read app/Foo.java", call.title());
+    }
+
+    @Test
+    void titleUsesArgsForSearchTool() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+        var request = ToolExecutionRequest.builder()
+                .id("s1")
+                .name("findFilesContaining")
+                .arguments("{\"pattern\":\"parseRequest\"}")
+                .build();
+
+        io.beforeToolCall(request, false);
+
+        var call = (AcpSchema.ToolCall) ctx.updates.getFirst();
+        assertEquals("Search files for 'parseRequest'", call.title());
+    }
+
+    @Test
+    void titleHumanizesNovelToolName() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+        var request = ToolExecutionRequest.builder()
+                .id("n1")
+                .name("computeCyclomaticComplexity")
+                .arguments("{}")
+                .build();
+
+        io.beforeToolCall(request, false);
+
+        var call = (AcpSchema.ToolCall) ctx.updates.getFirst();
+        assertEquals("Compute cyclomatic complexity", call.title());
+    }
+
+    @Test
+    void terminalAnswerToolEmitsEmptyContentAndCleanTitle() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+        var request = ToolExecutionRequest.builder()
+                .id("a1")
+                .name("answer")
+                .arguments("{}")
+                .build();
+
+        io.beforeToolCall(request, false);
+        io.afterToolOutput(ToolExecutionResult.success(request, "the long final answer text"));
+
+        var completed = ctx.updates.stream()
+                .filter(AcpSchema.ToolCallUpdateNotification.class::isInstance)
+                .map(AcpSchema.ToolCallUpdateNotification.class::cast)
+                .filter(u -> u.status() == AcpSchema.ToolCallStatus.COMPLETED)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("Final answer", completed.title());
+        assertTrue(completed.content().isEmpty(), "terminal-answer tools must not duplicate the answer in content");
+        assertNull(completed.rawOutput(), "rawOutput must be null to avoid double-rendering");
+    }
+
+    @Test
+    void mcpShapedResultIsUnwrapped() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+        var request = ToolExecutionRequest.builder()
+                .id("m1")
+                .name("callMcpTool")
+                .arguments("{\"toolName\":\"foo\"}")
+                .build();
+        var mcpJson = "{\"content\":[{\"type\":\"text\",\"text\":\"hello from mcp\"}]}";
+
+        io.beforeToolCall(request, false);
+        io.afterToolOutput(ToolExecutionResult.success(request, mcpJson));
+
+        var completed = ctx.updates.stream()
+                .filter(AcpSchema.ToolCallUpdateNotification.class::isInstance)
+                .map(AcpSchema.ToolCallUpdateNotification.class::cast)
+                .filter(u -> u.status() == AcpSchema.ToolCallStatus.COMPLETED)
+                .findFirst()
+                .orElseThrow();
+        var block = (AcpSchema.ToolCallContentBlock) completed.content().getFirst();
+        var text = ((AcpSchema.TextContent) block.content()).text();
+        assertEquals("hello from mcp", text);
+    }
+
+    @Test
+    void searchResultArrayRendersAsBulletList() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+        var request = ToolExecutionRequest.builder()
+                .id("se1")
+                .name("findFilenames")
+                .arguments("{\"pattern\":\"*.java\"}")
+                .build();
+        var jsonArray = "[\"a/Foo.java\",\"b/Bar.java\"]";
+
+        io.beforeToolCall(request, false);
+        io.afterToolOutput(ToolExecutionResult.success(request, jsonArray));
+
+        var completed = ctx.updates.stream()
+                .filter(AcpSchema.ToolCallUpdateNotification.class::isInstance)
+                .map(AcpSchema.ToolCallUpdateNotification.class::cast)
+                .filter(u -> u.status() == AcpSchema.ToolCallStatus.COMPLETED)
+                .findFirst()
+                .orElseThrow();
+        var block = (AcpSchema.ToolCallContentBlock) completed.content().getFirst();
+        var text = ((AcpSchema.TextContent) block.content()).text();
+        assertTrue(text.contains("- a/Foo.java"), "expected bullet for first hit, got: " + text);
+        assertTrue(text.contains("- b/Bar.java"), "expected bullet for second hit, got: " + text);
+        assertFalse(text.contains("[\""), "raw JSON brackets must not survive rendering");
+    }
+
+    @Test
+    void genericJsonResultRendersAsFencedCodeBlock() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+        var request = ToolExecutionRequest.builder()
+                .id("g1")
+                .name("createOrReplaceTaskList")
+                .arguments("{}")
+                .build();
+        var jsonObj = "{\"task\":\"do thing\",\"done\":false}";
+
+        io.beforeToolCall(request, false);
+        io.afterToolOutput(ToolExecutionResult.success(request, jsonObj));
+
+        var completed = ctx.updates.stream()
+                .filter(AcpSchema.ToolCallUpdateNotification.class::isInstance)
+                .map(AcpSchema.ToolCallUpdateNotification.class::cast)
+                .filter(u -> u.status() == AcpSchema.ToolCallStatus.COMPLETED)
+                .findFirst()
+                .orElseThrow();
+        var block = (AcpSchema.ToolCallContentBlock) completed.content().getFirst();
+        var text = ((AcpSchema.TextContent) block.content()).text();
+        assertTrue(text.startsWith("```json"), "expected fenced code block, got: " + text);
+        assertTrue(text.endsWith("```"), "expected closing fence, got: " + text);
+    }
+
+    @Test
+    void rawOutputIsNullOnCompletedUpdate() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+        var request = ToolExecutionRequest.builder()
+                .id("r1")
+                .name("getFileContents")
+                .arguments("{\"filename\":\"foo\"}")
+                .build();
+
+        io.beforeToolCall(request, false);
+        io.afterToolOutput(ToolExecutionResult.success(request, "file contents"));
+
+        var completed = ctx.updates.stream()
+                .filter(AcpSchema.ToolCallUpdateNotification.class::isInstance)
+                .map(AcpSchema.ToolCallUpdateNotification.class::cast)
+                .filter(u -> u.status() == AcpSchema.ToolCallStatus.COMPLETED)
+                .findFirst()
+                .orElseThrow();
+        assertNull(completed.rawOutput(), "rawOutput should not duplicate content");
+    }
+
+    @Test
+    void customLlmOutputEmitsSyntheticToolCallNotChat() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        io.llmOutput("**Code Agent** engaged:\nedit Foo.java", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
+
+        assertTrue(ctx.messages.isEmpty(), "CUSTOM banners must not flow through agent_message_chunk");
+        var call = ctx.updates.stream()
+                .filter(AcpSchema.ToolCall.class::isInstance)
+                .map(AcpSchema.ToolCall.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("Code Agent", call.title());
+        assertEquals(AcpSchema.ToolKind.THINK, call.kind());
+        assertEquals(AcpSchema.ToolCallStatus.COMPLETED, call.status());
+        var block = (AcpSchema.ToolCallContentBlock) call.content().getFirst();
+        var text = ((AcpSchema.TextContent) block.content()).text();
+        assertTrue(text.contains("edit Foo.java"), "body should carry the banner content");
+    }
+
+    @Test
+    void showNotificationEmitsSyntheticToolCallNotChat() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        io.showNotification(ai.brokk.IConsoleIO.NotificationRole.INFO, "build started");
+
+        assertTrue(ctx.messages.isEmpty(), "notifications must not flow through agent_message_chunk");
+        var call = ctx.updates.stream()
+                .filter(AcpSchema.ToolCall.class::isInstance)
+                .map(AcpSchema.ToolCall.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("Notification", call.title());
+        assertEquals(AcpSchema.ToolCallStatus.COMPLETED, call.status());
+    }
+
+    @Test
+    void aiTokensStillFlowAsChat() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        io.llmOutput("hello world", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+
+        assertEquals(List.of("hello world"), ctx.messages);
+        assertTrue(ctx.updates.isEmpty(), "AI tokens must still go through agent_message_chunk");
+    }
+
+    @Test
+    void aiBoldBannerWrapsAsSyntheticToolCall() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        io.llmOutput(
+                "\n**Brokk Context Engine** analyzing repository context…\n",
+                ChatMessageType.AI,
+                LlmOutputMeta.newMessage());
+
+        assertTrue(ctx.messages.isEmpty(), "Bold-banner AI emissions must not flow to chat");
+        var call = ctx.updates.stream()
+                .filter(AcpSchema.ToolCall.class::isInstance)
+                .map(AcpSchema.ToolCall.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("Brokk Context Engine", call.title());
+        assertEquals(AcpSchema.ToolKind.THINK, call.kind());
+    }
+
+    @Test
+    void aiBacktickBannerWithDefaultMetaStillWraps() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        // LutzAgent.emitContextAddedExplanation emits the YAML-bodied banner with
+        // LlmOutputMeta.DEFAULT (not newMessage), so banner detection must be shape-driven,
+        // not meta-driven. The full `Header` + body pattern marks this as a banner regardless
+        // of the newMessage flag.
+        var explanation =
+                "`Adding context to workspace`\n```yaml\nfragmentCount: 2\nfragments:\n  - foo\n  - bar\n```\n";
+        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+
+        assertTrue(ctx.messages.isEmpty(), "shape-detected banners must not flow to chat regardless of meta");
+        var call = ctx.updates.stream()
+                .filter(AcpSchema.ToolCall.class::isInstance)
+                .map(AcpSchema.ToolCall.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("Adding context to workspace", call.title());
+    }
+
+    @Test
+    void aiPartialBoldTokenStreamsAsChat() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        // A streaming token that is just an opening `**` (no closing marker, no body) must NOT
+        // trip banner detection — it's mid-stream LLM output that needs to keep flowing as chat.
+        // A complete `**Bold**` with no body after also stays as chat (mid-sentence emphasis).
+        io.llmOutput("**", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+        io.llmOutput("**Bold**", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+
+        assertEquals(List.of("**", "**Bold**"), ctx.messages);
+        assertTrue(ctx.updates.isEmpty());
+    }
+
+    @Test
+    void aiBacktickBannerWithNewMessageWrapsAsSyntheticToolCall() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        var explanation =
+                "`Adding context to workspace`\n```yaml\nfragmentCount: 2\nfragments:\n  - foo\n  - bar\n```\n";
+        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
+
+        assertTrue(ctx.messages.isEmpty(), "backtick banners with newMessage must be wrapped");
+        var call = ctx.updates.stream()
+                .filter(AcpSchema.ToolCall.class::isInstance)
+                .map(AcpSchema.ToolCall.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("Adding context to workspace", call.title());
+        var block = (AcpSchema.ToolCallContentBlock) call.content().getFirst();
+        var text = ((AcpSchema.TextContent) block.content()).text();
+        assertTrue(text.contains("fragmentCount"), "yaml body should be carried into content");
+    }
+
+    @Test
+    void aiAnswerHeaderStillFlowsAsChat() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        // Final-answer text from terminal-answer tools is `# Answer\n\n…` — it does NOT match
+        // the banner pattern, so it must continue flowing through chat.
+        var answer = "# Answer\n\nThe project produces output via the GUI panels.";
+        io.llmOutput(answer, ChatMessageType.AI, LlmOutputMeta.newMessage());
+
+        assertEquals(List.of(answer), ctx.messages);
+        assertTrue(ctx.updates.isEmpty(), "Final-answer text must stay as chat, not be wrapped");
+    }
+
     private static final class RecordingPromptContext implements AcpPromptContext {
         final List<AcpSchema.SessionUpdate> updates = new ArrayList<>();
+        final List<String> messages = new ArrayList<>();
+        final List<String> thoughts = new ArrayList<>();
 
         @Override
         public void sendUpdate(String sessionId, AcpSchema.SessionUpdate update) {
@@ -133,10 +452,14 @@ class AcpConsoleIOTest {
         }
 
         @Override
-        public void sendMessage(String text) {}
+        public void sendMessage(String text) {
+            messages.add(text);
+        }
 
         @Override
-        public void sendThought(String text) {}
+        public void sendThought(String text) {
+            thoughts.add(text);
+        }
 
         @Override
         public AcpSchema.ReadTextFileResponse readTextFile(AcpSchema.ReadTextFileRequest request) {
