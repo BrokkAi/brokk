@@ -278,15 +278,13 @@ def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["vendor"] == "OpenAI"
 
 
-def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
+def test_main_acp_routes_to_native_launcher(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {}
-    fake_acp_module = ModuleType("brokk_code.acp_server")
 
-    async def fake_run_acp_server(**kwargs: Any) -> None:
+    def fake_run_native_acp_server(**kwargs: Any) -> None:
         captured["kwargs"] = kwargs
 
-    fake_acp_module.run_acp_server = fake_run_acp_server
-    monkeypatch.setitem(sys.modules, "brokk_code.acp_server", fake_acp_module)
+    monkeypatch.setattr(main_module, "run_native_acp_server", fake_run_native_acp_server)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -304,8 +302,28 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
     main_module.main()
 
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
-    assert captured["kwargs"]["executor_snapshot"] is False
-    assert captured["kwargs"]["vendor"] == "Gemini"
+    assert "--workspace-dir" in captured["kwargs"]["passthrough_args"]
+    assert "--vendor" in captured["kwargs"]["passthrough_args"]
+    assert "Gemini" in captured["kwargs"]["passthrough_args"]
+
+
+def test_main_acp_native_alias_warns_and_routes(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_run_native_acp_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(main_module, "run_native_acp_server", fake_run_native_acp_server)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk", "acp-native", "--workspace", str(tmp_path)],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert "deprecated" in capsys.readouterr().err.lower()
 
 
 def test_main_mcp_routes_to_launcher(monkeypatch, tmp_path) -> None:
@@ -419,15 +437,7 @@ def test_main_exec_resolves_workspace_to_repo_root(monkeypatch, tmp_path) -> Non
     assert captured["kwargs"]["tags"] == {"mode": "LITE_AGENT"}
 
 
-def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) -> None:
-    captured: dict[str, Any] = {}
-    fake_acp_module = ModuleType("brokk_code.acp_server")
-
-    async def fake_run_acp_server(**kwargs: Any) -> None:
-        captured["kwargs"] = kwargs
-
-    fake_acp_module.run_acp_server = fake_run_acp_server
-    monkeypatch.setitem(sys.modules, "brokk_code.acp_server", fake_acp_module)
+def test_main_acp_rejects_legacy_ide_flag(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         sys,
         "argv",
@@ -436,22 +446,15 @@ def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) 
             "acp",
             "--workspace",
             str(tmp_path),
-            "--executor-stable",
-            "--vendor",
-            "Gemini",
             "--ide",
             "zed",
         ],
     )
 
-    main_module.main()
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
 
-    # Still routes correctly
-    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
-    assert captured["kwargs"]["executor_snapshot"] is False
-    assert captured["kwargs"]["vendor"] == "Gemini"
-    # Critically: ide is not forwarded to run_acp_server
-    assert "ide" not in captured["kwargs"]
+    assert exc.value.code == 2
 
 
 def test_main_acp_rejects_extra_positional(monkeypatch, tmp_path) -> None:

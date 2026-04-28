@@ -296,12 +296,6 @@ class ExecutorManager:
     def _main_class(self) -> str:
         return _EXECUTOR_MAIN_CLASS
 
-    def set_environment_type(self, env_type: str) -> None:
-        """Set the environment type (tui, zed, or intellij)."""
-        if env_type not in ("tui", "zed", "intellij"):
-            raise ValueError(f"Invalid environment type: {env_type}")
-        self.environment_type = env_type
-
     def _get_environment_flag(self) -> str:
         """Return the appropriate environment JVM flag based on environment_type."""
         if self.environment_type == "zed":
