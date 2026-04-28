@@ -59,10 +59,11 @@ public class SearchPrompts {
         },
         LUTZ(
                 "query_or_instructions",
-                "Your goal is to gather enough context to either answer the question, produce a task list, or invoke the Code Agent for a small change.",
-                "one of: answer, task list, or Code Agent invocation",
+                "Your goal is to gather enough context to either answer the question, run a shell task, produce a task list, or invoke the Code Agent for a small change.",
+                "one of: answer, shell delegation, task list, or Code Agent invocation",
                 """
                 - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
+                - When the request is a shell/CLI operation (installing tools, managing git worktrees, running scripts, environment setup, or any other "run this command" task), call callShellAgent(String task) to delegate to the Shell Agent, then summarize the result with answer(String). Delegating to the Shell Agent is NOT writing code; it is operating the user's system on their behalf, with their per-command approval. Do NOT respond with instructions for the user to run the command themselves, and do NOT propose adding a new tool to this codebase to perform the operation.
                 - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
                 - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks); do not attempt to write code yet.
                 """,
