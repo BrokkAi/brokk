@@ -54,9 +54,14 @@ fn permission_config_option(current: PermissionMode) -> SessionConfigOption {
         SessionConfigSelectOption::new("bypassPermissions", "Bypass Permissions")
             .description("Allow all tool calls without prompting (use with care)"),
     ];
-    SessionConfigOption::select(PERMISSION_CONFIG_ID, "Permission", current.as_str(), options)
-        .description("Controls which tool calls require user approval.")
-        .category(SessionConfigOptionCategory::Mode)
+    SessionConfigOption::select(
+        PERMISSION_CONFIG_ID,
+        "Permission",
+        current.as_str(),
+        options,
+    )
+    .description("Controls which tool calls require user approval.")
+    .category(SessionConfigOptionCategory::Mode)
 }
 
 /// Build the behavior-mode `SessionConfigOption` reflecting `current`. This
@@ -64,8 +69,7 @@ fn permission_config_option(current: PermissionMode) -> SessionConfigOption {
 /// and drives system-prompt selection.
 fn behavior_config_option(current: SessionMode) -> SessionConfigOption {
     let options = vec![
-        SessionConfigSelectOption::new("LUTZ", "LUTZ")
-            .description("Agentic loop with task list"),
+        SessionConfigSelectOption::new("LUTZ", "LUTZ").description("Agentic loop with task list"),
         SessionConfigSelectOption::new("CODE", "CODE").description("Code changes only"),
         SessionConfigSelectOption::new("ASK", "ASK").description("Question answering"),
         SessionConfigSelectOption::new("PLAN", "PLAN").description("Planning only"),

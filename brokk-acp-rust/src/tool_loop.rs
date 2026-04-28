@@ -344,7 +344,11 @@ async fn request_user_permission(
     let fields = ToolCallUpdateFields::new()
         .kind(kind)
         .status(ToolCallStatus::Pending)
-        .title(format!("{} ({})", ToolRegistry::headline(tool_name), tool_name))
+        .title(format!(
+            "{} ({})",
+            ToolRegistry::headline(tool_name),
+            tool_name
+        ))
         .raw_input(raw_input_value);
     let tool_call = ToolCallUpdate::new(ToolCallId::new(tool_call_id.to_string()), fields);
 
@@ -416,15 +420,17 @@ async fn request_user_permission(
                     }
                 }
             }
-            RequestPermissionOutcome::Cancelled => {
-                Err("Tool use denied: the prompt was cancelled before the user responded.".to_string())
-            }
+            RequestPermissionOutcome::Cancelled => Err(
+                "Tool use denied: the prompt was cancelled before the user responded.".to_string(),
+            ),
             // Future-proof: schema is #[non_exhaustive].
             _ => Err("Tool use denied: unknown permission outcome.".to_string()),
         },
         Err(err) => {
             tracing::warn!("request_permission transport error: {err}");
-            Err(format!("Tool use denied: permission request failed ({err})."))
+            Err(format!(
+                "Tool use denied: permission request failed ({err})."
+            ))
         }
     }
 }
@@ -465,7 +471,12 @@ async fn execute_tool(registry: &ToolRegistry, tool_name: &str, raw_args: &str) 
 mod tests {
     use super::*;
 
-    fn decide(mode: PermissionMode, kind: ToolKind, tool_name: &str, allowed: bool) -> PureGateDecision {
+    fn decide(
+        mode: PermissionMode,
+        kind: ToolKind,
+        tool_name: &str,
+        allowed: bool,
+    ) -> PureGateDecision {
         pure_gate_decision(mode, kind, tool_name, allowed)
     }
 
@@ -490,7 +501,12 @@ mod tests {
 
     #[test]
     fn read_only_allows_only_info_kinds() {
-        for kind in [ToolKind::Read, ToolKind::Search, ToolKind::Think, ToolKind::Fetch] {
+        for kind in [
+            ToolKind::Read,
+            ToolKind::Search,
+            ToolKind::Think,
+            ToolKind::Fetch,
+        ] {
             assert_eq!(
                 decide(PermissionMode::ReadOnly, kind, "anything", false),
                 PureGateDecision::Allow,
@@ -524,7 +540,12 @@ mod tests {
 
     #[test]
     fn default_auto_allows_info_kinds_without_always_allow() {
-        for kind in [ToolKind::Read, ToolKind::Search, ToolKind::Think, ToolKind::Fetch] {
+        for kind in [
+            ToolKind::Read,
+            ToolKind::Search,
+            ToolKind::Think,
+            ToolKind::Fetch,
+        ] {
             assert_eq!(
                 decide(PermissionMode::Default, kind, "anything", false),
                 PureGateDecision::Allow
@@ -551,7 +572,12 @@ mod tests {
     #[test]
     fn accept_edits_auto_allows_edit_without_prior_approval() {
         assert_eq!(
-            decide(PermissionMode::AcceptEdits, ToolKind::Edit, "writeFile", false),
+            decide(
+                PermissionMode::AcceptEdits,
+                ToolKind::Edit,
+                "writeFile",
+                false
+            ),
             PureGateDecision::Allow
         );
     }
@@ -559,7 +585,12 @@ mod tests {
     #[test]
     fn accept_edits_still_prompts_for_execute() {
         assert_eq!(
-            decide(PermissionMode::AcceptEdits, ToolKind::Execute, "runShellCommand", false),
+            decide(
+                PermissionMode::AcceptEdits,
+                ToolKind::Execute,
+                "runShellCommand",
+                false
+            ),
             PureGateDecision::Prompt
         );
     }
