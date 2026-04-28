@@ -134,10 +134,7 @@ pub fn wrap_command(
     if !cwd.is_absolute() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!(
-                "sandbox cwd must be absolute, got '{}'",
-                cwd.display()
-            ),
+            format!("sandbox cwd must be absolute, got '{}'", cwd.display()),
         ));
     }
     if cwd.to_str().is_none() {
@@ -307,7 +304,10 @@ fn build_seatbelt_policy(policy: SandboxPolicy, cwd: &Path) -> String {
     }
 
     // `wrap_command` rejects non-UTF-8 cwds, so to_str is Some here.
-    let abs = cwd.to_str().expect("validated UTF-8 in wrap_command").to_string();
+    let abs = cwd
+        .to_str()
+        .expect("validated UTF-8 in wrap_command")
+        .to_string();
     let abs_escaped = escape_for_seatbelt(&abs);
 
     // Mirror Environment.java:432-442: emit BOTH lexical and canonical
@@ -563,8 +563,12 @@ mod tests {
 
     #[test]
     fn relative_cwd_is_rejected() {
-        let err = wrap_command(SandboxPolicy::ReadOnly, Path::new("relative/path"), "echo hi")
-            .expect_err("relative cwd must error");
+        let err = wrap_command(
+            SandboxPolicy::ReadOnly,
+            Path::new("relative/path"),
+            "echo hi",
+        )
+        .expect_err("relative cwd must error");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     }
 
@@ -650,10 +654,12 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_temp_policy_file_is_removed_on_drop() {
-        let wrapped =
-            wrap_command(SandboxPolicy::ReadOnly, Path::new("/tmp"), "echo hi").unwrap();
+        let wrapped = wrap_command(SandboxPolicy::ReadOnly, Path::new("/tmp"), "echo hi").unwrap();
         let path = std::path::PathBuf::from(&wrapped.argv[2]);
-        assert!(path.exists(), "policy file should exist while wrapped is alive");
+        assert!(
+            path.exists(),
+            "policy file should exist while wrapped is alive"
+        );
         drop(wrapped);
         assert!(
             !path.exists(),
@@ -665,11 +671,14 @@ mod tests {
     #[test]
     fn macos_temp_policy_file_is_mode_600() {
         use std::os::unix::fs::PermissionsExt;
-        let wrapped =
-            wrap_command(SandboxPolicy::ReadOnly, Path::new("/tmp"), "echo hi").unwrap();
+        let wrapped = wrap_command(SandboxPolicy::ReadOnly, Path::new("/tmp"), "echo hi").unwrap();
         let path = std::path::PathBuf::from(&wrapped.argv[2]);
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "policy file should be mode 0600, got {:o}", mode);
+        assert_eq!(
+            mode, 0o600,
+            "policy file should be mode 0600, got {:o}",
+            mode
+        );
     }
 
     #[test]
@@ -681,9 +690,9 @@ mod tests {
         assert!(argv.contains(&"--share-net".to_string()));
         assert!(argv.contains(&"--die-with-parent".to_string()));
         assert!(argv.contains(&"--clearenv".to_string()));
-        let workspace_bind = argv.windows(3).any(|w| {
-            w[0] == "--bind" && w[1] == "/workspace" && w[2] == "/workspace"
-        });
+        let workspace_bind = argv
+            .windows(3)
+            .any(|w| w[0] == "--bind" && w[1] == "/workspace" && w[2] == "/workspace");
         assert!(!workspace_bind, "ReadOnly must not bind workspace rw");
         let dash_idx = argv.iter().position(|a| a == "--").unwrap();
         assert_eq!(&argv[dash_idx + 1..], &["sh", "-c", "echo hi"]);
@@ -696,9 +705,9 @@ mod tests {
             Path::new("/workspace"),
             "echo hi",
         );
-        let workspace_bind = argv.windows(3).any(|w| {
-            w[0] == "--bind" && w[1] == "/workspace" && w[2] == "/workspace"
-        });
+        let workspace_bind = argv
+            .windows(3)
+            .any(|w| w[0] == "--bind" && w[1] == "/workspace" && w[2] == "/workspace");
         assert!(workspace_bind, "WorkspaceWrite must bind workspace rw");
         assert!(argv.contains(&"--tmpfs".to_string()));
     }
@@ -734,7 +743,9 @@ mod tests {
             Path::new("/workspace"),
             "echo hi",
         );
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
         let cargo_root = home.join(".cargo").to_string_lossy().into_owned();
         let gradle_root = home.join(".gradle").to_string_lossy().into_owned();
         let m2_root = home.join(".m2").to_string_lossy().into_owned();

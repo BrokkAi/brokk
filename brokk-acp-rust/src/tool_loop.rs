@@ -264,13 +264,8 @@ pub(crate) async fn run(
                                 policy
                             );
 
-                            execute_tool(
-                                registry,
-                                &tool_name,
-                                &call.function.arguments,
-                                policy,
-                            )
-                            .await
+                            execute_tool(registry, &tool_name, &call.function.arguments, policy)
+                                .await
                         }
                     };
 

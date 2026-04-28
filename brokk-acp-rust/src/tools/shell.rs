@@ -6,8 +6,7 @@ use tokio::process::Command;
 
 const MAX_OUTPUT_BYTES: usize = 100_000; // 100KB
 
-const SANDBOX_BYPASS_WARNING: &str =
-    "[WARNING] OS sandbox unavailable on this platform; the command above ran without one. \
+const SANDBOX_BYPASS_WARNING: &str = "[WARNING] OS sandbox unavailable on this platform; the command above ran without one. \
      Install bubblewrap (`apt install bubblewrap`) on Linux to enable kernel-enforced isolation.\n";
 
 pub async fn run_shell_command(
