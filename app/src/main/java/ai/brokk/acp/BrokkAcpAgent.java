@@ -4,6 +4,7 @@ import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.IAppContextManager;
 import ai.brokk.SessionManager.SessionInfo;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
@@ -25,6 +26,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -567,6 +569,12 @@ public class BrokkAcpAgent {
         }
         bundle.cm().switchSessionAsync(target.get().id()).join();
 
+        // Materialize @-mentioned files (resource_link / embedded resource blocks) into the
+        // workspace so every mode -- especially ASK, which has no tool loop -- can see them.
+        // Mirrors brokk-code/brokk_code/acp_server.py:extract_resource_file_paths +
+        // executor.add_context_files. Failures are logged but never abort the prompt.
+        attachPromptResources(request.prompt(), bundle);
+
         // Build JobSpec with reasoning levels from session state
         var mode = modeBySession.getOrDefault(sessionId, "LUTZ");
         var model = modelBySession.getOrDefault(sessionId, "");
@@ -949,6 +957,109 @@ public class BrokkAcpAgent {
                 logger.warn("Conversation replay failed for session {}", sessionId, e);
             }
         });
+    }
+
+    // ---- Prompt resource attachment ----
+
+    /**
+     * Walks {@code blocks} for {@code resource_link} / embedded {@code resource} entries, resolves
+     * each URI to a workspace-relative path under {@code bundle.root()}, and adds the resulting
+     * files to the bundle's workspace as editable {@code ProjectPathFragment}s. Mirrors the Python
+     * ACP bridge's {@code extract_resource_file_paths} + {@code add_context_files} flow so a manual
+     * {@code @file} attachment lands in the workspace before any mode (LUTZ, CODE, ASK, PLAN) runs.
+     *
+     * <p>Failures to resolve individual URIs are logged at debug and skipped; failures to attach
+     * the resolved set are logged at warn -- neither aborts the prompt.
+     */
+    private void attachPromptResources(@Nullable List<AcpSchema.ContentBlock> blocks, WorkspaceBundle bundle) {
+        var relPaths = extractResourceRelPaths(blocks, bundle.root());
+        if (relPaths.isEmpty()) {
+            return;
+        }
+        var files = new ArrayList<ProjectFile>();
+        for (var rel : relPaths) {
+            try {
+                files.add(bundle.cm().toFile(rel));
+            } catch (IllegalArgumentException e) {
+                logger.debug("Skipping ACP resource path {} (rejected by toFile): {}", rel, e.getMessage());
+            }
+        }
+        if (files.isEmpty()) {
+            return;
+        }
+        try {
+            bundle.cm().addFiles(files);
+            logger.info("Attached {} ACP prompt resource(s) to workspace: {}", files.size(), files);
+        } catch (Exception e) {
+            logger.warn("Failed attaching ACP prompt resources to workspace: {}", files, e);
+        }
+    }
+
+    /**
+     * Extracts workspace-relative file paths from {@code resource_link} and embedded
+     * {@code resource} content blocks. URIs may be {@code file://} absolute or bare relative;
+     * either are resolved against {@code root}. Paths that escape the root are silently dropped.
+     * Result is deduped while preserving insertion order.
+     */
+    static List<String> extractResourceRelPaths(@Nullable List<AcpSchema.ContentBlock> blocks, Path root) {
+        if (blocks == null || blocks.isEmpty()) {
+            return List.of();
+        }
+        var normalizedRoot = root.toAbsolutePath().normalize();
+        var seen = new LinkedHashSet<String>();
+        for (var block : blocks) {
+            var uri = uriFromBlock(block);
+            if (uri == null || uri.isBlank()) {
+                continue;
+            }
+            var rel = resolveRelativePath(uri, normalizedRoot);
+            if (rel != null) {
+                seen.add(rel);
+            }
+        }
+        return List.copyOf(seen);
+    }
+
+    private static @Nullable String uriFromBlock(AcpSchema.ContentBlock block) {
+        if (block instanceof AcpSchema.ResourceLink rl) {
+            return rl.uri();
+        }
+        if (block instanceof AcpSchema.Resource r) {
+            var nested = r.resource();
+            if (nested instanceof AcpSchema.TextResourceContents trc) {
+                return trc.uri();
+            }
+            if (nested instanceof AcpSchema.BlobResourceContents brc) {
+                return brc.uri();
+            }
+        }
+        return null;
+    }
+
+    private static @Nullable String resolveRelativePath(String uri, Path normalizedRoot) {
+        Path absPath;
+        try {
+            if (uri.startsWith("file:")) {
+                absPath = Path.of(URI.create(uri));
+            } else {
+                var p = Path.of(uri);
+                absPath = p.isAbsolute() ? p : normalizedRoot.resolve(p);
+            }
+        } catch (IllegalArgumentException e) {
+            // Catches both bad URI syntax and InvalidPathException (a subclass).
+            logger.debug("Skipping unparseable ACP resource URI {}: {}", uri, e.getMessage());
+            return null;
+        }
+        absPath = absPath.toAbsolutePath().normalize();
+        if (!absPath.startsWith(normalizedRoot)) {
+            logger.debug("ACP resource URI {} resolves to {} outside root {}", uri, absPath, normalizedRoot);
+            return null;
+        }
+        var rel = normalizedRoot.relativize(absPath);
+        if (rel.toString().isEmpty()) {
+            return null;
+        }
+        return rel.toString().replace('\\', '/');
     }
 
     // ---- Slash commands ----

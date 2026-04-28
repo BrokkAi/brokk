@@ -8,15 +8,23 @@ import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
 import com.agentclientprotocol.sdk.spec.AcpAgentSession;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import io.modelcontextprotocol.json.TypeRef;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import reactor.core.publisher.Mono;
 
 /** Blocking prompt context backed directly by an {@link AcpAgentSession}. */
 final class AcpRequestContext implements AcpPromptContext {
+
+    private static final Logger logger = LogManager.getLogger(AcpRequestContext.class);
 
     /**
      * Tools whose permission verdicts must NEVER be cached with {@code allow_always} /
@@ -26,6 +34,23 @@ final class AcpRequestContext implements AcpPromptContext {
      * {@link AcpPromptContext}'s single-arg default for non-tool prompts (confirm dialogs).
      */
     private static final Set<String> NON_CACHEABLE_TOOL_NAMES = Set.of("shell", "unknown");
+
+    /**
+     * Per-permission round-trip timeout. The SDK already imposes a 5-minute global request timeout,
+     * but on timeout that propagates as an uncaught exception rather than something the user sees
+     * — observed in real sessions where a click on "Allow once" never reached the agent (IDE-side
+     * or pipe issue) and brokk silently waited 5 minutes before crashing the prompt. With this
+     * tighter timeout, the prompt is denied and the user gets a chat message explaining what
+     * happened, while leaving plenty of think-time for an attentive user to click.
+     */
+    private static final Duration PERMISSION_TIMEOUT = Duration.ofMinutes(2);
+
+    /**
+     * Number of agent→client {@code session/request_permission} calls currently awaiting a
+     * response. Exposed (package-private) so {@link AcpServerMain}'s inbound watchdog can decide
+     * whether prolonged stdin silence is suspicious or just an idle session.
+     */
+    static final AtomicInteger OUTSTANDING_PERMISSION_REQUESTS = new AtomicInteger(0);
 
     private final AcpAgentSession session;
     private final String sessionId;
@@ -69,11 +94,30 @@ final class AcpRequestContext implements AcpPromptContext {
 
     @Override
     public AcpSchema.RequestPermissionResponse requestPermission(AcpSchema.RequestPermissionRequest request) {
-        return requireNonNull(session.sendRequest(
-                        AcpSchema.METHOD_SESSION_REQUEST_PERMISSION,
-                        request,
-                        new TypeRef<AcpSchema.RequestPermissionResponse>() {})
-                .block());
+        OUTSTANDING_PERMISSION_REQUESTS.incrementAndGet();
+        try {
+            return requireNonNull(session.sendRequest(
+                            AcpSchema.METHOD_SESSION_REQUEST_PERMISSION,
+                            request,
+                            new TypeRef<AcpSchema.RequestPermissionResponse>() {})
+                    .timeout(PERMISSION_TIMEOUT)
+                    .onErrorResume(TimeoutException.class, e -> {
+                        logger.warn(
+                                "Permission request timed out after {} (no response from client). "
+                                        + "Treating as denied. Request: {}",
+                                PERMISSION_TIMEOUT,
+                                request);
+                        sendMessage("\n**Permission request timed out** after "
+                                + PERMISSION_TIMEOUT.toSeconds()
+                                + "s without a response from the client. Treating this tool call as denied. "
+                                + "If you did click Allow, the IDE may have failed to deliver the response — "
+                                + "check `~/.brokk/debug.log` for the `acp-agent-inbound` thread.\n");
+                        return Mono.just(new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionCancelled()));
+                    })
+                    .block());
+        } finally {
+            OUTSTANDING_PERMISSION_REQUESTS.decrementAndGet();
+        }
     }
 
     @Override

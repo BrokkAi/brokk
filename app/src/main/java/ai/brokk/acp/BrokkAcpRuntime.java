@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 /** Explicit ACP method router for Brokk's native Java ACP server. */
 final class BrokkAcpRuntime implements AutoCloseable {
@@ -65,11 +66,11 @@ final class BrokkAcpRuntime implements AutoCloseable {
             var request = unmarshal(params, new TypeRef<AcpProtocol.ForkSessionRequest>() {});
             return Mono.fromCallable(() -> agent.forkSession(request));
         });
-        handlers.put(AcpSchema.METHOD_SESSION_PROMPT, params -> {
+        AcpAgentSession.RequestHandler<AcpSchema.PromptResponse> promptHandler = params -> {
             var request = unmarshal(params, new TypeRef<AcpSchema.PromptRequest>() {});
-            var context = new AcpRequestContext(session, request.sessionId(), clientCapabilities.get(), agent);
-            return Mono.fromCallable(() -> agent.prompt(request, context));
-        });
+            return runPromptOnWorker(request);
+        };
+        handlers.put(AcpSchema.METHOD_SESSION_PROMPT, promptHandler);
         handlers.put(AcpSchema.METHOD_SESSION_SET_MODE, params -> {
             var request = unmarshal(params, new TypeRef<AcpSchema.SetSessionModeRequest>() {});
             return Mono.fromCallable(() -> agent.setMode(request));
@@ -79,6 +80,20 @@ final class BrokkAcpRuntime implements AutoCloseable {
             return Mono.fromCallable(() -> agent.setModel(request));
         });
         return handlers;
+    }
+
+    /**
+     * Runs the prompt handler on a {@link Schedulers#boundedElastic()} worker so the SDK's inbound
+     * stdin reader thread stays free to deliver responses to agent-side {@code session/request_permission}
+     * round-trips. Without this, {@code Mono.fromCallable(...)} executes on the inbound thread, and
+     * any synchronous {@code .block()} inside the LUTZ loop (permission prompts, file edits with
+     * approval) deadlocks because the very thread that would read the response has been hijacked by
+     * the prompt handler. Rust's tokio runtime sidesteps this because its default executor is
+     * multi-threaded; Reactor's downstream is whatever thread emits, so we have to opt in explicitly.
+     */
+    private Mono<AcpSchema.PromptResponse> runPromptOnWorker(AcpSchema.PromptRequest request) {
+        var context = new AcpRequestContext(session, request.sessionId(), clientCapabilities.get(), agent);
+        return Mono.fromCallable(() -> agent.prompt(request, context)).subscribeOn(Schedulers.boundedElastic());
     }
 
     private Map<String, AcpAgentSession.NotificationHandler> notificationHandlers() {
