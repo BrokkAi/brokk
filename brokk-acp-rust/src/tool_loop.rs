@@ -1,17 +1,22 @@
+mod announce;
+
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::{
-    PermissionOption, PermissionOptionId, PermissionOptionKind, RequestPermissionOutcome,
-    RequestPermissionRequest, ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
-    ToolKind,
+    Diff, PermissionOption, PermissionOptionId, PermissionOptionKind, RequestPermissionOutcome,
+    RequestPermissionRequest, SessionNotification, SessionUpdate, ToolCallId, ToolCallStatus,
+    ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use agent_client_protocol::{Client, ConnectionTo};
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::llm_client::{ChatMessage, LlmBackend, LlmResponse, ToolDefinition};
 use crate::session::{PermissionMode, SessionStore};
-use crate::tools::{ToolRegistry, ToolStatus};
+use crate::tools::sandbox::SandboxPolicy;
+use crate::tools::{ToolRegistry, ToolStatus, safe_resolve_for_write};
 
 const MAX_TOOL_RESULT_BYTES: usize = 50_000;
 
@@ -136,7 +141,9 @@ fn pure_gate_decision(
 /// responds with text only or the turn limit is reached.
 ///
 /// `on_text` is invoked for each text token streamed from the LLM, in real time.
-/// `on_tool_event` is called with a human-readable headline when a tool starts executing.
+/// Tool-call lifecycle is reported to the client via `SessionUpdate::ToolCall`
+/// and `SessionUpdate::ToolCallUpdate` notifications (Pending -> InProgress ->
+/// Completed/Failed).
 ///
 /// Each tool call is gated through the session's permission policy: depending on
 /// the session's `PermissionMode` and the tool's `ToolKind`, a call is auto-allowed,
@@ -154,7 +161,6 @@ pub(crate) async fn run(
     max_turns: usize,
     cancel: CancellationToken,
     on_text: TextSink,
-    mut on_tool_event: impl FnMut(&str),
     spawned_cx: SpawnedCx<'_>,
     session_id: String,
     sessions: SessionStore,
@@ -218,6 +224,61 @@ pub(crate) async fn run(
                     let tool_name = call.function.name.clone();
                     let kind = ToolRegistry::tool_kind(&tool_name);
 
+                    // Parse the LLM's serialized arguments up front so the
+                    // tool-call card can pull `path` / `command` / `pattern`
+                    // out for the title, and so an arg-parse failure becomes
+                    // a Failed card rather than a silent fallback.
+                    let parsed_input = match serde_json::from_str::<Value>(&call.function.arguments)
+                    {
+                        Ok(v) => v,
+                        Err(e) => {
+                            let reason = format!(
+                                "Error: tool arguments are not valid JSON ({e}). \
+                                 Please retry with a valid JSON object matching the tool schema."
+                            );
+                            // Render the card anyway so the user sees what
+                            // the agent tried to invoke -- raw_input falls
+                            // back to the unparsed string.
+                            send_session_update(
+                                spawned_cx.cx(),
+                                &session_id,
+                                SessionUpdate::ToolCall(announce::initial_tool_call(
+                                    &call.id,
+                                    &tool_name,
+                                    kind,
+                                    &Value::String(call.function.arguments.clone()),
+                                )),
+                            );
+                            send_session_update(
+                                spawned_cx.cx(),
+                                &session_id,
+                                SessionUpdate::ToolCallUpdate(announce::update_failed(
+                                    &call.id,
+                                    &reason,
+                                    Some(Value::String(reason.clone())),
+                                )),
+                            );
+                            messages.push(ChatMessage::tool_result(
+                                &call.id, &tool_name, &reason,
+                            ));
+                            continue;
+                        }
+                    };
+
+                    // Pending -- emit the card before the gate runs so the
+                    // permission modal (which reuses this id) renders against
+                    // a card that already shows path / command / etc.
+                    send_session_update(
+                        spawned_cx.cx(),
+                        &session_id,
+                        SessionUpdate::ToolCall(announce::initial_tool_call(
+                            &call.id,
+                            &tool_name,
+                            kind,
+                            &parsed_input,
+                        )),
+                    );
+
                     // Consult the gate before announcing or executing the call.
                     let decision = consult_gate(
                         &sessions,
@@ -227,26 +288,98 @@ pub(crate) async fn run(
                         &tool_name,
                         kind,
                         &call.id,
-                        &call.function.arguments,
+                        &parsed_input,
                     )
                     .await;
 
                     let output = match decision {
                         GateDecision::Reject(message) => {
-                            on_tool_event(&format!("_{}_\n", message));
+                            // Failed terminal update so the card reflects the
+                            // denial and doesn't sit at Pending forever.
+                            send_session_update(
+                                spawned_cx.cx(),
+                                &session_id,
+                                SessionUpdate::ToolCallUpdate(announce::update_failed(
+                                    &call.id,
+                                    &message,
+                                    Some(Value::String(message.clone())),
+                                )),
+                            );
                             message
                         }
                         GateDecision::Allow => {
-                            let headline = ToolRegistry::headline(&tool_name);
-                            on_tool_event(&format!("_{headline}..._\n"));
-
-                            tracing::info!(
-                                "executing tool {} with args: {}",
-                                tool_name,
-                                call.function.arguments
+                            send_session_update(
+                                spawned_cx.cx(),
+                                &session_id,
+                                SessionUpdate::ToolCallUpdate(announce::update_in_progress(
+                                    &call.id,
+                                )),
                             );
 
-                            execute_tool(registry, &tool_name, &call.function.arguments).await
+                            // Capture pre-write content so writeFile gets a
+                            // real Diff card. Outer None == not a writeFile,
+                            // or prior content unavailable (binary, missing
+                            // parent dir we can't resolve, etc) -- in either
+                            // case we fall back to text content. Inner None
+                            // (per ACP `Diff.old_text` schema) == new file.
+                            let pre_write: Option<Option<String>> = if tool_name == "writeFile" {
+                                capture_pre_write_text(registry.cwd(), &parsed_input)
+                            } else {
+                                None
+                            };
+
+                            // Resolve the sandbox tier from the session's permission mode.
+                            // If the session disappeared between gate-accept and exec
+                            // (race), fail safe to ReadOnly: the gate already cleared
+                            // the call but we no longer trust the mode lookup.
+                            let policy = match sessions.permission_mode(&session_id).await {
+                                Some(mode) => SandboxPolicy::from_permission_mode(mode),
+                                None => {
+                                    tracing::warn!(
+                                        session_id,
+                                        tool_name,
+                                        "session vanished between gate-accept and exec; falling back to ReadOnly sandbox"
+                                    );
+                                    SandboxPolicy::ReadOnly
+                                }
+                            };
+
+                            tracing::info!(
+                                "executing tool {} with args: {} (sandbox={:?})",
+                                tool_name,
+                                call.function.arguments,
+                                policy
+                            );
+
+                            let exec = execute_tool(
+                                registry,
+                                &tool_name,
+                                parsed_input.clone(),
+                                policy,
+                            )
+                            .await;
+
+                            // Build the terminal update -- Completed (with a
+                            // Diff for writeFile when we have prior content)
+                            // or Failed (for tool-reported errors).
+                            let update = if exec.failed {
+                                announce::update_failed(
+                                    &call.id,
+                                    &exec.output,
+                                    Some(Value::String(exec.output.clone())),
+                                )
+                            } else {
+                                let diff = pre_write.and_then(|prior| {
+                                    build_write_diff(&parsed_input, prior)
+                                });
+                                announce::update_completed(&call.id, &exec.output, diff)
+                            };
+                            send_session_update(
+                                spawned_cx.cx(),
+                                &session_id,
+                                SessionUpdate::ToolCallUpdate(update),
+                            );
+                            exec.output
                         }
                     };
 
@@ -278,7 +411,7 @@ async fn consult_gate(
     tool_name: &str,
     kind: ToolKind,
     tool_call_id: &str,
-    raw_input: &str,
+    raw_input: &Value,
 ) -> GateDecision {
     let mode = match sessions.permission_mode(session_id).await {
         Some(m) => m,
@@ -337,19 +470,16 @@ async fn request_user_permission(
     tool_name: &str,
     kind: ToolKind,
     tool_call_id: &str,
-    raw_input: &str,
+    raw_input: &Value,
 ) -> Result<bool, String> {
-    let raw_input_value = serde_json::from_str::<serde_json::Value>(raw_input).ok();
-
+    // The permission modal needs to show *what* is being approved, not just
+    // the tool kind. Reuse the same title-builder the standalone tool-call
+    // card uses so e.g. ``Run `cargo test` `` appears in the prompt.
     let fields = ToolCallUpdateFields::new()
         .kind(kind)
         .status(ToolCallStatus::Pending)
-        .title(format!(
-            "{} ({})",
-            ToolRegistry::headline(tool_name),
-            tool_name
-        ))
-        .raw_input(raw_input_value);
+        .title(announce::tool_title(tool_name, raw_input))
+        .raw_input(raw_input.clone());
     let tool_call = ToolCallUpdate::new(ToolCallId::new(tool_call_id.to_string()), fields);
 
     let mut options = Vec::with_capacity(3);
@@ -435,36 +565,84 @@ async fn request_user_permission(
     }
 }
 
+/// Outcome of executing a tool, formatted for both the LLM (via `output`)
+/// and the client card (`failed` -> `ToolCallStatus::Failed`).
+struct ToolExecution {
+    output: String,
+    failed: bool,
+}
+
 /// Run the tool against the registry and format the result for the LLM.
-async fn execute_tool(registry: &ToolRegistry, tool_name: &str, raw_args: &str) -> String {
-    match serde_json::from_str::<serde_json::Value>(raw_args) {
-        Ok(args) => {
-            let result = registry.execute(tool_name, args).await;
-            let status_prefix = match result.status {
-                ToolStatus::Success => "",
-                ToolStatus::RequestError => "Error: ",
-                ToolStatus::InternalError => "Internal error: ",
-            };
-            let mut output = format!("{}{}", status_prefix, result.output);
-            if output.len() > MAX_TOOL_RESULT_BYTES {
-                output.truncate(MAX_TOOL_RESULT_BYTES);
-                output.push_str("\n... output truncated");
-            }
-            output
+/// Arg-parse failure is handled in the caller so it can render a Failed
+/// card; this function only sees already-parsed inputs.
+async fn execute_tool(
+    registry: &ToolRegistry,
+    tool_name: &str,
+    args: Value,
+    policy: SandboxPolicy,
+) -> ToolExecution {
+    let result = registry.execute(tool_name, args, policy).await;
+    let (status_prefix, failed) = match result.status {
+        ToolStatus::Success => ("", false),
+        ToolStatus::RequestError => ("Error: ", true),
+        ToolStatus::InternalError => ("Internal error: ", true),
+    };
+    let mut output = format!("{}{}", status_prefix, result.output);
+    if output.len() > MAX_TOOL_RESULT_BYTES {
+        // Truncate on a UTF-8 char boundary; otherwise an emoji or accented
+        // byte sequence could leave the slice mid-codepoint.
+        let mut cut = MAX_TOOL_RESULT_BYTES;
+        while !output.is_char_boundary(cut) {
+            cut -= 1;
         }
-        Err(e) => {
-            tracing::warn!(
-                "tool {} called with invalid JSON arguments ({}): {}",
-                tool_name,
-                e,
-                raw_args
-            );
-            format!(
-                "Error: tool arguments are not valid JSON ({e}). \
-                 Please retry with a valid JSON object matching the tool schema."
-            )
-        }
+        output.truncate(cut);
+        output.push_str("\n... output truncated");
     }
+    ToolExecution { output, failed }
+}
+
+/// Send a `SessionNotification` and log on failure -- there is nothing
+/// useful we can do if the channel to the client is broken.
+fn send_session_update(cx: &ConnectionTo<Client>, session_id: &str, update: SessionUpdate) {
+    let notification = SessionNotification::new(session_id.to_string(), update);
+    if let Err(e) = cx.send_notification(notification) {
+        tracing::warn!("failed to send session update: {e}");
+    }
+}
+
+/// Read the existing file content for a `writeFile` call so the diff
+/// card can show before/after text.
+///
+/// Returns `Some(Some(text))` when we read the prior content, `Some(None)`
+/// when the file is new (per the ACP `Diff.old_text` schema, `None` is
+/// the "no prior content" sentinel), and `None` when prior content is
+/// unavailable -- e.g. binary file, unreadable, or path can't be resolved
+/// against cwd. The outer `None` tells the caller to fall back to text
+/// content for the card.
+fn capture_pre_write_text(cwd: &Path, parsed_input: &Value) -> Option<Option<String>> {
+    let path = parsed_input.get("path").and_then(Value::as_str)?;
+    let resolved = safe_resolve_for_write(cwd, path).ok()?;
+    if !resolved.exists() {
+        return Some(None);
+    }
+    match std::fs::read_to_string(&resolved) {
+        Ok(text) => Some(Some(text)),
+        Err(_) => None,
+    }
+}
+
+/// Assemble a `Diff` block for a successful `writeFile` from the parsed
+/// args plus the captured prior content. Returns `None` if we couldn't
+/// pull the path/content (in which case the caller falls back to text).
+fn build_write_diff(parsed_input: &Value, prior: Option<String>) -> Option<Diff> {
+    let path = parsed_input.get("path").and_then(Value::as_str)?;
+    let new_text = parsed_input
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let mut diff = Diff::new(PathBuf::from(path), new_text);
+    diff.old_text = prior;
+    Some(diff)
 }
 
 #[cfg(test)]

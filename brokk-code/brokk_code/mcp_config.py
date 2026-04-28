@@ -4,7 +4,6 @@ import os
 import re
 import tempfile
 import tomllib
-import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -259,7 +258,6 @@ class InstalledCodexPlugin:
 
 
 _GITHUB_RAW_BASE = "https://raw.githubusercontent.com/BrokkAi/brokk"
-_CLAUDE_PLUGIN_VERSION = "0.4.1"
 
 _log = logging.getLogger(__name__)
 
@@ -298,24 +296,16 @@ _SKILL_AGENT_DEPS: dict[str, list[str]] = {
 
 
 def _fetch_github_file(path: str) -> str:
-    """Fetch a file from the brokk GitHub repo.
+    """Fetch a file from the brokk GitHub repo's master branch.
 
-    Tries the ``claude-plugin-{version}`` tag first, falls back to ``master``
-    if the tag does not exist (HTTP 404).
+    The plugin's ``version`` field in ``plugin.json`` is the upgrade signal;
+    fetching from master means installs always pick up the latest published
+    skills, agents, and manifest.
     """
-    tag_ref = f"claude-plugin-{_CLAUDE_PLUGIN_VERSION}"
-    for ref in (tag_ref, "master"):
-        url = f"{_GITHUB_RAW_BASE}/{ref}/{path}"
-        _log.info("Fetching %s", url)
-        try:
-            with urllib.request.urlopen(url, timeout=30) as resp:
-                return resp.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404 and ref != "master":
-                _log.warning("Tag %s not found, falling back to master", tag_ref)
-                continue
-            raise
-    raise RuntimeError(f"Failed to fetch {path} from GitHub")
+    url = f"{_GITHUB_RAW_BASE}/master/{path}"
+    _log.info("Fetching %s", url)
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        return resp.read().decode("utf-8")
 
 
 def _fetch_codex_skills() -> dict[str, str]:

@@ -5,6 +5,7 @@ from brokk_code.rust_acp_install import RustAcpPaths
 from brokk_code.zed_config import (
     ExistingBrokkCodeEntryError,
     atomic_write_settings,
+    brokk_code_entry_name,
     loads_json_or_jsonc,
 )
 
@@ -39,9 +40,10 @@ def configure_intellij_acp_settings(
 
     agent_servers = settings["agent_servers"]
 
-    if "Brokk Code" in agent_servers and not force:
+    entry_name = brokk_code_entry_name(native=native, rust_paths=rust_paths)
+    if entry_name in agent_servers and not force:
         raise ExistingBrokkCodeEntryError(
-            "agent_servers['Brokk Code'] already exists; use --force to overwrite it"
+            f"agent_servers['{entry_name}'] already exists; use --force to overwrite it"
         )
 
     if rust_paths is not None:
@@ -55,13 +57,13 @@ def configure_intellij_acp_settings(
             rust_args += ["--endpoint-url", rust_paths.endpoint_url]
         if rust_paths.api_key:
             rust_args += ["--api-key", rust_paths.api_key]
-        agent_servers["Brokk Code"] = {
+        agent_servers[entry_name] = {
             "command": str(rust_paths.brokk_acp),
             "args": rust_args,
             "env": {},
         }
     else:
-        agent_servers["Brokk Code"] = {
+        agent_servers[entry_name] = {
             "command": uvx_command,
             "args": ["brokk", "acp-native" if native else "acp"],
             "env": {},

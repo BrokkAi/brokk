@@ -1,9 +1,11 @@
 mod filesystem;
+pub mod sandbox;
 mod shell;
 
 use crate::bifrost_client::BifrostClient;
 use crate::llm_client::{FunctionDef, ToolDefinition};
 use agent_client_protocol::schema::ToolKind;
+use sandbox::SandboxPolicy;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -27,7 +29,17 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
+    /// Working directory this registry is rooted in.
+    pub(crate) fn cwd(&self) -> &Path {
+        &self.cwd
+    }
+
     pub async fn new(cwd: PathBuf, bifrost_binary: Option<&Path>) -> Self {
+        // Best-effort sweep of any stale seatbelt policy files left by a
+        // previous SIGKILL/panic. Bounded by file age so we don't yank a
+        // profile from a concurrent in-flight shell call.
+        sandbox::cleanup_stale_policy_files();
+
         let bifrost = match bifrost_binary {
             Some(bin) => match BifrostClient::spawn(bin, &cwd).await {
                 Ok(client) => Some(Arc::new(client)),
@@ -172,7 +184,16 @@ impl ToolRegistry {
     /// SECURITY: callers MUST consult `tool_loop::consult_gate` first.
     /// `pub(crate)` is intentional -- this is the trust boundary; outside
     /// callers should not be able to dispatch tools without the gate.
-    pub(crate) async fn execute(&self, name: &str, args: serde_json::Value) -> ToolResult {
+    ///
+    /// `policy` controls the OS-level sandbox applied to `runShellCommand`.
+    /// Other tools ignore it (their own seams, e.g. `safe_resolve_for_write`,
+    /// enforce path containment).
+    pub(crate) async fn execute(
+        &self,
+        name: &str,
+        args: serde_json::Value,
+        policy: SandboxPolicy,
+    ) -> ToolResult {
         match name {
             "think" => {
                 let thought = args.get("thought").and_then(|v| v.as_str()).unwrap_or("");
@@ -209,7 +230,7 @@ impl ToolRegistry {
                     .get("timeoutSeconds")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(60);
-                shell::run_shell_command(&self.cwd, command, timeout).await
+                shell::run_shell_command(&self.cwd, command, timeout, policy).await
             }
             "search_symbols"
             | "get_symbol_locations"
@@ -287,8 +308,10 @@ impl ToolRegistry {
         }
     }
 
-    /// Human-readable headline for a tool call (shown to ACP client).
-    pub fn headline(tool_name: &str) -> &'static str {
+    /// Static display name for a tool. Used as a fallback when a richer
+    /// title can't be derived from the call's input args (notably for
+    /// Bifrost-loaded tools we don't introspect by name in `announce`).
+    pub fn display_name(tool_name: &str) -> &'static str {
         match tool_name {
             "think" => "Thinking",
             "readFile" => "Reading file",
