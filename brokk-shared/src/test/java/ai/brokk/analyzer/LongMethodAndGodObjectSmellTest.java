@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.testutil.InlineCoreProject;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -247,6 +248,212 @@ class LongMethodAndGodObjectSmellTest {
     }
 
     @Test
+    void pythonFileModuleRemainsTopLevelParentButIsHiddenFromSkeletons() {
+        String source =
+                """
+                VALUE = 1
+
+                def helper():
+                    return VALUE
+
+                class Worker:
+                    def run(self):
+                        return helper()
+                """;
+
+        try (var project = InlineCoreProject.empty()
+                .languages(Set.of(Languages.PYTHON))
+                .addFile(source, "src/worker.py")
+                .build()) {
+            var analyzer = project.getAnalyzer();
+            var file = project.file("src/worker.py");
+            var topLevel = analyzer.getTopLevelDeclarations(file);
+            var module =
+                    topLevel.stream().filter(CodeUnit::isModule).findFirst().orElseThrow();
+            var helper = topLevel.stream()
+                    .filter(CodeUnit::isFunction)
+                    .filter(cu -> cu.identifier().equals("helper"))
+                    .findFirst()
+                    .orElseThrow();
+            var worker = topLevel.stream()
+                    .filter(CodeUnit::isClass)
+                    .filter(cu -> cu.identifier().equals("Worker"))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertTrue(analyzer.isFileLevelModule(module, true));
+            assertTrue(analyzer.parentOf(helper).filter(module::equals).isPresent());
+            assertTrue(analyzer.parentOf(worker).filter(module::equals).isPresent());
+
+            var skeletons = analyzer.getSkeletons(file);
+            assertFalse(skeletons.containsKey(module), skeletons.toString());
+            assertTrue(skeletons.containsKey(helper), skeletons.toString());
+            assertTrue(skeletons.containsKey(worker), skeletons.toString());
+            assertTrue(analyzer.getSkeleton(module).isEmpty());
+        }
+    }
+
+    @Test
+    void javascriptImportModuleSkeletonDoesNotDuplicateTopLevelDeclarations() {
+        String source =
+                """
+                import { dep } from "./dep.js";
+
+                export function helper() {
+                    return dep;
+                }
+
+                export class Worker {
+                    run() {
+                        return helper();
+                    }
+                }
+                """;
+
+        try (var project = InlineCoreProject.empty()
+                .languages(Set.of(Languages.JAVASCRIPT))
+                .addFile("export const dep = 1;\n", "src/dep.js")
+                .addFile(source, "src/worker.js")
+                .build()) {
+            var analyzer = project.getAnalyzer();
+            var file = project.file("src/worker.js");
+            var skeletons = analyzer.getSkeletons(file);
+            var module = analyzer.getTopLevelDeclarations(file).stream()
+                    .filter(CodeUnit::isModule)
+                    .findFirst()
+                    .orElseThrow();
+
+            assertTrue(analyzer.isFileLevelModule(module, true));
+            assertTrue(skeletons.containsKey(module), skeletons.toString());
+            assertFalse(skeletons.get(module).contains("helper"), skeletons.get(module));
+            assertFalse(skeletons.get(module).contains("Worker"), skeletons.get(module));
+            assertEquals(
+                    1,
+                    skeletons.values().stream()
+                            .filter(skeleton -> skeleton.contains("helper"))
+                            .count());
+            assertEquals(
+                    1,
+                    skeletons.values().stream()
+                            .filter(skeleton -> skeleton.contains("Worker"))
+                            .count());
+        }
+    }
+
+    @Test
+    void typescriptImportModuleSkeletonDoesNotDuplicateTopLevelDeclarations() {
+        String source =
+                """
+                import { dep } from "./dep";
+
+                export function helper(): number {
+                    return dep;
+                }
+
+                export class Worker {
+                    run(): number {
+                        return helper();
+                    }
+                }
+                """;
+
+        try (var project = InlineCoreProject.empty()
+                .languages(Set.of(Languages.TYPESCRIPT))
+                .addFile("export const dep = 1;\n", "src/dep.ts")
+                .addFile(source, "src/worker.ts")
+                .build()) {
+            var analyzer = project.getAnalyzer();
+            var file = project.file("src/worker.ts");
+            var skeletons = analyzer.getSkeletons(file);
+            var module = analyzer.getTopLevelDeclarations(file).stream()
+                    .filter(CodeUnit::isModule)
+                    .findFirst()
+                    .orElseThrow();
+
+            assertTrue(analyzer.isFileLevelModule(module, true));
+            assertTrue(skeletons.containsKey(module), skeletons.toString());
+            assertFalse(skeletons.get(module).contains("helper"), skeletons.get(module));
+            assertFalse(skeletons.get(module).contains("Worker"), skeletons.get(module));
+            assertEquals(
+                    1,
+                    skeletons.values().stream()
+                            .filter(skeleton -> skeleton.contains("helper"))
+                            .count());
+            assertEquals(
+                    1,
+                    skeletons.values().stream()
+                            .filter(skeleton -> skeleton.contains("Worker"))
+                            .count());
+        }
+    }
+
+    @Test
+    void cppAndRustSyntaxModulesRemainSkeletonVisible() {
+        String cpp =
+                """
+                namespace generated {
+                int value = 1;
+                }
+                """;
+        String rust =
+                """
+                mod generated {
+                    pub const VALUE: i32 = 1;
+                }
+                """;
+
+        try (var cppProject = InlineCoreProject.empty()
+                        .languages(Set.of(Languages.C_CPP))
+                        .addFile(cpp, "src/generated.cpp")
+                        .build();
+                var rustProject = InlineCoreProject.empty()
+                        .languages(Set.of(Languages.RUST))
+                        .addFile(rust, "src/generated.rs")
+                        .build()) {
+            var cppAnalyzer = cppProject.getAnalyzer();
+            var cppFile = cppProject.file("src/generated.cpp");
+            var cppModule = cppAnalyzer.getTopLevelDeclarations(cppFile).stream()
+                    .filter(CodeUnit::isModule)
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(cppAnalyzer.isFileLevelModule(cppModule, true));
+            assertTrue(cppAnalyzer.getSkeletons(cppFile).containsKey(cppModule));
+
+            var rustAnalyzer = rustProject.getAnalyzer();
+            var rustFile = rustProject.file("src/generated.rs");
+            var rustModule = rustAnalyzer.getTopLevelDeclarations(rustFile).stream()
+                    .filter(CodeUnit::isModule)
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(rustAnalyzer.isFileLevelModule(rustModule, true));
+            assertTrue(rustAnalyzer.getSkeletons(rustFile).containsKey(rustModule));
+        }
+    }
+
+    @Test
+    void goDoesNotEmitExplicitFileModuleCodeUnit() {
+        String source =
+                """
+                package mypkg
+
+                const value = 1
+
+                func TestHelper() {}
+                """;
+
+        try (var project = InlineCoreProject.empty()
+                .languages(Set.of(Languages.GO))
+                .addFile(source, "mypkg/helper_test.go")
+                .build()) {
+            var analyzer = project.getAnalyzer();
+            var file = project.file("mypkg/helper_test.go");
+
+            assertTrue(analyzer.getTopLevelDeclarations(file).stream().noneMatch(CodeUnit::isModule));
+            assertTrue(analyzer.testFilesToCodeUnits(List.of(file)).stream().allMatch(CodeUnit::isFunction));
+        }
+    }
+
+    @Test
     void javascriptModuleGetsFileLevelSizeLeewayButStillFlagsVeryLargeFiles() {
         String moderateModule =
                 """
@@ -320,7 +527,7 @@ class LongMethodAndGodObjectSmellTest {
     void cppTopLevelNamespaceGetsLeewayButStillFlagsVeryLargeNamespaces() {
         String moderateNamespace =
                 """
-                namespace generated {
+                namespace moderate_generated {
                 int values[] = {
                 %s
                 };
@@ -329,7 +536,7 @@ class LongMethodAndGodObjectSmellTest {
                         .formatted(arrayElements(350));
         String oversizedNamespace =
                 """
-                namespace generated {
+                namespace oversized_generated {
                 int values[] = {
                 %s
                 };

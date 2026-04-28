@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.python.Constants.*;
 import static org.treesitter.PythonNodeType.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.python.CognitiveComplexityAnalysis;
 import ai.brokk.project.ICoreProject;
@@ -45,6 +46,31 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                 && parentOf(cu).isEmpty()
                 && languages().stream().anyMatch(language -> language.getExtensions()
                         .contains(cu.source().extension()));
+    }
+
+    @Override
+    public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
+        return super.getSkeletons(file).entrySet().stream()
+                .filter(entry -> !isFileLevelModule(entry.getKey(), true))
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey, Map.Entry::getValue, (left, right) -> left, LinkedHashMap::new));
+    }
+
+    @Override
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        if (isFileLevelModule(cu, true)) {
+            return Optional.empty();
+        }
+        return super.getSkeleton(cu);
+    }
+
+    @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
+                .filter(cu -> cu.isClass() || cu.isFunction())
+                .collect(Collectors.toSet());
+
+        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
     }
 
     @Override
