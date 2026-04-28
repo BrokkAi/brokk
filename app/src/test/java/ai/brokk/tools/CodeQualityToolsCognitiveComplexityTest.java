@@ -14,7 +14,9 @@ import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -60,5 +62,49 @@ class CodeQualityToolsCognitiveComplexityTest {
         String report = tools.computeCognitiveComplexity(List.of("Example.java"), 15);
 
         assertTrue(report.contains("No methods exceeded the cognitive complexity threshold of 15."), report);
+    }
+
+    @Test
+    void computeCognitiveComplexityUsesBatchResultAndSkipsSyntheticFunctions(@TempDir Path root) throws IOException {
+        ProjectFile file = new ProjectFile(root, "Example.java");
+        Files.writeString(file.absPath(), "class Example {}");
+
+        var complex = new CodeUnit(file, CodeUnitType.FUNCTION, "Example", "complex", "()", false);
+        var synthetic = new CodeUnit(file, CodeUnitType.FUNCTION, "Example", "$anon", "()", true);
+        var analyzer = new BatchOnlyAnalyzer(Map.of(complex, 16, synthetic, 99));
+        analyzer.addDeclaration(complex);
+        analyzer.addDeclaration(synthetic);
+
+        var project = new TestProject(root, Languages.JAVA);
+        var tools = new CodeQualityTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
+
+        String report = tools.computeCognitiveComplexity(List.of("Example.java"), 15);
+
+        assertTrue(report.contains("- Example.complex: 16"), report);
+        assertFalse(report.contains("$anon"), report);
+        assertTrue(analyzer.batchCalled, "Expected file-level batch API to be used");
+        assertFalse(analyzer.singleMethodCalled, "Expected per-method API not to be used by the tool");
+    }
+
+    private static final class BatchOnlyAnalyzer extends TestAnalyzer {
+        private final Map<CodeUnit, Integer> complexities;
+        private boolean batchCalled;
+        private boolean singleMethodCalled;
+
+        private BatchOnlyAnalyzer(Map<CodeUnit, Integer> complexities) {
+            this.complexities = new LinkedHashMap<>(complexities);
+        }
+
+        @Override
+        public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+            batchCalled = true;
+            return complexities;
+        }
+
+        @Override
+        public int computeCognitiveComplexity(CodeUnit cu) {
+            singleMethodCalled = true;
+            return super.computeCognitiveComplexity(cu);
+        }
     }
 }

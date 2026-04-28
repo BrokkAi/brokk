@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.complexity;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -66,6 +67,26 @@ public class JavaCognitiveComplexityTest {
                 }
                 """;
         assertComplexity(code, "com.example.Test.method", 2);
+    }
+
+    @Test
+    void testElseBlockWithIfTraversesAllStatements() {
+        String code =
+                """
+                package com.example;
+                public class Test {
+                    public void method(boolean a, boolean b, boolean c) {
+                        if (a) {
+                        } else {
+                            if (b) {
+                            }
+                            while (c) {
+                            }
+                        }
+                    }
+                }
+                """;
+        assertComplexity(code, "com.example.Test.method", 5);
     }
 
     @Test
@@ -153,6 +174,84 @@ public class JavaCognitiveComplexityTest {
                 }
                 """;
         assertComplexity(code, "com.example.Test.method", 3);
+    }
+
+    @Test
+    void testLabeledBreakAndContinueComplexity() {
+        String code =
+                """
+                package com.example;
+                public class Test {
+                    public void method(boolean a) {
+                        outer:
+                        while (a) {
+                            for (int i = 0; i < 10; i++) {
+                                if (i == 1) {
+                                    break outer;
+                                }
+                                continue outer;
+                            }
+                        }
+                    }
+                }
+                """;
+        assertComplexity(code, "com.example.Test.method", 8);
+    }
+
+    @Test
+    void testUnlabeledBreakAndContinueDoNotAddComplexity() {
+        String code =
+                """
+                package com.example;
+                public class Test {
+                    public void method(boolean a) {
+                        while (a) {
+                            break;
+                        }
+                        for (int i = 0; i < 10; i++) {
+                            continue;
+                        }
+                    }
+                }
+                """;
+        assertComplexity(code, "com.example.Test.method", 2);
+    }
+
+    @Test
+    void testDeepNestingDoesNotOverflowStack() {
+        int depth = 400;
+        var code = new StringBuilder(
+                """
+                package com.example;
+                public class Test {
+                    public void method(boolean a) {
+                """);
+        code.append("if (a) {\n".repeat(depth));
+        code.append("System.out.println(a);\n");
+        code.append("}\n".repeat(depth));
+        code.append("""
+                    }
+                }
+                """);
+
+        assertDoesNotThrow(() -> assertComplexity(code.toString(), "com.example.Test.method", depth * (depth + 1) / 2));
+    }
+
+    @Test
+    void testLambdaBodyCountsInsideEnclosingMethod() {
+        String code =
+                """
+                package com.example;
+                public class Test {
+                    public void method(boolean a) {
+                        Runnable r = () -> {
+                            if (a) {
+                            }
+                        };
+                    }
+                }
+                """;
+        assertComplexity(code, "com.example.Test.method", 2);
     }
 
     @Test

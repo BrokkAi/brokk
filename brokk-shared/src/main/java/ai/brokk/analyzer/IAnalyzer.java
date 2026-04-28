@@ -856,6 +856,23 @@ public interface IAnalyzer {
     }
 
     /**
+     * Computes cognitive complexity for all functions in the given file. Implementations may override this to share
+     * parse state across all functions in the file.
+     */
+    default Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        var complexities = new LinkedHashMap<CodeUnit, Integer>();
+        var work = new ArrayDeque<>(getTopLevelDeclarations(file));
+        while (!work.isEmpty()) {
+            CodeUnit cu = work.pop();
+            if (cu.isFunction()) {
+                complexities.put(cu, computeCognitiveComplexity(cu));
+            }
+            work.addAll(getDirectChildren(cu));
+        }
+        return complexities;
+    }
+
+    /**
      * Comment density for a single declaration. Language-specific analyzers may override; default is unsupported.
      */
     default Optional<CommentDensityStats> commentDensity(CodeUnit cu) {

@@ -275,6 +275,11 @@ public class TestAnalyzer
         return cognitiveComplexityMap.getOrDefault(cu, IAnalyzer.super.computeCognitiveComplexity(cu));
     }
 
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return IAnalyzer.super.computeCognitiveComplexities(file);
+    }
+
     public void setCognitiveComplexity(CodeUnit cu, int complexity) {
         this.cognitiveComplexityMap.put(cu, complexity);
     }

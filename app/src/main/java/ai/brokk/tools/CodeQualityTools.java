@@ -112,9 +112,9 @@ public class CodeQualityTools {
             ProjectFile file = contextManager.toFile(path);
             if (!file.exists()) continue;
 
-            List<CodeUnit> declarations = analyzer.getTopLevelDeclarations(file);
-            for (CodeUnit cu : declarations) {
-                foundAny |= analyzeUnitCognitiveComplexity(analyzer, cu, limit, lines);
+            var complexities = analyzer.computeCognitiveComplexities(file);
+            for (var entry : complexities.entrySet()) {
+                foundAny |= analyzeUnitCognitiveComplexity(entry.getKey(), entry.getValue(), limit, lines);
             }
         }
 
@@ -123,24 +123,16 @@ public class CodeQualityTools {
                 : "No methods exceeded the cognitive complexity threshold of " + limit + ".";
     }
 
-    private boolean analyzeUnitCognitiveComplexity(IAnalyzer analyzer, CodeUnit cu, int threshold, List<String> lines) {
-        boolean flagged = false;
-        if (cu.isFunction()) {
-            int complexity = analyzer.computeCognitiveComplexity(cu);
-
-            if (complexity > threshold) {
-                String finding = "%s High cognitive complexity: %s (CogC: %d) in %s"
-                        .formatted(FINDING_PREFIX, cu.fqName(), complexity, cu.source());
-                contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, finding);
-                lines.add("- " + cu.fqName() + ": " + complexity);
-                flagged = true;
-            }
+    private boolean analyzeUnitCognitiveComplexity(CodeUnit cu, int complexity, int threshold, List<String> lines) {
+        if (cu.isSynthetic() || complexity <= threshold) {
+            return false;
         }
 
-        for (CodeUnit child : analyzer.getDirectChildren(cu)) {
-            flagged |= analyzeUnitCognitiveComplexity(analyzer, child, threshold, lines);
-        }
-        return flagged;
+        String finding = "%s High cognitive complexity: %s (CogC: %d) in %s"
+                .formatted(FINDING_PREFIX, cu.fqName(), complexity, cu.source());
+        contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, finding);
+        lines.add("- " + cu.fqName() + ": " + complexity);
+        return true;
     }
 
     @Tool(
