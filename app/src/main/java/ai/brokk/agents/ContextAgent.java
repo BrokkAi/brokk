@@ -15,6 +15,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitDistance;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
@@ -183,7 +184,7 @@ public class ContextAgent {
                         fragment.sourceFiles().join().stream().findFirst();
                 if (fileOpt.isPresent()) {
                     var file = fileOpt.get();
-                    String content = file.read().orElse("");
+                    String content = ProjectFiles.read(file).orElse("");
                     totalTokens += Messages.getApproximateTokens(content);
                 } else {
                     logger.debug(
@@ -1144,7 +1145,7 @@ public class ContextAgent {
                 .distinct()
                 .parallel()
                 .map(file -> {
-                    var content = file.read().orElse("");
+                    var content = ProjectFiles.read(file).orElse("");
                     return Map.entry(file, content);
                 })
                 .filter(entry -> !entry.getValue().isEmpty())
@@ -1156,7 +1157,7 @@ public class ContextAgent {
                 .distinct()
                 .parallel()
                 .map(file -> {
-                    var content = file.read().orElse("");
+                    var content = ProjectFiles.read(file).orElse("");
                     return Map.entry(file, Lines.sample(content));
                 })
                 .filter(entry -> !entry.getValue().promptText().isEmpty())

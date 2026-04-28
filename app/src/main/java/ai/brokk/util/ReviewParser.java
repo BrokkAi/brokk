@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepoData.FileDiff;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.project.MainProject;
 import com.google.common.base.Splitter;
 import com.vladsch.flexmark.ast.FencedCodeBlock;
@@ -815,7 +816,7 @@ public class ReviewParser {
                 continue;
             }
 
-            String content = pf.read().orElse(null);
+            String content = ProjectFiles.read(pf).orElse(null);
             if (content == null) {
                 logger.debug("Could not read file for excerpt: {}", raw.file());
                 continue;

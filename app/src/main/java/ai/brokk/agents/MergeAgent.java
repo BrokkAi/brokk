@@ -15,6 +15,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo.ModifiedFile;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.tools.GitTools;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -381,7 +382,7 @@ public class MergeAgent {
 
             // Write annotated contents to our working path
             try {
-                pf.write(annotated.contents());
+                ProjectFiles.write(pf, annotated.contents());
             } catch (IOException e) {
                 logger.error("Failed to write annotated contents for {}: {}", pf, e.toString(), e);
                 return;
@@ -635,8 +636,9 @@ public class MergeAgent {
         var outcome = mof.merge();
         logger.debug("MergeOneFile for {} completed with status: {}", file.getRelPath(), outcome.status());
 
-        boolean edited =
-                file.read().map(current -> !current.equals(ac.contents())).orElse(false);
+        boolean edited = ProjectFiles.read(file)
+                .map(current -> !current.equals(ac.contents()))
+                .orElse(false);
         logger.debug("File {} was edited during merge: {}", file.getRelPath(), edited);
 
         if (outcome.status() == MergeOneFile.Status.UNRESOLVED) {

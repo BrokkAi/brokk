@@ -6,6 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -361,7 +362,7 @@ public class ContextHistory {
         for (var deletedFile : info.deletedFiles()) {
             var pf = deletedFile.file();
             try {
-                pf.write(deletedFile.content());
+                ProjectFiles.write(pf, deletedFile.content());
                 if (deletedFile.wasTracked()) {
                     trackedToStage.add(pf);
                 }
@@ -671,9 +672,9 @@ public class ContextHistory {
             var pf = entry.getKey();
             var newContent = entry.getValue();
             try {
-                var currentContent = pf.exists() ? pf.read().orElse("") : "";
+                var currentContent = pf.exists() ? ProjectFiles.read(pf).orElse("") : "";
                 if (!Objects.equals(newContent, currentContent)) {
-                    pf.write(newContent);
+                    ProjectFiles.write(pf, newContent);
                     changedFiles.add(pf);
                 }
             } catch (IOException e) {

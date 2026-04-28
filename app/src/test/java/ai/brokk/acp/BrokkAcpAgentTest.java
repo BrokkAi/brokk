@@ -1,25 +1,34 @@
 package ai.brokk.acp;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
+import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
+import com.agentclientprotocol.sdk.spec.AcpAgentSession;
 import com.agentclientprotocol.sdk.spec.AcpAgentTransport;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.TypeRef;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
@@ -142,6 +151,360 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void setModeEmitsCurrentModeUpdate() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var captured = new ArrayList<AcpSchema.SessionUpdate>();
+        var capturedSessionIds = new ArrayList<String>();
+        agent.setSessionUpdateSender((sessionId, update) -> {
+            capturedSessionIds.add(sessionId);
+            captured.add(update);
+        });
+
+        agent.setMode(new AcpSchema.SetSessionModeRequest(created.sessionId(), "ASK"));
+
+        var modeUpdates = captured.stream()
+                .filter(AcpSchema.CurrentModeUpdate.class::isInstance)
+                .map(AcpSchema.CurrentModeUpdate.class::cast)
+                .toList();
+        assertEquals(1, modeUpdates.size());
+        assertEquals("current_mode_update", modeUpdates.getFirst().sessionUpdate());
+        assertEquals("ASK", modeUpdates.getFirst().currentModeId());
+        assertEquals(created.sessionId(), capturedSessionIds.getFirst());
+    }
+
+    @Test
+    void setModeWithInvalidModeDoesNotEmit() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var captured = new ArrayList<AcpSchema.SessionUpdate>();
+        agent.setSessionUpdateSender((sessionId, update) -> captured.add(update));
+
+        agent.setMode(new AcpSchema.SetSessionModeRequest(created.sessionId(), "BOGUS"));
+
+        assertTrue(captured.stream().noneMatch(AcpSchema.CurrentModeUpdate.class::isInstance));
+    }
+
+    @Test
+    void permissionAskOffersFourOptions() {
+        try (var fixture = new PermissionFixture()) {
+            var captured = new AtomicReference<AcpSchema.RequestPermissionRequest>();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                captured.set(fixture.transport.mapper.convertValue(
+                        params, new TypeRef<AcpSchema.RequestPermissionRequest>() {}));
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_once"));
+            });
+
+            assertTrue(fixture.context.askPermission("Allow X?", "myTool"));
+
+            var request = captured.get();
+            assertNotNull(request);
+            var optionIds = request.options().stream()
+                    .map(AcpSchema.PermissionOption::optionId)
+                    .toList();
+            assertEquals(List.of("allow_once", "allow_always", "reject_once", "reject_always"), optionIds);
+            var optionKinds = request.options().stream()
+                    .map(AcpSchema.PermissionOption::kind)
+                    .toList();
+            assertEquals(
+                    List.of(
+                            AcpSchema.PermissionOptionKind.ALLOW_ONCE,
+                            AcpSchema.PermissionOptionKind.ALLOW_ALWAYS,
+                            AcpSchema.PermissionOptionKind.REJECT_ONCE,
+                            AcpSchema.PermissionOptionKind.REJECT_ALWAYS),
+                    optionKinds);
+        }
+    }
+
+    @Test
+    void permissionAllowAlwaysSkipsSubsequentPrompts() {
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_always"));
+            });
+
+            assertTrue(fixture.context.askPermission("Allow X?", "myTool"));
+            assertTrue(fixture.context.askPermission("Allow X again?", "myTool"));
+
+            assertEquals(1, calls.get());
+        }
+    }
+
+    @Test
+    void permissionRejectAlwaysCachesDenial() {
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "reject_always"));
+            });
+
+            assertFalse(fixture.context.askPermission("Allow X?", "myTool"));
+            assertFalse(fixture.context.askPermission("Allow X again?", "myTool"));
+
+            assertEquals(1, calls.get());
+        }
+    }
+
+    @Test
+    void permissionCacheIsScopedPerSession() {
+        try (var fixture = new PermissionFixture()) {
+            agent.rememberPermission("session-A", "myTool", BrokkAcpAgent.PermissionVerdict.ALLOW);
+
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "reject_once"));
+            });
+
+            // session-B has no sticky verdict, so it must prompt.
+            var ctxB = fixture.contextFor("session-B");
+            assertFalse(ctxB.askPermission("Allow X?", "myTool"));
+            assertEquals(1, calls.get());
+        }
+    }
+
+    @Test
+    void permissionForShellOffersOnlyTwoOptionsAndBypassesCache() {
+        // Shell permissions must NEVER cache: the cache key would be the literal string "shell",
+        // so allow_always would blanket-allow every future shell command in the session.
+        try (var fixture = new PermissionFixture()) {
+            var captured = new AtomicReference<AcpSchema.RequestPermissionRequest>();
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                captured.set(fixture.transport.mapper.convertValue(
+                        params, new TypeRef<AcpSchema.RequestPermissionRequest>() {}));
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_once"));
+            });
+
+            assertTrue(fixture.context.askPermission("Allow shell command: ls?", "shell"));
+            assertTrue(fixture.context.askPermission("Allow shell command: rm -rf?", "shell"));
+
+            assertEquals(2, calls.get(), "shell prompts must hit the user every time");
+            var req = captured.get();
+            assertNotNull(req);
+            var optionIds = req.options().stream()
+                    .map(AcpSchema.PermissionOption::optionId)
+                    .toList();
+            assertEquals(List.of("allow_once", "reject_once"), optionIds);
+        }
+    }
+
+    @Test
+    void permissionWithUnknownToolBypassesCache() {
+        try (var fixture = new PermissionFixture()) {
+            agent.rememberPermission(fixture.sessionId, "unknown", BrokkAcpAgent.PermissionVerdict.DENY);
+
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_once"));
+            });
+
+            assertTrue(fixture.context.askPermission("Confirm overwrite?"));
+
+            assertEquals(1, calls.get());
+        }
+    }
+
+    /** Spins up a transport + session + AcpRequestContext for permission tests. */
+    private final class PermissionFixture implements AutoCloseable {
+        final FakeTransport transport = new FakeTransport();
+        final AcpAgentSession session = new AcpAgentSession(Duration.ofSeconds(10), transport, Map.of(), Map.of());
+        final String sessionId = "session-A";
+        final AcpRequestContext context = new AcpRequestContext(session, sessionId, null, agent);
+
+        AcpRequestContext contextFor(String otherSessionId) {
+            return new AcpRequestContext(session, otherSessionId, null, agent);
+        }
+
+        AcpRequestContext contextWithCaps(NegotiatedCapabilities clientCaps) {
+            return new AcpRequestContext(session, sessionId, clientCaps, agent);
+        }
+
+        @Override
+        public void close() {
+            session.close();
+        }
+    }
+
+    @Test
+    void taskListMutationsEmitPlanSessionUpdate() throws Exception {
+        agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var plans = new java.util.concurrent.LinkedBlockingQueue<AcpSchema.Plan>();
+        agent.setSessionUpdateSender((sessionId, update) -> {
+            if (update instanceof AcpSchema.Plan p) {
+                plans.add(p);
+            }
+        });
+        agent.start();
+        try {
+            contextManager.setTaskListAsync(new ai.brokk.tasks.TaskList.TaskListData(
+                    null,
+                    List.of(new ai.brokk.tasks.TaskList.TaskItem("task-1", "Investigate the bug", "details", false))));
+
+            var first = plans.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertNotNull(first, "expected a plan update for the initial task list");
+            assertEquals(1, first.entries().size());
+            assertEquals("Investigate the bug", first.entries().getFirst().content());
+            assertEquals(
+                    AcpSchema.PlanEntryStatus.PENDING,
+                    first.entries().getFirst().status());
+
+            contextManager.setTaskListAsync(new ai.brokk.tasks.TaskList.TaskListData(
+                    null,
+                    List.of(new ai.brokk.tasks.TaskList.TaskItem("task-1", "Investigate the bug", "details", true))));
+
+            var second = plans.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertNotNull(second, "expected a follow-up plan update after marking task done");
+            assertEquals(
+                    AcpSchema.PlanEntryStatus.COMPLETED,
+                    second.entries().getFirst().status());
+        } finally {
+            agent.stop();
+        }
+    }
+
+    @Test
+    void acpReadHonorsClientFileSystemCapability() throws Exception {
+        var diskFile = projectRoot.resolve("foo.txt");
+        java.nio.file.Files.writeString(diskFile, "DISK\n");
+        var pf = new ProjectFile(projectRoot, java.nio.file.Path.of("foo.txt"));
+
+        try (var fixture = new PermissionFixture()) {
+            fixture.transport.respondTo(AcpSchema.METHOD_FS_READ_TEXT_FILE, params -> {
+                var req =
+                        fixture.transport.mapper.convertValue(params, new TypeRef<AcpSchema.ReadTextFileRequest>() {});
+                assertEquals(diskFile.toAbsolutePath().toString(), req.path());
+                return new AcpSchema.ReadTextFileResponse("EDITOR-BUFFER");
+            });
+
+            var clientCaps = NegotiatedCapabilities.fromClient(
+                    new AcpSchema.ClientCapabilities(new AcpSchema.FileSystemCapability(true, true), false));
+            try (var ignored = AcpFileBridge.install(fixture.contextWithCaps(clientCaps), clientCaps)) {
+                var read = ProjectFiles.read(pf);
+                assertEquals("EDITOR-BUFFER", read.orElse(null));
+            }
+        }
+    }
+
+    @Test
+    void acpWriteHonorsClientFileSystemCapability() throws Exception {
+        var pf = new ProjectFile(projectRoot, java.nio.file.Path.of("write-target.txt"));
+
+        try (var fixture = new PermissionFixture()) {
+            var captured = new AtomicReference<AcpSchema.WriteTextFileRequest>();
+            fixture.transport.respondTo(AcpSchema.METHOD_FS_WRITE_TEXT_FILE, params -> {
+                captured.set(fixture.transport.mapper.convertValue(
+                        params, new TypeRef<AcpSchema.WriteTextFileRequest>() {}));
+                return new AcpSchema.WriteTextFileResponse();
+            });
+
+            var clientCaps = NegotiatedCapabilities.fromClient(
+                    new AcpSchema.ClientCapabilities(new AcpSchema.FileSystemCapability(true, true), false));
+            try (var ignored = AcpFileBridge.install(fixture.contextWithCaps(clientCaps), clientCaps)) {
+                ProjectFiles.write(pf, "NEW-CONTENT");
+            }
+
+            assertNotNull(captured.get());
+            assertEquals(pf.absPath().toString(), captured.get().path());
+            assertEquals("NEW-CONTENT", captured.get().content());
+            // Disk should not have been touched when the bridge handled the write.
+            assertFalse(java.nio.file.Files.exists(pf.absPath()));
+        }
+    }
+
+    @Test
+    void acpReadFallsBackToDiskWhenNoFsCapability() throws Exception {
+        var diskFile = projectRoot.resolve("plain.txt");
+        java.nio.file.Files.writeString(diskFile, "ON-DISK\n");
+        var pf = new ProjectFile(projectRoot, java.nio.file.Path.of("plain.txt"));
+
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_FS_READ_TEXT_FILE, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.ReadTextFileResponse("UNEXPECTED");
+            });
+
+            var clientCaps = NegotiatedCapabilities.fromClient(
+                    new AcpSchema.ClientCapabilities(new AcpSchema.FileSystemCapability(false, false), false));
+            try (var ignored = AcpFileBridge.install(fixture.contextWithCaps(clientCaps), clientCaps)) {
+                var read = ProjectFiles.read(pf);
+                assertEquals("ON-DISK\n", read.orElse(null));
+            }
+            assertEquals(0, calls.get());
+        }
+    }
+
+    @Test
+    void initializeAdvertisesMcpCapabilities() {
+        var response = agent.initialize();
+        var mcp = response.agentCapabilities().mcpCapabilities();
+        assertNotNull(mcp);
+        assertEquals(Boolean.TRUE, mcp.http());
+        assertEquals(Boolean.FALSE, mcp.sse());
+    }
+
+    @Test
+    void newSessionAcceptsHttpMcpServer() {
+        // 127.0.0.1:1 always refuses; tool discovery fails fast and the server is still registered
+        // with its untransformed (null) tools list. We assert only the conversion + per-session
+        // bookkeeping, not the discovery (which needs a real MCP server, covered by integration).
+        var http = new AcpSchema.McpServerHttp(
+                "test-http",
+                "http://127.0.0.1:1/mcp",
+                List.of(new AcpSchema.HttpHeader("Authorization", "Bearer abc123")));
+
+        var created = agent.newSession(
+                new AcpSchema.NewSessionRequest(projectRoot.toString(), List.<AcpSchema.McpServer>of(http)));
+
+        var registered = agent.mcpServersFor(created.sessionId());
+        assertEquals(1, registered.size());
+        var converted = assertInstanceOf(ai.brokk.mcpclient.HttpMcpServer.class, registered.getFirst());
+        assertEquals("test-http", converted.name());
+        assertEquals("http://127.0.0.1:1/mcp", converted.url().toString());
+        assertEquals("Bearer abc123", converted.bearerToken());
+    }
+
+    @Test
+    void newSessionSurfacesRejectedMcpServersInResponseMeta() {
+        // SSE is not supported; should be dropped and surfaced under brokk.rejectedMcpServers.
+        var sse = new AcpSchema.McpServerSse("test-sse", "https://example/mcp", List.of());
+        var response = agent.newSession(
+                new AcpSchema.NewSessionRequest(projectRoot.toString(), List.<AcpSchema.McpServer>of(sse)));
+
+        var meta = response.meta();
+        assertNotNull(meta);
+        @SuppressWarnings("unchecked")
+        var brokk = (Map<String, Object>) meta.get("brokk");
+        assertNotNull(brokk);
+        @SuppressWarnings("unchecked")
+        var rejected = (List<String>) brokk.get("rejectedMcpServers");
+        assertNotNull(rejected, "expected rejected MCP server names in response meta");
+        assertTrue(rejected.contains("test-sse"));
+    }
+
+    @Test
+    void closeSessionClearsMcpServers() {
+        var http = new AcpSchema.McpServerHttp("test-http", "http://127.0.0.1:1/mcp", List.of());
+        var created = agent.newSession(
+                new AcpSchema.NewSessionRequest(projectRoot.toString(), List.<AcpSchema.McpServer>of(http)));
+        assertEquals(1, agent.mcpServersFor(created.sessionId()).size());
+
+        agent.closeSession(new AcpProtocol.CloseSessionRequest(created.sessionId(), null));
+
+        assertTrue(agent.mcpServersFor(created.sessionId()).isEmpty());
+    }
+
+    @Test
     void runtimeRoutesNewSessionMethods() {
         var transport = new FakeTransport();
         try (var runtime = new BrokkAcpRuntime(transport, agent)) {
@@ -179,9 +542,10 @@ class BrokkAcpAgentTest {
         }
     }
 
-    private static final class FakeTransport implements AcpAgentTransport {
+    static final class FakeTransport implements AcpAgentTransport {
         private final McpJsonMapper mapper = McpJsonDefaults.getMapper();
         private final List<AcpSchema.JSONRPCMessage> sentMessages = new ArrayList<>();
+        private final Map<String, Function<Object, Object>> requestStubs = new ConcurrentHashMap<>();
         private Function<Mono<AcpSchema.JSONRPCMessage>, Mono<AcpSchema.JSONRPCMessage>> handler =
                 ignored -> Mono.empty();
 
@@ -189,6 +553,21 @@ class BrokkAcpAgentTest {
             var request = new AcpSchema.JSONRPCRequest(method, id, params);
             var response = handler.apply(Mono.just(request)).block();
             return assertInstanceOf(AcpSchema.JSONRPCResponse.class, response);
+        }
+
+        /** Decoded view of {@code session/update} notifications the agent has emitted. */
+        List<AcpSchema.SessionNotification> sessionUpdates() {
+            return sentMessages.stream()
+                    .filter(AcpSchema.JSONRPCNotification.class::isInstance)
+                    .map(AcpSchema.JSONRPCNotification.class::cast)
+                    .filter(n -> AcpSchema.METHOD_SESSION_UPDATE.equals(n.method()))
+                    .map(n -> mapper.convertValue(n.params(), new TypeRef<AcpSchema.SessionNotification>() {}))
+                    .toList();
+        }
+
+        /** Register a stub that responds to outbound client-bound requests for {@code method}. */
+        void respondTo(String method, Function<Object, Object> stub) {
+            requestStubs.put(method, stub);
         }
 
         @Override
@@ -213,6 +592,15 @@ class BrokkAcpAgentTest {
         @Override
         public Mono<Void> sendMessage(AcpSchema.JSONRPCMessage message) {
             sentMessages.add(message);
+            if (message instanceof AcpSchema.JSONRPCRequest req) {
+                var stub = requestStubs.get(req.method());
+                if (stub != null) {
+                    var result = stub.apply(req.params());
+                    var response = new AcpSchema.JSONRPCResponse("2.0", req.id(), result, null);
+                    Thread.startVirtualThread(
+                            () -> handler.apply(Mono.just(response)).subscribe());
+                }
+            }
             return Mono.empty();
         }
 

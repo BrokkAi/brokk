@@ -13,6 +13,7 @@ import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.exception.GlobalExceptionHandler;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.Messages;
 import ai.brokk.util.TokenAware;
@@ -180,8 +181,8 @@ public final class BlitzForge {
                 var future = completionService.submit(new TokenAwareCallable() {
                     @Override
                     public int tokens() {
-                        int fileTokens =
-                                Messages.getApproximateTokens(file.read().orElse(""));
+                        int fileTokens = Messages.getApproximateTokens(
+                                ProjectFiles.read(file).orElse(""));
                         int sharedTokens = 0;
                         int perFileCtxTokens = 0;
                         try {

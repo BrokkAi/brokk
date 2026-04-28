@@ -8,6 +8,7 @@ import io.modelcontextprotocol.json.TypeRef;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import reactor.core.publisher.Mono;
 
@@ -17,6 +18,7 @@ final class BrokkAcpRuntime implements AutoCloseable {
     private final BrokkAcpAgent agent;
     private final AtomicReference<NegotiatedCapabilities> clientCapabilities = new AtomicReference<>();
     private final AcpAgentSession session;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     BrokkAcpRuntime(AcpAgentTransport transport, BrokkAcpAgent agent) {
         this.transport = transport;
@@ -24,6 +26,7 @@ final class BrokkAcpRuntime implements AutoCloseable {
         this.session = new AcpAgentSession(Duration.ofMinutes(5), transport, requestHandlers(), notificationHandlers());
         agent.setSessionUpdateSender(
                 (sessionId, update) -> AcpRequestContext.sendSessionUpdate(session, sessionId, update));
+        agent.start();
     }
 
     void run() {
@@ -64,7 +67,7 @@ final class BrokkAcpRuntime implements AutoCloseable {
         });
         handlers.put(AcpSchema.METHOD_SESSION_PROMPT, params -> {
             var request = unmarshal(params, new TypeRef<AcpSchema.PromptRequest>() {});
-            var context = new AcpRequestContext(session, request.sessionId(), clientCapabilities.get());
+            var context = new AcpRequestContext(session, request.sessionId(), clientCapabilities.get(), agent);
             return Mono.fromCallable(() -> agent.prompt(request, context));
         });
         handlers.put(AcpSchema.METHOD_SESSION_SET_MODE, params -> {
@@ -91,6 +94,11 @@ final class BrokkAcpRuntime implements AutoCloseable {
 
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+        agent.stop();
+        agent.clearAllSessions();
         session.close();
     }
 }

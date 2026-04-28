@@ -1,6 +1,7 @@
 package ai.brokk;
 
 import ai.brokk.agents.BlitzForge;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.tools.ApprovalResult;
@@ -10,6 +11,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.util.List;
+import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
 public interface IConsoleIO {
@@ -225,10 +227,27 @@ public interface IConsoleIO {
     }
 
     /**
+     * Notifies the console that an approved tool call has begun executing.
+     * Default implementation is a no-op.
+     */
+    default void toolCallInProgress(ToolExecutionRequest request) {
+        // no-op
+    }
+
+    /**
      * Notifies the console that a tool call has completed.
      * Default implementation is a no-op.
      */
     default void afterToolOutput(ToolExecutionResult result) {
+        // no-op
+    }
+
+    /**
+     * Notifies the console that a batch of file edits has been applied. Maps from {@code ProjectFile} to
+     * its content before and after the edit; only keys for files that successfully changed are present.
+     * Default implementation is a no-op.
+     */
+    default void afterFileEdits(Map<ProjectFile, String> originalContents, Map<ProjectFile, String> newContents) {
         // no-op
     }
 

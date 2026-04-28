@@ -2,14 +2,16 @@ package ai.brokk.acp;
 
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.agents.BlitzForge;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.tools.ApprovalResult;
 import ai.brokk.tools.ToolExecutionResult;
-import com.agentclientprotocol.sdk.agent.SyncPromptContext;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -27,7 +29,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>Constructed per-prompt-turn and set as the active console on ContextManager.
  */
 public class AcpConsoleIO extends MemoryConsole {
-    private final SyncPromptContext context;
+    private final AcpPromptContext context;
     private final String sessionId;
 
     /** Tracks tool kind from beforeToolCall so afterToolOutput can preserve it. */
@@ -36,7 +38,17 @@ public class AcpConsoleIO extends MemoryConsole {
     /** Tracks tool call ID for commandStart/commandResult lifecycle. */
     private volatile @Nullable String activeCommandToolCallId;
 
-    public AcpConsoleIO(SyncPromptContext context) {
+    private record ActiveEdit(String toolCallId, String toolName) {}
+
+    /**
+     * Per-thread stack of active EDIT tool calls. EditBlock.apply runs synchronously on the same
+     * thread that called beforeToolCall, so afterFileEdits can correlate by inspecting the top.
+     * Using a stack (rather than a single ref) supports nested EDIT tools — e.g. an architect tool
+     * that calls a code agent tool — without overwriting the outer tool's id.
+     */
+    private static final ThreadLocal<Deque<ActiveEdit>> ACTIVE_EDIT_STACK = ThreadLocal.withInitial(ArrayDeque::new);
+
+    public AcpConsoleIO(AcpPromptContext context) {
         this.context = context;
         this.sessionId = context.getSessionId();
     }
@@ -68,6 +80,9 @@ public class AcpConsoleIO extends MemoryConsole {
         var toolCallId = request.id() != null ? request.id() : UUID.randomUUID().toString();
         var kind = classifyTool(toolName, destructive);
         pendingToolKinds.put(toolCallId, kind);
+        if (kind == AcpSchema.ToolKind.EDIT) {
+            ACTIVE_EDIT_STACK.get().push(new ActiveEdit(toolCallId, toolName));
+        }
 
         var toolCall = new AcpSchema.ToolCall(
                 "tool_call",
@@ -83,7 +98,7 @@ public class AcpConsoleIO extends MemoryConsole {
         context.sendUpdate(sessionId, toolCall);
 
         if (destructive) {
-            boolean approved = context.askPermission("Allow destructive tool: " + toolName + "?");
+            boolean approved = context.askPermission("Allow destructive tool: " + toolName + "?", toolName);
             if (!approved) {
                 pendingToolKinds.remove(toolCallId);
             }
@@ -110,11 +125,64 @@ public class AcpConsoleIO extends MemoryConsole {
                 Map.of("brokk", Map.of("toolName", "shell")));
         context.sendUpdate(sessionId, toolCall);
 
-        boolean approved = context.askPermission("Allow shell command: " + command + "?");
+        boolean approved = context.askPermission("Allow shell command: " + command + "?", "shell");
         if (!approved) {
             pendingToolKinds.remove(toolCallId);
         }
         return approved ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
+    }
+
+    /** Maximum bytes of pre/post text we'll ship inside a single ToolCallDiff content block. */
+    private static final int MAX_DIFF_BLOB_BYTES = 256 * 1024;
+
+    @Override
+    public void afterFileEdits(Map<ProjectFile, String> originalContents, Map<ProjectFile, String> newContents) {
+        var active = ACTIVE_EDIT_STACK.get().peek();
+        if (active == null) {
+            return;
+        }
+        var toolCallId = active.toolCallId();
+        var toolName = active.toolName();
+        var diffs = originalContents.entrySet().stream()
+                .map(e -> (AcpSchema.ToolCallContent) new AcpSchema.ToolCallDiff(
+                        "diff",
+                        e.getKey().absPath().toString(),
+                        truncateForDiff(e.getValue()),
+                        truncateForDiff(newContents.getOrDefault(e.getKey(), ""))))
+                .toList();
+        var update = new AcpSchema.ToolCallUpdateNotification(
+                "tool_call_update",
+                toolCallId,
+                toolName,
+                AcpSchema.ToolKind.EDIT,
+                AcpSchema.ToolCallStatus.IN_PROGRESS,
+                diffs,
+                List.of(),
+                null,
+                null,
+                null);
+        context.sendUpdate(sessionId, update);
+    }
+
+    @Override
+    public void toolCallInProgress(ToolExecutionRequest request) {
+        var toolCallId = request.id() != null ? request.id() : null;
+        if (toolCallId == null) {
+            return;
+        }
+        var kind = pendingToolKinds.getOrDefault(toolCallId, AcpSchema.ToolKind.OTHER);
+        var update = new AcpSchema.ToolCallUpdateNotification(
+                "tool_call_update",
+                toolCallId,
+                request.name(),
+                kind,
+                AcpSchema.ToolCallStatus.IN_PROGRESS,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null);
+        context.sendUpdate(sessionId, update);
     }
 
     @Override
@@ -125,6 +193,14 @@ public class AcpConsoleIO extends MemoryConsole {
         var toolId = result.toolId();
         var kind = pendingToolKinds.getOrDefault(toolId, AcpSchema.ToolKind.OTHER);
         pendingToolKinds.remove(toolId);
+        var stack = ACTIVE_EDIT_STACK.get();
+        // Pop the matching entry from the top of the per-thread edit stack. We use removeIf
+        // (single match) because nesting may not be perfectly LIFO if an exception unwound
+        // partially without afterToolOutput firing.
+        stack.removeIf(e -> toolId.equals(e.toolCallId()));
+        if (stack.isEmpty()) {
+            ACTIVE_EDIT_STACK.remove();
+        }
 
         // Build content blocks with the result text
         List<AcpSchema.ToolCallContent> content = List.of();
@@ -273,6 +349,14 @@ public class AcpConsoleIO extends MemoryConsole {
      * Destructive tools always map to EDIT. Otherwise, classification is based on
      * tool name prefixes to match the reference ACP implementation's categories.
      */
+    private static String truncateForDiff(String text) {
+        if (text.length() <= MAX_DIFF_BLOB_BYTES) {
+            return text;
+        }
+        return text.substring(0, MAX_DIFF_BLOB_BYTES) + "\n... [truncated " + (text.length() - MAX_DIFF_BLOB_BYTES)
+                + " bytes]";
+    }
+
     private static AcpSchema.ToolKind classifyTool(String toolName, boolean destructive) {
         if (destructive) {
             return AcpSchema.ToolKind.EDIT;
