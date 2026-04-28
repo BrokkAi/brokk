@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
@@ -133,6 +134,84 @@ public class CodeQualityTools {
         contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, finding);
         lines.add("- " + cu.fqName() + ": " + complexity);
         return true;
+    }
+
+    @Tool(
+            """
+            Reports long methods/functions, god objects/modules, and helper sprawl in the given files.
+            Uses analyzer code-unit hierarchy and declaration ranges, then ranks bounded findings by maintainability impact.
+            Includes file path, symbol, line range, size/responsibility signals, and concise rationale.""")
+    public String reportLongMethodAndGodObjectSmells(
+            @P("File paths relative to the project root.") List<String> filePaths,
+            @P("Maximum findings to return; values <= 0 default to 20.") int maxFindings,
+            @P("Maximum existing files to analyze; values <= 0 default to 25.") int maxFiles,
+            @P("Long method/function line threshold; values <= 0 use default.") int longMethodSpanLines,
+            @P("High cyclomatic complexity threshold; values <= 0 use default.") int highComplexityThreshold,
+            @P("God object/module line threshold; values <= 0 use default.") int godObjectSpanLines,
+            @P("God object/module direct-child threshold; values <= 0 use default.") int godObjectDirectChildren,
+            @P("God object/module function-count threshold; values <= 0 use default.") int godObjectFunctions,
+            @P("Helper-sprawl function-count threshold; values <= 0 use default.") int helperSprawlFunctions,
+            @P("Helper-sprawl workflow line threshold; values <= 0 use default.") int helperSprawlWorkflowLines) {
+
+        int cap = maxFindings > 0 ? maxFindings : 20;
+        int fileCap = maxFiles > 0 ? maxFiles : 25;
+        var defaults = IAnalyzer.MaintainabilitySizeSmellWeights.defaults();
+        var weights = new IAnalyzer.MaintainabilitySizeSmellWeights(
+                pickPositive(longMethodSpanLines, defaults.longMethodSpanLines()),
+                pickPositive(highComplexityThreshold, defaults.highComplexityThreshold()),
+                pickPositive(godObjectSpanLines, defaults.godObjectSpanLines()),
+                pickPositive(godObjectDirectChildren, defaults.godObjectDirectChildren()),
+                pickPositive(godObjectFunctions, defaults.godObjectFunctions()),
+                pickPositive(helperSprawlFunctions, defaults.helperSprawlFunctions()),
+                pickPositive(helperSprawlWorkflowLines, defaults.helperSprawlWorkflowLines()),
+                defaults.fileModuleLeewayMultiplier());
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        var files = filePaths.stream()
+                .map(contextManager::toFile)
+                .filter(ProjectFile::exists)
+                .limit(fileCap)
+                .toList();
+        var selectedFiles = new HashSet<>(files);
+        var findings = files.stream()
+                .flatMap(file -> analyzer.findLongMethodAndGodObjectSmells(file, weights).stream())
+                .filter(smell -> selectedFiles.contains(smell.codeUnit().source()))
+                .sorted(IAnalyzer.maintainabilitySizeSmellComparator())
+                .limit(cap)
+                .toList();
+
+        var lines = new ArrayList<String>();
+        lines.add("Long method and god object smells (max findings: " + cap + "):");
+        lines.add("- Files analyzed cap: " + fileCap);
+        lines.add("- Weights: " + formatWeights(weights));
+        if (findings.isEmpty()) {
+            lines.add("");
+            lines.add("No long method or god object smells found.");
+            return String.join("\n", lines);
+        }
+        for (var smell : findings) {
+            CodeUnit cu = smell.codeUnit();
+            var range = smell.range();
+            int displayStartLine = range.startLine() + 1;
+            int displayEndLine = range.endLine() + 1;
+            String finding = "%s Maintainability size smell: %s (score: %d) in %s:%d-%d"
+                    .formatted(
+                            FINDING_PREFIX, cu.fqName(), smell.score(), cu.source(), displayStartLine, displayEndLine);
+            contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, finding);
+            lines.add("- `%s` in `%s:%d-%d` [score %d]"
+                    .formatted(cu.fqName(), cu.source(), displayStartLine, displayEndLine, smell.score()));
+            lines.add(
+                    "  - Signals: own %d lines, descendants %d lines, direct children %d, functions %d, nested types %d, max function %d lines, max CC %d"
+                            .formatted(
+                                    smell.ownSpanLines(),
+                                    smell.descendantSpanLines(),
+                                    smell.directChildCount(),
+                                    smell.functionCount(),
+                                    smell.nestedTypeCount(),
+                                    smell.maxFunctionSpanLines(),
+                                    smell.maxCyclomaticComplexity()));
+            lines.add("  - Rationale: " + String.join("; ", smell.reasons()));
+        }
+        return String.join("\n", lines);
     }
 
     @Tool(
@@ -612,8 +691,27 @@ public class CodeQualityTools {
         return candidate >= 0 ? candidate : fallback;
     }
 
+    private static int pickPositive(int candidate, int fallback) {
+        return candidate > 0 ? candidate : fallback;
+    }
+
     private static String sanitizeTableCell(String value) {
         return value.replace("|", "\\|");
+    }
+
+    private static String formatWeights(IAnalyzer.MaintainabilitySizeSmellWeights w) {
+        return "longMethodLines=%d, highComplexity=%d, godObjectLines=%d, godObjectDirectChildren=%d,"
+                        .formatted(
+                                w.longMethodSpanLines(),
+                                w.highComplexityThreshold(),
+                                w.godObjectSpanLines(),
+                                w.godObjectDirectChildren())
+                + " godObjectFunctions=%d, helperSprawlFunctions=%d, helperSprawlWorkflowLines=%d, fileModuleLeeway=%dx"
+                        .formatted(
+                                w.godObjectFunctions(),
+                                w.helperSprawlFunctions(),
+                                w.helperSprawlWorkflowLines(),
+                                w.fileModuleLeewayMultiplier());
     }
 
     private static String formatWeights(IAnalyzer.ExceptionSmellWeights w) {
