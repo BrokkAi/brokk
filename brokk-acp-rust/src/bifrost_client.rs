@@ -338,6 +338,16 @@ mod tests {
             .expect("bifrost subprocess should start");
 
         let names: Vec<&str> = client.tools().iter().map(|t| t.name.as_str()).collect();
+
+        // Floor on total tool count -- catches a wholesale regression where
+        // bifrost drops most of its tools (e.g. a misconfigured server arg).
+        // The exact count drifts as bifrost adds tools, so we don't pin it.
+        assert!(
+            client.tools().len() >= 5,
+            "expected at least 5 tools, got {} -- {names:?}",
+            client.tools().len()
+        );
+
         for expected in ["search_symbols", "skim_files", "get_summaries"] {
             assert!(
                 names.contains(&expected),
@@ -345,12 +355,27 @@ mod tests {
             );
         }
 
+        // Round-trip two distinct tool calls so we exercise back-to-back use
+        // of the JSON-RPC reader/writer mutex (id correlation, sequential
+        // dispatch, response-shape branching) -- not just one-shot dispatch.
         let result = client
             .call_tool("search_symbols", json!({ "patterns": ["BifrostClient"] }))
             .await
             .expect("search_symbols call should succeed");
         eprintln!(
             "search_symbols result: {}",
+            serde_json::to_string_pretty(&result).unwrap_or_default()
+        );
+
+        let result = client
+            .call_tool(
+                "skim_files",
+                json!({ "file_patterns": ["brokk-acp-rust/src/bifrost_client.rs"] }),
+            )
+            .await
+            .expect("skim_files call should succeed");
+        eprintln!(
+            "skim_files result: {}",
             serde_json::to_string_pretty(&result).unwrap_or_default()
         );
     }
