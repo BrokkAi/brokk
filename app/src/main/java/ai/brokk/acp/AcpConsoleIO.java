@@ -282,15 +282,53 @@ public class AcpConsoleIO extends MemoryConsole {
         context.sendUpdate(sessionId, toolCall);
 
         if (destructive) {
-            boolean approved = context.askPermission("Allow destructive tool: " + toolName + "?", toolName);
-            if (!approved) {
+            // Tools that ultimately run shell commands (directly or via a sub-agent) get the
+            // sandbox-bypass options and a per-invocation cache key so a session approval doesn't
+            // blanket-allow other tasks. Other destructive tools use the legacy boolean prompt.
+            ApprovalResult result;
+            String shellArgField = SHELL_TOOLS_TO_ARG_FIELD.get(toolName);
+            if (shellArgField != null) {
+                var arg = extractStringArg(request.arguments(), shellArgField);
+                var cacheKey = arg.isEmpty() ? toolName : toolName + ":" + arg;
+                var prompt =
+                        arg.isEmpty() ? "Allow shell tool: " + toolName + "?" : "Allow " + toolName + ": " + arg + "?";
+                var decision = context.askPermissionDetailed(prompt, toolName, cacheKey, true);
+                result = switch (decision) {
+                    case ALLOW -> ApprovalResult.APPROVED;
+                    case ALLOW_NO_SANDBOX -> ApprovalResult.APPROVED_NO_SANDBOX;
+                    case DENY -> ApprovalResult.DENIED;
+                };
+            } else {
+                boolean approved = context.askPermission("Allow destructive tool: " + toolName + "?", toolName);
+                result = approved ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
+            }
+            if (!result.isApproved()) {
                 pendingToolKinds.remove(toolCallId);
                 pendingToolTitles.remove(toolCallId);
                 emitDeniedToolCallUpdate(toolCallId, title, kind);
             }
-            return approved ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
+            return result;
         }
         return ApprovalResult.APPROVED;
+    }
+
+    /**
+     * Tools whose approval prompts should expose the sandbox-bypass options. The map value is the
+     * JSON argument name to extract for the per-invocation cache key — e.g. for {@code
+     * runShellCommand("ls -la")} the cache key becomes {@code "runShellCommand:ls -la"}, so a
+     * session-level approval doesn't blanket-allow other commands.
+     */
+    private static final Map<String, String> SHELL_TOOLS_TO_ARG_FIELD =
+            Map.of("runShellCommand", "command", "callShellAgent", "task");
+
+    /** Best-effort extraction of a string argument from a tool-call's JSON payload; "" on miss. */
+    private static String extractStringArg(@Nullable String argumentsJson, String field) {
+        var node = parseArgs(argumentsJson);
+        if (node == null) {
+            return "";
+        }
+        var value = node.get(field);
+        return value != null && value.isTextual() ? value.asText() : "";
     }
 
     /**

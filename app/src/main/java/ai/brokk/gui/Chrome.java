@@ -124,7 +124,7 @@ public class Chrome
 
     private final RightPanel rightPanel;
     private final ToolsPane toolsPane;
-    private final Set<String> sessionApprovedTools = ConcurrentHashMap.newKeySet();
+    private final Map<String, Boolean> sessionApprovedTools = new ConcurrentHashMap<>();
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
     private final JTabbedPane fileHistoryPane; // Bottom area for file history
     private int originalLeftVerticalDividerSize;
@@ -2251,8 +2251,9 @@ public class Chrome
             return ApprovalResult.APPROVED;
         }
         var approval = computeApprovalContext(request);
-        if (sessionApprovedTools.contains(approval.sessionKey())) {
-            return ApprovalResult.APPROVED;
+        var cached = sessionApprovedTools.get(approval.sessionKey());
+        if (cached != null) {
+            return cached ? ApprovalResult.APPROVED_NO_SANDBOX : ApprovalResult.APPROVED;
         }
         var hop = rightPanel.getHistoryOutputPanel();
         CompletableFuture<HistoryOutputPanel.ApprovalChoice> future;
@@ -2281,11 +2282,13 @@ public class Chrome
         try {
             var choice = future.get();
             if (choice == HistoryOutputPanel.ApprovalChoice.ALLOW_SESSION) {
-                sessionApprovedTools.add(approval.sessionKey());
+                sessionApprovedTools.put(approval.sessionKey(), false);
+            } else if (choice == HistoryOutputPanel.ApprovalChoice.ALLOW_NO_SANDBOX_SESSION) {
+                sessionApprovedTools.put(approval.sessionKey(), true);
             }
             return switch (choice) {
                 case DENY -> ApprovalResult.DENIED;
-                case ALLOW_NO_SANDBOX -> ApprovalResult.APPROVED_NO_SANDBOX;
+                case ALLOW_NO_SANDBOX, ALLOW_NO_SANDBOX_SESSION -> ApprovalResult.APPROVED_NO_SANDBOX;
                 default -> ApprovalResult.APPROVED;
             };
         } catch (ExecutionException e) {
@@ -2318,6 +2321,15 @@ public class Chrome
                         command != null ? command : request.arguments(),
                         "Allow Command for Session",
                         "runShellCommand:" + (command != null ? command : ""),
+                        true);
+            }
+            case "callShellAgent" -> {
+                var task = extractJsonField(request.arguments(), "task");
+                yield new ApprovalContext(
+                        "Agent wants to run a shell agent",
+                        task != null ? task : request.arguments(),
+                        "Allow Shell Agent for Session",
+                        "callShellAgent:" + (task != null ? task : ""),
                         true);
             }
             default ->
