@@ -938,8 +938,8 @@ def _build_parser() -> argparse.ArgumentParser:
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
-        choices=["zed", "intellij", "nvim", "neovim", "mcp", "codex-plugin"],
-        help="Install target for integration settings",
+        choices=["zed", "intellij", "jetbrains", "nvim", "neovim", "mcp", "codex-plugin"],
+        help="Install target for integration settings (jetbrains is an alias for intellij)",
     )
     install_parser.add_argument(
         "--plugin",
@@ -1988,6 +1988,8 @@ def _main_dispatch(
 ) -> None:
     """Core command dispatch, extracted to support optional worktree wrapping."""
     if args.command == "install":
+        if args.target == "jetbrains":
+            args.target = "intellij"
         # Fast-fail validation before prompting for API keys
         if args.plugin and args.target not in {"nvim", "neovim"}:
             print("Error: --plugin is only valid for install targets nvim/neovim", file=sys.stderr)

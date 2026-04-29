@@ -583,6 +583,30 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
     assert "Configured IntelliJ ACP integration" in output
 
 
+def test_main_install_jetbrains_alias_routes_to_intellij_installer(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_configure_intellij_acp_settings(
+        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None, **_kw
+    ):
+        captured["force"] = force
+        return tmp_path / "intellij-config"
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings
+    )
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "jetbrains", "--force"])
+
+    main_module.main()
+
+    output = capsys.readouterr().out
+    assert captured["force"] is True
+    assert "Configured IntelliJ ACP integration" in output
+
+
 def test_main_install_nvim_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
     captured: dict[str, Any] = {}
 
