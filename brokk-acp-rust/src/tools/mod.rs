@@ -433,11 +433,8 @@ mod tests {
     /// Allocate a fresh empty directory under the system temp dir for one test
     /// to scribble in. Caller is responsible for cleaning it up.
     fn fresh_tmp_dir(label: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "brokk-acp-rust-{}-{}",
-            label,
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("brokk-acp-rust-{}-{}", label, uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create tmp dir");
         dir
     }
@@ -452,11 +449,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside, cwd.join("evil")).expect("create symlink");
 
         let result = safe_resolve_for_write(&cwd, "evil");
-        assert!(
-            result.is_err(),
-            "expected rejection, got Ok({:?})",
-            result
-        );
+        assert!(result.is_err(), "expected rejection, got Ok({:?})", result);
 
         std::fs::remove_dir_all(&cwd).ok();
         std::fs::remove_dir_all(outside.parent().unwrap()).ok();
@@ -475,11 +468,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside_file, cwd.join("evil")).expect("create symlink");
 
         let result = safe_resolve_for_write(&cwd, "evil");
-        assert!(
-            result.is_err(),
-            "expected rejection, got Ok({:?})",
-            result
-        );
+        assert!(result.is_err(), "expected rejection, got Ok({:?})", result);
 
         std::fs::remove_dir_all(&cwd).ok();
         std::fs::remove_dir_all(&outside_dir).ok();
@@ -517,11 +506,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside, cwd.join("escape")).expect("create symlink");
 
         let result = safe_resolve_for_write(&cwd, "escape/newfile.txt");
-        assert!(
-            result.is_err(),
-            "expected rejection, got Ok({:?})",
-            result
-        );
+        assert!(result.is_err(), "expected rejection, got Ok({:?})", result);
 
         std::fs::remove_dir_all(&cwd).ok();
         std::fs::remove_dir_all(&outside).ok();
