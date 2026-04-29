@@ -508,3 +508,110 @@ def test_run_mcp_core_server_reports_missing_runtime(monkeypatch, tmp_path, caps
 
     assert exc.value.code == 1
     assert "Unable to launch MCP core runtime" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# ACP launcher: --jar must fully bypass jbang and the dev-jar fallback
+# ---------------------------------------------------------------------------
+
+
+def test_run_acp_server_with_jar_bypasses_jbang_and_dev_jar(monkeypatch, tmp_path) -> None:
+    """`brokk acp --jar <path>` must launch `java -cp <path>` directly.
+
+    With --jar provided, the launcher must not consult find_dev_jar, must not
+    call ensure_jbang_ready, must not invoke a jbang binary, and must not
+    construct any release-jar URL pointing at brokk-releases.
+    """
+    captured: dict[str, object] = {}
+    dummy_jar = tmp_path / "brokk.jar"
+    dummy_jar.write_text("dummy")
+
+    def boom_dev_jar(*_args, **_kwargs) -> None:
+        raise AssertionError("find_dev_jar must not be called when --jar is provided")
+
+    def boom_jbang() -> str:
+        raise AssertionError("ensure_jbang_ready must not be called when --jar is provided")
+
+    def fake_chdir(path: Path) -> None:
+        captured["cwd"] = path
+
+    def fake_execvpe(binary: str, command: list[str], env: dict[str, str]) -> None:
+        captured["binary"] = binary
+        captured["command"] = command
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(os, "chdir", fake_chdir)
+    monkeypatch.setattr(os, "execvpe", fake_execvpe)
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", boom_dev_jar)
+    monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", boom_jbang)
+
+    with pytest.raises(RuntimeError, match="stop"):
+        mcp_launcher.run_acp_server(
+            workspace_dir=tmp_path,
+            jar_path=dummy_jar,
+            executor_version=None,
+            passthrough_args=["--workspace-dir", str(tmp_path)],
+        )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert captured["binary"] == "java"
+    assert command[0] == "java"
+    assert "-cp" in command
+    assert str(dummy_jar) in command
+    assert "ai.brokk.acp.AcpServerMain" in command
+    # No jbang token anywhere in the command (binary path or arg).
+    assert not any("jbang" in part.lower() for part in command)
+    # No release-jar URL constructed (that would point at the executor release).
+    assert not any("brokk-releases" in part for part in command)
+    # passthrough args appended without the JBang `--` separator.
+    assert "--" not in command
+    assert command[-2:] == ["--workspace-dir", str(tmp_path)]
+
+
+def test_run_acp_server_passthrough_with_explicit_executor_version_still_uses_jar(
+    monkeypatch, tmp_path
+) -> None:
+    """An explicit --executor-version must not override --jar back onto jbang."""
+    captured: dict[str, object] = {}
+    dummy_jar = tmp_path / "brokk.jar"
+    dummy_jar.write_text("dummy")
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(os, "chdir", lambda _path: None)
+    monkeypatch.setattr(
+        os,
+        "execvpe",
+        lambda binary, command, _env: captured.update(binary=binary, command=command)
+        or (_ for _ in ()).throw(RuntimeError("stop")),
+    )
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
+    monkeypatch.setattr(
+        mcp_launcher,
+        "find_dev_jar",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("find_dev_jar must not be called when --jar is provided")
+        ),
+    )
+    monkeypatch.setattr(
+        mcp_launcher,
+        "ensure_jbang_ready",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("ensure_jbang_ready must not be called when --jar is provided")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="stop"):
+        mcp_launcher.run_acp_server(
+            workspace_dir=tmp_path,
+            jar_path=dummy_jar,
+            executor_version="9.9.9",
+        )
+
+    command = captured["command"]
+    assert captured["binary"] == "java"
+    assert str(dummy_jar) in command
+    assert not any("9.9.9" in part for part in command)
+    assert not any("brokk-releases" in part for part in command)

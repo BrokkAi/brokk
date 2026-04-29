@@ -326,6 +326,64 @@ def test_main_acp_native_alias_warns_and_routes(monkeypatch, tmp_path, capsys) -
     assert "deprecated" in capsys.readouterr().err.lower()
 
 
+def test_main_acp_with_jar_forwards_jar_and_skips_jbang(monkeypatch, tmp_path) -> None:
+    """`brokk acp --jar <path>` must forward jar_path verbatim and never touch jbang.
+
+    End-to-end dispatch contract: the only thing main() does on the acp branch
+    is call run_native_acp_server with the resolved jar_path. No ensure_jbang_ready,
+    no install prefetch, no release-jar URL machinery.
+    """
+    captured: dict[str, Any] = {}
+    jar_path = tmp_path / "brokk.jar"
+    jar_path.write_text("dummy")
+
+    def fake_run_native_acp_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    def boom_jbang() -> str:
+        raise AssertionError("ensure_jbang_ready must not be called on the acp dispatch path")
+
+    def boom_resolve_jbang() -> str | None:
+        raise AssertionError("resolve_jbang_binary must not be called on the acp dispatch path")
+
+    def boom_prefetch(_commands: list) -> None:
+        raise AssertionError("_run_install_prefetch must not be called on the acp dispatch path")
+
+    monkeypatch.setattr(main_module, "run_native_acp_server", fake_run_native_acp_server)
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", boom_jbang)
+    monkeypatch.setattr(main_module, "resolve_jbang_binary", boom_resolve_jbang)
+    monkeypatch.setattr(main_module, "_run_install_prefetch", boom_prefetch)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "acp",
+            "--workspace",
+            str(tmp_path),
+            "--jar",
+            str(jar_path),
+            "--executor-version",
+            "9.9.9",
+        ],
+    )
+
+    main_module.main()
+
+    kwargs = captured["kwargs"]
+    assert kwargs["workspace_dir"] == tmp_path.resolve()
+    assert kwargs["jar_path"] == jar_path.resolve()
+    assert kwargs["executor_version"] == "9.9.9"
+    passthrough = kwargs["passthrough_args"]
+    assert "--workspace-dir" in passthrough
+    assert str(tmp_path.resolve()) in passthrough
+    # Nothing in the forwarded kwargs should reference jbang or the release CDN.
+    for value in kwargs.values():
+        rendered = str(value)
+        assert "jbang" not in rendered.lower()
+        assert "brokk-releases" not in rendered
+
+
 def test_main_mcp_routes_to_launcher(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {}
     jar_path = tmp_path / "brokk.jar"
