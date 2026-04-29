@@ -267,7 +267,6 @@ _CODEX_SKILL_NAMES: list[str] = [
     "code-reading",
     "codebase-search",
     "git-exploration",
-    "structured-data",
     "workspace",
     "review-pr",
     "guided-review",

@@ -1,8 +1,8 @@
 ---
 name: brokk-workspace
 description: >-
-  Set or query the active workspace using Brokk's activateWorkspace and
-  getActiveWorkspace tools. Required before code intelligence works on a
+  Set or query the active workspace using Brokk's activate_workspace and
+  get_active_workspace tools. Required before code intelligence works on a
   new project or when switching repositories.
 ---
 
@@ -16,25 +16,33 @@ tools until a workspace is activated.
 
 | Tool | Purpose |
 |---|---|
-| `activateWorkspace` | Set the active workspace directory (absolute path; normalizes to git root) |
-| `getActiveWorkspace` | Return the current workspace root path |
+| `activate_workspace` | Set the active workspace directory (absolute path; normalizes to git root) |
+| `get_active_workspace` | Return the current workspace root path |
+| `refresh` | Re-scan the workspace and rebuild the analyzer snapshot |
 
 ## Parameters
 
-### activateWorkspace
+### activate_workspace
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `workspacePath` | string | yes | Absolute path to the desired workspace directory |
+| `workspace_path` | string | yes | Absolute path to the desired workspace directory |
 
-### getActiveWorkspace
+### get_active_workspace
+
+No parameters.
+
+### refresh
 
 No parameters.
 
 ## Tips
 
-- Always call `activateWorkspace` before using any other Brokk tools when
+- Always call `activate_workspace` before using any other Brokk tools when
   starting work on a new project or switching repositories.
 - The server automatically resolves the given path upward to the nearest
-  `.git` root, so you can pass a subdirectory path.
-- Use `getActiveWorkspace` to confirm which project root is currently active.
+  `.git` root, so you can pass a subdirectory path; the path must be absolute.
+- Use `get_active_workspace` to confirm which project root is currently active.
+- Call `refresh` after the workspace files change on disk in ways the
+  analyzer hasn't picked up yet (e.g., a large `git checkout` or external
+  edits) so subsequent symbol lookups see the latest definitions.

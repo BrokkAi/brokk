@@ -234,7 +234,7 @@ using the `Skill` tool (invoke with skill name `brokk-write-issue`).
 If the `Skill` tool is NOT available, perform the write-issue workflow
 inline:
 1. Ask for a title and rough description.
-2. Call `activateWorkspace` with the current project path.
+2. Call `activate_workspace` with the current project path.
 3. If the `Agent` tool is available, spawn a `brokk:issue-enhancer`
    agent with the draft (do NOT use `isolation: "worktree"` -- the
    agent is read-only). Otherwise, use Brokk MCP tools yourself to
