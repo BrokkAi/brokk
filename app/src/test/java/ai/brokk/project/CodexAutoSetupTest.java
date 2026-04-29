@@ -116,7 +116,8 @@ class CodexAutoSetupTest {
         MainProject.setOpenAiCodexOauthConnected(false);
         assertEquals("claude-sonnet-4-6", project.getModelConfig(ModelType.CODE).name());
         assertEquals(
-                "gemini-3-flash-preview", project.getModelConfig(ModelType.SUMMARIZE).name());
+                "gemini-3-flash-preview",
+                project.getModelConfig(ModelType.SUMMARIZE).name());
 
         MainProject.setOpenAiCodexOauthConnected(true);
         MainProject.setRestrictToOauthModelsWhenConnected(true);
