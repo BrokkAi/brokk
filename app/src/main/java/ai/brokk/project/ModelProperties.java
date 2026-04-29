@@ -33,6 +33,9 @@ public final class ModelProperties {
     public static final String GPT_5_1_CODEX_MINI_OAUTH = "gpt-5.1-codex-mini-oauth";
     public static final String GPT_5_3_CODEX_OAUTH = "gpt-5.3-codex-oauth";
 
+    /** Hardcoded fallback used when live model-catalog discovery returns empty (e.g., startup races). */
+    public static final List<String> BASE_MODEL_IDS = List.of(GPT_5_3_CODEX, FLASH_3);
+
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5_4NanoLow = new ModelConfig(GPT_54_NANO, ReasoningLevel.LOW);
     private static final ModelConfig gpt5_4NanoHigh = new ModelConfig(GPT_54_NANO, ReasoningLevel.HIGH);

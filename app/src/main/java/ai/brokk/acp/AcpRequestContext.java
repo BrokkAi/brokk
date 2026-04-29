@@ -107,12 +107,26 @@ final class AcpRequestContext implements AcpPromptContext {
                                         + "Treating as denied. Request: {}",
                                 PERMISSION_TIMEOUT,
                                 request);
-                        sendMessage("\n**Permission request timed out** after "
+                        // Compose the notification into the Mono chain — calling sendMessage()
+                        // here would invoke .block() on Reactor's parallel scheduler thread,
+                        // which Reactor forbids and would replace the timeout error with an
+                        // IllegalStateException.
+                        var timeoutText = "\n**Permission request timed out** after "
                                 + PERMISSION_TIMEOUT.toSeconds()
                                 + "s without a response from the client. Treating this tool call as denied. "
                                 + "If you did click Allow, the IDE may have failed to deliver the response — "
-                                + "check `~/.brokk/debug.log` for the `acp-agent-inbound` thread.\n");
-                        return Mono.just(new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionCancelled()));
+                                + "check `~/.brokk/debug.log` for the `acp-agent-inbound` thread.\n";
+                        var update = new AcpSchema.AgentMessageChunk(
+                                "agent_message_chunk", new AcpSchema.TextContent(timeoutText));
+                        return session.sendNotification(
+                                        AcpSchema.METHOD_SESSION_UPDATE,
+                                        new AcpSchema.SessionNotification(sessionId, update))
+                                .onErrorResume(t -> {
+                                    logger.warn("Failed to deliver timeout notification: {}", t.getMessage());
+                                    return Mono.empty();
+                                })
+                                .thenReturn(
+                                        new AcpSchema.RequestPermissionResponse(new AcpSchema.PermissionCancelled()));
                     })
                     .block());
         } finally {

@@ -744,16 +744,13 @@ public class CodeAgent {
 
     void report(String message) {
         logger.debug(message);
-        io.llmOutput("\n" + message, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
+        io.showStatusLine(message);
     }
 
     void reportComplete(TaskResult.StopReason reason, String message) {
         logger.debug(message);
         var badge = StatusBadge.badgeFor(reason);
-        io.llmOutput(
-                "\n## Code Agent Finished\n" + badge + "\n\n**Reason:** " + message,
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.newMessage());
+        io.showStatusLine(badge + " Code Agent finished — " + message);
     }
 
     Step parsePhase(

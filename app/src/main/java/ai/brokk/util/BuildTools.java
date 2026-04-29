@@ -15,6 +15,7 @@ import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
+import com.github.mustachejava.MustacheException;
 import com.github.mustachejava.MustacheFactory;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -233,12 +234,20 @@ public class BuildTools {
         context.put("fqclasses", MustacheTemplates.toStringElementList(fqClasses));
         context.put("classes", MustacheTemplates.toStringElementList(classes));
 
-        MustacheFactory mf = new DefaultMustacheFactory();
-        Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
-
-        StringWriter writer = new StringWriter();
-        mustache.execute(writer, context);
-        String result = writer.toString();
+        String result;
+        try {
+            MustacheFactory mf = new DefaultMustacheFactory();
+            Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
+            StringWriter writer = new StringWriter();
+            mustache.execute(writer, context);
+            result = writer.toString();
+        } catch (MustacheException e) {
+            // A malformed template (typically from a corrupted BuildDetails entry) must not abort
+            // the surrounding architect/code-agent run. Skip this command and let the verification
+            // step proceed without it.
+            logger.warn("Skipping malformed Mustache template: {} (template={})", e.getMessage(), template);
+            return "";
+        }
 
         if (result.isBlank() || (template.contains("{{") && result.equals(template))) {
             return "";
@@ -344,16 +353,19 @@ public class BuildTools {
     public static String interpolateMustacheTemplate(
             String template, List<String> items, String listKey, @Nullable String pythonVersion) {
         if (template.isEmpty()) return "";
-        // Use unified interpolation logic compatible with BuildAgent
-        MustacheFactory mf = new DefaultMustacheFactory();
-        Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
         Map<String, Object> context = new HashMap<>();
         context.put(listKey, MustacheTemplates.toStringElementList(items));
         context.put("pyver", pythonVersion == null ? "" : pythonVersion);
 
-        StringWriter writer = new StringWriter();
-        mustache.execute(writer, context);
-
-        return writer.toString();
+        try {
+            MustacheFactory mf = new DefaultMustacheFactory();
+            Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
+            StringWriter writer = new StringWriter();
+            mustache.execute(writer, context);
+            return writer.toString();
+        } catch (MustacheException e) {
+            logger.warn("Skipping malformed Mustache template: {} (template={})", e.getMessage(), template);
+            return "";
+        }
     }
 }

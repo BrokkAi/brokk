@@ -1,5 +1,6 @@
 package ai.brokk.acp;
 
+import ai.brokk.AbstractService;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.IAppContextManager;
@@ -15,6 +16,7 @@ import ai.brokk.mcpclient.HttpMcpServer;
 import ai.brokk.mcpclient.McpServer;
 import ai.brokk.mcpclient.McpUtils;
 import ai.brokk.mcpclient.StdioMcpServer;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
@@ -54,6 +56,10 @@ public class BrokkAcpAgent {
     private static final String DEFAULT_REASONING_LEVEL = "medium";
     private static final String DEFAULT_REASONING_LEVEL_CODE = "disable";
     private static final Set<String> REASONING_LEVEL_IDS = Set.of("low", "medium", "high", "disable", "default");
+
+    private static final int MODEL_DISCOVERY_INITIAL_ATTEMPTS = 3;
+    private static final int MODEL_DISCOVERY_RECOVERY_ATTEMPTS = 2;
+    private static final long MODEL_DISCOVERY_INITIAL_BACKOFF_MS = 200;
     private static final Path ACP_SETTINGS_PATH =
             Path.of(System.getProperty("user.home"), ".brokk", "acp_settings.json");
 
@@ -94,6 +100,7 @@ public class BrokkAcpAgent {
     // Per-session state
     private final Map<String, String> modeBySession = new ConcurrentHashMap<>();
     private final Map<String, String> modelBySession = new ConcurrentHashMap<>();
+    private final Set<String> sessionsOnFallbackCatalog = ConcurrentHashMap.newKeySet();
     private final Map<String, String> reasoningBySession = new ConcurrentHashMap<>();
     private final Map<String, String> activeJobBySession = new ConcurrentHashMap<>();
     private final Map<String, Map<String, PermissionVerdict>> stickyPermissionsBySession = new ConcurrentHashMap<>();
@@ -256,6 +263,7 @@ public class BrokkAcpAgent {
         rejectedMcpServersBySession.clear();
         lastTaskListBySession.clear();
         pendingPlanBySession.clear();
+        sessionsOnFallbackCatalog.clear();
         bundleBySession.clear();
     }
 
@@ -485,6 +493,7 @@ public class BrokkAcpAgent {
         modelBySession.remove(sessionId);
         reasoningBySession.remove(sessionId);
         stickyPermissionsBySession.remove(sessionId);
+        sessionsOnFallbackCatalog.remove(sessionId);
         permissionModeBySession.remove(sessionId);
         mcpServersBySession.remove(sessionId);
         rejectedMcpServersBySession.remove(sessionId);
@@ -565,7 +574,8 @@ public class BrokkAcpAgent {
         var bundle = bundleOpt.get();
 
         // Handle slash commands
-        if (text.strip().toLowerCase(Locale.ROOT).startsWith("/context")) {
+        var firstWord = text.strip().split("\\s+", 2)[0].toLowerCase(Locale.ROOT);
+        if (firstWord.equals("/context")) {
             handleContextCommand(bundle, promptContext);
             return AcpSchema.PromptResponse.endTurn();
         }
@@ -580,6 +590,16 @@ public class BrokkAcpAgent {
             return AcpSchema.PromptResponse.endTurn();
         }
         bundle.cm().switchSessionAsync(target.get().id()).join();
+
+        // Best-effort auto-rename for sessions still on a placeholder name; uses the user's prompt.
+        try {
+            bundle.cm()
+                    .getProject()
+                    .getSessionManager()
+                    .autoRenameIfDefault(target.get().id(), text);
+        } catch (Exception e) {
+            logger.warn("Failed to auto-rename ACP session {}: {}", sessionId, e.getMessage());
+        }
 
         // Materialize @-mentioned files (resource_link / embedded resource blocks) into the
         // workspace so every mode -- especially ASK, which has no tool loop -- can see them.
@@ -803,7 +823,26 @@ public class BrokkAcpAgent {
         // Persist updated defaults
         saveAcpDefaults(parsed.baseModel, reasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL));
 
+        refreshCatalogIfFallback(sessionId);
+
         return new AcpSchema.SetSessionModelResponse();
+    }
+
+    /**
+     * If {@code sessionId} was last seen on the {@code BASE_MODEL_IDS} fallback catalog, re-attempts
+     * live discovery. Clears the fallback flag on success so the next {@link #buildModelState}
+     * returns the real catalog. Best-effort: silently no-ops if discovery still fails.
+     */
+    private void refreshCatalogIfFallback(String sessionId) {
+        if (!sessionsOnFallbackCatalog.contains(sessionId)) {
+            return;
+        }
+        var service = bundleForSession(sessionId).cm().getService();
+        var fresh = discoverModelsWithRetry(service, MODEL_DISCOVERY_RECOVERY_ATTEMPTS);
+        if (!fresh.isEmpty()) {
+            sessionsOnFallbackCatalog.remove(sessionId);
+            logger.info("Model catalog recovered for session {} after fallback ({} models)", sessionId, fresh.size());
+        }
     }
 
     /**
@@ -965,7 +1004,15 @@ public class BrokkAcpAgent {
 
     private AcpSchema.SessionModelState buildModelState(String sessionId) {
         var service = bundleForSession(sessionId).cm().getService();
-        var availableModels = service.getAvailableModels();
+        var availableModels = discoverModelsWithRetry(service, MODEL_DISCOVERY_INITIAL_ATTEMPTS);
+
+        if (availableModels.isEmpty()) {
+            availableModels = ModelProperties.BASE_MODEL_IDS.stream().collect(Collectors.toMap(id -> id, id -> id));
+            sessionsOnFallbackCatalog.add(sessionId);
+            logger.warn("Model discovery returned no models; using BASE_MODEL_IDS fallback for session {}", sessionId);
+        } else {
+            sessionsOnFallbackCatalog.remove(sessionId);
+        }
 
         // Build model list with reasoning variants (model/low, model/medium, model/high, etc.)
         var models = new ArrayList<AcpSchema.ModelInfo>();
@@ -975,10 +1022,6 @@ public class BrokkAcpAgent {
                 models.add(new AcpSchema.ModelInfo(name + "/" + level, name + " (" + level + ")", null));
             }
         });
-
-        if (models.isEmpty()) {
-            models.add(new AcpSchema.ModelInfo("default", "Default Model", null));
-        }
 
         // Resolve current model, preferring persisted default for new sessions
         var baseModel = modelBySession.getOrDefault(sessionId, defaultModelId);
@@ -994,6 +1037,32 @@ public class BrokkAcpAgent {
         var currentModelId = formatModelIdWithVariant(baseModel, reasoning);
 
         return new AcpSchema.SessionModelState(currentModelId, List.copyOf(models));
+    }
+
+    /**
+     * Calls {@code service.getAvailableModels()} with bounded exponential backoff. Returns the
+     * first non-empty result, or an empty map if all attempts return empty. Backoff sequence is
+     * {@link #MODEL_DISCOVERY_INITIAL_BACKOFF_MS} doubling per retry.
+     */
+    private static Map<String, String> discoverModelsWithRetry(AbstractService service, int attempts) {
+        long backoff = MODEL_DISCOVERY_INITIAL_BACKOFF_MS;
+        Map<String, String> latest = Map.of();
+        for (int i = 0; i < attempts; i++) {
+            latest = service.getAvailableModels();
+            if (!latest.isEmpty()) {
+                return latest;
+            }
+            if (i < attempts - 1) {
+                try {
+                    Thread.sleep(backoff);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return latest;
+                }
+                backoff *= 2;
+            }
+        }
+        return latest;
     }
 
     private Map<String, Object> buildVariantMeta(String sessionId) {
