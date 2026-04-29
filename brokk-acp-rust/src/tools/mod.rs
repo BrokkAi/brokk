@@ -375,10 +375,15 @@ pub fn safe_resolve_for_write(cwd: &Path, requested: &str) -> Result<PathBuf, St
     let joined = cwd.join(requested);
 
     // Walk up to the first existing ancestor (including the target itself if it exists).
+    // Use symlink_metadata rather than exists(): exists() follows symlinks, so a dangling
+    // symlink at the leaf would be reported as non-existent and we'd skip past it,
+    // letting fs::write follow the link and write outside cwd. symlink_metadata reports
+    // the symlink itself as "existing" so the canonicalize step below either resolves it
+    // (rejecting if the target lies outside cwd) or errors on a dangling target.
     let mut tail: Vec<std::ffi::OsString> = Vec::new();
     let mut cursor: &Path = &joined;
     let existing = loop {
-        if cursor.exists() {
+        if cursor.symlink_metadata().is_ok() {
             break cursor.to_path_buf();
         }
         match (cursor.file_name(), cursor.parent()) {
@@ -419,4 +424,111 @@ pub fn safe_resolve_for_write(cwd: &Path, requested: &str) -> Result<PathBuf, St
     }
 
     Ok(resolved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Allocate a fresh empty directory under the system temp dir for one test
+    /// to scribble in. Caller is responsible for cleaning it up.
+    fn fresh_tmp_dir(label: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("brokk-acp-rust-{}-{}", label, uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create tmp dir");
+        dir
+    }
+
+    /// Regression: a dangling symlink at the leaf must be rejected, not silently
+    /// followed by the eventual fs::write at the call site. See issue #3408.
+    #[cfg(unix)]
+    #[test]
+    fn safe_resolve_for_write_rejects_dangling_symlink_to_outside_cwd() {
+        let cwd = fresh_tmp_dir("dangling-symlink");
+        let outside = fresh_tmp_dir("dangling-target").join("does-not-exist-yet");
+        std::os::unix::fs::symlink(&outside, cwd.join("evil")).expect("create symlink");
+
+        let result = safe_resolve_for_write(&cwd, "evil");
+        assert!(result.is_err(), "expected rejection, got Ok({:?})", result);
+
+        std::fs::remove_dir_all(&cwd).ok();
+        std::fs::remove_dir_all(outside.parent().unwrap()).ok();
+    }
+
+    /// A symlink whose target *exists* but lies outside cwd must also be rejected.
+    /// This case worked before the fix; the test pins it down so a future change
+    /// doesn't regress it.
+    #[cfg(unix)]
+    #[test]
+    fn safe_resolve_for_write_rejects_live_symlink_to_outside_cwd() {
+        let cwd = fresh_tmp_dir("live-symlink");
+        let outside_dir = fresh_tmp_dir("live-target");
+        let outside_file = outside_dir.join("real");
+        std::fs::write(&outside_file, "hello").expect("seed outside file");
+        std::os::unix::fs::symlink(&outside_file, cwd.join("evil")).expect("create symlink");
+
+        let result = safe_resolve_for_write(&cwd, "evil");
+        assert!(result.is_err(), "expected rejection, got Ok({:?})", result);
+
+        std::fs::remove_dir_all(&cwd).ok();
+        std::fs::remove_dir_all(&outside_dir).ok();
+    }
+
+    /// A symlink that points back inside cwd should still be allowed: the
+    /// fix must not over-restrict legitimate intra-sandbox links.
+    #[cfg(unix)]
+    #[test]
+    fn safe_resolve_for_write_allows_symlink_pointing_inside_cwd() {
+        let cwd = fresh_tmp_dir("inside-symlink");
+        let real = cwd.join("real.txt");
+        std::fs::write(&real, "ok").expect("seed real file");
+        std::os::unix::fs::symlink(&real, cwd.join("link")).expect("create symlink");
+
+        let resolved = safe_resolve_for_write(&cwd, "link").expect("resolve must succeed");
+        let cwd_canonical = cwd.canonicalize().unwrap();
+        assert!(
+            resolved.starts_with(&cwd_canonical),
+            "resolved {:?} must stay under cwd {:?}",
+            resolved,
+            cwd_canonical
+        );
+
+        std::fs::remove_dir_all(&cwd).ok();
+    }
+
+    /// An intermediate directory that is a symlink to outside cwd must be
+    /// rejected even if the leaf is a not-yet-existing file.
+    #[cfg(unix)]
+    #[test]
+    fn safe_resolve_for_write_rejects_intermediate_symlink_escape() {
+        let cwd = fresh_tmp_dir("intermediate-symlink");
+        let outside = fresh_tmp_dir("intermediate-target");
+        std::os::unix::fs::symlink(&outside, cwd.join("escape")).expect("create symlink");
+
+        let result = safe_resolve_for_write(&cwd, "escape/newfile.txt");
+        assert!(result.is_err(), "expected rejection, got Ok({:?})", result);
+
+        std::fs::remove_dir_all(&cwd).ok();
+        std::fs::remove_dir_all(&outside).ok();
+    }
+
+    /// Happy path: writing to a not-yet-existing file in an existing,
+    /// symlink-free directory still resolves under cwd.
+    #[test]
+    fn safe_resolve_for_write_allows_new_file_in_existing_dir() {
+        let cwd = fresh_tmp_dir("new-file");
+
+        let resolved =
+            safe_resolve_for_write(&cwd, "subdir/new.txt").expect("resolve must succeed");
+        let cwd_canonical = cwd.canonicalize().unwrap();
+        assert!(
+            resolved.starts_with(&cwd_canonical),
+            "resolved {:?} must stay under cwd {:?}",
+            resolved,
+            cwd_canonical
+        );
+        assert!(resolved.ends_with("subdir/new.txt"));
+
+        std::fs::remove_dir_all(&cwd).ok();
+    }
 }
