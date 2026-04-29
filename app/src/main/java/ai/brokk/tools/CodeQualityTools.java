@@ -6,10 +6,13 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CommentDensityStats;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.FuzzyResult;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.git.GitHotspotAnalyzer;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitSecretScanner;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.usages.UsageFinder;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.io.IOException;
@@ -19,8 +22,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
@@ -213,6 +219,238 @@ public class CodeQualityTools {
         }
         return String.join("\n", lines);
     }
+
+    @Blocking
+    @Tool(
+            """
+            Reports likely generated-code residue: unused declarations and one-call abstractions in the given files.
+            Uses analyzer declarations plus symbol/reference usage analysis where available, not text-only matching.
+            Pass fqNames to target specific symbols; leave fqNames empty to scan declarations in the bounded files.""")
+    public String reportDeadCodeAndUnusedAbstractionSmells(
+            @P("File paths relative to the project root.") List<String> filePaths,
+            @P("Optional fully qualified symbol names to analyze. Empty means discover candidates from filePaths.")
+                    List<String> fqNames,
+            @P("Minimum score to include a finding; values <= 0 default to 8.") int minScore,
+            @P("Maximum findings to emit; values <= 0 default to 40.") int maxFindings,
+            @P("Maximum existing files to analyze or usage-candidate files to inspect; values <= 0 default to 25.")
+                    int maxFiles,
+            @P(
+                            "Maximum usage hits per symbol before usage lookup returns a guardrail result; values <= 0 default to 100.")
+                    int maxUsagesPerSymbol) {
+
+        int threshold = minScore > 0 ? minScore : 8;
+        int findingsCap = maxFindings > 0 ? maxFindings : 40;
+        int fileCap = maxFiles > 0 ? maxFiles : 25;
+        int usageCap = maxUsagesPerSymbol > 0 ? maxUsagesPerSymbol : 100;
+
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        var files = filePaths.stream()
+                .map(contextManager::toFile)
+                .filter(ProjectFile::exists)
+                .limit(fileCap)
+                .toList();
+        var selectedFiles = Set.copyOf(files);
+        var findings = new ArrayList<DeadCodeFinding>();
+        var skipped = new ArrayList<String>();
+        var candidates = deadCodeCandidates(analyzer, files, fqNames, selectedFiles, skipped);
+
+        for (CodeUnit candidate : candidates) {
+            Optional<DeadCodeFinding> finding =
+                    analyzeDeadCodeCandidate(analyzer, candidate, fileCap, usageCap, skipped);
+            finding.filter(f -> f.score() >= threshold).ifPresent(findings::add);
+        }
+
+        var filtered = findings.stream()
+                .sorted(Comparator.comparingInt(DeadCodeFinding::externalUsageCount)
+                        .thenComparing(
+                                Comparator.comparingInt(DeadCodeFinding::score).reversed())
+                        .thenComparing(f -> f.file().toString(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(DeadCodeFinding::symbol, String.CASE_INSENSITIVE_ORDER))
+                .limit(findingsCap)
+                .toList();
+
+        var lines = new ArrayList<String>();
+        lines.add("## Dead code and unused abstraction smells");
+        lines.add("");
+        lines.add("- Min score: %d".formatted(threshold));
+        lines.add("- Files analyzed cap: %d".formatted(fileCap));
+        lines.add("- Usage cap per symbol: %d".formatted(usageCap));
+        lines.add("- Candidate symbols analyzed: %d".formatted(candidates.size()));
+        lines.add("- Findings shown: %d of %d".formatted(filtered.size(), findings.size()));
+        if (!skipped.isEmpty()) {
+            lines.add("- Skipped symbols: %d".formatted(skipped.size()));
+        }
+        lines.add("");
+
+        if (filtered.isEmpty()) {
+            lines.add("No dead code or unused abstraction smells met minScore " + threshold + ".");
+            if (!skipped.isEmpty()) {
+                lines.add("");
+                lines.add("Skipped evidence:");
+                skipped.stream().limit(10).forEach(skip -> lines.add("- " + skip));
+            }
+            return String.join("\n", lines);
+        }
+
+        lines.add("| Score | Confidence | Kind | Symbol | File | External Usages | Evidence | Rationale |");
+        lines.add("|------:|-----------:|------|--------|------|----------------:|----------|-----------|");
+        for (DeadCodeFinding finding : filtered) {
+            String location = "%s:%d-%d".formatted(finding.file(), finding.startLine(), finding.endLine());
+            lines.add("| %d | %.2f | `%s` | `%s` | `%s` | %d | `%s` | `%s` |"
+                    .formatted(
+                            finding.score(),
+                            finding.confidence(),
+                            finding.kind(),
+                            sanitizeTableCell(finding.symbol()),
+                            sanitizeTableCell(location),
+                            finding.externalUsageCount(),
+                            sanitizeTableCell(finding.evidence()),
+                            sanitizeTableCell(finding.rationale())));
+
+            String notification = "%s Dead/unused abstraction smell: %s (score: %d) in %s"
+                    .formatted(FINDING_PREFIX, finding.symbol(), finding.score(), location);
+            contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, notification);
+        }
+        if (findings.size() > filtered.size()) {
+            lines.add("");
+            lines.add("- Note: output truncated; increase maxFindings to see more.");
+        }
+        if (!skipped.isEmpty()) {
+            lines.add("");
+            lines.add("Skipped evidence:");
+            skipped.stream().limit(10).forEach(skip -> lines.add("- " + skip));
+            if (skipped.size() > 10) {
+                lines.add("- ... " + (skipped.size() - 10) + " more skipped symbols");
+            }
+        }
+        return String.join("\n", lines);
+    }
+
+    private List<CodeUnit> deadCodeCandidates(
+            IAnalyzer analyzer,
+            List<ProjectFile> files,
+            List<String> fqNames,
+            Set<ProjectFile> selectedFiles,
+            List<String> skipped) {
+        var candidates = new LinkedHashSet<CodeUnit>();
+        var targets =
+                fqNames.stream().map(String::strip).filter(s -> !s.isBlank()).toList();
+        if (!targets.isEmpty()) {
+            for (String fqName : targets) {
+                var definitions = analyzer.getDefinitions(fqName);
+                if (definitions.isEmpty()) {
+                    skipped.add("`%s`: no definition found".formatted(fqName));
+                    continue;
+                }
+                definitions.stream()
+                        .filter(cu -> selectedFiles.isEmpty() || selectedFiles.contains(cu.source()))
+                        .filter(CodeQualityTools::isDeadCodeCandidate)
+                        .forEach(candidates::add);
+            }
+            return List.copyOf(candidates);
+        }
+
+        for (ProjectFile file : files) {
+            var work = new ArrayList<>(analyzer.getTopLevelDeclarations(file));
+            for (int i = 0; i < work.size(); i++) {
+                CodeUnit cu = work.get(i);
+                if (isDeadCodeCandidate(cu)) {
+                    candidates.add(cu);
+                }
+                work.addAll(analyzer.getDirectChildren(cu));
+            }
+        }
+        return List.copyOf(candidates);
+    }
+
+    private static boolean isDeadCodeCandidate(CodeUnit cu) {
+        return !cu.isSynthetic() && !cu.isAnonymous() && (cu.isFunction() || cu.isClass() || cu.isField());
+    }
+
+    private Optional<DeadCodeFinding> analyzeDeadCodeCandidate(
+            IAnalyzer analyzer, CodeUnit candidate, int fileCap, int usageCap, List<String> skipped) {
+        var rangeOpt = analyzer.rangesOf(candidate).stream()
+                .filter(range -> !range.isEmpty())
+                .max(Comparator.comparingInt(CodeQualityTools::spanLines));
+        if (rangeOpt.isEmpty()) {
+            skipped.add("`%s`: no declaration range available".formatted(candidate.fqName()));
+            return Optional.empty();
+        }
+
+        FuzzyResult usageResult;
+        try {
+            usageResult = UsageFinder.create(contextManager).findUsages(candidate.fqName(), fileCap, usageCap);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            skipped.add("`%s`: usage analysis interrupted".formatted(candidate.fqName()));
+            return Optional.empty();
+        }
+
+        var either = usageResult.toEither();
+        if (either.hasErrorMessage()) {
+            skipped.add("`%s`: %s".formatted(candidate.fqName(), either.getErrorMessage()));
+            return Optional.empty();
+        }
+
+        Optional<CodeUnit> definingOwner = analyzer.parentOf(candidate).or(() -> Optional.of(candidate));
+        var externalHits = either.getUsages().stream()
+                .filter(hit -> isExternalUsage(analyzer, definingOwner, hit))
+                .sorted(Comparator.comparing((UsageHit h) -> h.file().toString())
+                        .thenComparingInt(UsageHit::line)
+                        .thenComparingInt(UsageHit::startOffset))
+                .toList();
+        int usageCount = externalHits.size();
+        if (usageCount > 1) {
+            return Optional.empty();
+        }
+
+        var range = rangeOpt.orElseThrow();
+        int declarationLines = spanLines(range);
+        int score = usageCount == 0 ? 30 + Math.min(20, declarationLines / 4) : 12 + Math.min(12, declarationLines / 8);
+        double confidence = usageCount == 0 ? 0.95 : 0.75;
+        String evidence = usageCount == 0
+                ? "no external usages found"
+                : "only external usage: %s:%d in %s"
+                        .formatted(
+                                externalHits.getFirst().file(),
+                                externalHits.getFirst().line(),
+                                externalHits.getFirst().enclosing().fqName());
+        String rationale = usageCount == 0
+                ? "symbol has no external usage evidence and may be generated residue"
+                : "symbol has only one external caller and may be a low-value abstraction";
+
+        return Optional.of(new DeadCodeFinding(
+                score,
+                confidence,
+                candidate.kind().name().toLowerCase(Locale.ROOT),
+                candidate.fqName(),
+                candidate.source(),
+                range.startLine() + 1,
+                range.endLine() + 1,
+                usageCount,
+                evidence,
+                rationale));
+    }
+
+    private static boolean isExternalUsage(IAnalyzer analyzer, Optional<CodeUnit> definingOwner, UsageHit hit) {
+        if (definingOwner.isEmpty()) {
+            return true;
+        }
+        CodeUnit hitOwner = analyzer.parentOf(hit.enclosing()).orElse(hit.enclosing());
+        return !hitOwner.equals(definingOwner.get());
+    }
+
+    private record DeadCodeFinding(
+            int score,
+            double confidence,
+            String kind,
+            String symbol,
+            ProjectFile file,
+            int startLine,
+            int endLine,
+            int externalUsageCount,
+            String evidence,
+            String rationale) {}
 
     @Tool(
             """
@@ -697,6 +935,13 @@ public class CodeQualityTools {
 
     private static String sanitizeTableCell(String value) {
         return value.replace("|", "\\|");
+    }
+
+    private static int spanLines(IAnalyzer.Range range) {
+        if (range.isEmpty()) {
+            return 0;
+        }
+        return Math.max(1, range.endLine() - range.startLine() + 1);
     }
 
     private static String formatWeights(IAnalyzer.MaintainabilitySizeSmellWeights w) {
