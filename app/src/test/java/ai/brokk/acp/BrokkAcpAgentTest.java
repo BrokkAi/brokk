@@ -114,6 +114,49 @@ class BrokkAcpAgentTest {
         assertEquals(second.sessionId(), contextManager.getCurrentSessionId().toString());
     }
 
+    // ---- #3421: sanitizeReasoningLevel pure decision logic -------------------------------
+
+    @Test
+    void sanitizeReasoningLevel_unknownLevelNormalizesToDefault() {
+        // Any id outside REASONING_LEVEL_IDS becomes "default" before capability checks.
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("ultra", true, true));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("", true, true));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("LOW", true, true)); // case-sensitive
+    }
+
+    @Test
+    void sanitizeReasoningLevel_modelLacksEffortSupport_anyNonDefaultBecomesDefault() {
+        // When the model does not advertise reasoning_effort, low/medium/high/disable are all unsupported.
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("low", false, false));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("medium", false, false));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("high", false, false));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("disable", false, false));
+    }
+
+    @Test
+    void sanitizeReasoningLevel_modelSupportsEffort_lowMediumHighPassThrough() {
+        assertEquals("low", BrokkAcpAgent.sanitizeReasoningLevel("low", true, false));
+        assertEquals("medium", BrokkAcpAgent.sanitizeReasoningLevel("medium", true, false));
+        assertEquals("high", BrokkAcpAgent.sanitizeReasoningLevel("high", true, false));
+    }
+
+    @Test
+    void sanitizeReasoningLevel_disableRequiresExplicitDisableSupport() {
+        // supportsEffort=true, supportsDisable=false -> "disable" must drop to "default"
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("disable", true, false));
+        // both supported -> "disable" passes through
+        assertEquals("disable", BrokkAcpAgent.sanitizeReasoningLevel("disable", true, true));
+    }
+
+    @Test
+    void sanitizeReasoningLevel_defaultLevelAlwaysPassesRegardlessOfCapabilities() {
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("default", false, false));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("default", true, false));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("default", true, true));
+    }
+
+    // ---- end #3421 -----------------------------------------------------------------------
+
     @Test
     void closeSessionClearsAcpStateButDoesNotDeleteBrokkSession() {
         var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
