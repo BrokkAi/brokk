@@ -316,7 +316,7 @@ public class AcpConsoleIO extends MemoryConsole {
     @Override
     public ApprovalResult beforeShellCommand(String command) {
         var toolCallId = UUID.randomUUID().toString();
-        var title = "Shell: " + truncate(command, 60);
+        var title = ellipsize("Shell: " + command, 80);
         pendingToolKinds.put(toolCallId, AcpSchema.ToolKind.EXECUTE);
         pendingToolTitles.put(toolCallId, title);
 
@@ -505,7 +505,7 @@ public class AcpConsoleIO extends MemoryConsole {
     public void commandStart(String stage, String command) {
         // Model build/test commands as tool_call with EXECUTE kind
         var toolCallId = UUID.randomUUID().toString();
-        var title = stage + ": " + truncate(command, 60);
+        var title = ellipsize(stage + ": " + command, 80);
         activeCommandToolCallId = toolCallId;
         pendingToolTitles.put(toolCallId, title);
 
@@ -540,8 +540,10 @@ public class AcpConsoleIO extends MemoryConsole {
         }
 
         var status = success ? AcpSchema.ToolCallStatus.COMPLETED : AcpSchema.ToolCallStatus.FAILED;
-        var resultText = success ? output : (exception != null && !exception.isBlank() ? exception : output);
-        var title = pendingToolTitles.getOrDefault(toolCallId, stage + ": " + truncate(command, 60));
+        // On failure, callers (e.g. ProjectBuildRunner) already concatenate the exception
+        // message into `output`, so prefer it; fall back to `exception` only when output is blank.
+        var resultText = !output.isBlank() ? output : (exception != null && !exception.isBlank() ? exception : output);
+        var title = pendingToolTitles.getOrDefault(toolCallId, ellipsize(stage + ": " + command, 80));
         pendingToolTitles.remove(toolCallId);
 
         List<AcpSchema.ToolCallContent> content = renderToolContent(AcpSchema.ToolKind.EXECUTE, resultText);
@@ -661,9 +663,9 @@ public class AcpConsoleIO extends MemoryConsole {
                     "addMethodsToWorkspace",
                     "addUrlContentsToWorkspace" -> "Add to workspace";
             case "dropWorkspaceFragments" -> "Drop workspace fragments";
-            case "searchAgent" -> "Search agent: " + truncate(textArg(args, "query", "request"), 60);
-            case "callCodeAgent" -> "Code agent: " + truncate(textArg(args, "instructions", "task"), 60);
-            case "callShellAgent" -> "Shell agent: " + truncate(textArg(args, "task", "command"), 60);
+            case "searchAgent" -> ellipsize("Search agent: " + textArg(args, "query", "request"), 80);
+            case "callCodeAgent" -> ellipsize("Code agent: " + textArg(args, "instructions", "task"), 80);
+            case "callShellAgent" -> ellipsize("Shell agent: " + textArg(args, "task", "command"), 80);
             case "callMcpTool" -> "MCP: " + textArg(args, "toolName", "tool");
             case "answer" -> "Final answer";
             case "workspaceComplete" -> "Workspace ready";
@@ -904,6 +906,20 @@ public class AcpConsoleIO extends MemoryConsole {
             return text;
         }
         return text.substring(0, maxBytes) + "\n... [truncated " + (text.length() - maxBytes) + " chars]";
+    }
+
+    /**
+     * Single-line ellipsizer for tool-call titles. Returns a string of length at most {@code max}
+     * with no embedded newline. The body-style {@link #truncate} would inject a "\n... [truncated
+     * N chars]" marker, which a client would render as a multi-line title — never what we want.
+     */
+    private static String ellipsize(String text, int max) {
+        assert max >= 4 : "ellipsize requires room for at least one char plus '...'";
+        var oneLine = text.indexOf('\n') < 0 ? text : text.replace('\n', ' ');
+        if (oneLine.length() <= max) {
+            return oneLine;
+        }
+        return oneLine.substring(0, max - 3) + "...";
     }
 
     // ---- Tool kind classification ----
