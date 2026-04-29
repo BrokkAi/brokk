@@ -73,7 +73,12 @@ public final class UsageFinder {
         return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer);
     }
 
-    public QueryResult query(List<CodeUnit> overloads, int maxFiles, int maxUsages) throws InterruptedException {
+    private QueryResult query(
+            List<CodeUnit> overloads,
+            int maxFiles,
+            int maxUsages,
+            @Nullable CandidateFileProvider explicitCandidateProvider)
+            throws InterruptedException {
         if (overloads.isEmpty()) {
             return new QueryResult(Set.of(), false, new FuzzyResult.Success(Map.of()));
         }
@@ -81,6 +86,9 @@ public final class UsageFinder {
         var target = overloads.getFirst();
 
         Configuration config = getConfiguration(target);
+        if (explicitCandidateProvider != null) {
+            config = new Configuration(explicitCandidateProvider, config.usageAnalyzer());
+        }
         Set<ProjectFile> candidateFiles = config.candidateProvider().findCandidates(target, analyzer);
 
         if (fileFilter != null) {
@@ -94,6 +102,16 @@ public final class UsageFinder {
 
         var result = config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
         return new QueryResult(candidateFiles, candidateFilesTruncated, result);
+    }
+
+    public QueryResult query(List<CodeUnit> overloads, int maxFiles, int maxUsages) throws InterruptedException {
+        return query(overloads, maxFiles, maxUsages, null);
+    }
+
+    public QueryResult query(
+            List<CodeUnit> overloads, CandidateFileProvider candidateProvider, int maxFiles, int maxUsages)
+            throws InterruptedException {
+        return query(overloads, maxFiles, maxUsages, candidateProvider);
     }
 
     public FuzzyResult findUsages(List<CodeUnit> overloads, int maxFiles, int maxUsages) throws InterruptedException {

@@ -5,7 +5,9 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CommentDensityStats;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.CandidateFileProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.git.GitHotspotAnalyzer;
@@ -258,11 +260,13 @@ public class CodeQualityTools {
         var findings = new ArrayList<DeadCodeFinding>();
         var skipped = new ArrayList<String>();
         UsageFinder usageFinder = UsageFinder.create(contextManager);
+        CandidateFileProvider batchCandidateProvider = (target, analysis) -> analysis.getProject()
+                .getAnalyzableFiles(Languages.fromExtension(target.source().extension()));
         var candidateSelection = deadCodeCandidates(analyzer, files, fqNames, selectedFiles, candidateCap, skipped);
 
         for (CodeUnit candidate : candidateSelection.candidates()) {
-            Optional<DeadCodeFinding> finding =
-                    analyzeDeadCodeCandidate(analyzer, usageFinder, candidate, usageFileCap, usageCap, skipped);
+            Optional<DeadCodeFinding> finding = analyzeDeadCodeCandidate(
+                    analyzer, usageFinder, batchCandidateProvider, candidate, usageFileCap, usageCap, skipped);
             finding.filter(f -> f.score() >= threshold).ifPresent(findings::add);
         }
 
@@ -270,7 +274,7 @@ public class CodeQualityTools {
                 .sorted(Comparator.comparingInt(DeadCodeFinding::totalUsageCount)
                         .thenComparing(
                                 Comparator.comparingInt(DeadCodeFinding::score).reversed())
-                        .thenComparing(f -> f.file().toString(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(f -> displayPath(f.file()), String.CASE_INSENSITIVE_ORDER)
                         .thenComparing(DeadCodeFinding::symbol, String.CASE_INSENSITIVE_ORDER))
                 .limit(findingsCap)
                 .toList();
@@ -307,7 +311,7 @@ public class CodeQualityTools {
         lines.add(
                 "|------:|-----------:|------|--------|------|-------------:|----------------:|----------|-----------|");
         for (DeadCodeFinding finding : filtered) {
-            String location = "%s:%d-%d".formatted(finding.file(), finding.startLine(), finding.endLine());
+            String location = "%s:%d-%d".formatted(displayPath(finding.file()), finding.startLine(), finding.endLine());
             lines.add("| %d | %.2f | `%s` | `%s` | `%s` | %d | %d | `%s` | `%s` |"
                     .formatted(
                             finding.score(),
@@ -365,14 +369,9 @@ public class CodeQualityTools {
         }
 
         for (ProjectFile file : files) {
-            var work = new ArrayList<>(analyzer.getTopLevelDeclarations(file));
-            for (int i = 0; i < work.size(); i++) {
-                CodeUnit cu = work.get(i);
-                if (isDeadCodeCandidate(cu)) {
-                    candidates.add(cu);
-                }
-                work.addAll(analyzer.getDirectChildren(cu));
-            }
+            analyzer.getDeclarations(file).stream()
+                    .filter(CodeQualityTools::isDeadCodeCandidate)
+                    .forEach(candidates::add);
         }
         return capCandidates(candidates, candidateCap, skipped);
     }
@@ -393,6 +392,7 @@ public class CodeQualityTools {
     private Optional<DeadCodeFinding> analyzeDeadCodeCandidate(
             IAnalyzer analyzer,
             UsageFinder usageFinder,
+            CandidateFileProvider candidateProvider,
             CodeUnit candidate,
             int usageFileCap,
             int usageCap,
@@ -408,7 +408,7 @@ public class CodeQualityTools {
         FuzzyResult usageResult;
         UsageFinder.UsageQueryResult queryResult;
         try {
-            queryResult = usageFinder.queryUsages(candidate, usageFileCap, usageCap);
+            queryResult = usageFinder.queryUsages(candidate, candidateProvider, usageFileCap, usageCap);
             usageResult = queryResult.result();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -431,14 +431,14 @@ public class CodeQualityTools {
         Optional<CodeUnit> definingOwner = analyzer.parentOf(candidate).or(() -> Optional.of(candidate));
         var usageHits = either.getUsages().stream()
                 .filter(hit -> !hit.enclosing().equals(candidate))
-                .sorted(Comparator.comparing((UsageHit h) -> h.file().toString())
+                .sorted(Comparator.comparing((UsageHit h) -> displayPath(h.file()))
                         .thenComparingInt(UsageHit::line)
                         .thenComparingInt(UsageHit::startOffset))
                 .toList();
         var externalHits = either.getUsages().stream()
                 .filter(hit -> !hit.enclosing().equals(candidate))
                 .filter(hit -> isExternalUsage(analyzer, definingOwner, hit))
-                .sorted(Comparator.comparing((UsageHit h) -> h.file().toString())
+                .sorted(Comparator.comparing((UsageHit h) -> displayPath(h.file()))
                         .thenComparingInt(UsageHit::line)
                         .thenComparingInt(UsageHit::startOffset))
                 .toList();
@@ -455,7 +455,7 @@ public class CodeQualityTools {
                 ? "no non-self usages found"
                 : "only usage: %s:%d in %s%s"
                         .formatted(
-                                usageHits.getFirst().file(),
+                                displayPath(usageHits.getFirst().file()),
                                 usageHits.getFirst().line(),
                                 usageHits.getFirst().enclosing().fqName(),
                                 externalHits.isEmpty() ? " (same owner)" : "");
@@ -983,6 +983,10 @@ public class CodeQualityTools {
 
     private static String sanitizeTableCell(String value) {
         return value.replace("|", "\\|");
+    }
+
+    private static String displayPath(ProjectFile file) {
+        return file.toString().replace('\\', '/');
     }
 
     private static int spanLines(IAnalyzer.Range range) {

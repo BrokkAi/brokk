@@ -327,10 +327,20 @@ class CodeQualityToolsDeadCodeAndUnusedAbstractionTest {
                     }
                 }
                 """;
+        String unrelated =
+                """
+                package com.example;
+                public class Unrelated {
+                    public int value() {
+                        return 42;
+                    }
+                }
+                """;
 
         try (var project = InlineTestProjectCreator.empty()
                 .addFileContents(target, "src/main/java/com/example/Target.java")
                 .addFileContents(caller, "src/main/java/com/example/Caller.java")
+                .addFileContents(unrelated, "src/main/java/com/example/Unrelated.java")
                 .build()) {
             var tools = tools(project);
 
@@ -347,6 +357,30 @@ class CodeQualityToolsDeadCodeAndUnusedAbstractionTest {
             assertTrue(report.contains("Skipped evidence:"), report);
             assertTrue(report.contains("usage candidate files exceeded cap 1"), report);
             assertFalse(report.contains("| `com.example.Target.maybeCalled` |"), report);
+        }
+    }
+
+    @Test
+    void discoversAnalyzerDeclarationsWithoutFqNames() throws IOException {
+        String source =
+                """
+                package com.example;
+                public class DeclarationDiscovery {
+                    private int discoveredFromDeclarations(int value) {
+                        return value + 1;
+                    }
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(source, "src/main/java/com/example/DeclarationDiscovery.java")
+                .build()) {
+            var tools = tools(project);
+
+            String report = reportWithDefaults(
+                    tools, List.of("src/main/java/com/example/DeclarationDiscovery.java"), List.of());
+
+            assertTrue(report.contains("`com.example.DeclarationDiscovery.discoveredFromDeclarations`"), report);
+            assertTrue(report.contains("no non-self usages found"), report);
         }
     }
 

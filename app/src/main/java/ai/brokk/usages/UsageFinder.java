@@ -120,15 +120,25 @@ public final class UsageFinder {
         this.fileFilter = fileFilter;
     }
 
-    private UsageQueryResult queryUsages(List<CodeUnit> overloads, int maxFiles, int maxUsages)
+    private UsageQueryResult queryUsages(
+            List<CodeUnit> overloads,
+            int maxFiles,
+            int maxUsages,
+            @Nullable CandidateFileProvider explicitCandidateProvider,
+            boolean allowFallback)
             throws InterruptedException {
         assert !overloads.isEmpty() : "overloads must not be empty";
         var target = overloads.getFirst();
 
         Configuration config = getConfiguration(target);
+        if (explicitCandidateProvider != null) {
+            config = new Configuration(explicitCandidateProvider, config.usageAnalyzer(), allowFallback);
+        }
         var coreFinder = new ai.brokk.analyzer.usages.UsageFinder(
                 project, analyzer, config.candidateProvider(), config.usageAnalyzer(), fileFilter);
-        var query = coreFinder.query(overloads, maxFiles, maxUsages);
+        var query = explicitCandidateProvider == null
+                ? coreFinder.query(overloads, maxFiles, maxUsages)
+                : coreFinder.query(overloads, explicitCandidateProvider, maxFiles, maxUsages);
 
         var candidateFiles = query.candidateFiles();
         var result = query.result();
@@ -159,6 +169,11 @@ public final class UsageFinder {
         }
 
         return new UsageQueryResult(candidateFiles, query.candidateFilesTruncated(), result);
+    }
+
+    private UsageQueryResult queryUsages(List<CodeUnit> overloads, int maxFiles, int maxUsages)
+            throws InterruptedException {
+        return queryUsages(overloads, maxFiles, maxUsages, null, true);
     }
 
     private static String summarizeResult(FuzzyResult result) {
@@ -205,6 +220,32 @@ public final class UsageFinder {
             return new UsageQueryResult(Set.of(), false, new FuzzyResult.Success(Map.of()));
         }
         var result = queryUsages(List.of(target), maxFiles, maxUsages);
+        return switch (result.result()) {
+            case FuzzyResult.Success success ->
+                new UsageQueryResult(
+                        result.candidateFiles(),
+                        result.candidateFilesTruncated(),
+                        new FuzzyResult.Success(LlmUsageAnalyzer.filterByConfidence(success.hitsByOverload())));
+            case FuzzyResult.Ambiguous ambiguous ->
+                new UsageQueryResult(
+                        result.candidateFiles(),
+                        result.candidateFilesTruncated(),
+                        new FuzzyResult.Ambiguous(
+                                ambiguous.shortName(),
+                                ambiguous.candidateTargets(),
+                                LlmUsageAnalyzer.filterByConfidence(ambiguous.hitsByOverload())));
+            case FuzzyResult.TooManyCallsites tooMany -> result;
+            case FuzzyResult.Failure failure -> result;
+        };
+    }
+
+    public UsageQueryResult queryUsages(
+            CodeUnit target, CandidateFileProvider candidateProvider, int maxFiles, int maxUsages)
+            throws InterruptedException {
+        if (isEffectivelyEmpty()) {
+            return new UsageQueryResult(Set.of(), false, new FuzzyResult.Success(Map.of()));
+        }
+        var result = queryUsages(List.of(target), maxFiles, maxUsages, candidateProvider, false);
         return switch (result.result()) {
             case FuzzyResult.Success success ->
                 new UsageQueryResult(
