@@ -105,8 +105,97 @@ def test_resolve_bifrost_binary_uses_path_when_available(monkeypatch, tmp_path) 
     found = tmp_path / "bifrost"
     found.write_text("")
     monkeypatch.setattr(rust_acp_install.shutil, "which", lambda _name: str(found))
+    monkeypatch.setattr(
+        rust_acp_install,
+        "_bifrost_version_matches",
+        lambda _path, _version: True,
+    )
     resolved = rust_acp_install.resolve_bifrost_binary(override=None)
     assert resolved == found
+
+
+def test_resolve_bifrost_binary_skips_path_on_version_mismatch(monkeypatch, tmp_path) -> None:
+    """A `$PATH` bifrost with a non-matching version is ignored; cache is used instead."""
+    cache_root = tmp_path / "cache"
+
+    def fake_cache_path(version: str) -> Path:
+        triple_dir = cache_root / "bifrost" / version / "fake-triple"
+        triple_dir.mkdir(parents=True, exist_ok=True)
+        return triple_dir / "bifrost"
+
+    on_path = tmp_path / "stale" / "bifrost"
+    on_path.parent.mkdir()
+    on_path.write_text("")
+
+    monkeypatch.setattr(rust_acp_install.shutil, "which", lambda _name: str(on_path))
+    monkeypatch.setattr(
+        rust_acp_install,
+        "_bifrost_version_matches",
+        lambda _path, _version: False,
+    )
+    monkeypatch.setattr(rust_acp_install, "_bifrost_cache_binary_path", fake_cache_path)
+
+    cached = fake_cache_path(rust_acp_install.BUNDLED_BIFROST_VERSION)
+    cached.write_text("stub")
+    cached.chmod(0o755)
+
+    def fail_download(_version: str) -> Path:
+        raise AssertionError("must not download when cache hit is available")
+
+    monkeypatch.setattr(rust_acp_install, "_download_bifrost", fail_download)
+
+    resolved = rust_acp_install.resolve_bifrost_binary(override=None)
+    assert resolved == cached
+
+
+def test_bifrost_version_matches_parses_expected_format(monkeypatch, tmp_path) -> None:
+    binary = tmp_path / "bifrost"
+    binary.write_text("")
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = "bifrost 0.1.2\n"
+        stderr = ""
+
+    def fake_run(*_args: object, **_kwargs: object) -> FakeCompleted:
+        return FakeCompleted()
+
+    monkeypatch.setattr(rust_acp_install.subprocess, "run", fake_run)
+
+    assert rust_acp_install._bifrost_version_matches(binary, "0.1.2") is True
+    assert rust_acp_install._bifrost_version_matches(binary, "0.1.1") is False
+
+
+def test_bifrost_version_matches_rejects_unrelated_tool(monkeypatch, tmp_path) -> None:
+    binary = tmp_path / "bifrost"
+    binary.write_text("")
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = "some-other-tool 0.1.2\n"
+        stderr = ""
+
+    monkeypatch.setattr(rust_acp_install.subprocess, "run", lambda *_a, **_k: FakeCompleted())
+    assert rust_acp_install._bifrost_version_matches(binary, "0.1.2") is False
+
+
+def test_bifrost_version_matches_handles_failures(monkeypatch, tmp_path) -> None:
+    binary = tmp_path / "bifrost"
+    binary.write_text("")
+
+    def raising_run(*_a: object, **_k: object) -> object:
+        raise OSError("boom")
+
+    monkeypatch.setattr(rust_acp_install.subprocess, "run", raising_run)
+    assert rust_acp_install._bifrost_version_matches(binary, "0.1.2") is False
+
+    class NonZero:
+        returncode = 1
+        stdout = ""
+        stderr = "nope"
+
+    monkeypatch.setattr(rust_acp_install.subprocess, "run", lambda *_a, **_k: NonZero())
+    assert rust_acp_install._bifrost_version_matches(binary, "0.1.2") is False
 
 
 def test_resolve_bifrost_binary_uses_cache_without_download(monkeypatch, tmp_path) -> None:

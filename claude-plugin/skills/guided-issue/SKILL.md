@@ -72,7 +72,7 @@ gh issue view <number>
 
 ## Step 2 -- Diagnose
 
-1. Call `activateWorkspace` with the current project path so Brokk tools
+1. Call `activate_workspace` with the current project path so Brokk tools
    work.
 
 2. Fetch structured issue details:
@@ -128,7 +128,7 @@ gh issue view <number>
    git checkout -b brokk/issue-<number>-<slug>
    ```
 
-3. Call `activateWorkspace` again with the current project path.
+3. Call `activate_workspace` again with the current project path.
 
 4. Execute each step of the plan in order, using Write, Edit, and Bash
    tools to make code changes.

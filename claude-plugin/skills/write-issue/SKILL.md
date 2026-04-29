@@ -46,7 +46,7 @@ has provided both a title and a description.
 
 ## Step 3 -- Enhance with Code Context
 
-1. Call `activateWorkspace` with the current project path so Brokk
+1. Call `activate_workspace` with the current project path so Brokk
    tools work.
 
 2. If the `Agent` tool is available, spawn a `brokk:issue-enhancer`
@@ -59,10 +59,11 @@ has provided both a title and a description.
    If the `Agent` tool is NOT available, perform the enhancement
    yourself:
    - Extract keywords, class names, and technical terms from the draft.
-   - Use `searchSymbols` and `searchFileContents` to locate relevant
-     code in the codebase.
-   - Use `getSummaries` and `getMethodSources` to understand the
-     affected components.
+   - Use `search_symbols` to locate matching symbols by name. For
+     non-symbol text (string literals, error messages, configs), use
+     the built-in `Grep` tool.
+   - Use `get_summaries` for an API overview and `get_symbol_sources`
+     to read the affected method or class bodies.
    - Enhance the description with:
      - References to actual source files and symbols
      - Current behavior of the relevant code

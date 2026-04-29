@@ -357,14 +357,14 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(
 
     mcp_data = json.loads(mcp_path.read_text(encoding="utf-8"))
     assert mcp_data["mcpServers"]["brokk"]["command"] == "uvx"
-    assert mcp_data["mcpServers"]["brokk"]["args"] == ["brokk", "mcp-core"]
+    assert mcp_data["mcpServers"]["brokk"]["args"] == ["brokk", "bifrost"]
 
     config_toml_path = tmp_path / ".codex" / "config.toml"
     assert config_toml_path.exists()
     config_data = tomllib.loads(config_toml_path.read_text(encoding="utf-8"))
     brokk_server = config_data["mcp_servers"]["brokk"]
     assert brokk_server["command"] == "uvx"
-    assert brokk_server["args"] == ["brokk", "mcp-core"]
+    assert brokk_server["args"] == ["brokk", "bifrost"]
     assert brokk_server["default_tools_approval_mode"] == "approve"
 
     marketplace_data = json.loads(marketplace_path.read_text(encoding="utf-8"))
