@@ -258,8 +258,7 @@ public class CodeAgent {
 
     public CodeAgent(IAppContextManager contextManager, StreamingChatModel model, IConsoleIO io) {
         this.contextManager = contextManager;
-        var service = contextManager.getService();
-        this.model = service.withReasoning(model, AbstractService.ReasoningLevel.DISABLE);
+        this.model = model;
         this.io = io;
 
         @Nullable String rawAttempts = System.getenv("BRK_CODE_BUILD_ATTEMPTS");

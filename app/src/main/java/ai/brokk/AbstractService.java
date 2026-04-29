@@ -382,10 +382,12 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      */
     public Map<String, String> getAvailableModels() {
         boolean codexConnected = MainProject.isOpenAiCodexOauthConnected();
+        boolean restrictToOauth = codexConnected && MainProject.isRestrictToOauthModelsWhenConnected();
         return modelInfoMap.keySet().stream()
                 .filter(name -> !UNAVAILABLE.equals(name))
                 .filter(name -> !ModelProperties.SYSTEM_ONLY_MODELS.contains(name))
                 .filter(name -> codexConnected || !isCodexModel(name))
+                .filter(name -> !restrictToOauth || (name.endsWith("-oauth") && !name.startsWith("gpt-5.1-")))
                 .collect(Collectors.toMap(name -> name, name -> modelLocations.getOrDefault(name, name)));
     }
 
@@ -612,8 +614,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         if (!supportsReasoningEffort(nameOf(model))) {
             level = ReasoningLevel.DEFAULT;
         }
+        // DEFAULT omits reasoning_effort entirely. For OpenAI gpt-5.2-5.4 the model's own
+        // default reasoning is disable-equivalent and they reject the literal "disable" string,
+        // so omitting the parameter is the correct way to honor DISABLE intent on those models.
         if (!supportsReasoningDisable(nameOf(model)) && level == ReasoningLevel.DISABLE) {
-            level = ReasoningLevel.LOW;
+            level = ReasoningLevel.DEFAULT;
         }
 
         var config = ModelConfig.from(model, this);

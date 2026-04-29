@@ -1915,10 +1915,12 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
                 var imageContent = ImageContent.from(l4jImage);
 
                 // Create prompt messages for the LLM
+                var systemMessage =
+                        new SystemMessage("You describe pasted images in a few words for use as a fragment label.");
                 var textContent = TextContent.from(
                         "Briefly describe this image in a few words (e.g., 'screenshot of code', 'diagram of system').");
                 var userMessage = UserMessage.from(textContent, imageContent);
-                List<ChatMessage> messages = List.of(userMessage);
+                List<ChatMessage> messages = List.of(systemMessage, userMessage);
 
                 Llm.StreamingResult result = getLlm(
                                 serviceProvider.get().summarizeModel(),
