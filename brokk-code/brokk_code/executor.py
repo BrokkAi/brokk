@@ -14,7 +14,6 @@ from urllib.parse import quote
 
 import httpx
 
-from brokk_code.runtime_utils import find_dev_jar
 from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
@@ -402,10 +401,6 @@ class ExecutorManager:
         cmd.extend(self._get_executor_args(exec_id))
         return cmd
 
-    def _find_dev_jar(self) -> Optional[Path]:
-        """Searches for a local development JAR in the project structure."""
-        return find_dev_jar(self.workspace_dir)
-
     async def start(self):
         """Starts the Java HeadlessExecutorMain subprocess."""
         exec_id = str(uuid.uuid4())
@@ -415,13 +410,7 @@ class ExecutorManager:
             print(f"Running in dev mode with JAR: {self.jar_override}")
             cmd = self._get_direct_java_command(self.jar_override, exec_id)
         else:
-            dev_jar = self._find_dev_jar()
-            if dev_jar:
-                self.resolved_jar_path = dev_jar
-                print(f"Running in dev mode with local JAR: {dev_jar}")
-                cmd = self._get_direct_java_command(dev_jar, exec_id)
-            else:
-                cmd = await self._get_jbang_command(exec_id)
+            cmd = await self._get_jbang_command(exec_id)
 
         logger.info(f"Starting executor: {' '.join(cmd)}")
 
