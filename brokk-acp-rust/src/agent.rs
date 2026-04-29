@@ -18,7 +18,7 @@ use agent_client_protocol::{
 };
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use crate::llm_client::{ChatMessage, LlmBackend};
+use crate::llm_client::LlmBackend;
 use crate::session::{ConversationTurn, PermissionMode, SessionMode, SessionStore};
 
 /// Stable ids for our `SessionConfigOption` selectors. We expose both
@@ -295,9 +295,20 @@ pub async fn run_agent(
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
 
-                // Get session state (prompt doesn't carry cwd, so use current dir as fallback)
+                // Get session state (prompt doesn't carry cwd, so use current dir as fallback).
+                // Build the full prompt state -- cwd, mode, model, permission mode, and
+                // the ChatMessage list including system prompt and the new user turn --
+                // under one read lock, so we never clone the conversation history twice.
                 let fallback_cwd = std::env::current_dir().unwrap_or_default();
-                let session = match sessions_prompt.get_session(&session_id, &fallback_cwd).await {
+                let prompt_state = match sessions_prompt
+                    .build_prompt_state(
+                        &session_id,
+                        &fallback_cwd,
+                        prompt_text.clone(),
+                        |mode, cwd| build_system_prompt(&mode, cwd),
+                    )
+                    .await
+                {
                     Some(s) => s,
                     None => {
                         send_message(&cx, &session_id, "Error: unknown session");
@@ -306,20 +317,12 @@ pub async fn run_agent(
                 };
 
                 // Validate model is configured
-                if session.model.is_empty() {
+                if prompt_state.model.is_empty() {
                     send_message(&cx, &session_id, "Error: no model configured. Start the server with --default-model or ensure the LLM endpoint is reachable for model discovery.");
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
 
-                // Build conversation messages from history
-                let mut messages = vec![
-                    ChatMessage::system(build_system_prompt(&session.mode, &session.cwd)),
-                ];
-                for turn in &session.history {
-                    messages.push(ChatMessage::user(turn.user_prompt.clone()));
-                    messages.push(ChatMessage::assistant(turn.agent_response.clone()));
-                }
-                messages.push(ChatMessage::user(prompt_text.clone()));
+                let messages = prompt_state.messages;
 
                 // Create a cancellation token for this prompt
                 let cancel = sessions_prompt.start_prompt(&session_id).await;
@@ -328,7 +331,7 @@ pub async fn run_agent(
                 let registry = sessions_prompt
                     .get_or_create_registry(
                         &session_id,
-                        session.cwd.clone(),
+                        prompt_state.cwd,
                         bifrost_binary_prompt.as_deref(),
                     )
                     .await;
@@ -342,7 +345,7 @@ pub async fn run_agent(
                 let cx_for_loop = cx.clone();
                 let session_id_for_loop = session_id.clone();
                 let prompt_text_for_turn = prompt_text;
-                let model_for_loop = session.model.clone();
+                let model_for_loop = prompt_state.model;
 
                 cx.spawn(async move {
                     use futures::FutureExt;

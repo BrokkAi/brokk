@@ -25,6 +25,13 @@ const MAX_TOOL_RESULT_BYTES: usize = 50_000;
 /// and spawned task parked indefinitely with no operator-visible signal.
 const PERMISSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(900);
 
+/// Cap on a single LLM streaming turn. The reqwest HTTP client has its own
+/// overall request timeout, but a stream that produces occasional bytes
+/// without meaningful progress can keep the connection alive past it; this
+/// bounds the loop's per-turn wait so a stuck server can't park the prompt
+/// handler indefinitely.
+const STREAM_CHAT_TIMEOUT: Duration = Duration::from_secs(600);
+
 /// Tools that must NEVER pick up an in-session "Always allow" — every call
 /// re-prompts. Today this is just the shell; even with prefix-scoped allow
 /// keys the danger surface is too wide without an OS sandbox (tracked in
@@ -188,15 +195,24 @@ pub(crate) async fn run(
             }
         });
 
-        let response = llm
-            .stream_chat(
+        let response = match tokio::time::timeout(
+            STREAM_CHAT_TIMEOUT,
+            llm.stream_chat(
                 model,
                 messages.clone(),
                 turn_tools,
                 on_token,
                 cancel.clone(),
-            )
-            .await;
+            ),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => Err(anyhow::anyhow!(
+                "LLM stream did not complete within {}s",
+                STREAM_CHAT_TIMEOUT.as_secs()
+            )),
+        };
 
         match response {
             Ok(LlmResponse::Text(text)) => {
