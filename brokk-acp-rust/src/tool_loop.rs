@@ -25,13 +25,6 @@ const MAX_TOOL_RESULT_BYTES: usize = 50_000;
 /// and spawned task parked indefinitely with no operator-visible signal.
 const PERMISSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(900);
 
-/// Cap on a single LLM streaming turn. The reqwest HTTP client has its own
-/// overall request timeout, but a stream that produces occasional bytes
-/// without meaningful progress can keep the connection alive past it; this
-/// bounds the loop's per-turn wait so a stuck server can't park the prompt
-/// handler indefinitely.
-const STREAM_CHAT_TIMEOUT: Duration = Duration::from_secs(600);
-
 /// Tools that must NEVER pick up an in-session "Always allow" — every call
 /// re-prompts. Today this is just the shell; even with prefix-scoped allow
 /// keys the danger surface is too wide without an OS sandbox (tracked in
@@ -195,24 +188,21 @@ pub(crate) async fn run(
             }
         });
 
-        let response = match tokio::time::timeout(
-            STREAM_CHAT_TIMEOUT,
-            llm.stream_chat(
+        // Wall-clock bound on this stream is enforced by the reqwest client's
+        // own `.timeout(...)` (see `OpenAiClient::new`); duplicating it here
+        // would fire at ~the same moment with no added value. The original
+        // concern in #3366 -- streams that drip occasional bytes -- is
+        // genuinely about per-chunk inactivity, which a wall-clock timeout
+        // doesn't catch. Tracked as a separate fix in #3453.
+        let response = llm
+            .stream_chat(
                 model,
                 messages.clone(),
                 turn_tools,
                 on_token,
                 cancel.clone(),
-            ),
-        )
-        .await
-        {
-            Ok(r) => r,
-            Err(_) => Err(anyhow::anyhow!(
-                "LLM stream did not complete within {}s",
-                STREAM_CHAT_TIMEOUT.as_secs()
-            )),
-        };
+            )
+            .await;
 
         match response {
             Ok(LlmResponse::Text(text)) => {
