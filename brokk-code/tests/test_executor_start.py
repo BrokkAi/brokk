@@ -347,7 +347,6 @@ async def test_executor_start_uses_jbang_when_no_jar(monkeypatch, tmp_path):
         return FakeProcess()
 
     monkeypatch.setattr(executor_module, "resolve_jbang_binary", lambda: "/usr/local/bin/jbang")
-    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: None)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     manager = ExecutorManager(workspace_dir=tmp_path)
@@ -409,7 +408,6 @@ async def test_executor_start_installs_jbang_if_missing(monkeypatch, tmp_path):
 
     monkeypatch.setattr(executor_module, "resolve_jbang_binary", lambda: None)
     monkeypatch.setattr(executor_module, "ensure_jbang_ready", fake_ensure_ready)
-    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: None)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     manager = ExecutorManager(workspace_dir=tmp_path)
@@ -428,7 +426,6 @@ async def test_executor_start_propagates_install_failure(monkeypatch, tmp_path):
 
     monkeypatch.setattr(executor_module, "resolve_jbang_binary", lambda: None)
     monkeypatch.setattr(executor_module, "ensure_jbang_ready", fake_ensure_ready_fail)
-    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: None)
 
     manager = ExecutorManager(workspace_dir=tmp_path)
 
