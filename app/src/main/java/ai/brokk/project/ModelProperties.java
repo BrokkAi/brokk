@@ -230,6 +230,10 @@ public final class ModelProperties {
      * Ensures ProcessingTier is non-null (backward compatibility against older JSON).
      */
     static ModelConfig getModelConfig(Properties props, ModelType modelType) {
+        // Codex OAuth + restrict flag substitutes role configs at read time; persisted values stay intact.
+        if (MainProject.isOpenAiCodexOauthConnected() && MainProject.isRestrictToOauthModelsWhenConnected()) {
+            return codexOauthConfigFor(modelType);
+        }
         String jsonString = props.getProperty(modelType.propertyKey);
         if (jsonString != null && !jsonString.isBlank()) {
             try {
@@ -249,6 +253,20 @@ public final class ModelProperties {
             }
         }
         return modelType.defaultConfig();
+    }
+
+    private static ModelConfig codexOauthConfigFor(ModelType modelType) {
+        return switch (modelType) {
+            case CODE -> CODEX_OAUTH_CODE_CONFIG;
+            case ARCHITECT -> CODEX_OAUTH_ARCHITECT_CONFIG;
+            default -> {
+                var codexMap = getVendorModelMap().get("OpenAI - Codex");
+                assert codexMap != null : "OpenAI - Codex vendor map missing";
+                var cfg = codexMap.get(modelType);
+                assert cfg != null : "OpenAI - Codex vendor map missing entry for " + modelType;
+                yield cfg;
+            }
+        };
     }
 
     /**

@@ -2470,34 +2470,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private void maybeRunCodexAutoSetup() {
         if (MainProject.isOpenAiCodexOauthConnected()) {
-            logger.info("Running first-time Codex auto-setup...");
-
-            MainProject.setOtherModelsVendorPreference("OpenAI - Codex");
-            Map<ModelProperties.ModelType, Service.ModelConfig> vendorModels =
-                    ModelProperties.getVendorModels("OpenAI - Codex");
-            var mainProject = chrome.getProject().getMainProject();
-            if (vendorModels != null) {
-                for (var entry : vendorModels.entrySet()) {
-                    mainProject.setModelConfig(entry.getKey(), entry.getValue());
-                }
-            }
+            logger.info("Codex OAuth connected; installing Codex favorites preset.");
 
             MainProject.saveFavoriteModels(ModelProperties.CODEX_OAUTH_FAVORITES);
             logger.info("Replaced favorites list with Codex OAuth models");
 
-            mainProject.setModelConfig(ModelProperties.ModelType.CODE, ModelProperties.CODEX_OAUTH_CODE_CONFIG);
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.ARCHITECT, ModelProperties.CODEX_OAUTH_ARCHITECT_CONFIG);
-
             chrome.getContextManager().reloadService();
 
-            // Show popup and navigate to Model Roles tab
             SwingUtilities.invokeLater(() -> {
                 String message =
                         """
-                        "OpenAI - Codex" vendor has been configured automatically.
-                        GPT-5.2 (Architect) and Codex (Coder) models were set.
-                        This can be changed at any time in Settings.
+                        Codex OAuth is connected. While the OAuth-only restriction is enabled
+                        (Settings > Global), all model roles route to Codex models automatically
+                        without overwriting your saved preferences. The favorites list has been
+                        updated with Codex presets.
                         """
                                 .stripIndent();
 
