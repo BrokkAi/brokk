@@ -114,6 +114,16 @@ public class LutzAgent {
     private static final int MAX_TOTAL_TURNS = 20;
     private final IAppContextManager cm;
     private final StreamingChatModel model;
+
+    /**
+     * Code model used when {@code callCodeAgent} fires. When {@code null}, callers fall back to
+     * {@link IAppContextManager#getCodeModel()} -- the user's project-level CODE setting.
+     * JobSpec-driven entry points (ACP via {@code JobRunner} -> {@code LutzExecutor}) inject the
+     * resolved {@code JobSpec.codeModel()} here so the per-job selection is honored (bug #3429);
+     * GUI/CLI/legacy callers pass {@code null} and keep the project-level fallback.
+     */
+    private final @Nullable StreamingChatModel codeModel;
+
     private final ContextManager.TaskScope scope;
     private final Llm llm;
     private final Llm scanLlm;
@@ -204,9 +214,30 @@ public class LutzAgent {
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig) {
+        this(initialContext, goal, model, null, objective, scope, io, scanConfig);
+    }
+
+    /**
+     * Primary constructor.
+     *
+     * @param codeModel the code model to use when {@code callCodeAgent} fires. When {@code null},
+     *     {@link IAppContextManager#getCodeModel()} is consulted instead -- matching legacy
+     *     GUI/CLI behavior. JobSpec-driven entry points should pass an explicit value resolved
+     *     from {@code JobSpec.codeModel()} (bug #3429).
+     */
+    public LutzAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            @Nullable StreamingChatModel codeModel,
+            Objective objective,
+            ContextManager.TaskScope scope,
+            IConsoleIO io,
+            ScanConfig scanConfig) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
+        this.codeModel = codeModel;
         this.scope = scope;
 
         this.io = io;
@@ -745,13 +776,24 @@ public class LutzAgent {
     }
 
     /**
+     * Resolves the code model used by {@link #callCodeAgent(String)} and the {@code callCodeAgent}
+     * {@code @Tool} inside the LUTZ turn loop. Prefers the explicit {@link #codeModel} injected
+     * via constructor (e.g. from {@code JobSpec.codeModel()}); falls back to
+     * {@link IAppContextManager#getCodeModel()} for callers that do not thread one through
+     * (GUI, CLI, {@code IssueExecutor.runReviewFixTasks}). See bug #3429.
+     */
+    private StreamingChatModel effectiveCodeModel() {
+        return codeModel != null ? codeModel : cm.getCodeModel();
+    }
+
+    /**
      * Invokes the Code Agent to implement instructions using the current SearchState.
      * This is intended for internal/legacy callers and does not advance the SearchAgent's turn loop.
      */
     @Blocking
     public TaskResult callCodeAgent(String instructions) throws InterruptedException {
         ArchitectAgent architect =
-                new ArchitectAgent(cm, model, cm.getCodeModel(), instructions, scope, currentState.context());
+                new ArchitectAgent(cm, model, effectiveCodeModel(), instructions, scope, currentState.context());
 
         return architect.execute();
     }
@@ -1372,7 +1414,7 @@ public class LutzAgent {
             var architect = new ArchitectAgent(
                     agent.cm,
                     agent.model,
-                    agent.cm.getCodeModel(),
+                    agent.effectiveCodeModel(),
                     instructions,
                     agent.scope,
                     agent.resetPinsToOriginal(context));
