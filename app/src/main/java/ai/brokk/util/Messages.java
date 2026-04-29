@@ -220,4 +220,56 @@ public class Messages {
                 })
                 .collect(Collectors.joining("\n"));
     }
+
+    public static String getReprForDisplay(ChatMessage message) {
+        return switch (message) {
+            case SystemMessage sm -> sm.text();
+            case CustomMessage cm -> requireNonNull(cm.attributes().get("text")).toString();
+            case AiMessage am -> {
+                var reasoning = am.reasoningContent();
+                var text = am.text();
+                var hasReasoning = reasoning != null && !reasoning.isBlank();
+                var hasText = text != null && !text.isBlank();
+                var hasTools = am.hasToolExecutionRequests();
+
+                var parts = new ArrayList<String>();
+                if (hasReasoning) {
+                    parts.add(reasoning);
+                }
+                if (hasText) {
+                    parts.add(text);
+                }
+                if (hasTools) {
+                    var toolText = am.toolExecutionRequests().stream()
+                            .map(Messages::getRedactedRepr)
+                            .collect(Collectors.joining("\n"));
+                    parts.add(toolText);
+                }
+                yield String.join("\n\n", parts);
+            }
+            case UserMessage um ->
+                um.contents().stream()
+                        .map(c -> {
+                            if (c instanceof TextContent textContent) {
+                                return textContent.text();
+                            } else if (c instanceof ImageContent) {
+                                return "[Image]";
+                            } else {
+                                throw new UnsupportedOperationException(
+                                        c.getClass().toString());
+                            }
+                        })
+                        .collect(Collectors.joining("\n"));
+            case ToolExecutionResultMessage tr -> "%s -> %s".formatted(tr.toolName(), tr.text());
+            default ->
+                throw new UnsupportedOperationException(message.getClass().toString());
+        };
+    }
+
+    public static String formatForDisplay(List<ChatMessage> messages) {
+        return messages.stream()
+                .map(Messages::getReprForDisplay)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n\n"));
+    }
 }

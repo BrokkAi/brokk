@@ -140,11 +140,11 @@ public final class TaskEntry {
             return this;
         }
 
-        // Best-effort: append rendered messages to the existing rendered Markdown.
-        // This is not "diff aware" but preserves the log for users/serialization.
-        String appended = Messages.format(List.copyOf(additionalMessages));
-        String newMopMarkdown = mopMarkdown + "\n\n" + appended;
-        String newLlmMarkdown = llmMarkdown == null ? null : (llmMarkdown + "\n\n" + appended);
+        var copied = List.<ChatMessage>copyOf(additionalMessages);
+        String mopAppended = Messages.formatForDisplay(copied);
+        String llmAppended = Messages.format(copied);
+        String newMopMarkdown = mopMarkdown + "\n\n" + mopAppended;
+        String newLlmMarkdown = llmMarkdown == null ? null : (llmMarkdown + "\n\n" + llmAppended);
         return new TaskEntry(sequence, description, newMopMarkdown, newLlmMarkdown, summary, meta);
     }
 

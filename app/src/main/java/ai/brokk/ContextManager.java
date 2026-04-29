@@ -1625,7 +1625,7 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
                 } else {
                     // add the post-task terminal output to the history
                     var log = new ContextOutputFragments.TaskOutputFragment(
-                            "Post-task verification output", Messages.format(getIo().getLlmRawMessages()));
+                            "Post-task verification output", Messages.formatForDisplay(getIo().getLlmRawMessages()));
                     var context2 = context.addHistoryEntry(log, null);
                     pushContext(ctx -> context2);
                 }
@@ -2349,7 +2349,7 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
-        var markdown = Messages.format(messages);
+        var markdown = Messages.formatForDisplay(messages);
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, input, markdown, null, null, null));
 
         // rename the session if needed
