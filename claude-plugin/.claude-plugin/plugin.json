@@ -1,7 +1,7 @@
 {
   "name": "brokk",
   "description": "Semantic code intelligence -- symbol navigation, cross-reference analysis, and structural code understanding powered by tree-sitter",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "skills": "./skills/",
   "agents": [
     "./agents/architect-reviewer.md",
