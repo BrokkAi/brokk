@@ -441,7 +441,7 @@ def _merge_codex_tool_approval(settings_path: Path | None = None, uvx_command: s
 
     expected = {
         "command": uvx_command,
-        "args": ["brokk", "mcp-core"],
+        "args": ["brokk", "bifrost"],
         "default_tools_approval_mode": "approve",
     }
     server = mcp_servers.get(_SERVER_NAME)
