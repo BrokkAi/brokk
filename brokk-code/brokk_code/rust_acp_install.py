@@ -219,8 +219,7 @@ def _download_bifrost(version: str) -> Path:
             actual_sha = _file_sha256(archive_path)
             if expected_sha != actual_sha:
                 raise BifrostInstallError(
-                    f"Checksum mismatch for {asset_name}: "
-                    f"expected {expected_sha}, got {actual_sha}"
+                    f"Checksum mismatch for {asset_name}: expected {expected_sha}, got {actual_sha}"
                 )
 
             extracted_dir = tmp_path / "extracted"
@@ -284,9 +283,7 @@ def _find_extracted_binary(root: Path) -> Path:
     expected = _bifrost_binary_filename()
     matches = [p for p in root.rglob(expected) if p.is_file()]
     if not matches:
-        raise BifrostInstallError(
-            f"No '{expected}' found inside extracted archive at {root}"
-        )
+        raise BifrostInstallError(f"No '{expected}' found inside extracted archive at {root}")
     # Prefer the shallowest match if multiple (release archives ship one binary at root).
     matches.sort(key=lambda p: len(p.parts))
     return matches[0]

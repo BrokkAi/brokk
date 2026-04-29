@@ -584,8 +584,10 @@ def test_run_acp_server_passthrough_with_explicit_executor_version_still_uses_ja
     monkeypatch.setattr(
         os,
         "execvpe",
-        lambda binary, command, _env: captured.update(binary=binary, command=command)
-        or (_ for _ in ()).throw(RuntimeError("stop")),
+        lambda binary, command, _env: (
+            captured.update(binary=binary, command=command)
+            or (_ for _ in ()).throw(RuntimeError("stop"))
+        ),
     )
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
     monkeypatch.setattr(

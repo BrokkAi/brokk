@@ -187,9 +187,7 @@ def loads_json_or_jsonc(text: str) -> Any:
         return json.loads(cleaned)
 
 
-def brokk_code_entry_name(
-    *, native: bool = False, rust_paths: RustAcpPaths | None = None
-) -> str:
+def brokk_code_entry_name(*, native: bool = False, rust_paths: RustAcpPaths | None = None) -> str:
     """Returns the agent_servers key for a given install variant.
 
     Distinct keys per variant let the default, --native, and --rust installs
