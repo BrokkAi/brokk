@@ -30,6 +30,8 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 
@@ -38,6 +40,7 @@ import org.jetbrains.annotations.Blocking;
  * Intended for {@link ai.brokk.executor.agents.CustomAgentExecutor custom agents} and similar tool loops.
  */
 public class CodeQualityTools {
+    private static final Logger logger = LogManager.getLogger(CodeQualityTools.class);
     private static final String FINDING_PREFIX = "[CODE_QUALITY]";
 
     private static final String COMMENT_DENSITY_UNAVAILABLE =
@@ -250,12 +253,14 @@ public class CodeQualityTools {
         int usageFileCap = maxUsageCandidateFiles > 0 ? maxUsageCandidateFiles : UsageFinder.DEFAULT_MAX_FILES;
         int usageCap = maxUsagesPerSymbol > 0 ? maxUsagesPerSymbol : 100;
 
+        long startedNanos = System.nanoTime();
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         var files = filePaths.stream()
                 .map(contextManager::toFile)
                 .filter(ProjectFile::exists)
                 .limit(inputFileCap)
                 .toList();
+        long inputFilesSelectedNanos = System.nanoTime();
         var selectedFiles = Set.copyOf(files);
         var findings = new ArrayList<DeadCodeFinding>();
         var skipped = new ArrayList<String>();
@@ -263,12 +268,14 @@ public class CodeQualityTools {
         CandidateFileProvider batchCandidateProvider = (target, analysis) -> analysis.getProject()
                 .getAnalyzableFiles(Languages.fromExtension(target.source().extension()));
         var candidateSelection = deadCodeCandidates(analyzer, files, fqNames, selectedFiles, candidateCap, skipped);
+        long candidatesSelectedNanos = System.nanoTime();
 
         for (CodeUnit candidate : candidateSelection.candidates()) {
             Optional<DeadCodeFinding> finding = analyzeDeadCodeCandidate(
                     analyzer, usageFinder, batchCandidateProvider, candidate, usageFileCap, usageCap, skipped);
             finding.filter(f -> f.score() >= threshold).ifPresent(findings::add);
         }
+        long usageScansFinishedNanos = System.nanoTime();
 
         var filtered = findings.stream()
                 .sorted(Comparator.comparingInt(DeadCodeFinding::totalUsageCount)
@@ -278,6 +285,19 @@ public class CodeQualityTools {
                         .thenComparing(DeadCodeFinding::symbol, String.CASE_INSENSITIVE_ORDER))
                 .limit(findingsCap)
                 .toList();
+        long reportFormattedNanos = System.nanoTime();
+
+        logger.debug(
+                "Dead-code smell analysis candidates={} inputFiles={} findings={} skipped={} elapsedMs={} inputMs={} candidateMs={} usageMs={} formatMs={}",
+                candidateSelection.candidates().size(),
+                files.size(),
+                findings.size(),
+                skipped.size(),
+                elapsedMs(startedNanos, reportFormattedNanos),
+                elapsedMs(startedNanos, inputFilesSelectedNanos),
+                elapsedMs(inputFilesSelectedNanos, candidatesSelectedNanos),
+                elapsedMs(candidatesSelectedNanos, usageScansFinishedNanos),
+                elapsedMs(usageScansFinishedNanos, reportFormattedNanos));
 
         var lines = new ArrayList<String>();
         lines.add("## Dead code and unused abstraction smells");
@@ -483,6 +503,10 @@ public class CodeQualityTools {
         }
         CodeUnit hitOwner = analyzer.parentOf(hit.enclosing()).orElse(hit.enclosing());
         return !hitOwner.equals(definingOwner.get());
+    }
+
+    private static long elapsedMs(long startNanos, long endNanos) {
+        return (endNanos - startNanos) / 1_000_000;
     }
 
     private record CandidateSelection(List<CodeUnit> candidates, boolean truncated) {}
