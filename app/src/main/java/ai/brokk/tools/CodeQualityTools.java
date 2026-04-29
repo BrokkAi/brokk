@@ -529,7 +529,7 @@ public class CodeQualityTools {
 
     @Tool(
             """
-            Java comment density tables for the given source files: one section per file and one row per top-level declaration.
+            Comment density tables for the given source files: one section per file and one row per top-level declaration.
             Includes own and rolled-up header/inline line counts. Bounded by maxFiles and maxTopLevelRows total across all files.""")
     public String reportCommentDensityForFiles(
             @P("File paths relative to the project root.") List<String> filePaths,
@@ -556,13 +556,6 @@ public class CodeQualityTools {
             ProjectFile file = contextManager.toFile(path);
             if (!file.exists()) {
                 lines.add("- Missing file (skipped): `" + path + "`");
-                filesShown++;
-                continue;
-            }
-            if (!"java".equals(file.extension())) {
-                lines.add("### `" + path + "`");
-                lines.add("(not a Java file; skipped)");
-                lines.add("");
                 filesShown++;
                 continue;
             }
