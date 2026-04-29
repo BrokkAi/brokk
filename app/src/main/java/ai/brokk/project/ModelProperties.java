@@ -1,5 +1,7 @@
 package ai.brokk.project;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.AbstractService.ReasoningLevel;
 import ai.brokk.Service;
@@ -260,11 +262,10 @@ public final class ModelProperties {
             case CODE -> CODEX_OAUTH_CODE_CONFIG;
             case ARCHITECT -> CODEX_OAUTH_ARCHITECT_CONFIG;
             default -> {
-                var codexMap = getVendorModelMap().get("OpenAI - Codex");
-                assert codexMap != null : "OpenAI - Codex vendor map missing";
-                var cfg = codexMap.get(modelType);
-                assert cfg != null : "OpenAI - Codex vendor map missing entry for " + modelType;
-                yield cfg;
+                var codexMap =
+                        requireNonNull(getVendorModelMap().get("OpenAI - Codex"), "OpenAI - Codex vendor map missing");
+                yield requireNonNull(
+                        codexMap.get(modelType), "OpenAI - Codex vendor map missing entry for " + modelType);
             }
         };
     }
