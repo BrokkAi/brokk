@@ -42,7 +42,7 @@ class CodeQualityToolsDeadCodeAndUnusedAbstractionTest {
             assertTrue(report.contains("Dead code and unused abstraction smells"), report);
             assertTrue(report.contains("`com.example.GeneratedResidue.unusedHelper`"), report);
             assertTrue(report.contains("External Usages"), report);
-            assertTrue(report.contains("| 0 | `no external usages found`"), report);
+            assertTrue(report.contains("| 0 | 0 | `no non-self usages found`"), report);
             assertTrue(report.contains("may be generated residue"), report);
         }
     }
@@ -84,7 +84,7 @@ class CodeQualityToolsDeadCodeAndUnusedAbstractionTest {
                     List.of("com.example.Target.oneCallWrapper", "com.example.Target.unusedHelper"));
 
             assertTrue(report.contains("`com.example.Target.oneCallWrapper`"), report);
-            assertTrue(report.contains("only external usage"), report);
+            assertTrue(report.contains("only usage"), report);
             assertTrue(report.contains("`com.example.Target.unusedHelper`"), report);
             assertTrue(
                     scoreFor(report, "com.example.Target.unusedHelper")
@@ -169,7 +169,7 @@ class CodeQualityToolsDeadCodeAndUnusedAbstractionTest {
     }
 
     @Test
-    void maxFindingsAndMaxFilesBoundDiscovery() throws IOException {
+    void maxFindingsAndMaxInputFilesBoundDiscovery() throws IOException {
         String first =
                 """
                 package com.example;
@@ -201,9 +201,11 @@ class CodeQualityToolsDeadCodeAndUnusedAbstractionTest {
                     0,
                     1,
                     1,
+                    200,
+                    1000,
                     100);
 
-            assertTrue(report.contains("Files analyzed cap: 1"), report);
+            assertTrue(report.contains("Input files analyzed cap: 1"), report);
             assertTrue(report.contains("Findings shown: 1"), report);
             assertTrue(report.contains("First"), report);
             assertFalse(report.contains("Second"), report);
@@ -253,10 +255,233 @@ class CodeQualityToolsDeadCodeAndUnusedAbstractionTest {
                     0,
                     40,
                     25,
+                    200,
+                    1000,
                     1);
 
             assertTrue(report.contains("Skipped evidence:"), report);
             assertTrue(report.contains("Too many call sites"), report);
+        }
+    }
+
+    @Test
+    void callerOutsideInputFilePreventsUnusedRationale() throws IOException {
+        String target =
+                """
+                package com.example;
+                public class Target {
+                    public int calledElsewhere(int value) {
+                        return value + 1;
+                    }
+                }
+                """;
+        String caller =
+                """
+                package com.example;
+                public class Caller {
+                    public int call(Target target) {
+                        return target.calledElsewhere(1);
+                    }
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(target, "src/main/java/com/example/Target.java")
+                .addFileContents(caller, "src/main/java/com/example/Caller.java")
+                .build()) {
+            var tools = tools(project);
+
+            String report = tools.reportDeadCodeAndUnusedAbstractionSmells(
+                    List.of("src/main/java/com/example/Target.java"),
+                    List.of("com.example.Target.calledElsewhere"),
+                    0,
+                    40,
+                    1,
+                    200,
+                    1000,
+                    100);
+
+            assertTrue(report.contains("`com.example.Target.calledElsewhere`"), report);
+            assertTrue(report.contains("only usage: src/main/java/com/example/Caller.java"), report);
+            assertFalse(report.contains("no non-self usages found"), report);
+        }
+    }
+
+    @Test
+    void truncatedUsageCandidateFilesProduceSkippedEvidence() throws IOException {
+        String target =
+                """
+                package com.example;
+                public class Target {
+                    public int maybeCalled(int value) {
+                        return value + 1;
+                    }
+                }
+                """;
+        String caller =
+                """
+                package com.example;
+                public class Caller {
+                    public int call(Target target) {
+                        return target.maybeCalled(1);
+                    }
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(target, "src/main/java/com/example/Target.java")
+                .addFileContents(caller, "src/main/java/com/example/Caller.java")
+                .build()) {
+            var tools = tools(project);
+
+            String report = tools.reportDeadCodeAndUnusedAbstractionSmells(
+                    List.of("src/main/java/com/example/Target.java"),
+                    List.of("com.example.Target.maybeCalled"),
+                    0,
+                    40,
+                    25,
+                    200,
+                    1,
+                    100);
+
+            assertTrue(report.contains("Skipped evidence:"), report);
+            assertTrue(report.contains("usage candidate files exceeded cap 1"), report);
+            assertFalse(report.contains("| `com.example.Target.maybeCalled` |"), report);
+        }
+    }
+
+    @Test
+    void sameClassHelperCalledTwiceIsNotReportedUnused() throws IOException {
+        String source =
+                """
+                package com.example;
+                public class InternalUsage {
+                    public int first(int value) {
+                        return helper(value);
+                    }
+
+                    public int second(int value) {
+                        return helper(value + 1);
+                    }
+
+                    private int helper(int value) {
+                        return value * 2;
+                    }
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(source, "src/main/java/com/example/InternalUsage.java")
+                .build()) {
+            var tools = tools(project);
+
+            String report = reportWithDefaults(
+                    tools,
+                    List.of("src/main/java/com/example/InternalUsage.java"),
+                    List.of("com.example.InternalUsage.helper"));
+
+            assertTrue(report.contains("No dead code or unused abstraction smells met minScore"), report);
+            assertFalse(report.contains("| `com.example.InternalUsage.helper` |"), report);
+        }
+    }
+
+    @Test
+    void sameClassHelperCalledOnceReportsOneCallAbstraction() throws IOException {
+        String source =
+                """
+                package com.example;
+                public class InternalUsage {
+                    public int first(int value) {
+                        return helper(value);
+                    }
+
+                    private int helper(int value) {
+                        return value * 2;
+                    }
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(source, "src/main/java/com/example/InternalUsage.java")
+                .build()) {
+            var tools = tools(project);
+
+            String report = reportWithDefaults(
+                    tools,
+                    List.of("src/main/java/com/example/InternalUsage.java"),
+                    List.of("com.example.InternalUsage.helper"));
+
+            assertTrue(report.contains("`com.example.InternalUsage.helper`"), report);
+            assertTrue(report.contains("only usage:"), report);
+            assertTrue(report.contains("(same owner)"), report);
+        }
+    }
+
+    @Test
+    void overloadedMethodCandidatesUseCandidateSpecificEvidence() throws IOException {
+        String target =
+                """
+                package com.example;
+                public class Overloaded {
+                    public int choose(int value) {
+                        return value + 1;
+                    }
+
+                    public int choose(String value) {
+                        return value.length();
+                    }
+                }
+                """;
+        String caller =
+                """
+                package com.example;
+                public class Caller {
+                    public int call(Overloaded overloaded) {
+                        return overloaded.choose(1);
+                    }
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(target, "src/main/java/com/example/Overloaded.java")
+                .addFileContents(caller, "src/main/java/com/example/Caller.java")
+                .build()) {
+            var tools = tools(project);
+
+            String report = reportWithDefaults(
+                    tools,
+                    List.of("src/main/java/com/example/Overloaded.java"),
+                    List.of("com.example.Overloaded.choose"));
+
+            assertTrue(report.contains("`com.example.Overloaded.choose`"), report);
+            assertTrue(report.contains("no non-self usages found"), report);
+        }
+    }
+
+    @Test
+    void candidateSymbolCapBoundsUsageAnalysis() throws IOException {
+        String source =
+                """
+                package com.example;
+                public class ManyCandidates {
+                    private int unusedOne(int value) {
+                        return value + 1;
+                    }
+
+                    private int unusedTwo(int value) {
+                        return value + 2;
+                    }
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(source, "src/main/java/com/example/ManyCandidates.java")
+                .build()) {
+            var tools = tools(project);
+
+            String report = tools.reportDeadCodeAndUnusedAbstractionSmells(
+                    List.of("src/main/java/com/example/ManyCandidates.java"), List.of(), 0, 40, 25, 1, 1000, 100);
+
+            assertTrue(report.contains("Candidate symbol cap: 1 (truncated)"), report);
+            assertTrue(report.contains("Candidate symbols analyzed: 1"), report);
+            assertTrue(report.contains("candidate symbol cap reached"), report);
         }
     }
 
@@ -288,7 +513,7 @@ class CodeQualityToolsDeadCodeAndUnusedAbstractionTest {
     }
 
     private static String reportWithDefaults(CodeQualityTools tools, List<String> paths, List<String> fqNames) {
-        return tools.reportDeadCodeAndUnusedAbstractionSmells(paths, fqNames, 0, 40, 25, 100);
+        return tools.reportDeadCodeAndUnusedAbstractionSmells(paths, fqNames, 0, 40, 25, 200, 1000, 100);
     }
 
     private static int scoreFor(String report, String symbol) {
