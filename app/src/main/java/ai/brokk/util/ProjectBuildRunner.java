@@ -215,10 +215,14 @@ public class ProjectBuildRunner {
         io.commandStart("Verification", verificationCommand);
         var output = io.supportsCommandResult() ? new StringBuilder() : null;
         try {
+            // verificationCommand is user-configured project setup, not an LLM-chosen command,
+            // so the sandbox protections ShellTools.runShellCommand applies to LLM-driven shell
+            // calls are not appropriate here. See BuildVerifier.verifyStreaming for the longer
+            // rationale.
             Environment.instance.runShellCommand(
                     verificationCommand,
                     project.getRoot(),
-                    SandboxPolicy.WORKSPACE_WRITE,
+                    SandboxPolicy.NONE,
                     line -> {
                         if (output != null) output.append(line).append("\n");
                         io.commandOutput(line);
@@ -273,10 +277,12 @@ public class ProjectBuildRunner {
         var output = io.supportsCommandResult() ? new StringBuilder() : null;
         try {
             BuildDetails details = override != null ? override : project.awaitBuildDetails();
+            // Post-task command is user-configured (same threat model as the verification path
+            // above); see BuildVerifier.verifyStreaming for why this is not sandboxed.
             Environment.instance.runShellCommand(
                     command,
                     project.getRoot(),
-                    SandboxPolicy.WORKSPACE_WRITE,
+                    SandboxPolicy.NONE,
                     line -> {
                         if (output != null) output.append(line).append("\n");
                         io.commandOutput(line);

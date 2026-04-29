@@ -130,10 +130,15 @@ public final class BuildVerifier {
         Deque<String> lines = new ArrayDeque<>(MAX_OUTPUT_LINES);
 
         try {
+            // Build verification runs the user-configured verificationCommand, not an LLM-chosen
+            // command. Sandboxing it via Seatbelt on macOS reliably breaks JVM/Gradle builds (no
+            // working network-interface enumeration for FileLockContentionHandler, no /tmp, no
+            // ~/.gradle/caches writes). The threat model that motivates SandboxPolicy.WORKSPACE_WRITE
+            // for ShellTools.runShellCommand does not apply here, so this path runs unsandboxed.
             Environment.instance.runShellCommand(
                     trimmed,
                     root,
-                    SandboxPolicy.WORKSPACE_WRITE,
+                    SandboxPolicy.NONE,
                     line -> {
                         synchronized (lines) {
                             appendBounded(lines, line);
