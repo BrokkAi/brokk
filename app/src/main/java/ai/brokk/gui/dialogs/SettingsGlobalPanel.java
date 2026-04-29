@@ -2,7 +2,6 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;

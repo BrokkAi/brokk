@@ -10,9 +10,7 @@ import pytest
 from brokk_code import bifrost_launcher, mcp_launcher, rust_acp_install
 
 
-def test_run_bifrost_server_uses_override_and_execs_searchtools(
-    monkeypatch, tmp_path
-) -> None:
+def test_run_bifrost_server_uses_override_and_execs_searchtools(monkeypatch, tmp_path) -> None:
     captured: dict[str, object] = {}
 
     binary = tmp_path / "bifrost"
@@ -179,9 +177,7 @@ def test_parse_sha256_rejects_malformed(tmp_path) -> None:
 def test_download_bifrost_extracts_and_caches(monkeypatch, tmp_path) -> None:
     """End-to-end exercise of _download_bifrost with a stubbed httpx layer."""
     cache_root = tmp_path / "cache"
-    monkeypatch.setattr(
-        "brokk_code.rust_acp_install.get_global_cache_dir", lambda: cache_root
-    )
+    monkeypatch.setattr("brokk_code.rust_acp_install.get_global_cache_dir", lambda: cache_root)
     monkeypatch.setattr(rust_acp_install.platform, "system", lambda: "Linux")
     monkeypatch.setattr(rust_acp_install.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(sys, "platform", "linux")

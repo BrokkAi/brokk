@@ -896,8 +896,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         defaultsRolesButton.addActionListener(e -> {
             boolean codexConnected = MainProject.isOpenAiCodexOauthConnected();
 
-            otherModelsVendorCombo.setSelectedItem(
-                    codexConnected ? "OpenAI - Codex" : ModelProperties.DEFAULT_VENDOR);
+            otherModelsVendorCombo.setSelectedItem(codexConnected ? "OpenAI - Codex" : ModelProperties.DEFAULT_VENDOR);
 
             // OAuth-connected: use the Codex OAuth preset; else fall back to ModelProperties defaults.
             var architectConfig = codexConnected
