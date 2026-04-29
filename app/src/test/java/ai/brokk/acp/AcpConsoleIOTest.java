@@ -420,6 +420,77 @@ class AcpConsoleIOTest {
         assertTrue(ctx.updates.isEmpty(), "Final-answer text must stay as chat, not be wrapped");
     }
 
+    @Test
+    void commandStartTitleStaysSingleLineForLongCommand() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        var longCommand =
+                "cd brokk-code;uv run pytest -q brokk-code/tests/test_bifrost_launcher.py brokk-code/tests/test_cli_modes.py";
+        io.commandStart("Verification", longCommand);
+
+        var call = ctx.updates.stream()
+                .filter(AcpSchema.ToolCall.class::isInstance)
+                .map(AcpSchema.ToolCall.class::cast)
+                .findFirst()
+                .orElseThrow();
+        var title = call.title();
+        assertFalse(title.contains("\n"), "title must be single-line, got: " + title);
+        assertFalse(
+                title.contains("[truncated"), "title must not contain a body-style truncation marker, got: " + title);
+        assertTrue(title.length() <= 80, "title must be capped at 80 chars, got " + title.length() + ": " + title);
+        assertTrue(title.startsWith("Verification: "), "title should keep the stage prefix, got: " + title);
+        assertTrue(title.endsWith("..."), "title should end with an ellipsis when truncated, got: " + title);
+    }
+
+    @Test
+    void commandResultPreservesStreamedOutputWhenCommandFails() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        var command = "uv run pytest -q";
+        io.commandStart("Verification", command);
+
+        // ProjectBuildRunner builds `fullOutput = stdout + "\n" + e.getMessage() + "\n" + e.getOutput()`
+        // and passes it as `output`. The exception arg is just `e.getMessage()`. The richer output
+        // must win.
+        var streamedOutput = "FAILED tests/test_x.py::test_a - AssertionError: expected 1 got 2";
+        var processError = "process 'uv run pytest -q' signaled error code 4";
+        var fullOutput = streamedOutput + "\n" + processError;
+        io.commandResult("Verification", command, false, fullOutput, processError);
+
+        var failed = ctx.updates.stream()
+                .filter(AcpSchema.ToolCallUpdateNotification.class::isInstance)
+                .map(AcpSchema.ToolCallUpdateNotification.class::cast)
+                .filter(u -> u.status() == AcpSchema.ToolCallStatus.FAILED)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a FAILED tool_call_update"));
+        var block = (AcpSchema.ToolCallContentBlock) failed.content().getFirst();
+        var text = ((AcpSchema.TextContent) block.content()).text();
+        assertTrue(
+                text.contains(streamedOutput), "rendered body must preserve the streamed stdout/stderr, got: " + text);
+    }
+
+    @Test
+    void commandResultFallsBackToExceptionWhenOutputIsBlank() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        var command = "false";
+        io.commandStart("Verification", command);
+        io.commandResult("Verification", command, false, "", "process 'false' signaled error code 1");
+
+        var failed = ctx.updates.stream()
+                .filter(AcpSchema.ToolCallUpdateNotification.class::isInstance)
+                .map(AcpSchema.ToolCallUpdateNotification.class::cast)
+                .filter(u -> u.status() == AcpSchema.ToolCallStatus.FAILED)
+                .findFirst()
+                .orElseThrow();
+        var block = (AcpSchema.ToolCallContentBlock) failed.content().getFirst();
+        var text = ((AcpSchema.TextContent) block.content()).text();
+        assertTrue(text.contains("error code 1"), "exception text must surface when output is blank, got: " + text);
+    }
+
     private static final class RecordingPromptContext implements AcpPromptContext {
         final List<AcpSchema.SessionUpdate> updates = new ArrayList<>();
         final List<String> messages = new ArrayList<>();
