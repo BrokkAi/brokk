@@ -38,19 +38,22 @@ import org.jetbrains.annotations.Nullable;
  */
 public abstract class AbstractService implements ExceptionReporter.ReportingService {
 
+    protected static final Logger logger = LogManager.getLogger(AbstractService.class);
+
     // Constants and configuration
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
 
     public static final long FLEX_FIRST_TOKEN_TIMEOUT_SECONDS = 15L * 60L; // 15 minutes
-    public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
-    public static final long NEXT_TOKEN_TIMEOUT_SECONDS = DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
+    public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS =
+            parseTimeoutSeconds("BRK_FIRST_TOKEN_TIMEOUT", 2L * 60L); // 2 minutes
+    public static final long NEXT_TOKEN_TIMEOUT_SECONDS =
+            parseTimeoutSeconds("BRK_NEXT_TOKEN_TIMEOUT", DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS);
 
     public static final String UNAVAILABLE = "AI is unavailable";
     public static final String CUSTOM_ENDPOINT_DUMMY_KEY = "no-key-required";
 
-    protected final Logger logger = LogManager.getLogger(AbstractService.class);
     protected final ObjectMapper objectMapper = new ObjectMapper();
     protected final IProject project;
 
@@ -66,6 +69,25 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public AbstractService(IProject project) {
         // Intentionally minimal: no network calls here
         this.project = project;
+    }
+
+    private static long parseTimeoutSeconds(String envName, long fallbackSeconds) {
+        var rawValue = System.getenv(envName);
+        if (rawValue == null || rawValue.isBlank()) {
+            return fallbackSeconds;
+        }
+        try {
+            var parsed = Long.parseLong(rawValue.trim());
+            if (parsed > 0) {
+                logger.debug("Overriding {} with {} seconds", envName, parsed);
+                return parsed;
+            }
+        } catch (NumberFormatException e) {
+            logger.warn("Could not parse {}='{}' as seconds; using fallback {}", envName, rawValue, fallbackSeconds);
+            return fallbackSeconds;
+        }
+        logger.warn("{} value '{}' is not positive; using fallback {}", envName, rawValue, fallbackSeconds);
+        return fallbackSeconds;
     }
 
     public abstract float getUserBalance() throws IOException;
