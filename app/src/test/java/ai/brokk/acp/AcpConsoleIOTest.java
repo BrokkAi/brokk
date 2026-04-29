@@ -385,7 +385,7 @@ class AcpConsoleIOTest {
     }
 
     @Test
-    void showStatusBannerEmitsSyntheticToolCall() {
+    void showStatusBannerEmitsTitleOnlyCard() {
         var ctx = new RecordingPromptContext();
         var io = new AcpConsoleIO(ctx);
 
@@ -401,9 +401,7 @@ class AcpConsoleIOTest {
                 .orElseThrow();
         assertEquals("Adding context to workspace", call.title());
         assertEquals(AcpSchema.ToolKind.THINK, call.kind());
-        var block = (AcpSchema.ToolCallContentBlock) call.content().getFirst();
-        var text = ((AcpSchema.TextContent) block.content()).text();
-        assertTrue(text.contains("fragmentCount"), "yaml body should be carried into content");
+        assertTrue(call.content().isEmpty(), "title-only card carries no body");
     }
 
     @Test
