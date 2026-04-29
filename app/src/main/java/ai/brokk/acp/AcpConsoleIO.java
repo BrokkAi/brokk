@@ -14,6 +14,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -211,7 +213,25 @@ public class AcpConsoleIO extends MemoryConsole {
 
     @Override
     public void showStatusLine(String message) {
-        emitCompactStatus(message, AcpSchema.ToolKind.THINK);
+        // Emit via agent_message_chunk so the status renders as inline transcript text.
+        // Replace the shields.io image-markdown that StatusBadge embeds with a bold label,
+        // since Zed's ACP renderer parses markdown text but does not load remote images.
+        var rewritten = rewriteStatusBadge(message);
+        var formatted = "\n" + rewritten + "\n";
+        super.llmOutput(formatted, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
+        context.sendMessage(formatted);
+    }
+
+    private static final Pattern STATUS_BADGE = Pattern.compile(
+            "^!\\[Status\\]\\(https://img\\.shields\\.io/badge/Status-(.+?)-(?:brightgreen|yellow|orange|red)\\?style=flat\\)\\s*");
+
+    private static String rewriteStatusBadge(String message) {
+        var matcher = STATUS_BADGE.matcher(message);
+        if (!matcher.find()) {
+            return message;
+        }
+        var label = URLDecoder.decode(matcher.group(1), StandardCharsets.UTF_8);
+        return "**[" + label + "]** " + message.substring(matcher.end());
     }
 
     /**
