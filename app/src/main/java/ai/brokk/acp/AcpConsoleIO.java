@@ -6,7 +6,6 @@ import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.tools.ApprovalResult;
-import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.util.Json;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
@@ -207,8 +206,7 @@ public class AcpConsoleIO extends MemoryConsole {
      */
     @Override
     public void showStatusBanner(String headline, Map<String, Object> details) {
-        var body = "```yaml\n" + ExplanationRenderer.toYaml(details) + "```";
-        emitSyntheticToolCall(new HeaderAndBody(headline, body), AcpSchema.ToolKind.THINK);
+        emitCompactStatus(headline, AcpSchema.ToolKind.THINK);
     }
 
     @Override
