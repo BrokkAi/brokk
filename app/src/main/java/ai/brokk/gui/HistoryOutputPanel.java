@@ -1644,7 +1644,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private void openOutputWindowStreaming() {
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
-        String currentMarkdown = Messages.format(currentMessages);
+        String currentMarkdown = Messages.formatForDisplay(currentMessages);
         var history = new ArrayList<>(contextManager.liveContext().getTaskHistory());
         history.add(new TaskEntry(-1, "Streaming Output...", currentMarkdown, currentMarkdown, null, null));
 
