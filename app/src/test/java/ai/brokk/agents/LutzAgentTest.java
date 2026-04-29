@@ -318,9 +318,7 @@ class LutzAgentTest {
 
         var thrown = assertThrows(RuntimeException.class, () -> agent.callCodeAgent("test instructions"));
         assertSame(
-                sentinel,
-                thrown,
-                "Without an explicit codeModel, callCodeAgent must fall back to cm.getCodeModel().");
+                sentinel, thrown, "Without an explicit codeModel, callCodeAgent must fall back to cm.getCodeModel().");
     }
 
     @Test
