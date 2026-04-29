@@ -1014,6 +1014,11 @@ public class BrokkAcpAgent {
             sessionsOnFallbackCatalog.remove(sessionId);
         }
 
+        // Re-validate persisted catalog-wide defaults against the live catalog (#3421).
+        // The internal guard skips when on fallback catalog so transient discovery failures
+        // do not overwrite user-configured defaults.
+        revalidatePersistedDefaults(sessionId, availableModels, service);
+
         // Build model list with reasoning variants (model/low, model/medium, model/high, etc.)
         var models = new ArrayList<AcpSchema.ModelInfo>();
         availableModels.keySet().stream().sorted().forEach(name -> {
@@ -1037,6 +1042,83 @@ public class BrokkAcpAgent {
         var currentModelId = formatModelIdWithVariant(baseModel, reasoning);
 
         return new AcpSchema.SessionModelState(currentModelId, List.copyOf(models));
+    }
+
+    /**
+     * Pure decision logic for reasoning-level sanitization. Returns {@code level} unchanged when
+     * it is a known id and supported by the model's capabilities; otherwise returns {@code "default"}.
+     * Decoupled from {@link AbstractService} so unit tests can exercise every combination cheaply.
+     * Mirrors the deleted Python bridge's {@code _sanitize_reasoning_level_for_model}. See #3421.
+     */
+    static String sanitizeReasoningLevel(String level, boolean supportsEffort, boolean supportsDisable) {
+        var normalized = REASONING_LEVEL_IDS.contains(level) ? level : "default";
+        if (!supportsEffort && !"default".equals(normalized)) {
+            return "default";
+        }
+        if ("disable".equals(normalized) && !supportsDisable) {
+            return "default";
+        }
+        return normalized;
+    }
+
+    /**
+     * Sanitizes a reasoning level against a model's reasoning capabilities. A blank model name
+     * short-circuits to enum-level normalization (no service lookup); useful when the persisted
+     * default has no chosen model yet. See #3421.
+     */
+    private static String sanitizeReasoningLevelForModel(String modelName, String level, AbstractService service) {
+        if (modelName.isBlank()) {
+            return REASONING_LEVEL_IDS.contains(level) ? level : "default";
+        }
+        return sanitizeReasoningLevel(
+                level, service.supportsReasoningEffort(modelName), service.supportsReasoningDisable(modelName));
+    }
+
+    /**
+     * Re-validates the persisted catalog-wide ACP defaults against the live catalog and the
+     * chosen model's reasoning capabilities. If a default is stale (model retired upstream,
+     * reasoning level not supported by the model), updates the in-memory default and re-persists
+     * to {@code ~/.brokk/acp_settings.json}. Mirrors the per-{@code new_session} validation in
+     * the deleted Python bridge. See #3421.
+     *
+     * <p>Skipped when the session is on the {@code BASE_MODEL_IDS} fallback catalog -- writing
+     * sanitized defaults based on a fallback would erase the user's configured choice as soon
+     * as live discovery comes back.
+     */
+    private void revalidatePersistedDefaults(
+            String sessionId, Map<String, String> availableModels, AbstractService service) {
+        if (sessionsOnFallbackCatalog.contains(sessionId) || availableModels.isEmpty()) {
+            return;
+        }
+
+        var modelChanged = false;
+        if (!defaultModelId.isEmpty() && !availableModels.containsKey(defaultModelId)) {
+            var fallback =
+                    availableModels.keySet().stream().sorted().findFirst().orElse(null);
+            if (fallback != null && !fallback.equals(defaultModelId)) {
+                logger.info(
+                        "Persisted ACP default model {} not in current catalog; falling back to {}",
+                        defaultModelId,
+                        fallback);
+                defaultModelId = fallback;
+                modelChanged = true;
+            }
+        }
+
+        var sanitized = sanitizeReasoningLevelForModel(defaultModelId, defaultReasoningLevel, service);
+        var reasoningChanged = !sanitized.equals(defaultReasoningLevel);
+        if (reasoningChanged) {
+            logger.info(
+                    "Persisted ACP reasoning {} invalid for model {}; falling back to {}",
+                    defaultReasoningLevel,
+                    defaultModelId,
+                    sanitized);
+            defaultReasoningLevel = sanitized;
+        }
+
+        if (modelChanged || reasoningChanged) {
+            saveAcpDefaults(defaultModelId, defaultReasoningLevel);
+        }
     }
 
     /**
