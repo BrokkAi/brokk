@@ -714,10 +714,7 @@ public class LutzAgent {
         Set<ProjectFile> filesBeforeScan = workspaceFiles(context);
 
         var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
-        io.llmOutput(
-                "\n**Brokk Context Engine** analyzing repository context…\n",
-                ChatMessageType.AI,
-                LlmOutputMeta.newMessage());
+        io.showStatusBanner("Brokk Context Engine analyzing repository context", Map.of());
 
         var recommendation = contextAgent.getRecommendations(context);
 
@@ -736,10 +733,7 @@ public class LutzAgent {
             } else {
                 context = context.addFragments(recommendation.fragments());
                 emitContextAddedExplanation(recommendation.fragments());
-                io.llmOutput(
-                        "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
-                        ChatMessageType.AI,
-                        LlmOutputMeta.DEFAULT);
+                io.showStatusBanner("Brokk Context Engine complete - contextual insights added to Workspace", Map.of());
             }
         } else {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
