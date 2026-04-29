@@ -40,7 +40,10 @@ public final class LutzExecutor {
             ContextManager.TaskScope scope)
             throws InterruptedException {
         // Phase 1: Search
-        runSearchPhase(taskInput, plannerModel, scope);
+        // Thread the JobSpec-resolved codeModel through so that callCodeAgent fired during the
+        // LUTZ search loop honors the per-job selection (bug #3429). Null preserves legacy
+        // fallback to cm.getCodeModel() for callers that do not specify a JobSpec code model.
+        runSearchPhase(taskInput, plannerModel, codeModel, scope);
 
         // Phase 2: Execution Loop
         LutzContext adapter = new LutzContext() {
@@ -61,10 +64,22 @@ public final class LutzExecutor {
     }
 
     @Blocking
-    private void runSearchPhase(String taskInput, StreamingChatModel plannerModel, ContextManager.TaskScope scope)
+    private void runSearchPhase(
+            String taskInput,
+            StreamingChatModel plannerModel,
+            @Nullable StreamingChatModel codeModel,
+            ContextManager.TaskScope scope)
             throws InterruptedException {
         var context = cm.liveContext();
-        var searchAgent = new LutzAgent(context, taskInput, plannerModel, SearchPrompts.Objective.LUTZ, scope);
+        var searchAgent = new LutzAgent(
+                context,
+                taskInput,
+                plannerModel,
+                codeModel,
+                SearchPrompts.Objective.LUTZ,
+                scope,
+                context.getContextManager().getIo(),
+                LutzAgent.ScanConfig.defaults());
         var taskListResult = searchAgent.execute();
         scope.append(taskListResult);
     }
