@@ -9,11 +9,13 @@ import ai.brokk.context.ContextFragment;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -271,5 +273,99 @@ public class Messages {
                 .map(Messages::getReprForDisplay)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n\n"));
+    }
+
+    /**
+     * One slice of pre-rendered task markdown after legacy framing has been stripped.
+     * Produced by {@link #parseLegacyFraming(String)}.
+     */
+    public record FramedSegment(ChatMessageType type, String content) {}
+
+    private static final Pattern LEGACY_OPEN_TAG = Pattern.compile("^\\s*<message type=(\\w+)>\\s*$");
+
+    private static final Pattern LEGACY_CLOSE_TAG = Pattern.compile("^\\s*</message>\\s*$");
+
+    private static final Pattern LEGACY_SECTION_LABEL = Pattern.compile("(?m)^(?:Reasoning|Text|Tool calls):\\s*$");
+
+    /**
+     * Parses task markdown that may contain legacy {@code <message type=X>...</message>} framing
+     * (produced by {@link #format(List)}) into a list of structured segments.
+     *
+     * <p>If no framing is detected the whole markdown is returned as a single CUSTOM segment so that
+     * post-fix data flows through unchanged. This is meant for display-side replay where structured
+     * messages are no longer available on the fragment but the persisted markdown still carries them.
+     *
+     * <p>Uses a line-based stack scanner so it correctly handles empty bodies and arbitrarily nested
+     * framing (e.g. {@code <message type=custom>} wrapping a full {@code <message type=user>...</message>}).
+     * When framing is nested only the inner segment is emitted, since the outer wrap carries no
+     * meaningful content of its own.
+     */
+    public static List<FramedSegment> parseLegacyFraming(String markdown) {
+        if (markdown.isEmpty()) {
+            return List.of();
+        }
+        if (!markdown.contains("<message type=")) {
+            return List.of(new FramedSegment(ChatMessageType.CUSTOM, markdown));
+        }
+        var typeStack = new ArrayDeque<ChatMessageType>();
+        var contentStack = new ArrayDeque<StringBuilder>();
+        var result = new ArrayList<FramedSegment>();
+        for (var line : markdown.split("\n", -1)) {
+            var openMatcher = LEGACY_OPEN_TAG.matcher(line);
+            if (openMatcher.matches()) {
+                ChatMessageType type;
+                try {
+                    type = ChatMessageType.valueOf(openMatcher.group(1).toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException ex) {
+                    type = ChatMessageType.CUSTOM;
+                }
+                typeStack.push(type);
+                contentStack.push(new StringBuilder());
+                continue;
+            }
+            if (LEGACY_CLOSE_TAG.matcher(line).matches()) {
+                if (typeStack.isEmpty()) {
+                    continue;
+                }
+                var type = typeStack.pop();
+                var cleaned = cleanFramedContent(contentStack.pop().toString());
+                if (!cleaned.isEmpty()) {
+                    result.add(new FramedSegment(type, cleaned));
+                }
+                continue;
+            }
+            if (!contentStack.isEmpty()) {
+                contentStack.peek().append(line).append('\n');
+            }
+        }
+        if (result.isEmpty()) {
+            return List.of(new FramedSegment(ChatMessageType.CUSTOM, markdown));
+        }
+        return result;
+    }
+
+    private static String cleanFramedContent(String content) {
+        if (content.isEmpty()) {
+            return "";
+        }
+        var minIndent = content.lines()
+                .filter(line -> !line.isBlank())
+                .mapToInt(line -> {
+                    int n = 0;
+                    while (n < line.length() && line.charAt(n) == ' ') n++;
+                    return n;
+                })
+                .min()
+                .orElse(0);
+        var deindented = content.lines()
+                .map(line -> line.length() >= minIndent ? line.substring(minIndent) : line)
+                .collect(Collectors.joining("\n"));
+        var withoutLabels = LEGACY_SECTION_LABEL.matcher(deindented).replaceAll("");
+        return withoutLabels.replaceAll("\\n{3,}", "\n\n").strip();
+    }
+
+    /** Strips legacy framing while preserving readable content; used where per-segment structure isn't needed. */
+    public static String stripLegacyFraming(String markdown) {
+        return parseLegacyFraming(markdown).stream().map(FramedSegment::content).collect(Collectors.joining("\n\n"));
     }
 }
