@@ -295,9 +295,15 @@ pub async fn run_agent(
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
 
-                // Get session state (prompt doesn't carry cwd, so use current dir as fallback)
+                // Get session state (prompt doesn't carry cwd, so use current dir as fallback).
+                // The snapshot clones the conversation history exactly once under the
+                // read lock; we then consume it via `.into_iter()` to build ChatMessages
+                // without further string copies.
                 let fallback_cwd = std::env::current_dir().unwrap_or_default();
-                let session = match sessions_prompt.get_session(&session_id, &fallback_cwd).await {
+                let snap = match sessions_prompt
+                    .snapshot(&session_id, &fallback_cwd)
+                    .await
+                {
                     Some(s) => s,
                     None => {
                         send_message(&cx, &session_id, "Error: unknown session");
@@ -306,18 +312,16 @@ pub async fn run_agent(
                 };
 
                 // Validate model is configured
-                if session.model.is_empty() {
+                if snap.model.is_empty() {
                     send_message(&cx, &session_id, "Error: no model configured. Start the server with --default-model or ensure the LLM endpoint is reachable for model discovery.");
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
 
-                // Build conversation messages from history
-                let mut messages = vec![
-                    ChatMessage::system(build_system_prompt(&session.mode, &session.cwd)),
-                ];
-                for turn in &session.history {
-                    messages.push(ChatMessage::user(turn.user_prompt.clone()));
-                    messages.push(ChatMessage::assistant(turn.agent_response.clone()));
+                let mut messages = Vec::with_capacity(snap.history.len() * 2 + 2);
+                messages.push(ChatMessage::system(build_system_prompt(&snap.mode, &snap.cwd)));
+                for turn in snap.history {
+                    messages.push(ChatMessage::user(turn.user_prompt));
+                    messages.push(ChatMessage::assistant(turn.agent_response));
                 }
                 messages.push(ChatMessage::user(prompt_text.clone()));
 
@@ -328,7 +332,7 @@ pub async fn run_agent(
                 let registry = sessions_prompt
                     .get_or_create_registry(
                         &session_id,
-                        session.cwd.clone(),
+                        snap.cwd,
                         bifrost_binary_prompt.as_deref(),
                     )
                     .await;
@@ -342,7 +346,7 @@ pub async fn run_agent(
                 let cx_for_loop = cx.clone();
                 let session_id_for_loop = session_id.clone();
                 let prompt_text_for_turn = prompt_text;
-                let model_for_loop = session.model.clone();
+                let model_for_loop = snap.model;
 
                 cx.spawn(async move {
                     use futures::FutureExt;
@@ -382,9 +386,6 @@ pub async fn run_agent(
                     .catch_unwind()
                     .await;
 
-                    // Clean up cancellation token even on panic.
-                    sessions_for_loop.finish_prompt(&session_id_for_loop).await;
-
                     let response_text = match loop_result {
                         Ok(text) => text,
                         Err(panic) => {
@@ -397,8 +398,13 @@ pub async fn run_agent(
                         }
                     };
 
-                    // Save conversation turn (best effort -- logged on failure inside the store).
-                    sessions_for_loop
+                    // Persist the conversation turn BEFORE finish_prompt so the
+                    // per-session cancel token is held during the rewrite -- this
+                    // is the locking that makes `add_turn`'s rollback safe (see
+                    // the concurrency note on `SessionStore::add_turn`). On
+                    // failure, surface the error to the client so the user
+                    // knows their last turn isn't on disk.
+                    let persist_result = sessions_for_loop
                         .add_turn(
                             &session_id_for_loop,
                             ConversationTurn {
@@ -407,6 +413,20 @@ pub async fn run_agent(
                             },
                         )
                         .await;
+
+                    if let Err(e) = persist_result {
+                        send_message(
+                            &cx_for_loop,
+                            &session_id_for_loop,
+                            &format!(
+                                "\n**Warning:** failed to save this conversation turn to disk; \
+                                 it will not survive a session reload: {e}\n"
+                            ),
+                        );
+                    }
+
+                    // Clean up cancellation token even on panic / persistence failure.
+                    sessions_for_loop.finish_prompt(&session_id_for_loop).await;
 
                     if let Err(e) = responder.respond(PromptResponse::new(StopReason::EndTurn)) {
                         tracing::warn!(
