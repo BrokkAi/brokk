@@ -1,5 +1,7 @@
 package ai.brokk.project;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.AbstractService.ReasoningLevel;
 import ai.brokk.Service;
@@ -230,6 +232,10 @@ public final class ModelProperties {
      * Ensures ProcessingTier is non-null (backward compatibility against older JSON).
      */
     static ModelConfig getModelConfig(Properties props, ModelType modelType) {
+        // Codex OAuth + restrict flag substitutes role configs at read time; persisted values stay intact.
+        if (MainProject.isOpenAiCodexOauthConnected() && MainProject.isRestrictToOauthModelsWhenConnected()) {
+            return codexOauthConfigFor(modelType);
+        }
         String jsonString = props.getProperty(modelType.propertyKey);
         if (jsonString != null && !jsonString.isBlank()) {
             try {
@@ -249,6 +255,19 @@ public final class ModelProperties {
             }
         }
         return modelType.defaultConfig();
+    }
+
+    private static ModelConfig codexOauthConfigFor(ModelType modelType) {
+        return switch (modelType) {
+            case CODE -> CODEX_OAUTH_CODE_CONFIG;
+            case ARCHITECT -> CODEX_OAUTH_ARCHITECT_CONFIG;
+            default -> {
+                var codexMap =
+                        requireNonNull(getVendorModelMap().get("OpenAI - Codex"), "OpenAI - Codex vendor map missing");
+                yield requireNonNull(
+                        codexMap.get(modelType), "OpenAI - Codex vendor map missing entry for " + modelType);
+            }
+        };
     }
 
     /**
