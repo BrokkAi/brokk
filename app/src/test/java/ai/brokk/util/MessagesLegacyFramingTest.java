@@ -1,0 +1,145 @@
+package ai.brokk.util;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.UserMessage;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+class MessagesLegacyFramingTest {
+
+    @Test
+    void emptyInputReturnsEmptyList() {
+        assertEquals(List.of(), Messages.parseLegacyFraming(""));
+    }
+
+    @Test
+    void cleanMarkdownPassesThroughAsCustomSegment() {
+        var clean = "Some clean **markdown** with no framing.";
+        var segments = Messages.parseLegacyFraming(clean);
+        assertEquals(1, segments.size());
+        assertEquals(ChatMessageType.CUSTOM, segments.get(0).type());
+        assertEquals(clean, segments.get(0).content());
+    }
+
+    @Test
+    void parsesUserAndAiBlocksProducedByMessagesFormat() {
+        List<ChatMessage> messages = List.of(new UserMessage("hello"), new AiMessage("hi there"));
+        var framed = Messages.format(messages);
+
+        var segments = Messages.parseLegacyFraming(framed);
+
+        assertEquals(2, segments.size());
+        assertEquals(ChatMessageType.USER, segments.get(0).type());
+        assertEquals("hello", segments.get(0).content());
+        assertEquals(ChatMessageType.AI, segments.get(1).type());
+        assertEquals("hi there", segments.get(1).content());
+    }
+
+    @Test
+    void stripsAiSectionLabelsFromReasoningAndToolCalls() {
+        var ai = new AiMessage("", "thinking out loud"); // text empty, reasoning set
+        var framed = Messages.format(List.of(ai));
+        var segments = Messages.parseLegacyFraming(framed);
+        assertEquals(1, segments.size());
+        assertEquals(ChatMessageType.AI, segments.get(0).type());
+        // After stripping the "Reasoning:" label and de-indenting, only the reasoning body remains.
+        assertEquals("thinking out loud", segments.get(0).content());
+    }
+
+    @Test
+    void unknownTypeFallsBackToCustom() {
+        var framed =
+                """
+                <message type=mystery>
+                  payload
+                </message>
+                """;
+        var segments = Messages.parseLegacyFraming(framed);
+        assertEquals(1, segments.size());
+        assertEquals(ChatMessageType.CUSTOM, segments.get(0).type());
+        assertEquals("payload", segments.get(0).content());
+    }
+
+    @Test
+    void stripLegacyFramingJoinsSegments() {
+        List<ChatMessage> messages = List.of(new UserMessage("hello"), new AiMessage("hi there"));
+        var framed = Messages.format(messages);
+        assertEquals("hello\n\nhi there", Messages.stripLegacyFraming(framed));
+    }
+
+    @Test
+    void stripLegacyFramingPreservesCleanMarkdown() {
+        var clean = "Already clean";
+        assertEquals(clean, Messages.stripLegacyFraming(clean));
+    }
+
+    @Test
+    void flattensNestedFramingFromCustomWrappingUser() {
+        // Old persisted entries sometimes double-wrap: a CustomMessage carrying a markdown blob that
+        // itself contains <message type=user>...</message>. Verify we flatten to the inner segment.
+        var nested =
+                """
+                <message type=custom>
+                  <message type=user>
+                    can you list all the acp related issues?
+                  </message>
+                </message>
+                """;
+        var segments = Messages.parseLegacyFraming(nested);
+        assertEquals(1, segments.size());
+        assertEquals(ChatMessageType.USER, segments.get(0).type());
+        assertEquals("can you list all the acp related issues?", segments.get(0).content());
+    }
+
+    @Test
+    void emptyCustomBlockDoesNotSwallowFollowingBlock() {
+        // Real persisted data started with an empty custom wrapper followed by an AI block. A naive
+        // regex matched the outer custom open against the AI block's close, collapsing both into
+        // one segment whose content kept the inner framing. Verify each block is recognized separately.
+        var input =
+                """
+                <message type=custom>
+
+                </message>
+
+                <message type=ai>
+                  Reasoning:
+                  thought
+                </message>
+                """;
+        var segments = Messages.parseLegacyFraming(input);
+        assertEquals(1, segments.size());
+        assertEquals(ChatMessageType.AI, segments.get(0).type());
+        assertEquals("thought", segments.get(0).content());
+    }
+
+    @Test
+    void deindentDetectsCommonIndentForArbitraryDepth() {
+        // Inner content at 4-space indent (depth-2 nesting) must lose all 4 leading spaces.
+        var input =
+                """
+                <message type=custom>
+                  <message type=user>
+                    deeply indented user text
+                  </message>
+                </message>
+                """;
+        var segments = Messages.parseLegacyFraming(input);
+        assertEquals(1, segments.size());
+        assertEquals(ChatMessageType.USER, segments.get(0).type());
+        assertEquals("deeply indented user text", segments.get(0).content());
+    }
+
+    @Test
+    void parseReturnsCustomFallbackWhenFramingTokenPresentButMalformed() {
+        var malformed = "<message type=user> not a real block";
+        var segments = Messages.parseLegacyFraming(malformed);
+        assertEquals(1, segments.size());
+        assertEquals(ChatMessageType.CUSTOM, segments.get(0).type());
+        assertEquals(malformed, segments.get(0).content());
+    }
+}

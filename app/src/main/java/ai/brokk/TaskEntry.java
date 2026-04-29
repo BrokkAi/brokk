@@ -262,8 +262,13 @@ public final class TaskEntry {
 
     public Collection<ChatMessage> mopMessages() {
         // Keep for call sites that still need ChatMessage collections (app-side only).
+        // Parse legacy <message type=X>...</message> framing back into per-segment messages so
+        // display-side renderers receive properly typed bubbles instead of one big CustomMessage
+        // whose text leaks framing tags to the user.
         if (mopMarkdown != null) {
-            return List.of(Messages.customSystem(mopMarkdown));
+            return Messages.parseLegacyFraming(mopMarkdown).stream()
+                    .map(seg -> Messages.create(seg.content(), seg.type()))
+                    .toList();
         }
         return List.of(Messages.customSystem(castNonNull(summary)));
     }

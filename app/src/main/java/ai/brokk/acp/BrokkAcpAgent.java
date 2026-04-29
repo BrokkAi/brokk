@@ -1238,7 +1238,8 @@ public class BrokkAcpAgent {
 
                     // Send agent response as AgentMessageChunk
                     var mopMarkdown = task.mopMarkdown();
-                    var responseText = mopMarkdown != null ? mopMarkdown : task.summary();
+                    var rawText = mopMarkdown != null ? mopMarkdown : task.summary();
+                    var responseText = rawText == null ? null : Messages.stripLegacyFraming(rawText);
                     if (responseText != null && !responseText.isBlank()) {
                         sender.sendSessionUpdate(
                                 sessionId,
