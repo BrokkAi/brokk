@@ -31,7 +31,7 @@ public final class UsageFinder {
 
     private record Configuration(CandidateFileProvider candidateProvider, UsageAnalyzer usageAnalyzer) {}
 
-    public record QueryResult(Set<ProjectFile> candidateFiles, FuzzyResult result) {}
+    public record QueryResult(Set<ProjectFile> candidateFiles, boolean candidateFilesTruncated, FuzzyResult result) {}
 
     public static CandidateFileProvider createDefaultProvider() {
         return createFallbackProvider(new ImportGraphCandidateProvider(), new TextSearchCandidateProvider());
@@ -73,26 +73,45 @@ public final class UsageFinder {
         return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer);
     }
 
-    public QueryResult query(List<CodeUnit> overloads, int maxFiles, int maxUsages) throws InterruptedException {
+    private QueryResult query(
+            List<CodeUnit> overloads,
+            int maxFiles,
+            int maxUsages,
+            @Nullable CandidateFileProvider explicitCandidateProvider)
+            throws InterruptedException {
         if (overloads.isEmpty()) {
-            return new QueryResult(Set.of(), new FuzzyResult.Success(Map.of()));
+            return new QueryResult(Set.of(), false, new FuzzyResult.Success(Map.of()));
         }
 
         var target = overloads.getFirst();
 
         Configuration config = getConfiguration(target);
+        if (explicitCandidateProvider != null) {
+            config = new Configuration(explicitCandidateProvider, config.usageAnalyzer());
+        }
         Set<ProjectFile> candidateFiles = config.candidateProvider().findCandidates(target, analyzer);
 
         if (fileFilter != null) {
             candidateFiles = candidateFiles.stream().filter(fileFilter).collect(Collectors.toSet());
         }
 
-        if (candidateFiles.size() > maxFiles) {
+        boolean candidateFilesTruncated = candidateFiles.size() > maxFiles;
+        if (candidateFilesTruncated) {
             candidateFiles = candidateFiles.stream().limit(maxFiles).collect(Collectors.toSet());
         }
 
         var result = config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
-        return new QueryResult(candidateFiles, result);
+        return new QueryResult(candidateFiles, candidateFilesTruncated, result);
+    }
+
+    public QueryResult query(List<CodeUnit> overloads, int maxFiles, int maxUsages) throws InterruptedException {
+        return query(overloads, maxFiles, maxUsages, null);
+    }
+
+    public QueryResult query(
+            List<CodeUnit> overloads, CandidateFileProvider candidateProvider, int maxFiles, int maxUsages)
+            throws InterruptedException {
+        return query(overloads, maxFiles, maxUsages, candidateProvider);
     }
 
     public FuzzyResult findUsages(List<CodeUnit> overloads, int maxFiles, int maxUsages) throws InterruptedException {

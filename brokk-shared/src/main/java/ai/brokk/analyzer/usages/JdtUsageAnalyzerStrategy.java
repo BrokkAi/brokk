@@ -30,6 +30,9 @@ public final class JdtUsageAnalyzerStrategy implements UsageAnalyzer {
         CodeUnit target = overloads.getFirst();
         try {
             Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, candidateFiles, project);
+            if (hits.size() > maxUsages) {
+                return new FuzzyResult.TooManyCallsites(target.shortName(), hits.size(), maxUsages);
+            }
             return new FuzzyResult.Success(Map.of(target, hits));
         } catch (Exception e) {
             return new FuzzyResult.Failure(target.fqName(), e.getMessage() != null ? e.getMessage() : e.toString());
