@@ -923,11 +923,7 @@ impl SessionStore {
     /// that ordering, a second `session/prompt` could push a new turn
     /// between this turn's push and its rollback `pop()`, removing the
     /// wrong entry.
-    pub async fn add_turn(
-        &self,
-        id: &str,
-        turn: ConversationTurn,
-    ) -> anyhow::Result<()> {
+    pub async fn add_turn(&self, id: &str, turn: ConversationTurn) -> anyhow::Result<()> {
         // Mutate in-memory state first, then release the lock BEFORE blocking I/O.
         // Capture pre-mutation `modified` so we can reverse the bump on failure.
         let snapshot = {
@@ -1029,11 +1025,7 @@ mod tests {
         let cwd = std::env::temp_dir().join(format!("brokk-acp-rust-rollback-{}", id));
         let session = Session::new(id.clone(), cwd, "test-model".to_string(), "test".into());
         let pre_modified = session.manifest.modified;
-        store
-            .sessions
-            .write()
-            .await
-            .insert(id.clone(), session);
+        store.sessions.write().await.insert(id.clone(), session);
 
         let result = store
             .add_turn(
