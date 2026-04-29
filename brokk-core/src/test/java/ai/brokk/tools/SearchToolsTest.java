@@ -574,6 +574,39 @@ class SearchToolsTest {
     }
 
     @Test
+    void getMethodSources_resolvesGoPathAndReceiverQualifiedName() throws Exception {
+        Path projectRoot = initRepo();
+        project = new CoreProject(projectRoot);
+        ProjectFile dbFile = new ProjectFile(projectRoot, "lib/auth/db.go");
+        CodeUnit serverClass = CodeUnit.cls(dbFile, "auth", "Server");
+        CodeUnit generateCert = CodeUnit.fn(dbFile, "auth", "Server.GenerateDatabaseCert");
+        IAnalyzer analyzer = new DisabledAnalyzer(project) {
+            @Override
+            public List<CodeUnit> getAllDeclarations() {
+                return List.of(serverClass);
+            }
+
+            @Override
+            public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+                return classUnit.equals(serverClass) ? List.of(generateCert) : List.of();
+            }
+
+            @Override
+            public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+                return codeUnit.equals(generateCert)
+                        ? Set.of("func (s *Server) GenerateDatabaseCert() (*proto.DatabaseCertResponse, error) {}")
+                        : Set.of();
+            }
+        };
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
+
+        String result = tools.getMethodSources(List.of("lib/auth.db.(*Server).GenerateDatabaseCert"));
+
+        assertTrue(result.contains("GenerateDatabaseCert"), result);
+        assertFalse(result.contains("No sources found"), result);
+    }
+
+    @Test
     void getMethodSources_listsAmbiguousNonFqMatches() throws Exception {
         Path projectRoot = initRepo();
         project = new CoreProject(projectRoot);
