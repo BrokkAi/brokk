@@ -1625,8 +1625,7 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
                 } else {
                     // add the post-task terminal output to the history
                     var log = new ContextOutputFragments.TaskOutputFragment(
-                            "Post-task verification output",
-                            Messages.formatForDisplay(getIo().getLlmRawMessages()));
+                            "Post-task verification output", Messages.formatForDisplay(getIo().getLlmRawMessages()));
                     var context2 = context.addHistoryEntry(log, null);
                     pushContext(ctx -> context2);
                 }
