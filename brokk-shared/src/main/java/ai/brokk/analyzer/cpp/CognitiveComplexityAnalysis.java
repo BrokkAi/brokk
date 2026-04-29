@@ -1,7 +1,7 @@
-package ai.brokk.analyzer.java;
+package ai.brokk.analyzer.cpp;
 
-import static ai.brokk.analyzer.java.Constants.nodeType;
-import static org.treesitter.JavaNodeType.*;
+import static ai.brokk.analyzer.cpp.Constants.nodeType;
+import static org.treesitter.CppNodeType.*;
 
 import ai.brokk.analyzer.CognitiveComplexitySupport;
 import ai.brokk.analyzer.SourceContent;
@@ -11,28 +11,22 @@ public final class CognitiveComplexityAnalysis {
 
     private static final CognitiveComplexitySupport.Config CONFIG = CognitiveComplexitySupport.config()
             .ifTypes(nodeType(IF_STATEMENT))
-            .loopTypes(
-                    nodeType(FOR_STATEMENT),
-                    nodeType(ENHANCED_FOR_STATEMENT),
-                    nodeType(WHILE_STATEMENT),
-                    nodeType(DO_STATEMENT))
+            .loopTypes(nodeType(FOR_STATEMENT), nodeType(WHILE_STATEMENT), nodeType(DO_STATEMENT))
             .catchTypes(nodeType(CATCH_CLAUSE))
-            .conditionalTypes(nodeType(TERNARY_EXPRESSION))
-            .caseTypes(nodeType(SWITCH_LABEL), nodeType(SWITCH_RULE))
+            .conditionalTypes(nodeType(CONDITIONAL_EXPRESSION))
+            .caseTypes(nodeType(CASE_STATEMENT))
+            .defaultCaseTypes("default_statement")
             .binaryTypes(nodeType(BINARY_EXPRESSION))
-            .logicalOperators("&&", "||")
+            .logicalOperators("&&", "||", "and", "or")
             .jumpTypes(nodeType(BREAK_STATEMENT), nodeType(CONTINUE_STATEMENT))
+            .namedFunctionBoundaryTypes(nodeType(FUNCTION_DEFINITION))
             .anonymousFunctionTypes(nodeType(LAMBDA_EXPRESSION))
-            .defaultCasePredicate(CognitiveComplexityAnalysis::isDefaultSwitchLabel)
+            .elseClauseTypes(nodeType(ELSE_CLAUSE))
             .build();
 
     private CognitiveComplexityAnalysis() {}
 
     public static int compute(TSNode root, SourceContent sourceContent) {
         return CognitiveComplexitySupport.compute(root, sourceContent, CONFIG);
-    }
-
-    private static boolean isDefaultSwitchLabel(TSNode node, SourceContent sourceContent) {
-        return sourceContent.substringFrom(node).strip().startsWith("default");
     }
 }

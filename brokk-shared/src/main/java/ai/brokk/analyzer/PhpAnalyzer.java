@@ -4,6 +4,7 @@ import static ai.brokk.analyzer.php.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.PhpAnalyzerCache;
+import ai.brokk.analyzer.php.CognitiveComplexityAnalysis;
 import ai.brokk.project.ICoreProject;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -107,6 +108,16 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return PHP_SYNTAX_PROFILE;
+    }
+
+    @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return computeCognitiveComplexity(cu, CognitiveComplexityAnalysis::compute);
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return computeCognitiveComplexities(file, CognitiveComplexityAnalysis::compute);
     }
 
     @Override

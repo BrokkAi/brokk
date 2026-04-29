@@ -1,7 +1,7 @@
-package ai.brokk.analyzer.java;
+package ai.brokk.analyzer.php;
 
-import static ai.brokk.analyzer.java.Constants.nodeType;
-import static org.treesitter.JavaNodeType.*;
+import static ai.brokk.analyzer.php.Constants.nodeType;
+import static org.treesitter.PhpNodeType.*;
 
 import ai.brokk.analyzer.CognitiveComplexitySupport;
 import ai.brokk.analyzer.SourceContent;
@@ -10,29 +10,27 @@ import org.treesitter.TSNode;
 public final class CognitiveComplexityAnalysis {
 
     private static final CognitiveComplexitySupport.Config CONFIG = CognitiveComplexitySupport.config()
-            .ifTypes(nodeType(IF_STATEMENT))
+            .ifTypes(nodeType(IF_STATEMENT), nodeType(ELSE_IF_CLAUSE))
             .loopTypes(
                     nodeType(FOR_STATEMENT),
-                    nodeType(ENHANCED_FOR_STATEMENT),
+                    nodeType(FOREACH_STATEMENT),
                     nodeType(WHILE_STATEMENT),
                     nodeType(DO_STATEMENT))
             .catchTypes(nodeType(CATCH_CLAUSE))
-            .conditionalTypes(nodeType(TERNARY_EXPRESSION))
-            .caseTypes(nodeType(SWITCH_LABEL), nodeType(SWITCH_RULE))
+            .conditionalTypes(nodeType(CONDITIONAL_EXPRESSION))
+            .caseTypes(nodeType(CASE_STATEMENT), "match_condition")
+            .defaultCaseTypes(nodeType(DEFAULT_STATEMENT), nodeType(MATCH_DEFAULT_EXPRESSION))
             .binaryTypes(nodeType(BINARY_EXPRESSION))
-            .logicalOperators("&&", "||")
+            .logicalOperators("&&", "||", "and", "or", "??")
             .jumpTypes(nodeType(BREAK_STATEMENT), nodeType(CONTINUE_STATEMENT))
-            .anonymousFunctionTypes(nodeType(LAMBDA_EXPRESSION))
-            .defaultCasePredicate(CognitiveComplexityAnalysis::isDefaultSwitchLabel)
+            .namedFunctionBoundaryTypes(nodeType(FUNCTION_DEFINITION), nodeType(METHOD_DECLARATION))
+            .anonymousFunctionTypes(nodeType(ANONYMOUS_FUNCTION), nodeType(ARROW_FUNCTION))
+            .elseClauseTypes(nodeType(ELSE_CLAUSE))
             .build();
 
     private CognitiveComplexityAnalysis() {}
 
     public static int compute(TSNode root, SourceContent sourceContent) {
         return CognitiveComplexitySupport.compute(root, sourceContent, CONFIG);
-    }
-
-    private static boolean isDefaultSwitchLabel(TSNode node, SourceContent sourceContent) {
-        return sourceContent.substringFrom(node).strip().startsWith("default");
     }
 }

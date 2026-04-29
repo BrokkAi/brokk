@@ -4,6 +4,7 @@ import static ai.brokk.analyzer.rust.Constants.*;
 import static org.treesitter.RustNodeType.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.rust.CognitiveComplexityAnalysis;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -124,6 +125,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return RS_SYNTAX_PROFILE;
+    }
+
+    @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return computeCognitiveComplexity(cu, CognitiveComplexityAnalysis::compute);
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return computeCognitiveComplexities(file, CognitiveComplexityAnalysis::compute);
     }
 
     /**
