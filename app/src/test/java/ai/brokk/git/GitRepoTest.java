@@ -44,7 +44,10 @@ public class GitRepoTest {
         projectRoot = tempDir.resolve("testRepo");
         Files.createDirectories(projectRoot);
 
-        try (Git git = Git.init().setDirectory(projectRoot.toFile()).call()) {
+        try (Git git = Git.init()
+                .setInitialBranch("master")
+                .setDirectory(projectRoot.toFile())
+                .call()) {
             // Create an initial commit
             Path readme = projectRoot.resolve("README.md");
             Files.writeString(readme, "Initial commit file.");
@@ -1173,7 +1176,10 @@ public class GitRepoTest {
         // 1. Create an origin repository with a single commit
         Path originDir = tempDir.resolve("origin");
         Files.createDirectories(originDir);
-        try (Git originGit = Git.init().setDirectory(originDir.toFile()).call()) {
+        try (Git originGit = Git.init()
+                .setInitialBranch("master")
+                .setDirectory(originDir.toFile())
+                .call()) {
             Path readme = originDir.resolve("README.md");
             Files.writeString(readme, "origin readme");
             originGit.add().addFilepattern("README.md").call();
@@ -1212,7 +1218,10 @@ public class GitRepoTest {
         // 1. Create an origin repository with multiple branches
         Path originDir = tempDir.resolve("origin-with-branches");
         Files.createDirectories(originDir);
-        try (Git originGit = Git.init().setDirectory(originDir.toFile()).call()) {
+        try (Git originGit = Git.init()
+                .setInitialBranch("master")
+                .setDirectory(originDir.toFile())
+                .call()) {
             // Initial commit on main/master
             Path readme = originDir.resolve("README.md");
             Files.writeString(readme, "main readme");
