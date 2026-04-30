@@ -9,6 +9,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.IAnalyzer.Range;
+import ai.brokk.analyzer.IAnalyzer.SourceLookupAlias;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -589,6 +590,13 @@ class SearchToolsTest {
             @Override
             public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
                 return classUnit.equals(serverClass) ? List.of(generateCert) : List.of();
+            }
+
+            @Override
+            public Collection<SourceLookupAlias> sourceLookupAliases(String requestedName) {
+                return List.of(
+                        SourceLookupAlias.anySource(requestedName),
+                        SourceLookupAlias.sourceFile("auth.Server.GenerateDatabaseCert", "lib/auth/db.go"));
             }
 
             @Override

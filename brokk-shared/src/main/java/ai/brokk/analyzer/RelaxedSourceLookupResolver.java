@@ -10,13 +10,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 public final class RelaxedSourceLookupResolver {
-    private static final Pattern GO_RECEIVER_QUALIFIER =
-            Pattern.compile("\\(\\*?([A-Za-z_][A-Za-z0-9_]*(?:\\[[^\\]]+])?)\\)");
-    private static final Pattern GO_TYPE_ARGUMENTS = Pattern.compile("\\[[^\\]]+\\]");
+    private record RequestedLookup(String requestedName, IAnalyzer.SourceLookupAlias alias) {}
 
     public record RelaxedSourceLookup(@Nullable CodeUnit codeUnit, List<String> ambiguousFqNames) {
         public static RelaxedSourceLookup resolved(CodeUnit codeUnit) {
@@ -50,17 +48,19 @@ public final class RelaxedSourceLookupResolver {
     public static Map<String, RelaxedSourceLookup> resolveLookups(
             IAnalyzer analyzer, Collection<String> requestedNames, Predicate<CodeUnit> kindFilter) {
         Map<String, RelaxedSourceLookup> results = new LinkedHashMap<>();
-        Map<String, Collection<String>> unresolvedLookupKeysByRequestedName = new LinkedHashMap<>();
+        Map<String, Collection<IAnalyzer.SourceLookupAlias>> unresolvedLookupKeysByRequestedName =
+                new LinkedHashMap<>();
 
         for (String requestedName : requestedNames) {
             if (results.containsKey(requestedName)) {
                 continue;
             }
 
-            Collection<String> lookupKeys = requestLookupKeysFor(requestedName);
+            Collection<IAnalyzer.SourceLookupAlias> lookupKeys = requestLookupKeysFor(analyzer, requestedName);
             var exactMatch = lookupKeys.stream()
-                    .flatMap(name -> analyzer.getDefinitions(name).stream())
-                    .filter(kindFilter)
+                    .flatMap(alias -> analyzer.getDefinitions(alias.lookupName()).stream()
+                            .filter(kindFilter)
+                            .filter(candidate -> matchesSource(alias, candidate)))
                     .findFirst();
             if (exactMatch.isPresent()) {
                 results.put(requestedName, RelaxedSourceLookup.resolved(exactMatch.get()));
@@ -78,43 +78,38 @@ public final class RelaxedSourceLookupResolver {
             return results;
         }
 
-        Map<String, List<String>> requestedNamesByNormalizedKey = new LinkedHashMap<>();
+        Map<String, List<RequestedLookup>> requestedLookupsByNormalizedKey = new LinkedHashMap<>();
         for (var entry : unresolvedLookupKeysByRequestedName.entrySet()) {
             String requestedName = entry.getKey();
-            entry.getValue().forEach(lookupKey -> requestedNamesByNormalizedKey
-                    .computeIfAbsent(lookupKey, ignored -> new ArrayList<>())
-                    .add(requestedName));
+            entry.getValue().forEach(alias -> requestedLookupsByNormalizedKey
+                    .computeIfAbsent(alias.lookupName(), ignored -> new ArrayList<>())
+                    .add(new RequestedLookup(requestedName, alias)));
         }
 
-        Map<String, Map<String, CodeUnit>> matchesByRequestedName = new LinkedHashMap<>();
+        Map<String, Set<CodeUnit>> matchesByRequestedName = new LinkedHashMap<>();
         unresolvedLookupKeysByRequestedName
                 .keySet()
-                .forEach(name -> matchesByRequestedName.put(name, new LinkedHashMap<>()));
+                .forEach(name -> matchesByRequestedName.put(name, new LinkedHashSet<>()));
 
         List<CodeUnit> declarations = analyzer.getAllDeclarations();
-        addRelaxedMatches(matchesByRequestedName, requestedNamesByNormalizedKey, declarations, kindFilter);
+        addRelaxedMatches(matchesByRequestedName, requestedLookupsByNormalizedKey, declarations, kindFilter);
         declarations.stream()
                 .filter(CodeUnit::isClass)
                 .forEach(cls -> addRelaxedMatches(
                         matchesByRequestedName,
-                        requestedNamesByNormalizedKey,
+                        requestedLookupsByNormalizedKey,
                         analyzer.getMembersInClass(cls),
                         kindFilter));
 
         for (String requestedName : matchesByRequestedName.keySet()) {
-            Map<String, CodeUnit> matches = requireNonNull(matchesByRequestedName.get(requestedName));
+            Set<CodeUnit> matches = requireNonNull(matchesByRequestedName.get(requestedName));
 
             if (matches.size() == 1) {
                 results.put(
                         requestedName,
-                        RelaxedSourceLookup.resolved(matches.values().iterator().next()));
+                        RelaxedSourceLookup.resolved(matches.iterator().next()));
             } else if (!matches.isEmpty()) {
-                results.put(
-                        requestedName,
-                        RelaxedSourceLookup.ambiguous(matches.values().stream()
-                                .map(CodeUnit::fqName)
-                                .sorted()
-                                .toList()));
+                results.put(requestedName, RelaxedSourceLookup.ambiguous(ambiguityNames(matches)));
             } else {
                 results.put(requestedName, RelaxedSourceLookup.notFound());
             }
@@ -124,19 +119,22 @@ public final class RelaxedSourceLookupResolver {
     }
 
     private static void addRelaxedMatches(
-            Map<String, Map<String, CodeUnit>> matchesByRequestedName,
-            Map<String, List<String>> requestedNamesByNormalizedKey,
+            Map<String, Set<CodeUnit>> matchesByRequestedName,
+            Map<String, List<RequestedLookup>> requestedLookupsByNormalizedKey,
             Collection<CodeUnit> candidates,
             Predicate<CodeUnit> kindFilter) {
         candidates.stream().filter(kindFilter).forEach(candidate -> {
             for (String candidateKey : lookupKeysFor(candidate)) {
-                List<String> requestedNames = requestedNamesByNormalizedKey.get(candidateKey);
-                if (requestedNames == null) {
+                List<RequestedLookup> requestedLookups = requestedLookupsByNormalizedKey.get(candidateKey);
+                if (requestedLookups == null) {
                     continue;
                 }
-                for (String requestedName : requestedNames) {
-                    Map<String, CodeUnit> matches = requireNonNull(matchesByRequestedName.get(requestedName));
-                    matches.putIfAbsent(candidate.fqName(), candidate);
+                for (RequestedLookup requestedLookup : requestedLookups) {
+                    if (!matchesSource(requestedLookup.alias(), candidate)) {
+                        continue;
+                    }
+                    Set<CodeUnit> matches = requireNonNull(matchesByRequestedName.get(requestedLookup.requestedName()));
+                    matches.add(candidate);
                 }
             }
         });
@@ -170,68 +168,64 @@ public final class RelaxedSourceLookupResolver {
         return keys;
     }
 
-    private static Collection<String> requestLookupKeysFor(String requestedName) {
-        LinkedHashSet<String> keys = new LinkedHashSet<>();
-        String normalizedName = normalizeName(requestedName.strip());
-        addKey(keys, normalizedName);
-        if (normalizedName.isEmpty()) {
-            return keys;
-        }
-
-        String goReceiverName = normalizeGoReceiverSyntax(normalizedName);
-        addKey(keys, goReceiverName);
-        addKey(keys, stripGoTypeArguments(goReceiverName));
-
-        addGoPathAliases(keys, normalizedName);
-        addGoPathAliases(keys, goReceiverName);
-        addGoPathAliases(keys, stripGoTypeArguments(goReceiverName));
-
-        return keys;
+    private static Collection<IAnalyzer.SourceLookupAlias> requestLookupKeysFor(
+            IAnalyzer analyzer, String requestedName) {
+        LinkedHashSet<IAnalyzer.SourceLookupAlias> keys = new LinkedHashSet<>();
+        analyzer.sourceLookupAliases(requestedName.strip()).stream()
+                .map(alias ->
+                        alias.withLookupName(normalizeName(alias.lookupName().strip())))
+                .forEach(alias -> addKey(keys, alias));
+        return keys.stream()
+                .filter(alias -> keys.stream().noneMatch(other -> isLessSpecific(alias, other)))
+                .toList();
     }
 
-    private static void addGoPathAliases(Set<String> keys, String name) {
-        String unixName = name.replace('\\', '/');
-        int separatorIdx = unixName.indexOf('/');
-        while (separatorIdx >= 0) {
-            if (separatorIdx + 1 < unixName.length()) {
-                addGoPathSuffixAliases(keys, unixName.substring(separatorIdx + 1));
-            }
-            separatorIdx = unixName.indexOf('/', separatorIdx + 1);
-        }
-    }
-
-    private static void addGoPathSuffixAliases(Set<String> keys, String pathSuffix) {
-        addKey(keys, pathSuffix);
-
-        String dottedSuffix = pathSuffix.replace('/', '.');
-        addKey(keys, dottedSuffix);
-        addGoPackageFileAlias(keys, dottedSuffix);
-    }
-
-    private static void addGoPackageFileAlias(Set<String> keys, String dottedSuffix) {
-        var parts = List.of(dottedSuffix.split("\\."));
-        if (parts.size() < 4) {
-            return;
-        }
-
-        var aliasParts = new ArrayList<String>(parts.size() - 1);
-        aliasParts.add(parts.getFirst());
-        aliasParts.addAll(parts.subList(2, parts.size()));
-        addKey(keys, String.join(".", aliasParts));
-    }
-
-    private static String normalizeGoReceiverSyntax(String name) {
-        return GO_RECEIVER_QUALIFIER.matcher(name).replaceAll("$1");
-    }
-
-    private static String stripGoTypeArguments(String name) {
-        return GO_TYPE_ARGUMENTS.matcher(name).replaceAll("");
-    }
-
-    private static void addKey(Set<String> keys, String key) {
-        if (!key.isBlank()) {
+    private static void addKey(Set<IAnalyzer.SourceLookupAlias> keys, IAnalyzer.SourceLookupAlias key) {
+        if (!key.lookupName().isBlank()) {
             keys.add(key);
         }
+    }
+
+    private static boolean isLessSpecific(IAnalyzer.SourceLookupAlias alias, IAnalyzer.SourceLookupAlias other) {
+        if (!alias.lookupName().equals(other.lookupName()) || alias.sourcePathKind() != other.sourcePathKind()) {
+            return false;
+        }
+        if (alias.sourcePathSuffix().isBlank()) {
+            return !other.sourcePathSuffix().isBlank();
+        }
+        if (other.sourcePathSuffix().isBlank()
+                || alias.sourcePathSuffix().length() >= other.sourcePathSuffix().length()) {
+            return false;
+        }
+        return other.sourcePathSuffix().endsWith("/" + alias.sourcePathSuffix());
+    }
+
+    private static boolean matchesSource(IAnalyzer.SourceLookupAlias alias, CodeUnit candidate) {
+        if (alias.sourcePathSuffix().isBlank()) {
+            return true;
+        }
+
+        String candidatePath =
+                switch (alias.sourcePathKind()) {
+                    case FILE -> candidate.source().getRelPath().toString().replace('\\', '/');
+                    case DIRECTORY -> candidate.source().getParent().toString().replace('\\', '/');
+                };
+        return candidatePath.equals(alias.sourcePathSuffix()) || candidatePath.endsWith("/" + alias.sourcePathSuffix());
+    }
+
+    private static List<String> ambiguityNames(Collection<CodeUnit> matches) {
+        boolean hasDuplicateFqName =
+                matches.stream()
+                        .collect(Collectors.groupingBy(CodeUnit::fqName, Collectors.counting()))
+                        .values()
+                        .stream()
+                        .anyMatch(count -> count > 1);
+        return matches.stream()
+                .map(candidate -> hasDuplicateFqName
+                        ? "%s (%s)".formatted(candidate.fqName(), candidate.source())
+                        : candidate.fqName())
+                .sorted()
+                .toList();
     }
 
     private static String normalizeName(String name) {

@@ -6,6 +6,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.IAnalyzer.Range;
+import ai.brokk.analyzer.IAnalyzer.SourceLookupAlias;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -394,24 +395,21 @@ public class SearchToolsTest {
             ProjectFile dbFile = new ProjectFile(customRoot, "lib/auth/db.go");
             CodeUnit serverClass = CodeUnit.cls(dbFile, "auth", "Server");
             CodeUnit generateCert = CodeUnit.fn(dbFile, "auth", "Server.GenerateDatabaseCert");
-            IAnalyzer analyzer = new DisabledAnalyzer(project) {
-                @Override
-                public List<CodeUnit> getAllDeclarations() {
-                    return List.of(serverClass);
-                }
-
+            TestAnalyzer analyzer = new TestAnalyzer(List.of(serverClass), Map.of(), project) {
                 @Override
                 public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
                     return classUnit.equals(serverClass) ? List.of(generateCert) : List.of();
                 }
 
                 @Override
-                public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
-                    return codeUnit.equals(generateCert)
-                            ? Set.of("func (s *Server) GenerateDatabaseCert() (*proto.DatabaseCertResponse, error) {}")
-                            : Set.of();
+                public Collection<SourceLookupAlias> sourceLookupAliases(String requestedName) {
+                    return List.of(
+                            SourceLookupAlias.anySource(requestedName),
+                            SourceLookupAlias.sourceFile("auth.Server.GenerateDatabaseCert", "lib/auth/db.go"));
                 }
             };
+            analyzer.setSource(
+                    generateCert, "func (s *Server) GenerateDatabaseCert() (*proto.DatabaseCertResponse, error) {}");
             SearchTools tools =
                     new SearchTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
 
