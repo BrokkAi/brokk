@@ -94,7 +94,7 @@ public final class StaticAnalysisLeadExpansionService {
                             capped = true;
                         }
                         usageCountByFile = usageCountByFile(query.result());
-                    } catch (UnsupportedOperationException e) {
+                    } catch (RuntimeException e) {
                         usageCountByFile = textUsageCountByFile(analyzer, symbol);
                     }
                     for (var entry : usageCountByFile.entrySet()) {
