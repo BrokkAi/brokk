@@ -60,6 +60,8 @@ class ServiceCodexGatingTest {
         service.addModel("Normal Model", "normal-loc", false);
         service.addModel("Codex Model", "codex-loc", true);
         service.addModel("gpt-5.4-oauth", "oauth-loc", false);
+        service.addModel("gpt-5.2-oauth", "oauth-5.2-loc", false);
+        service.addModel("gpt-5.2-codex-fast-oauth", "oauth-5.2-codex-loc", false);
 
         // 1. Not connected
         MainProject.setOpenAiCodexOauthConnected(false);
@@ -67,6 +69,8 @@ class ServiceCodexGatingTest {
         assertTrue(available.containsKey("Normal Model"));
         assertFalse(available.containsKey("Codex Model"));
         assertTrue(available.containsKey("gpt-5.4-oauth"));
+        assertTrue(available.containsKey("gpt-5.2-oauth"));
+        assertTrue(available.containsKey("gpt-5.2-codex-fast-oauth"));
         assertFalse(service.isCodexModel("Normal Model"));
         assertTrue(service.isCodexModel("Codex Model"));
 
@@ -77,13 +81,17 @@ class ServiceCodexGatingTest {
         assertTrue(available.containsKey("Normal Model"));
         assertTrue(available.containsKey("Codex Model"));
         assertTrue(available.containsKey("gpt-5.4-oauth"));
+        assertTrue(available.containsKey("gpt-5.2-oauth"));
+        assertTrue(available.containsKey("gpt-5.2-codex-fast-oauth"));
 
-        // 3. Connected with OAuth restriction enabled (default): only -oauth-suffixed models visible
+        // 3. Connected with OAuth restriction enabled (default): only allowed -oauth-suffixed models visible
         MainProject.setRestrictToOauthModelsWhenConnected(true);
         available = service.getAvailableModels();
         assertFalse(available.containsKey("Normal Model"));
         assertFalse(available.containsKey("Codex Model"));
         assertTrue(available.containsKey("gpt-5.4-oauth"));
+        assertTrue(available.containsKey("gpt-5.2-oauth"));
+        assertFalse(available.containsKey("gpt-5.2-codex-fast-oauth"));
     }
 
     /**

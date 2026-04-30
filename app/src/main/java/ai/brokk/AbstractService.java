@@ -409,8 +409,16 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                 .filter(name -> !UNAVAILABLE.equals(name))
                 .filter(name -> !ModelProperties.SYSTEM_ONLY_MODELS.contains(name))
                 .filter(name -> codexConnected || !isCodexModel(name))
-                .filter(name -> !restrictToOauth || (name.endsWith("-oauth") && !name.startsWith("gpt-5.1-")))
+                .filter(name -> !restrictToOauth || isAllowedOauthRestrictedModel(name))
                 .collect(Collectors.toMap(name -> name, name -> modelLocations.getOrDefault(name, name)));
+    }
+
+    private static boolean isAllowedOauthRestrictedModel(String name) {
+        return name.endsWith("-oauth") && !isExcludedOauthRestrictedModel(name);
+    }
+
+    private static boolean isExcludedOauthRestrictedModel(String name) {
+        return name.startsWith("gpt-5.1-") || name.startsWith("gpt-5.2-codex");
     }
 
     /**
