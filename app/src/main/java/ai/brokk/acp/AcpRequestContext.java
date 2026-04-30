@@ -36,14 +36,26 @@ final class AcpRequestContext implements AcpPromptContext {
     private static final Set<String> NON_CACHEABLE_TOOL_NAMES = Set.of("shell", "unknown");
 
     /**
-     * Per-permission round-trip timeout. The SDK already imposes a 5-minute global request timeout,
-     * but on timeout that propagates as an uncaught exception rather than something the user sees
-     * — observed in real sessions where a click on "Allow once" never reached the agent (IDE-side
-     * or pipe issue) and brokk silently waited 5 minutes before crashing the prompt. With this
-     * tighter timeout, the prompt is denied and the user gets a chat message explaining what
-     * happened, while leaving plenty of think-time for an attentive user to click.
+     * Per-permission round-trip timeout. The SDK's global request timeout (configured in {@link
+     * BrokkAcpRuntime} at {@code PERMISSION_TIMEOUT + 5 min}) propagates as an uncaught exception
+     * on expiry rather than something the user sees — observed in real sessions where a click on
+     * "Allow once" never reached the agent (IDE-side or pipe issue) and brokk silently crashed the
+     * prompt. With this tighter timeout, the prompt is denied and the user gets a chat message
+     * explaining what happened, while leaving generous think-time for an attentive user to click.
+     *
+     * <p>Package-private so {@link AcpServerMain}'s watchdog can quote it symbolically in
+     * diagnostic log messages.
      */
-    private static final Duration PERMISSION_TIMEOUT = Duration.ofMinutes(2);
+    static final Duration PERMISSION_TIMEOUT = Duration.ofMinutes(30);
+
+    /**
+     * Round-trip timeout for non-permission ACP requests (file I/O, terminal ops). Bounds how long
+     * a {@link reactor.core.scheduler.Schedulers#boundedElastic()} thread can be pinned by a stuck
+     * IDE round-trip; without this cap, the SDK's session timeout in {@link BrokkAcpRuntime} is the
+     * only ceiling, which is too generous for ops like {@code fs/read_text_file} that should
+     * normally complete in milliseconds.
+     */
+    private static final Duration IO_TIMEOUT = Duration.ofMinutes(5);
 
     /**
      * Number of agent→client {@code session/request_permission} calls currently awaiting a
@@ -82,6 +94,7 @@ final class AcpRequestContext implements AcpPromptContext {
     public AcpSchema.ReadTextFileResponse readTextFile(AcpSchema.ReadTextFileRequest request) {
         return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_FS_READ_TEXT_FILE, request, new TypeRef<AcpSchema.ReadTextFileResponse>() {})
+                .timeout(IO_TIMEOUT)
                 .block());
     }
 
@@ -89,6 +102,7 @@ final class AcpRequestContext implements AcpPromptContext {
     public AcpSchema.WriteTextFileResponse writeTextFile(AcpSchema.WriteTextFileRequest request) {
         return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_FS_WRITE_TEXT_FILE, request, new TypeRef<AcpSchema.WriteTextFileResponse>() {})
+                .timeout(IO_TIMEOUT)
                 .block());
     }
 
@@ -138,6 +152,7 @@ final class AcpRequestContext implements AcpPromptContext {
     public AcpSchema.CreateTerminalResponse createTerminal(AcpSchema.CreateTerminalRequest request) {
         return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_TERMINAL_CREATE, request, new TypeRef<AcpSchema.CreateTerminalResponse>() {})
+                .timeout(IO_TIMEOUT)
                 .block());
     }
 
@@ -145,6 +160,7 @@ final class AcpRequestContext implements AcpPromptContext {
     public AcpSchema.TerminalOutputResponse getTerminalOutput(AcpSchema.TerminalOutputRequest request) {
         return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_TERMINAL_OUTPUT, request, new TypeRef<AcpSchema.TerminalOutputResponse>() {})
+                .timeout(IO_TIMEOUT)
                 .block());
     }
 
@@ -152,6 +168,7 @@ final class AcpRequestContext implements AcpPromptContext {
     public AcpSchema.ReleaseTerminalResponse releaseTerminal(AcpSchema.ReleaseTerminalRequest request) {
         return requireNonNull(session.sendRequest(
                         AcpSchema.METHOD_TERMINAL_RELEASE, request, new TypeRef<AcpSchema.ReleaseTerminalResponse>() {})
+                .timeout(IO_TIMEOUT)
                 .block());
     }
 
@@ -161,6 +178,7 @@ final class AcpRequestContext implements AcpPromptContext {
                         AcpSchema.METHOD_TERMINAL_WAIT_FOR_EXIT,
                         request,
                         new TypeRef<AcpSchema.WaitForTerminalExitResponse>() {})
+                .timeout(IO_TIMEOUT)
                 .block());
     }
 
@@ -170,6 +188,7 @@ final class AcpRequestContext implements AcpPromptContext {
                         AcpSchema.METHOD_TERMINAL_KILL,
                         request,
                         new TypeRef<AcpSchema.KillTerminalCommandResponse>() {})
+                .timeout(IO_TIMEOUT)
                 .block());
     }
 

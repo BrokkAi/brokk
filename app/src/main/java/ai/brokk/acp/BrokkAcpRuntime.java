@@ -37,7 +37,11 @@ final class BrokkAcpRuntime implements AutoCloseable {
     BrokkAcpRuntime(AcpAgentTransport transport, BrokkAcpAgent agent) {
         this.transport = transport;
         this.agent = agent;
-        this.session = new AcpAgentSession(Duration.ofMinutes(5), transport, requestHandlers(), notificationHandlers());
+        // Must exceed AcpRequestContext.PERMISSION_TIMEOUT so the graceful per-permission timeout
+        // fires before this SDK-level global timeout (otherwise the user sees an uncaught crash
+        // instead of the "Permission request timed out" chat message).
+        this.session =
+                new AcpAgentSession(Duration.ofMinutes(35), transport, requestHandlers(), notificationHandlers());
         agent.setSessionUpdateSender(
                 (sessionId, update) -> AcpRequestContext.sendSessionUpdate(session, sessionId, update));
         agent.start();

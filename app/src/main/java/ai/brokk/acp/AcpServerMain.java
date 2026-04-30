@@ -186,13 +186,15 @@ public final class AcpServerMain {
 
     /**
      * If we've been awaiting a {@code session/request_permission} response and stdin has been
-     * silent at least this long, log a warning. {@link AcpRequestContext}'s own
-     * {@link AcpRequestContext#PERMISSION_TIMEOUT 2-minute} per-call timeout will eventually fire
-     * and surface a denial to the user — this watchdog provides earlier diagnostic breadcrumbs in
-     * {@code ~/.brokk/debug.log} so the failure mode (IDE never delivered the verdict) is easy to
-     * spot in incident logs.
+     * silent at least this long, log a warning. {@link AcpRequestContext#PERMISSION_TIMEOUT}'s
+     * per-call timeout will eventually fire and surface a denial to the user — this watchdog
+     * provides earlier diagnostic breadcrumbs in {@code ~/.brokk/debug.log} so the failure mode
+     * (IDE never delivered the verdict) is easy to spot in incident logs. Sized smaller than
+     * {@code PERMISSION_TIMEOUT} so a stuck IDE dialog produces at least one log breadcrumb before
+     * the per-call timeout itself fires, but large enough that legitimate human think-time
+     * doesn't spam the log every {@link #WATCHDOG_PERIOD}.
      */
-    private static final Duration INBOUND_STALL_THRESHOLD = Duration.ofSeconds(30);
+    private static final Duration INBOUND_STALL_THRESHOLD = Duration.ofMinutes(2);
 
     /**
      * Schedules a daemon task that warns when stdin has been quiet for {@link
@@ -220,7 +222,7 @@ public final class AcpServerMain {
                                         + "the verdict; brokk will time out the request after {}.",
                                 quietMillis / 1000,
                                 outstanding,
-                                Duration.ofMinutes(2));
+                                AcpRequestContext.PERMISSION_TIMEOUT);
                     }
                 },
                 WATCHDOG_PERIOD.toSeconds(),
