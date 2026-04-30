@@ -167,6 +167,8 @@ class CodeAgentTest {
                 false, false, cs, new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "boom")));
         assertFalse(CodeAgent.shouldLogSingleTurnFailureFollowup(
                 true, false, cs, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "ok")));
+        assertFalse(CodeAgent.shouldLogSingleTurnFailureFollowup(
+                true, false, cs, new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR, "retry requested")));
     }
 
     @Test

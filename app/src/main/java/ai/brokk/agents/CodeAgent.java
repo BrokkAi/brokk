@@ -474,6 +474,13 @@ public class CodeAgent {
                 if (metrics != null) {
                     metrics.parseRetries++;
                 }
+                if (isSingleTurnDryRunEnabled()
+                        && retryParse.cs().nextStopReason() == TaskResult.StopReason.PARSE_ERROR) {
+                    reportComplete(TaskResult.StopReason.PARSE_ERROR, "Parse retry requested in single-turn mode.");
+                    stopDetails = new TaskResult.StopDetails(
+                            TaskResult.StopReason.PARSE_ERROR, "Parse retry requested in single-turn mode.");
+                    break;
+                }
                 cs = retryParse.cs();
                 es = retryParse.es();
                 continue; // Restart main loop
@@ -559,8 +566,18 @@ public class CodeAgent {
                             "LLM indicated response was partial after %d clean blocks; asking to continue"
                                     .formatted(blocksToApply.size());
                 }
-                cs = cs.withRetryRequest(messageForContinue, TaskResult.StopReason.PARSE_ERROR);
+                var retryCs = cs.withRetryRequest(messageForContinue, TaskResult.StopReason.PARSE_ERROR);
                 report(consoleLogForContinue);
+                if (isSingleTurnDryRunEnabled()) {
+                    reportComplete(
+                            TaskResult.StopReason.PARSE_ERROR,
+                            "Partial response continuation requested in single-turn mode.");
+                    stopDetails = new TaskResult.StopDetails(
+                            TaskResult.StopReason.PARSE_ERROR,
+                            "Partial response continuation requested in single-turn mode.");
+                    break;
+                }
+                cs = retryCs;
                 continue;
             }
 
@@ -690,6 +707,7 @@ public class CodeAgent {
                 && !loggedSingleTurnDryRun
                 && !cs.rawMessages().isEmpty()
                 && stopDetails.reason() != TaskResult.StopReason.SUCCESS
+                && stopDetails.reason() != TaskResult.StopReason.PARSE_ERROR
                 && stopDetails.reason() != TaskResult.StopReason.INTERRUPTED;
     }
 
