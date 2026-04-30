@@ -21,7 +21,6 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.ActionEvent;
-import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -35,6 +34,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -44,6 +44,7 @@ import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -64,6 +65,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     private static final String LOADING_PLACEHOLDER = "Loading...";
     private static final ExecutorService IO_EXECUTOR = ExecutorsUtil.newFixedThreadExecutor("ProjectTree-IO-", 4);
 
+    /** Generation counter for refresh operations; incremented at the start of each refresh
+     * so that async continuations from a stale refresh can detect they've been superseded. */
+    private final AtomicInteger refreshGeneration = new AtomicInteger(0);
+
     private final IProject project;
     private final ContextManager contextManager;
     private final Chrome chrome;
@@ -83,8 +88,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     /** Flag to track if a refresh was requested during expansion restoration */
     private volatile boolean pendingRefreshDuringRestore = false;
 
-    /** Flag to track if a refresh should occur when component becomes visible */
-    private volatile boolean pendingRefreshWhenShown = false;
+    /** Flag to suppress expansion saves during performRefreshInternal's restoration phase */
+    private volatile boolean isRefreshing = false;
 
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
@@ -94,17 +99,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
         initializeTree();
         setupTreeBehavior(); // Includes mouse listeners and keyboard bindings now
-
-        // Defer tree refreshes when component is not visible
-        addHierarchyListener(e -> {
-            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
-                if (isShowing() && pendingRefreshWhenShown) {
-                    logger.trace("Component now visible, executing deferred refresh");
-                    pendingRefreshWhenShown = false;
-                    performRefreshInternal();
-                }
-            }
-        });
     }
 
     private void initializeTree() {
@@ -649,15 +643,21 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         // Atomically try to start loading - avoids all race conditions
         var result = new CompletableFuture<Void>();
         if (!treeNode.tryStartLoading(result)) {
-            // Someone else is loading or already loaded - return their future
+            logger.trace(
+                    "loadChildren: {} (CAS=false, already loaded/loading)",
+                    treeNode.getFile().getName());
             var existing = treeNode.getLoadFuture();
             return existing != null ? existing : CompletableFuture.completedFuture(null);
         }
+        logger.trace("loadChildren: {} (CAS=true, loading)", treeNode.getFile().getName());
 
         // We won the race - proceed with loading
         // Ensure there's a visible "Loading..." placeholder while background work runs.
         if (node.getChildCount() == 0) {
             node.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+            logger.trace(
+                    "nodeStructureChanged: placeholder for {}",
+                    treeNode.getFile().getName());
             ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
         }
 
@@ -732,6 +732,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                 node.add(childNode);
                             }
 
+                            logger.trace(
+                                    "nodeStructureChanged: children loaded for {}",
+                                    ((ProjectTreeNode) node.getUserObject())
+                                            .getFile()
+                                            .getName());
                             ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
 
                             // Attempt to auto-expand single-directory chains as before.
@@ -781,10 +786,95 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             && onlyChild.getFirstChild() instanceof DefaultMutableTreeNode
                             && LOADING_PLACEHOLDER.equals(
                                     ((DefaultMutableTreeNode) onlyChild.getFirstChild()).getUserObject())) {
+                        logger.trace(
+                                "expandSingleDir: {}", childTreeNode.getFile().getName());
                         expandPath(childPath); // This will trigger the TreeWillExpandListener.
                         // The listener calls loadChildrenForNode.
                         // loadChildrenForNode calls this method again, forming the recursive chain.
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Recursively populates a tree node from preloaded directory data.
+     * Directories with preloaded children are populated and marked as loaded;
+     * directories without preloaded data get a "Loading..." placeholder for lazy loading.
+     */
+    private void populateFromPreloadedData(
+            DefaultMutableTreeNode node, File dir, Map<File, List<ProjectTreeNode>> preCreatedNodes) {
+        List<ProjectTreeNode> children = preCreatedNodes.get(dir);
+        if (children == null) {
+            node.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+            return;
+        }
+
+        for (ProjectTreeNode childPtn : children) {
+            var childNode = new DefaultMutableTreeNode(childPtn);
+
+            if (childPtn.isDirectory()) {
+                if (preCreatedNodes.containsKey(childPtn.getFile())) {
+                    populateFromPreloadedData(childNode, childPtn.getFile(), preCreatedNodes);
+                    childPtn.markLoaded();
+                } else {
+                    childNode.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+                }
+            }
+
+            node.add(childNode);
+        }
+    }
+
+    /**
+     * Finds a node by relative path in an already-populated tree, without loading or expanding.
+     */
+    private @Nullable DefaultMutableTreeNode findNodeInPopulatedTree(DefaultMutableTreeNode root, Path relativePath) {
+        var current = root;
+        for (int i = 0; i < relativePath.getNameCount(); i++) {
+            String targetName = relativePath.getName(i).toString();
+            DefaultMutableTreeNode found = null;
+            Enumeration<?> children = current.children();
+            while (children.hasMoreElements()) {
+                var child = (DefaultMutableTreeNode) children.nextElement();
+                if (child.getUserObject() instanceof ProjectTreeNode ptn
+                        && ptn.getFile().getName().equals(targetName)) {
+                    found = child;
+                    break;
+                }
+            }
+            if (found == null) return null;
+            current = found;
+        }
+        return current;
+    }
+
+    /**
+     * Walks expanded subtrees and auto-expands single-child directory chains.
+     * Called after restoring expansion state on an already-populated tree.
+     */
+    private void expandSingleChildChainsInPopulatedTree(DefaultMutableTreeNode node) {
+        if (!(node.getUserObject() instanceof ProjectTreeNode ptn) || !ptn.isDirectory()) return;
+
+        TreePath nodePath = new TreePath(node.getPath());
+        boolean nodeIsExpanded = isExpanded(nodePath) || node.getParent() == null;
+        if (!nodeIsExpanded) return;
+
+        if (node.getChildCount() == 1) {
+            var child = (DefaultMutableTreeNode) node.getFirstChild();
+            if (child.getUserObject() instanceof ProjectTreeNode childPtn
+                    && childPtn.isDirectory()
+                    && childPtn.isChildrenLoaded()) {
+                TreePath childPath = new TreePath(child.getPath());
+                if (!isExpanded(childPath)) {
+                    expandPath(childPath);
+                }
+                expandSingleChildChainsInPopulatedTree(child);
+            }
+        } else {
+            for (int i = 0; i < node.getChildCount(); i++) {
+                if (node.getChildAt(i) instanceof DefaultMutableTreeNode child) {
+                    expandSingleChildChainsInPopulatedTree(child);
                 }
             }
         }
@@ -825,9 +915,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     private void scheduleExpansionSave() {
-        if (isRestoringExpansion) {
+        if (isRestoringExpansion || isRefreshing) {
             return;
         }
+        logger.trace(
+                "scheduleExpansionSave (isRestoringExpansion={}, isRefreshing={})", isRestoringExpansion, isRefreshing);
         if (expansionSaveTimer != null) {
             expansionSaveTimer.stop();
         }
@@ -878,15 +970,16 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     }));
         }
 
-        // Clear the flag when restoration completes and process any pending refresh
-        chain.whenComplete((result, ex) -> {
+        // Clear the flag when restoration completes and process any pending refresh.
+        // Must run on EDT to avoid races with scheduleRefresh reading these flags.
+        chain.whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
             isRestoringExpansion = false;
             if (pendingRefreshDuringRestore) {
                 logger.trace("Expansion restoration complete, processing pending refresh");
                 pendingRefreshDuringRestore = false;
                 scheduleRefresh();
             }
-        });
+        }));
     }
 
     @Override
@@ -922,6 +1015,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     batch.getFiles().size());
         }
 
+        logger.trace(
+                "onFilesChanged: scheduling refresh (overflow={}, gitignoreChanged={}, fileCount={})",
+                batch.isOverflowed(),
+                batch.isUntrackedGitignoreChanged(),
+                batch.getFiles().size());
         scheduleRefresh();
     }
 
@@ -947,16 +1045,14 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     private void performRefresh() {
-        if (!isShowing()) {
-            logger.trace("Tree not visible, deferring refresh");
-            pendingRefreshWhenShown = true;
-            return;
-        }
         performRefreshInternal();
     }
 
     private void performRefreshInternal() {
-        pendingRefreshWhenShown = false; // Clear flag when actually refreshing
+        int thisGeneration = refreshGeneration.incrementAndGet();
+
+        logger.trace("Refresh start (generation {})", thisGeneration);
+        isRefreshing = true;
 
         var root = (DefaultMutableTreeNode) getModel().getRoot();
 
@@ -967,82 +1063,180 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             collectExpandedDirectoryPathsRecursive(root, previouslyExpandedDirPaths);
         }
 
-        // Invalidate all loaded children data
-        if (root != null && root.getUserObject() instanceof ProjectTreeNode ptn) {
-            ptn.resetLoadState();
-        }
         if (root == null) {
+            isRefreshing = false;
             return;
         }
 
-        invalidateAllChildrenRecursively(root);
-        root.removeAllChildren();
-        root.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
-        ((DefaultTreeModel) getModel()).nodeStructureChanged(root);
+        Path projectRoot = project.getRoot();
 
-        // Load root children async, then restore expansions and selections
+        // Collect all directories that need preloading:
+        // root + all directories along expanded paths + parent directories of selected files
+        Set<File> initialDirs = new LinkedHashSet<>();
+        initialDirs.add(projectRoot.toFile());
+        for (Path expandedPath : previouslyExpandedDirPaths) {
+            for (int i = 1; i <= expandedPath.getNameCount(); i++) {
+                initialDirs.add(projectRoot.resolve(expandedPath.subpath(0, i)).toFile());
+            }
+        }
+        for (ProjectFile pf : previouslySelectedFiles) {
+            Path rel = pf.getRelPath();
+            for (int i = 1; i < rel.getNameCount(); i++) {
+                initialDirs.add(projectRoot.resolve(rel.subpath(0, i)).toFile());
+            }
+        }
+
+        var sortedExpandedPaths = previouslyExpandedDirPaths.stream()
+                .sorted(Comparator.comparingInt(Path::getNameCount))
+                .toList();
+
         final var rootRef = root;
-        loadChildrenForNodeAsync(root)
-                .thenCompose(ignored -> {
-                    // Restore expanded directories - process sequentially by depth to avoid race conditions.
-                    // Shorter paths (parents) must be expanded before longer paths (children) that depend on them.
-                    // Note: empty paths are filtered at the source in collectExpandedDirectoryPathsRecursive
-                    var sortedPaths = previouslyExpandedDirPaths.stream()
-                            .sorted(Comparator.comparingInt(Path::getNameCount))
-                            .toList();
 
-                    CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
-                    for (Path expandedDirPath : sortedPaths) {
-                        final Path pathForLambda = expandedDirPath;
-                        chain = chain.thenCompose(v -> findAndExpandNodeAsync(rootRef, pathForLambda, 0)
-                                .thenAccept(nodeToExpand -> {
-                                    if (nodeToExpand != null) {
-                                        SwingUtilities.invokeLater(() -> {
-                                            TreePath pathToExpand = new TreePath(nodeToExpand.getPath());
-                                            if (!isExpanded(pathToExpand)) {
-                                                expandPath(pathToExpand);
-                                            }
-                                        });
-                                    } else {
-                                        logger.trace("Could not find previously expanded directory: {}", pathForLambda);
+        // Preload all directory contents in parallel off EDT, following single-child chains.
+        // Then rebuild the tree in a single EDT pass to avoid flash and per-node repaints.
+        LoggingFuture.supplyAsync(
+                        () -> {
+                            Map<File, List<File>> allDirContents = new ConcurrentHashMap<>();
+                            Set<File> dirsToLoad = new LinkedHashSet<>(initialDirs);
+
+                            // Iteratively load directories, following single-child chains
+                            // (depth-limited to guard against symlink cycles)
+                            int chainDepth = 0;
+                            while (!dirsToLoad.isEmpty() && chainDepth < 20) {
+                                var futures = dirsToLoad.stream()
+                                        .filter(File::isDirectory)
+                                        .filter(dir -> !allDirContents.containsKey(dir))
+                                        .map(dir -> LoggingFuture.runAsync(
+                                                () -> {
+                                                    File[] children = dir.listFiles();
+                                                    if (children != null) {
+                                                        Arrays.sort(children, (f1, f2) -> {
+                                                            boolean f1IsDir = f1.isDirectory();
+                                                            boolean f2IsDir = f2.isDirectory();
+                                                            if (f1IsDir && !f2IsDir) return -1;
+                                                            if (!f1IsDir && f2IsDir) return 1;
+                                                            return f1.getName().compareToIgnoreCase(f2.getName());
+                                                        });
+                                                        allDirContents.put(dir, Arrays.asList(children));
+                                                    } else {
+                                                        allDirContents.put(dir, List.of());
+                                                    }
+                                                },
+                                                IO_EXECUTOR))
+                                        .toArray(CompletableFuture[]::new);
+                                LoggingFuture.allOf(futures).join();
+
+                                // Follow single-child directory chains for correct collapsed display names
+                                Set<File> nextBatch = new LinkedHashSet<>();
+                                for (File dir : dirsToLoad) {
+                                    List<File> children = allDirContents.get(dir);
+                                    if (children != null
+                                            && children.size() == 1
+                                            && children.get(0).isDirectory()) {
+                                        File singleChild = children.get(0);
+                                        if (!allDirContents.containsKey(singleChild)) {
+                                            nextBatch.add(singleChild);
+                                        }
                                     }
-                                }));
+                                }
+                                dirsToLoad = nextBatch;
+                                chainDepth++;
+                            }
+                            if (chainDepth >= 20) {
+                                logger.warn("Single-child directory chain depth limit reached during refresh preload");
+                            }
+
+                            // Pre-create nodes and warm coloring caches off EDT
+                            Map<File, List<ProjectTreeNode>> preCreatedNodes = new ConcurrentHashMap<>();
+                            for (var entry : allDirContents.entrySet()) {
+                                var nodes = new ArrayList<ProjectTreeNode>();
+                                for (File child : entry.getValue()) {
+                                    var ptn = new ProjectTreeNode(child, false);
+                                    ptn.isExcluded();
+                                    ptn.isGitignored();
+                                    ptn.isTracked();
+                                    nodes.add(ptn);
+                                }
+                                preCreatedNodes.put(entry.getKey(), nodes);
+                            }
+
+                            return preCreatedNodes;
+                        },
+                        IO_EXECUTOR)
+                .thenAccept(preCreatedNodes -> SwingUtilities.invokeLater(() -> {
+                    if (refreshGeneration.get() != thisGeneration) {
+                        logger.trace("Refresh superseded (generation {})", thisGeneration);
+                        return;
                     }
-                    return chain;
-                })
-                .thenCompose(ignored -> {
+
+                    // Rebuild tree in one pass — no intermediate "Loading..." flash
+                    invalidateAllChildrenRecursively(rootRef);
+                    rootRef.removeAllChildren();
+                    populateFromPreloadedData(rootRef, projectRoot.toFile(), preCreatedNodes);
+                    if (rootRef.getUserObject() instanceof ProjectTreeNode rootPtn) {
+                        rootPtn.markLoaded();
+                    }
+
+                    // Single model change notification instead of per-node nodeStructureChanged
+                    ((DefaultTreeModel) getModel()).nodeStructureChanged(rootRef);
+
+                    // Expand previously expanded paths. Children are already populated and marked
+                    // loaded, so treeWillExpand -> loadChildrenForNodeAsync is a no-op (CAS guard).
+                    for (Path expandedPath : sortedExpandedPaths) {
+                        var node = findNodeInPopulatedTree(rootRef, expandedPath);
+                        if (node != null) {
+                            TreePath treePath = new TreePath(node.getPath());
+                            if (!isExpanded(treePath)) {
+                                expandPath(treePath);
+                            }
+                        } else {
+                            logger.trace("Could not find previously expanded directory: {}", expandedPath);
+                        }
+                    }
+
+                    // Auto-expand single-child directory chains from expanded nodes
+                    expandSingleChildChainsInPopulatedTree(rootRef);
+
                     // Restore selections
-                    if (previouslySelectedFiles.isEmpty()) {
-                        return CompletableFuture.completedFuture(null);
+                    if (!previouslySelectedFiles.isEmpty()) {
+                        var pathsToSelect = new ArrayList<TreePath>();
+                        for (ProjectFile pf : previouslySelectedFiles) {
+                            if (!pf.exists()) continue;
+                            var node = findNodeInPopulatedTree(rootRef, pf.getRelPath());
+                            if (node != null) {
+                                pathsToSelect.add(new TreePath(node.getPath()));
+                            } else {
+                                logger.trace("Could not find previously selected file: {}", pf.getRelPath());
+                            }
+                        }
+                        if (!pathsToSelect.isEmpty()) {
+                            setSelectionPaths(pathsToSelect.toArray(new TreePath[0]));
+                            TreePath leadPath = getLeadSelectionPath();
+                            if (leadPath != null) {
+                                scrollPathToVisible(leadPath);
+                            } else {
+                                scrollPathToVisible(pathsToSelect.getFirst());
+                            }
+                        }
                     }
-                    var selectionFutures = previouslySelectedFiles.stream()
-                            .filter(ProjectFile::exists)
-                            .map(pf -> findAndExpandNodeAsync(rootRef, pf.getRelPath(), 0))
-                            .toArray(CompletableFuture[]::new);
-                    return CompletableFuture.allOf(selectionFutures).thenAccept(v -> {
-                        SwingUtilities.invokeLater(() -> {
-                            var pathsToSelect = new ArrayList<TreePath>();
-                            for (ProjectFile pf : previouslySelectedFiles) {
-                                if (!pf.exists()) continue;
-                                var nodeToSelect = findAndExpandNode(rootRef, pf.getRelPath(), 0);
-                                if (nodeToSelect != null) {
-                                    pathsToSelect.add(new TreePath(nodeToSelect.getPath()));
-                                } else {
-                                    logger.trace("Could not find previously selected file: {}", pf.getRelPath());
-                                }
-                            }
-                            if (!pathsToSelect.isEmpty()) {
-                                setSelectionPaths(pathsToSelect.toArray(new TreePath[0]));
-                                TreePath leadPath = getLeadSelectionPath();
-                                if (leadPath != null) {
-                                    scrollPathToVisible(leadPath);
-                                } else {
-                                    scrollPathToVisible(pathsToSelect.getFirst());
-                                }
-                            }
-                            logger.trace("ProjectTree refresh complete.");
-                        });
+
+                    isRefreshing = false;
+                    logger.trace("ProjectTree refresh complete.");
+                }))
+                .exceptionally(ex -> {
+                    logger.error("Error during parallel refresh", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        if (refreshGeneration.get() == thisGeneration) {
+                            isRefreshing = false;
+                            chrome.toolError("Failed to refresh project tree: " + ex.getMessage());
+                        } else {
+                            logger.trace(
+                                    "Ignoring error from superseded refresh (generation {}): {}",
+                                    thisGeneration,
+                                    ex.getMessage());
+                        }
                     });
+                    return null;
                 });
     }
 
@@ -1086,7 +1280,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             // Read all directory contents in parallel
                             Map<File, List<File>> dirContents = new ConcurrentHashMap<>();
                             var futures = dirsToLoad.stream()
-                                    .map(dir -> CompletableFuture.runAsync(
+                                    .map(dir -> LoggingFuture.runAsync(
                                             () -> {
                                                 File[] children = dir.listFiles();
                                                 if (children != null) {
@@ -1104,7 +1298,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                             },
                                             IO_EXECUTOR))
                                     .toArray(CompletableFuture[]::new);
-                            CompletableFuture.allOf(futures).join();
+                            LoggingFuture.allOf(futures).join();
                             return dirContents;
                         },
                         IO_EXECUTOR)
@@ -1736,15 +1930,20 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             var name = new StringBuilder(file.getName());
             var current = node;
 
-            // Follow single-child directory chains
-            while (current.getChildCount() == 1) {
+            // Follow single-child directory chains (depth-limited to guard against symlink cycles)
+            int chainDepth = 0;
+            while (current.getChildCount() == 1 && chainDepth < 20) {
                 var child = (DefaultMutableTreeNode) current.getFirstChild();
                 if (child.getUserObject() instanceof ProjectTreeNode childNode && childNode.isDirectory()) {
                     name.append("/").append(childNode.getFile().getName());
                     current = child;
+                    chainDepth++;
                 } else {
                     break;
                 }
+            }
+            if (chainDepth >= 20) {
+                logger.warn("Single-child directory chain depth limit reached at {}", file.getAbsolutePath());
             }
             return name.toString();
         }
