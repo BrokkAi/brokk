@@ -62,6 +62,7 @@ class ServiceCodexGatingTest {
         service.addModel("gpt-5.4-oauth", "oauth-loc", false);
         service.addModel("gpt-5.2-oauth", "oauth-5.2-loc", false);
         service.addModel("gpt-5.2-codex-fast-oauth", "oauth-5.2-codex-loc", false);
+        service.addModel("gpt-5.1-mini-oauth", "oauth-5.1-mini-loc", false);
         // Non-OAuth Codex API variant: gated by is_codex, not by the OAuth-prefix filter.
         // Shares the gpt-5.2-codex prefix used to exclude OAuth variants but must remain
         // governed solely by isCodexModel(); the OAuth restriction never applies to it
@@ -76,6 +77,7 @@ class ServiceCodexGatingTest {
         assertTrue(available.containsKey("gpt-5.4-oauth"));
         assertTrue(available.containsKey("gpt-5.2-oauth"));
         assertTrue(available.containsKey("gpt-5.2-codex-fast-oauth"));
+        assertTrue(available.containsKey("gpt-5.1-mini-oauth"));
         assertFalse(available.containsKey("gpt-5.2-codex"));
         assertFalse(service.isCodexModel("Normal Model"));
         assertTrue(service.isCodexModel("Codex Model"));
@@ -90,6 +92,7 @@ class ServiceCodexGatingTest {
         assertTrue(available.containsKey("gpt-5.4-oauth"));
         assertTrue(available.containsKey("gpt-5.2-oauth"));
         assertTrue(available.containsKey("gpt-5.2-codex-fast-oauth"));
+        assertTrue(available.containsKey("gpt-5.1-mini-oauth"));
         assertTrue(available.containsKey("gpt-5.2-codex"));
 
         // 3. Connected with OAuth restriction enabled (default): only allowed -oauth-suffixed models visible.
@@ -102,6 +105,7 @@ class ServiceCodexGatingTest {
         assertTrue(available.containsKey("gpt-5.4-oauth"));
         assertTrue(available.containsKey("gpt-5.2-oauth"));
         assertFalse(available.containsKey("gpt-5.2-codex-fast-oauth"));
+        assertFalse(available.containsKey("gpt-5.1-mini-oauth"));
         assertFalse(available.containsKey("gpt-5.2-codex"));
     }
 
