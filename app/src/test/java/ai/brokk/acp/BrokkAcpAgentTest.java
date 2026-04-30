@@ -27,7 +27,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -992,8 +991,9 @@ class BrokkAcpAgentTest {
         var optionValues = modelSelectionOption(created).options().stream()
                 .map(AcpProtocol.SessionConfigSelectOption::value)
                 .toList();
-        var modelValues =
-                created.models().availableModels().stream().map(AcpSchema.ModelInfo::modelId).toList();
+        var modelValues = created.models().availableModels().stream()
+                .map(AcpSchema.ModelInfo::modelId)
+                .toList();
 
         assertEquals(List.of("plain-model"), optionValues);
         assertEquals(List.of("plain-model"), modelValues);
@@ -1011,8 +1011,9 @@ class BrokkAcpAgentTest {
         var optionValues = modelSelectionOption(created).options().stream()
                 .map(AcpProtocol.SessionConfigSelectOption::value)
                 .toList();
-        var modelValues =
-                created.models().availableModels().stream().map(AcpSchema.ModelInfo::modelId).toList();
+        var modelValues = created.models().availableModels().stream()
+                .map(AcpSchema.ModelInfo::modelId)
+                .toList();
 
         assertEquals(expected, optionValues);
         assertEquals(expected, modelValues);
@@ -1033,8 +1034,9 @@ class BrokkAcpAgentTest {
         var optionValues = modelSelectionOption(created).options().stream()
                 .map(AcpProtocol.SessionConfigSelectOption::value)
                 .toList();
-        var modelValues =
-                created.models().availableModels().stream().map(AcpSchema.ModelInfo::modelId).toList();
+        var modelValues = created.models().availableModels().stream()
+                .map(AcpSchema.ModelInfo::modelId)
+                .toList();
 
         assertEquals(expected, optionValues);
         assertEquals(expected, modelValues);
@@ -1066,9 +1068,108 @@ class BrokkAcpAgentTest {
 
         assertEquals("effort-model", modelSelectionOption(response).currentValue());
 
-        var loaded = agent.loadSession(new AcpSchema.LoadSessionRequest(created.sessionId(), projectRoot.toString(), null));
+        var loaded =
+                agent.loadSession(new AcpSchema.LoadSessionRequest(created.sessionId(), projectRoot.toString(), null));
         assertEquals("effort-model", loaded.models().currentModelId());
         assertEquals("effort-model", modelSelectionOption(loaded).currentValue());
+    }
+
+    // ---- Code-model selector capability coverage (mirrors model_selection above) -------
+
+    @Test
+    void newSessionAdvertisesOnlyCodeBaseEntryForModelWithoutEffortSupport() {
+        seedModelCapabilities(Map.of("plain-model", TestService.modelInfo(false, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var optionValues = codeModelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        assertEquals(List.of("plain-model"), optionValues);
+        assertEquals("plain-model", codeModelSelectionOption(created).currentValue());
+    }
+
+    @Test
+    void newSessionAdvertisesCodeLowMediumHighForEffortModelWithoutDisable() {
+        seedModelCapabilities(Map.of("effort-model", TestService.modelInfo(true, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var expected = List.of("effort-model", "effort-model/low", "effort-model/medium", "effort-model/high");
+        var optionValues = codeModelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        assertEquals(expected, optionValues);
+        // DEFAULT_REASONING_LEVEL_CODE = "disable" but the model does not support disable, so
+        // the level sanitizes to "default" and the current selection drops the variant suffix.
+        assertEquals("effort-model", codeModelSelectionOption(created).currentValue());
+    }
+
+    @Test
+    void newSessionAdvertisesCodeDisableOnlyWhenCodeModelSupportsIt() {
+        seedModelCapabilities(Map.of("disable-model", TestService.modelInfo(true, true)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var expected = List.of(
+                "disable-model",
+                "disable-model/low",
+                "disable-model/medium",
+                "disable-model/high",
+                "disable-model/disable");
+        var optionValues = codeModelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        assertEquals(expected, optionValues);
+        // DEFAULT_REASONING_LEVEL_CODE = "disable" and the model supports it, so it survives.
+        assertEquals("disable-model/disable", codeModelSelectionOption(created).currentValue());
+    }
+
+    @Test
+    void setSessionConfigOptionParsesCodeModelVariantAndPersistsAcrossLoad() {
+        seedModelCapabilities(Map.of("effort-model", TestService.modelInfo(true, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var response = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", "effort-model/high", null));
+
+        assertEquals("effort-model/high", codeModelSelectionOption(response).currentValue());
+
+        var loaded =
+                agent.loadSession(new AcpSchema.LoadSessionRequest(created.sessionId(), projectRoot.toString(), null));
+        assertEquals("effort-model/high", codeModelSelectionOption(loaded).currentValue());
+    }
+
+    @Test
+    void configRefreshNormalizesUnsupportedCodeReasoningLevelToValidCurrentSelection() {
+        seedModelCapabilities(Map.of("plain-model", TestService.modelInfo(false, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var response = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", "plain-model/high", null));
+
+        // plain-model does not support reasoning_effort, so /high collapses back to the bare model.
+        assertEquals("plain-model", codeModelSelectionOption(response).currentValue());
+
+        var resumed = agent.resumeSession(
+                new AcpProtocol.ResumeSessionRequest(created.sessionId(), projectRoot.toString(), null, null));
+        assertEquals("plain-model", codeModelSelectionOption(resumed).currentValue());
+    }
+
+    @Test
+    void configRefreshNormalizesCodeDisableWhenCodeModelDoesNotSupportIt() {
+        seedModelCapabilities(Map.of("effort-model", TestService.modelInfo(true, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var response = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", "effort-model/disable", null));
+
+        // effort-model supports effort but not disable; /disable normalizes back to base model.
+        assertEquals("effort-model", codeModelSelectionOption(response).currentValue());
+
+        var loaded =
+                agent.loadSession(new AcpSchema.LoadSessionRequest(created.sessionId(), projectRoot.toString(), null));
+        assertEquals("effort-model", codeModelSelectionOption(loaded).currentValue());
     }
 
     @Test
@@ -1329,6 +1430,38 @@ class BrokkAcpAgentTest {
             AcpProtocol.SetSessionConfigOptionResponse response) {
         return response.configOptions().stream()
                 .filter(o -> "model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption codeModelSelectionOption(
+            AcpProtocol.NewSessionResponseExt response) {
+        return response.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption codeModelSelectionOption(
+            AcpProtocol.ResumeSessionResponse response) {
+        return response.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption codeModelSelectionOption(
+            AcpProtocol.LoadSessionResponseExt response) {
+        return response.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption codeModelSelectionOption(
+            AcpProtocol.SetSessionConfigOptionResponse response) {
+        return response.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
                 .findFirst()
                 .orElseThrow();
     }

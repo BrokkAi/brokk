@@ -101,6 +101,7 @@ public class BrokkAcpAgent {
     private final Map<String, String> modeBySession = new ConcurrentHashMap<>();
     private final Map<String, String> modelBySession = new ConcurrentHashMap<>();
     private final Map<String, String> codeModelBySession = new ConcurrentHashMap<>();
+    private final Map<String, String> codeReasoningBySession = new ConcurrentHashMap<>();
     private final Set<String> sessionsOnFallbackCatalog = ConcurrentHashMap.newKeySet();
     private final Map<String, String> reasoningBySession = new ConcurrentHashMap<>();
     private final Map<String, String> activeJobBySession = new ConcurrentHashMap<>();
@@ -385,7 +386,7 @@ public class BrokkAcpAgent {
 
         modeBySession.put(sessionId, "LUTZ");
         reasoningBySession.put(sessionId, defaultReasoningLevel);
-        codeModelBySession.put(sessionId, resolveInitialCodeModelSelection(sessionId));
+        normalizeCodeModelSelection(sessionId, modelBySession.getOrDefault(sessionId, defaultModelId), null, true);
         permissionModeBySession.put(sessionId, PermissionMode.DEFAULT);
         applySessionMcpServers(sessionId, request.mcpServers());
 
@@ -415,11 +416,7 @@ public class BrokkAcpAgent {
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
         reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
-        codeModelBySession.compute(
-                sessionId,
-                (ignored, existing) -> existing == null
-                        ? resolveInitialCodeModelSelection(sessionId)
-                        : sanitizeCodeModelSelection(sessionId, existing));
+        normalizeCodeModelSelection(sessionId, preferredCodeBaseModel(sessionId), null, true);
         permissionModeBySession.putIfAbsent(sessionId, PermissionMode.DEFAULT);
         applySessionMcpServers(sessionId, request.mcpServers());
 
@@ -444,11 +441,7 @@ public class BrokkAcpAgent {
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
         reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
-        codeModelBySession.compute(
-                sessionId,
-                (ignored, existing) -> existing == null
-                        ? resolveInitialCodeModelSelection(sessionId)
-                        : sanitizeCodeModelSelection(sessionId, existing));
+        normalizeCodeModelSelection(sessionId, preferredCodeBaseModel(sessionId), null, true);
         permissionModeBySession.putIfAbsent(sessionId, PermissionMode.DEFAULT);
         applySessionMcpServers(sessionId, request.mcpServers());
 
@@ -505,6 +498,7 @@ public class BrokkAcpAgent {
         modeBySession.remove(sessionId);
         modelBySession.remove(sessionId);
         codeModelBySession.remove(sessionId);
+        codeReasoningBySession.remove(sessionId);
         reasoningBySession.remove(sessionId);
         stickyPermissionsBySession.remove(sessionId);
         sessionsOnFallbackCatalog.remove(sessionId);
@@ -540,12 +534,13 @@ public class BrokkAcpAgent {
             if (model != null) {
                 modelBySession.put(forkSessionId, model);
             }
-            codeModelBySession.put(
-                    forkSessionId,
-                    sanitizeCodeModelSelection(
-                            forkSessionId,
-                            codeModelBySession.getOrDefault(
-                                    request.sessionId(), resolveInitialCodeModelSelection(forkSessionId))));
+            var parentCodeModel = codeModelBySession.getOrDefault(request.sessionId(), "");
+            if (parentCodeModel.isEmpty()) {
+                parentCodeModel = modelBySession.getOrDefault(forkSessionId, defaultModelId);
+            }
+            var parentCodeReasoning =
+                    codeReasoningBySession.getOrDefault(request.sessionId(), DEFAULT_REASONING_LEVEL_CODE);
+            normalizeCodeModelSelection(forkSessionId, parentCodeModel, parentCodeReasoning, true);
             reasoningBySession.put(
                     forkSessionId, reasoningBySession.getOrDefault(request.sessionId(), defaultReasoningLevel));
             permissionModeBySession.put(
@@ -634,7 +629,9 @@ public class BrokkAcpAgent {
         var tags = new HashMap<String, String>();
         tags.put("mode", mode);
 
-        var codeModel = resolveCurrentCodeModelSelection(sessionId);
+        var codeSelection = normalizeCodeModelSelection(sessionId, preferredCodeBaseModel(sessionId), null, true);
+        var codeModel = codeSelection.baseModel();
+        var codeReasoning = codeSelection.reasoning();
 
         var spec = new JobSpec(
                 text, // taskInput
@@ -648,7 +645,7 @@ public class BrokkAcpAgent {
                 null, // sourceBranch
                 null, // targetBranch
                 reasoning, // reasoningLevel
-                DEFAULT_REASONING_LEVEL_CODE, // reasoningLevelCode
+                codeReasoning, // reasoningLevelCode
                 null, // temperature
                 null, // temperatureCode
                 false, // skipVerification
@@ -731,8 +728,10 @@ public class BrokkAcpAgent {
                 setMode(new AcpSchema.SetSessionModeRequest(sessionId, value));
             }
             case "model_selection" -> setModel(new AcpSchema.SetSessionModelRequest(sessionId, value));
-            case "code_model_selection" ->
-                codeModelBySession.put(sessionId, sanitizeCodeModelSelection(sessionId, value));
+            case "code_model_selection" -> {
+                var parsed = parseModelSelection(value);
+                normalizeCodeModelSelection(sessionId, parsed.baseModel(), parsed.reasoning(), true);
+            }
             default ->
                 throw new IllegalArgumentException("Unknown configId '" + configId
                         + "'. Supported: permission_mode, behavior_mode, model_selection, code_model_selection");
@@ -785,16 +784,16 @@ public class BrokkAcpAgent {
     }
 
     private AcpProtocol.SessionConfigOption codeModelConfigOption(String sessionId) {
-        var availableModels = bundleForSession(sessionId).cm().getService().getAvailableModels();
-        var options = availableModels.keySet().stream()
-                .sorted()
-                .map(name -> new AcpProtocol.SessionConfigSelectOption(name, name, null))
-                .collect(Collectors.toCollection(ArrayList::new));
+        var service = bundleForSession(sessionId).cm().getService();
+        var availableModels = service.getAvailableModels();
+
+        var options = buildModelSelectOptions(sessionId, availableModels);
         if (options.isEmpty()) {
-            options.add(new AcpProtocol.SessionConfigSelectOption("default", "Default Code Model", null));
+            options = List.of(new AcpProtocol.SessionConfigSelectOption("default", "Default Code Model", null));
         }
 
-        var currentValue = resolveCurrentCodeModelSelection(sessionId);
+        var selection = normalizeCodeModelSelection(sessionId, preferredCodeBaseModel(sessionId), null, false);
+        var currentValue = formatModelIdWithVariant(selection.baseModel(), selection.reasoning());
         if (currentValue.isBlank()) {
             currentValue = options.getFirst().value();
         }
@@ -802,24 +801,65 @@ public class BrokkAcpAgent {
         return AcpProtocol.SessionConfigOption.select(
                 "code_model_selection",
                 "Code Model",
-                "Selects the code model for this session.",
+                "Selects the code model and reasoning effort for this session.",
                 "model",
                 currentValue,
-                List.copyOf(options));
+                options);
     }
 
-    private String resolveInitialCodeModelSelection(String sessionId) {
-        return sanitizeCodeModelSelection(sessionId, modelBySession.getOrDefault(sessionId, defaultModelId));
+    /**
+     * Resolves the code-model state for {@code sessionId}: validates {@code requestedBaseModel}
+     * against the live catalog (falling back to {@code DEFAULT_CODE_MODEL}, then the planner
+     * model, then the first sorted entry), then sanitizes the requested or persisted reasoning
+     * level against the chosen model's capabilities. Mirrors {@link #normalizeModelSelection}
+     * for the code-model side.
+     */
+    private NormalizedModelSelection normalizeCodeModelSelection(
+            String sessionId,
+            String requestedBaseModel,
+            @Nullable String requestedReasoning,
+            boolean persistResolvedState) {
+        var service = bundleForSession(sessionId).cm().getService();
+        var availableModels = service.getAvailableModels();
+        var baseModel = resolveCodeBaseModel(sessionId, availableModels, requestedBaseModel);
+        var sourceReasoning = requestedReasoning != null
+                ? requestedReasoning
+                : codeReasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL_CODE);
+        var reasoning = sanitizeReasoningLevelForModel(baseModel, sourceReasoning, service);
+        if (persistResolvedState) {
+            codeModelBySession.put(sessionId, baseModel);
+            codeReasoningBySession.put(sessionId, reasoning);
+        } else {
+            codeModelBySession.putIfAbsent(sessionId, baseModel);
+            codeReasoningBySession.putIfAbsent(sessionId, reasoning);
+            var existingModel = codeModelBySession.get(sessionId);
+            var existingReasoning = codeReasoningBySession.get(sessionId);
+            assert existingModel != null;
+            assert existingReasoning != null;
+            if (!existingModel.equals(baseModel)) {
+                codeModelBySession.put(sessionId, baseModel);
+            }
+            if (!existingReasoning.equals(reasoning)) {
+                codeReasoningBySession.put(sessionId, reasoning);
+            }
+        }
+        return new NormalizedModelSelection(baseModel, reasoning);
     }
 
-    private String resolveCurrentCodeModelSelection(String sessionId) {
-        var resolved = sanitizeCodeModelSelection(sessionId, codeModelBySession.getOrDefault(sessionId, ""));
-        codeModelBySession.put(sessionId, resolved);
-        return resolved;
+    /**
+     * Returns the existing per-session code-model selection if any, otherwise the planner model.
+     * Used to seed {@link #normalizeCodeModelSelection} when a session resumes/loads — the
+     * normalize step then validates this preference against the live catalog.
+     */
+    private String preferredCodeBaseModel(String sessionId) {
+        var preferred = codeModelBySession.getOrDefault(sessionId, "");
+        if (preferred.isEmpty()) {
+            preferred = modelBySession.getOrDefault(sessionId, defaultModelId);
+        }
+        return preferred;
     }
 
-    private String sanitizeCodeModelSelection(String sessionId, String requestedModel) {
-        var availableModels = bundleForSession(sessionId).cm().getService().getAvailableModels();
+    private String resolveCodeBaseModel(String sessionId, Map<String, String> availableModels, String requestedModel) {
         var stripped = requestedModel.strip();
         if (!stripped.isEmpty() && availableModels.containsKey(stripped)) {
             return stripped;
@@ -883,14 +923,17 @@ public class BrokkAcpAgent {
                 ? parsed.reasoning()
                 : reasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL);
         var normalized = normalizeModelSelection(sessionId, availableModels, service, requestedBaseModel, true);
-        var normalizedReasoning =
-                sanitizeReasoningLevelForModel(normalized.baseModel(), requestedReasoning, service);
+        var normalizedReasoning = sanitizeReasoningLevelForModel(normalized.baseModel(), requestedReasoning, service);
 
         modelBySession.put(sessionId, normalized.baseModel());
         reasoningBySession.put(sessionId, normalizedReasoning);
 
-        logger.info("ACP set model parsed: base={} reasoning={} normalizedBase={} normalizedReasoning={}",
-                parsed.baseModel(), parsed.reasoning(), normalized.baseModel(), normalizedReasoning);
+        logger.info(
+                "ACP set model parsed: base={} reasoning={} normalizedBase={} normalizedReasoning={}",
+                parsed.baseModel(),
+                parsed.reasoning(),
+                normalized.baseModel(),
+                normalizedReasoning);
 
         // Persist updated defaults
         saveAcpDefaults(normalized.baseModel(), normalizedReasoning);
@@ -1238,8 +1281,8 @@ public class BrokkAcpAgent {
                 .sorted()
                 .<AcpProtocol.SessionConfigSelectOption>mapMulti((name, downstream) -> {
                     downstream.accept(new AcpProtocol.SessionConfigSelectOption(name, name, null));
-                    modelVariantsFor(sessionId, name).forEach(level -> downstream.accept(
-                            new AcpProtocol.SessionConfigSelectOption(
+                    modelVariantsFor(sessionId, name)
+                            .forEach(level -> downstream.accept(new AcpProtocol.SessionConfigSelectOption(
                                     name + "/" + level, name + " (" + level + ")", null)));
                 })
                 .toList();
@@ -1250,8 +1293,9 @@ public class BrokkAcpAgent {
                 .sorted()
                 .<AcpSchema.ModelInfo>mapMulti((name, downstream) -> {
                     downstream.accept(new AcpSchema.ModelInfo(name, name, null));
-                    modelVariantsFor(sessionId, name).forEach(level ->
-                            downstream.accept(new AcpSchema.ModelInfo(name + "/" + level, name + " (" + level + ")", null)));
+                    modelVariantsFor(sessionId, name)
+                            .forEach(level -> downstream.accept(
+                                    new AcpSchema.ModelInfo(name + "/" + level, name + " (" + level + ")", null)));
                 })
                 .toList();
     }

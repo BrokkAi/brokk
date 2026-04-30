@@ -54,16 +54,14 @@ public class TestService extends AbstractService {
     public void setAvailableModels(Map<String, Map<String, Object>> modelInfoByName) {
         this.modelInfoMap = modelInfoByName.entrySet().stream()
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        Map.Entry::getKey,
-                        entry -> Map.copyOf(entry.getValue())));
+                        Map.Entry::getKey, entry -> Map.copyOf(entry.getValue())));
         this.modelLocations = modelInfoByName.keySet().stream()
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(name -> name, name -> name));
     }
 
     public static Map<String, Object> modelInfo(boolean supportsReasoningEffort, boolean supportsReasoningDisable) {
-        var supportedParams = supportsReasoningEffort
-                ? List.of("reasoning_effort", "temperature")
-                : List.of("temperature");
+        var supportedParams =
+                supportsReasoningEffort ? List.of("reasoning_effort", "temperature") : List.of("temperature");
         return Map.ofEntries(
                 Map.entry("supported_openai_params", supportedParams),
                 Map.entry("supports_reasoning_disable", supportsReasoningDisable),
