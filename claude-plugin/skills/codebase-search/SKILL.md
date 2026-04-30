@@ -1,8 +1,8 @@
 ---
 name: brokk-codebase-search
 description: >-
-  File discovery and code search using Brokk's search_symbols, skim_files,
-  and summarize_symbols tools, with a fallback to Grep for arbitrary text.
+  File discovery and code search using Brokk's search_symbols and
+  list_symbols tools, with a fallback to Grep for arbitrary text.
 ---
 
 # Codebase Search
@@ -11,7 +11,7 @@ Use these Brokk MCP tools to find files and code in the workspace. Pick
 the tool that matches what you are looking for:
 
 - A symbol (class, method, function, field, module name) -> `search_symbols`
-- Files by name or glob pattern -> `skim_files` or `summarize_symbols`
+- Files by name or glob pattern -> `list_symbols`
 - Arbitrary text (string literals, comments, error messages, configs) ->
   the built-in `Grep` tool, since bifrost is symbol-aware, not text-aware
 
@@ -20,8 +20,7 @@ the tool that matches what you are looking for:
 | Tool | Purpose |
 |---|---|
 | `search_symbols` | Find class, method, field, or module definitions by name (case-insensitive regex over fully-qualified names) |
-| `skim_files` | Quick declaration-level file inventory for matching glob patterns |
-| `summarize_symbols` | Compact recursive symbol summary for matching glob patterns |
+| `list_symbols` | Compact recursive symbol outline for matching glob patterns |
 
 ## Tips
 
@@ -29,10 +28,8 @@ the tool that matches what you are looking for:
   defined?" or "what classes match `.*Service$`?". It returns matching
   files grouped by classes, functions, and fields. Pass
   `include_tests: true` to include test files (excluded by default).
-- `skim_files` and `summarize_symbols` both take an array of
-  `file_patterns` (project-relative paths or globs like
-  `src/**/*.rs`). Use `skim_files` for a flat declaration listing and
-  `summarize_symbols` when you also want nested structure. Either tool
+- `list_symbols` takes an array of `file_patterns` (project-relative paths
+  or globs like `src/**/*.rs`) and returns a compact nested outline. It
   doubles as a "find files by glob" replacement for the older
   `findFilenames` / `listFiles` workflow.
 - For text that is *not* a code symbol (a log message, a string literal,

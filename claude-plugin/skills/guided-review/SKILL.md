@@ -244,7 +244,7 @@ To show the code context, use Brokk tools based on what the finding references:
 - If the finding references a class-level concern: use `get_summaries` or
   `get_symbol_summaries` to show structure without bodies
 - If the finding references a file: use the built-in `Read` tool for raw
-  contents, or `skim_files` for a declaration-level overview
+  contents, or `list_symbols` for a declaration-level overview
 - To trace callers, use `get_symbol_locations` to confirm the symbol's
   definition, then the built-in `Grep` tool (or Bash `grep -rn`) for the
   short name across the project -- bifrost does not expose a caller-graph

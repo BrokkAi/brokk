@@ -348,7 +348,7 @@ mod tests {
             client.tools().len()
         );
 
-        for expected in ["search_symbols", "skim_files", "get_summaries"] {
+        for expected in ["search_symbols", "list_symbols", "get_summaries"] {
             assert!(
                 names.contains(&expected),
                 "missing tool {expected} in {names:?}"
@@ -369,13 +369,13 @@ mod tests {
 
         let result = client
             .call_tool(
-                "skim_files",
+                "list_symbols",
                 json!({ "file_patterns": ["brokk-acp-rust/src/bifrost_client.rs"] }),
             )
             .await
-            .expect("skim_files call should succeed");
+            .expect("list_symbols call should succeed");
         eprintln!(
-            "skim_files result: {}",
+            "list_symbols result: {}",
             serde_json::to_string_pretty(&result).unwrap_or_default()
         );
     }
