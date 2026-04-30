@@ -227,7 +227,7 @@ class CodeAgentTest {
         // This input contains no blocks and should be treated as a successful, empty parse.
         String proseOnlyText = "Okay, I will make the changes now.";
 
-        var result = codeAgent.parsePhase(cs, es, proseOnlyText, EditBlockParser.instance, null);
+        var result = codeAgent.parsePhase(cs, es, proseOnlyText, false, EditBlockParser.instance, null);
 
         // A prose-only response is not a parse error; it should result in a Continue step.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
@@ -256,7 +256,7 @@ class CodeAgentTest {
                          This is some trailing text.
                          """;
 
-        var result = codeAgent.parsePhase(cs, es, llmText, EditBlockParser.instance, null);
+        var result = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
 
         // The parser is lenient; it finds the valid block and ignores the rest.
         // This is not a parse error, so we continue.
@@ -264,6 +264,40 @@ class CodeAgentTest {
         var continueStep = (CodeAgent.Step.Continue) result;
         assertEquals(0, continueStep.es().consecutiveParseFailures());
         assertEquals(1, continueStep.blocks().size(), "One block should be parsed.");
+    }
+
+    @Test
+    void testParsePhase_blocksWithParseErrorContinueWithContinuation() {
+        var cs = createBasicConversationState();
+        var es = createEditState(0);
+        String llmText =
+                """
+                ```
+                file.java
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                ```
+
+                ```
+                file.java
+                <<<<<<< SEARCH
+                unfinished
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var result = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
+
+        assertInstanceOf(CodeAgent.Step.Continue.class, result);
+        var continueStep = (CodeAgent.Step.Continue) result;
+        assertEquals(0, continueStep.es().consecutiveParseFailures());
+        assertEquals(1, continueStep.blocks().size(), "The valid prefix block should flow to applyPhase.");
+        assertNotNull(continueStep.nextRequest(), "The malformed suffix should request continuation after apply.");
+        assertTrue(requireNonNull(continueStep.nextRequestLog()).contains("Malformed or incomplete response"));
+        assertTrue(continueStep.countContinuationAsParseRetry());
     }
 
     // P-3: parsePhase - pure parse error, should retry with reminder
@@ -293,7 +327,7 @@ class CodeAgentTest {
         var es = createEditState(0);
 
         // Act
-        var result = codeAgent.parsePhase(cs, es, llmTextWithParseError, EditBlockParser.instance, null);
+        var result = codeAgent.parsePhase(cs, es, llmTextWithParseError, false, EditBlockParser.instance, null);
 
         // Assert
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
@@ -1019,6 +1053,41 @@ class CodeAgentTest {
         var fragmentContent = fragments.getFirst().text().join();
         assertTrue(fragmentContent.contains("goodbye"), fragmentContent);
         assertFalse(fragmentContent.contains("hello"), fragmentContent);
+    }
+
+    @Test
+    void testExecute_appliesParsedBlocksBeforeParseContinuation() throws IOException {
+        var file = cm.toFile("partial-parse.txt");
+        file.write("hello\n");
+        cm.addEditableFile(file);
+
+        var firstResponse =
+                """
+                ```
+                %s
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                ```
+
+                ```
+                %s
+                <<<<<<< SEARCH
+                unfinished
+                >>>>>>> REPLACE
+                ```
+                """
+                        .formatted(file, file);
+        var model = new TestScriptedLanguageModel(firstResponse, "Done.");
+        var agent = new CodeAgent(cm, model, consoleIO);
+
+        var result = agent.execute("Change hello to goodbye", Set.of(CodeAgent.Option.DEFER_BUILD));
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals("goodbye", file.read().orElseThrow().strip());
+        assertEquals(2, model.seenRequests().size(), "Malformed suffix should still request a continuation.");
     }
 
     // RO-1: Guardrail - edits to read-only files are blocked with clear error

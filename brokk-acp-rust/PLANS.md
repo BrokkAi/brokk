@@ -15,8 +15,7 @@ The `brokk_analyzer` crate (repo `brokkai/bifrost`) is a native Rust code analyz
 | `get_symbol_summaries` | Concise symbol summaries |
 | `get_symbol_sources` | Source code of symbols |
 | `get_file_summaries` | Concise file summaries |
-| `summarize_symbols` | Compact recursive summaries |
-| `skim_files` | Quick overview of a file's symbols |
+| `list_symbols` | Compact recursive summaries for matching files |
 | `most_relevant_files` | Files related via git history and imports |
 | `refresh` | Refresh the analyzer's index |
 
@@ -262,7 +261,7 @@ fn headline(tool_name: &str) -> &str {
         "get_symbol_locations" => "Finding files for symbols",
         "get_symbol_sources" => "Fetching symbol source",
         "get_file_summaries" => "Getting file summaries",
-        "skim_files" => "Skimming files",
+        "list_symbols" => "Listing symbols",
         "most_relevant_files" => "Finding related files",
         "readFile" => "Reading file",
         "writeFile" => "Writing file",

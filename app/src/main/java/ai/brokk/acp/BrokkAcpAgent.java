@@ -37,6 +37,9 @@ import com.agentclientprotocol.sdk.spec.AcpSchema;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
@@ -78,6 +81,15 @@ public class BrokkAcpAgent {
     private static final int MODEL_DISCOVERY_INITIAL_ATTEMPTS = 3;
     private static final int MODEL_DISCOVERY_RECOVERY_ATTEMPTS = 2;
     private static final long MODEL_DISCOVERY_INITIAL_BACKOFF_MS = 200;
+    private static final Set<String> KNOWN_CONFIG_SECTIONS = Set.of(
+            "buildDetails",
+            "projectSettings",
+            "shellConfig",
+            "issueProvider",
+            "dataRetentionPolicy",
+            "analyzerLanguages",
+            "global");
+
     private static final String ACP_SETTINGS_PATH_PROPERTY = "brokk.acp.settings.path";
     private static final Path DEFAULT_ACP_SETTINGS_PATH =
             Path.of(System.getProperty("user.home"), ".brokk", "acp_settings.json");
@@ -1720,21 +1732,40 @@ public class BrokkAcpAgent {
             return;
         }
 
-        try {
-            var update = OBJECT_MAPPER.readTree(trimmedPayload);
+        if (trimmedPayload.startsWith("{") || trimmedPayload.startsWith("[")) {
+            JsonNode update;
+            try {
+                update = OBJECT_MAPPER.readTree(trimmedPayload);
+            } catch (JsonProcessingException e) {
+                promptContext.sendMessage(
+                        "Error: invalid JSON payload for /config. Example: /config {\"global\":{\"theme\":\"dark\"}}\n\n"
+                                + e.getOriginalMessage());
+                return;
+            }
             if (!update.isObject()) {
                 promptContext.sendMessage(
                         "Error: /config update payload must be a JSON object. Example: /config {\"projectSettings\":{\"commitMessageFormat\":\"feat: {{description}}\"}}");
                 return;
             }
+            applyAndReport(sessionId, bundle, update, promptContext);
+            return;
+        }
 
+        var parts = trimmedPayload.split("\\s+", 2);
+        var path = parts[0];
+        if (parts.length == 1) {
+            handleConfigPathShow(sessionId, bundle, path, promptContext);
+        } else {
+            handleConfigPathSet(sessionId, bundle, path, parts[1].trim(), promptContext);
+        }
+    }
+
+    private void applyAndReport(
+            String sessionId, WorkspaceBundle bundle, JsonNode update, AcpPromptContext promptContext) {
+        try {
             applyConfigUpdate(sessionId, bundle, update);
             promptContext.sendMessage(
                     "Updated configuration successfully.\n\n" + renderConfigSnapshot(sessionId, bundle));
-        } catch (JsonProcessingException e) {
-            promptContext.sendMessage(
-                    "Error: invalid JSON payload for /config. Example: /config {\"global\":{\"theme\":\"dark\"}}\n\n"
-                            + e.getOriginalMessage());
         } catch (IllegalArgumentException e) {
             promptContext.sendMessage("Error updating configuration: " + e.getMessage());
         } catch (Exception e) {
@@ -1790,14 +1821,79 @@ public class BrokkAcpAgent {
         }
     }
 
+    private void handleConfigPathShow(
+            String sessionId, WorkspaceBundle bundle, String path, AcpPromptContext promptContext) {
+        var segments = splitConfigPath(path);
+        if (segments.isEmpty()) {
+            promptContext.sendMessage("Error: invalid configuration path: " + path);
+            return;
+        }
+        Object cursor = buildConfigSnapshot(sessionId, bundle);
+        for (var segment : segments) {
+            if (cursor instanceof Map<?, ?> map && map.containsKey(segment)) {
+                cursor = map.get(segment);
+            } else {
+                promptContext.sendMessage("Error: configuration path not found: " + path);
+                return;
+            }
+        }
+        try {
+            var rendered = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(cursor);
+            promptContext.sendMessage("Configuration at `%s`:\n```json\n%s\n```".formatted(path, rendered));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to render configuration path " + path, e);
+        }
+    }
+
+    private void handleConfigPathSet(
+            String sessionId, WorkspaceBundle bundle, String path, String rawValue, AcpPromptContext promptContext) {
+        var segments = splitConfigPath(path);
+        if (segments.isEmpty()) {
+            promptContext.sendMessage("Error: invalid configuration path: " + path);
+            return;
+        }
+        if (!KNOWN_CONFIG_SECTIONS.contains(segments.getFirst())) {
+            promptContext.sendMessage("Error: unknown configuration section: " + segments.getFirst()
+                    + ". Known sections: " + String.join(", ", KNOWN_CONFIG_SECTIONS));
+            return;
+        }
+        JsonNode leaf;
+        try {
+            leaf = OBJECT_MAPPER.readTree(rawValue);
+        } catch (JsonProcessingException ignore) {
+            leaf = TextNode.valueOf(rawValue);
+        }
+        var factory = JsonNodeFactory.instance;
+        var root = factory.objectNode();
+        ObjectNode cursor = root;
+        for (int i = 0; i < segments.size() - 1; i++) {
+            var next = factory.objectNode();
+            cursor.set(segments.get(i), next);
+            cursor = next;
+        }
+        cursor.set(segments.getLast(), leaf);
+        applyAndReport(sessionId, bundle, root, promptContext);
+    }
+
+    private static List<String> splitConfigPath(String path) {
+        var segments = List.of(path.split("\\."));
+        if (segments.stream().anyMatch(String::isEmpty)) {
+            return List.of();
+        }
+        return segments;
+    }
+
     private String renderConfigSnapshot(String sessionId, WorkspaceBundle bundle) {
         var snapshot = buildConfigSnapshot(sessionId, bundle);
         try {
             return """
                     Current editable Brokk configuration.
 
-                    Update it by sending:
-                    /config {"projectSettings": {...}, "global": {...}}
+                    Usage:
+                    - `/config <path> <value>` to set a value, e.g. `/config global.theme dark`
+                    - `/config <path> <json>` to set a JSON literal, e.g. `/config buildDetails.exclusionPatterns ["target","build"]`
+                    - `/config <path>` to show just that section/value, e.g. `/config global`
+                    - `/config {"section": {...}}` to apply a batch JSON update
 
                     Editable sections:
                     - buildDetails
@@ -2454,9 +2550,15 @@ public class BrokkAcpAgent {
             try {
                 var commands = List.of(
                         new AcpSchema.AvailableCommand("context", "Show current context snapshot", null),
-                        new AcpSchema.AvailableCommand("config", "Show or update editable Brokk configuration", null),
                         new AcpSchema.AvailableCommand(
-                                "sandbox", "Show or toggle the kernel sandbox for shell commands (on|off)", null));
+                                "config",
+                                "Show or update editable Brokk configuration",
+                                new AcpSchema.AvailableCommandInput(
+                                        "[<path> [value] | {section:{...}}] e.g. global.theme dark")),
+                        new AcpSchema.AvailableCommand(
+                                "sandbox",
+                                "Show or toggle the kernel sandbox for shell commands",
+                                new AcpSchema.AvailableCommandInput("on|off")));
                 sender.sendSessionUpdate(
                         sessionId, new AcpSchema.AvailableCommandsUpdate("available_commands_update", commands));
             } catch (Exception e) {

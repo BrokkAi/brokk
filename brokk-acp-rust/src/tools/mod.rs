@@ -237,8 +237,7 @@ impl ToolRegistry {
             | "get_symbol_summaries"
             | "get_symbol_sources"
             | "get_file_summaries"
-            | "summarize_symbols"
-            | "skim_files"
+            | "list_symbols"
             | "most_relevant_files"
             | "refresh" => self.execute_bifrost(name, args).await,
             _ => ToolResult {
@@ -288,13 +287,13 @@ impl ToolRegistry {
     pub fn tool_kind(tool_name: &str) -> ToolKind {
         match tool_name {
             "think" => ToolKind::Think,
-            "readFile" | "listDirectory" | "skim_files" | "get_file_summaries" => ToolKind::Read,
+            "readFile" | "listDirectory" | "get_file_summaries" => ToolKind::Read,
             "searchFileContents"
             | "search_symbols"
             | "get_symbol_locations"
             | "get_symbol_summaries"
             | "get_symbol_sources"
-            | "summarize_symbols"
+            | "list_symbols"
             | "most_relevant_files" => ToolKind::Search,
             "writeFile" => ToolKind::Edit,
             "runShellCommand" => ToolKind::Execute,
@@ -324,8 +323,7 @@ impl ToolRegistry {
             "get_symbol_summaries" => "Getting symbol summaries",
             "get_symbol_sources" => "Fetching symbol source",
             "get_file_summaries" => "Getting file summaries",
-            "summarize_symbols" => "Summarizing symbols",
-            "skim_files" => "Skimming files",
+            "list_symbols" => "Listing symbols",
             "most_relevant_files" => "Finding related files",
             "refresh" => "Refreshing analyzer index",
             _ => "Executing tool",

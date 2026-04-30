@@ -119,7 +119,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
         var es = new CodeAgent.EditState(0, 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), false, false);
 
         // parsePhase
-        var parseStep = codeAgent.parsePhase(cs, es, llmText, EditBlockParser.instance, null);
+        var parseStep = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, parseStep, "parsePhase should Continue on clean block");
         cs = parseStep.cs();
         es = parseStep.es();
