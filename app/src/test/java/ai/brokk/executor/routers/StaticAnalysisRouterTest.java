@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.executor.jobs.ErrorPayload;
@@ -45,6 +46,7 @@ class StaticAnalysisRouterTest {
         var analyzer = new TestAnalyzer();
         analyzer.addDeclaration(method);
         analyzer.setComplexity(method, 18);
+        analyzer.setRanges(method, List.of(new IAnalyzer.Range(0, 200, 0, 90, 0)));
         var router = new StaticAnalysisRouter(new TestContextManager(
                 new TestProject(root, Languages.JAVA), new TestConsoleIO(), java.util.Set.of(), analyzer));
 
@@ -61,12 +63,18 @@ class StaticAnalysisRouterTest {
         Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
         assertEquals("scan-123", body.get("scanId"));
         assertEquals("static_seed", body.get("phase"));
-        assertEquals("completed", body.get("state"));
+        assertEquals("completed", body.get("state"), body.toString());
         var seeds = (List<?>) body.get("seeds");
         assertFalse(seeds.isEmpty());
         var seed = (Map<?, ?>) seeds.getFirst();
         assertEquals("src/main/java/Example.java", seed.get("file"));
         assertEquals(List.of("reportLongMethodAndGodObjectSmells"), seed.get("suggestedTools"));
+        var previews = (List<?>) body.get("previews");
+        assertFalse(previews.isEmpty());
+        var preview = (Map<?, ?>) previews.getFirst();
+        assertEquals("src/main/java/Example.java", preview.get("file"));
+        assertEquals("reportLongMethodAndGodObjectSmells", preview.get("tool"));
+        assertEquals("Example.complex", preview.get("symbol"));
         var events = (List<?>) body.get("events");
         assertEquals(2, events.size());
         var event = (Map<?, ?>) events.getLast();
@@ -75,6 +83,39 @@ class StaticAnalysisRouterTest {
         var outcome = (Map<?, ?>) event.get("outcome");
         assertEquals("STATIC_SEED_COMPLETED", outcome.get("code"));
         assertEquals(1, outcome.get("findingCount"));
+    }
+
+    @Test
+    void handlePostLeadExpansion_returnsUsageExpansionSeeds(@TempDir Path root) throws Exception {
+        var target = new ProjectFile(root, "src/main/java/p/Target.java");
+        Files.createDirectories(target.absPath().getParent());
+        Files.writeString(target.absPath(), "package p; public class Target {}");
+        var user = new ProjectFile(root, "src/main/java/p/User.java");
+        Files.writeString(user.absPath(), "package p; class User { Target target; }");
+        var analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(new CodeUnit(target, CodeUnitType.CLASS, "p", "Target", null, false));
+        var router = new StaticAnalysisRouter(new TestContextManager(
+                new TestProject(root, Languages.JAVA), new TestConsoleIO(), java.util.Set.of(), analyzer));
+
+        var exchange = TestHttpExchange.request(
+                "POST",
+                "/v1/static-analysis/lead-expansion",
+                """
+                {"scanId":"scan-123","knownFiles":["src/main/java/p/Target.java"],"frontierFiles":["src/main/java/p/Target.java"],"maxResults":5,"maxDurationMs":5000}
+                """);
+
+        router.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertEquals("scan-123", body.get("scanId"));
+        assertEquals("completed", body.get("state"));
+        var seeds = (List<?>) body.get("seeds");
+        assertFalse(seeds.isEmpty());
+        var seed = (Map<?, ?>) seeds.getFirst();
+        assertEquals("src/main/java/p/User.java", seed.get("file"));
+        var selection = (Map<?, ?>) seed.get("selection");
+        assertEquals("usage_expansion", selection.get("kind"));
     }
 
     @Test

@@ -32,11 +32,51 @@ public final class StaticAnalysisSeedDtos {
 
     public record NormalizedRequest(String scanId, int targetSeedCount, int maxDurationMs, boolean includePreview) {}
 
+    public record LeadExpansionRequest(
+            @JsonProperty("scanId") @Nullable String scanId,
+            @JsonProperty("knownFiles") @Nullable List<String> knownFiles,
+            @JsonProperty("frontierFiles") @Nullable List<String> frontierFiles,
+            @JsonProperty("maxResults") @Nullable Integer maxResults,
+            @JsonProperty("maxDurationMs") @Nullable Integer maxDurationMs,
+            @JsonProperty("includePreview") @Nullable Boolean includePreview) {
+        public static final int DEFAULT_MAX_RESULTS = 12;
+        public static final int DEFAULT_MAX_DURATION_MS = 10_000;
+
+        public NormalizedLeadExpansionRequest normalized() {
+            return new NormalizedLeadExpansionRequest(
+                    scanId == null ? "" : scanId.strip(),
+                    knownFiles == null
+                            ? List.of()
+                            : knownFiles.stream()
+                                    .map(String::strip)
+                                    .filter(s -> !s.isBlank())
+                                    .toList(),
+                    frontierFiles == null
+                            ? List.of()
+                            : frontierFiles.stream()
+                                    .map(String::strip)
+                                    .filter(s -> !s.isBlank())
+                                    .toList(),
+                    maxResults == null ? DEFAULT_MAX_RESULTS : maxResults,
+                    maxDurationMs == null ? DEFAULT_MAX_DURATION_MS : maxDurationMs,
+                    Boolean.TRUE.equals(includePreview));
+        }
+    }
+
+    public record NormalizedLeadExpansionRequest(
+            String scanId,
+            List<String> knownFiles,
+            List<String> frontierFiles,
+            int maxResults,
+            int maxDurationMs,
+            boolean includePreview) {}
+
     public record Response(
             @JsonProperty("scanId") String scanId,
             @JsonProperty("phase") String phase,
             @JsonProperty("state") String state,
             @JsonProperty("seeds") List<SeedRecord> seeds,
+            @JsonProperty("previews") List<Preview> previews,
             @JsonProperty("events") List<Event> events) {}
 
     public record SeedRecord(
@@ -56,6 +96,20 @@ public final class StaticAnalysisSeedDtos {
             @JsonProperty("selection") @Nullable Selection selection,
             @JsonProperty("triggeredBy") @Nullable TriggeredBy triggeredBy,
             @JsonProperty("outcome") Outcome outcome,
+            @JsonProperty("suggestedAgents") List<String> suggestedAgents) {}
+
+    public record Preview(
+            @JsonProperty("id") String id,
+            @JsonProperty("file") String file,
+            @JsonProperty("tool") String tool,
+            @JsonProperty("score") int score,
+            @JsonProperty("title") String title,
+            @JsonProperty("message") String message,
+            @JsonProperty("symbol") @Nullable String symbol,
+            @JsonProperty("lineStart") @Nullable Integer lineStart,
+            @JsonProperty("lineEnd") @Nullable Integer lineEnd,
+            @JsonProperty("selectionKind") @Nullable String selectionKind,
+            @JsonProperty("signals") List<Signal> signals,
             @JsonProperty("suggestedAgents") List<String> suggestedAgents) {}
 
     public record Selection(

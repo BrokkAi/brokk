@@ -13,16 +13,26 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
 public final class StaticAnalysisSeedService {
+    private static final Logger logger = LogManager.getLogger(StaticAnalysisSeedService.class);
+
     private static final int GIT_HOTSPOT_WINDOW_DAYS = 30;
     private static final int GIT_HOTSPOT_MAX_COMMITS = 200;
     private static final int COMPLEXITY_SIGNAL_THRESHOLD = 12;
     private static final int LARGE_FILE_BYTES_THRESHOLD = 16 * 1024;
+    private static final int PREVIEW_FILE_CAP = 10;
+    private static final int PREVIEW_FINDING_CAP = 12;
+    private static final String LONG_METHOD_TOOL = "reportLongMethodAndGodObjectSmells";
+    private static final String SIZE_SPRAWL_AGENT = "code-quality-size-sprawl";
 
     private final IAppContextManager contextManager;
 
@@ -49,10 +59,10 @@ public final class StaticAnalysisSeedService {
         var capped = false;
 
         try {
+            capped |= addWeightedSampleSeeds(request, candidates, deadline);
             capped |= addGitHotspots(request, candidates, deadline);
             capped |= addSizeComplexitySeeds(request, candidates, deadline);
             capped |= addUsageExpansionSeeds(request, candidates, deadline);
-            capped |= addWeightedSampleSeeds(request, candidates, deadline);
 
             var seeds = candidates.values().stream()
                     .sorted(Comparator.comparingDouble(Candidate::score)
@@ -66,6 +76,7 @@ public final class StaticAnalysisSeedService {
             for (var seed : seeds) {
                 records.add(seed.toRecord(rank++));
             }
+            var previews = addPreviewFindings(records, deadline);
 
             if (records.isEmpty()) {
                 events.add(event(
@@ -79,14 +90,19 @@ public final class StaticAnalysisSeedService {
                         0,
                         List.of()));
                 return new StaticAnalysisSeedDtos.Response(
-                        request.scanId(), StaticAnalysisSeedDtos.PHASE_STATIC_SEED, "skipped", List.of(), events);
+                        request.scanId(),
+                        StaticAnalysisSeedDtos.PHASE_STATIC_SEED,
+                        "skipped",
+                        List.of(),
+                        List.of(),
+                        events);
             }
 
             var state = capped || timedOut(deadline) ? "capped" : "completed";
             events.add(event(
                     request.scanId(),
                     state,
-                    List.of("analyzeGitHotspots", "reportLongMethodAndGodObjectSmells"),
+                    List.of("analyzeGitHotspots", LONG_METHOD_TOOL),
                     records.stream()
                             .map(StaticAnalysisSeedDtos.SeedRecord::file)
                             .toList(),
@@ -95,10 +111,10 @@ public final class StaticAnalysisSeedService {
                     capped || timedOut(deadline)
                             ? "Static analysis seed selection returned partial results after reaching a cap."
                             : "Static analysis seed selection completed.",
-                    records.size(),
-                    List.of()));
+                    previews.size(),
+                    previews.isEmpty() ? List.of() : List.of("maintainability_size")));
             return new StaticAnalysisSeedDtos.Response(
-                    request.scanId(), StaticAnalysisSeedDtos.PHASE_STATIC_SEED, state, records, events);
+                    request.scanId(), StaticAnalysisSeedDtos.PHASE_STATIC_SEED, state, records, previews, events);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             events.add(event(
@@ -112,7 +128,7 @@ public final class StaticAnalysisSeedService {
                     0,
                     List.of()));
             return new StaticAnalysisSeedDtos.Response(
-                    request.scanId(), StaticAnalysisSeedDtos.PHASE_STATIC_SEED, "failed", List.of(), events);
+                    request.scanId(), StaticAnalysisSeedDtos.PHASE_STATIC_SEED, "failed", List.of(), List.of(), events);
         } catch (Exception e) {
             events.add(event(
                     request.scanId(),
@@ -125,7 +141,7 @@ public final class StaticAnalysisSeedService {
                     0,
                     List.of()));
             return new StaticAnalysisSeedDtos.Response(
-                    request.scanId(), StaticAnalysisSeedDtos.PHASE_STATIC_SEED, "failed", List.of(), events);
+                    request.scanId(), StaticAnalysisSeedDtos.PHASE_STATIC_SEED, "failed", List.of(), List.of(), events);
         }
     }
 
@@ -158,14 +174,15 @@ public final class StaticAnalysisSeedService {
                 if (file.complexity() > 0) {
                     candidate.addSignal("complexity", Map.of("maxCyclomaticComplexity", file.complexity()));
                     if (file.complexity() >= COMPLEXITY_SIGNAL_THRESHOLD) {
-                        candidate.addTool("reportLongMethodAndGodObjectSmells");
-                        candidate.addAgent("code-quality-size-sprawl");
+                        candidate.addTool(LONG_METHOD_TOOL);
+                        candidate.addAgent(SIZE_SPRAWL_AGENT);
                     }
                 }
                 candidate.addAgent("code-quality-git-hotspots");
             }
             return report.truncated();
         } catch (Exception ignored) {
+            logger.debug("Static seed git hotspot source was unavailable", ignored);
             return false;
         }
     }
@@ -174,7 +191,7 @@ public final class StaticAnalysisSeedService {
             StaticAnalysisSeedDtos.NormalizedRequest request, Map<String, Candidate> candidates, long deadline) {
         if (timedOut(deadline)) return true;
         IAnalyzer analyzer = contextManager.getAnalyzer();
-        var files = analyzer.getAnalyzedFiles().stream()
+        var files = sourceFiles(analyzer).stream()
                 .sorted(Comparator.comparing(ProjectFile::toString))
                 .limit(Math.max(request.targetSeedCount() * 4L, request.targetSeedCount()))
                 .toList();
@@ -192,10 +209,72 @@ public final class StaticAnalysisSeedService {
             if (sizeBytes > 0) {
                 candidate.addSignal("size", Map.of("bytes", sizeBytes));
             }
-            candidate.addTool("reportLongMethodAndGodObjectSmells");
-            candidate.addAgent("code-quality-size-sprawl");
+            candidate.addTool(LONG_METHOD_TOOL);
+            candidate.addAgent(SIZE_SPRAWL_AGENT);
         }
         return false;
+    }
+
+    private List<StaticAnalysisSeedDtos.Preview> addPreviewFindings(
+            List<StaticAnalysisSeedDtos.SeedRecord> records, long deadline) {
+        if (timedOut(deadline)) return List.of();
+        IAnalyzer analyzer = contextManager.getAnalyzer();
+        var weights = IAnalyzer.MaintainabilitySizeSmellWeights.defaults();
+        var previews = new ArrayList<StaticAnalysisSeedDtos.Preview>();
+        var analyzedFiles = 0;
+        for (var seed : records) {
+            if (timedOut(deadline) || previews.size() >= PREVIEW_FINDING_CAP || analyzedFiles >= PREVIEW_FILE_CAP) {
+                break;
+            }
+            if (!seed.suggestedTools().contains(LONG_METHOD_TOOL)) {
+                continue;
+            }
+            var file = contextManager.toFile(seed.file());
+            if (!file.exists()) {
+                continue;
+            }
+            analyzedFiles++;
+            var findings = analyzer.findLongMethodAndGodObjectSmells(file, weights);
+            for (var finding : findings) {
+                if (timedOut(deadline) || previews.size() >= PREVIEW_FINDING_CAP) {
+                    break;
+                }
+                previews.add(toPreview(seed, finding));
+            }
+        }
+        return previews;
+    }
+
+    private StaticAnalysisSeedDtos.Preview toPreview(
+            StaticAnalysisSeedDtos.SeedRecord seed, IAnalyzer.MaintainabilitySizeSmell finding) {
+        var cu = finding.codeUnit();
+        var range = finding.range();
+        var lineStart = range.isEmpty() ? null : range.startLine() + 1;
+        var lineEnd = range.isEmpty() ? null : range.endLine() + 1;
+        var signalValues = new LinkedHashMap<String, Object>();
+        signalValues.put("ownSpanLines", finding.ownSpanLines());
+        signalValues.put("descendantSpanLines", finding.descendantSpanLines());
+        signalValues.put("directChildCount", finding.directChildCount());
+        signalValues.put("functionCount", finding.functionCount());
+        signalValues.put("maxFunctionSpanLines", finding.maxFunctionSpanLines());
+        signalValues.put("maxCyclomaticComplexity", finding.maxCyclomaticComplexity());
+        signalValues.put("reasons", finding.reasons());
+        var selectionKind = seed.selection() == null ? null : seed.selection().kind();
+        var title = "Maintainability preview";
+        var message = "%s scored %d in %s".formatted(cu.fqName(), finding.score(), cu.source());
+        return new StaticAnalysisSeedDtos.Preview(
+                UUID.randomUUID().toString(),
+                cu.source().toString(),
+                LONG_METHOD_TOOL,
+                finding.score(),
+                title,
+                message,
+                cu.fqName(),
+                lineStart,
+                lineEnd,
+                selectionKind,
+                List.of(new StaticAnalysisSeedDtos.Signal("maintainability_size", signalValues)),
+                seed.suggestedAgents().isEmpty() ? List.of(SIZE_SPRAWL_AGENT) : seed.suggestedAgents());
     }
 
     private boolean addUsageExpansionSeeds(
@@ -216,21 +295,31 @@ public final class StaticAnalysisSeedService {
 
     private boolean addWeightedSampleSeeds(
             StaticAnalysisSeedDtos.NormalizedRequest request, Map<String, Candidate> candidates, long deadline) {
-        if (timedOut(deadline)) return true;
         var needed = request.targetSeedCount() - candidates.size();
         if (needed <= 0) return false;
-        var files = contextManager.getAnalyzer().getAnalyzedFiles().stream()
+        var capped = timedOut(deadline);
+        var files = sourceFiles(contextManager.getAnalyzer()).stream()
                 .sorted(Comparator.comparing(ProjectFile::toString))
                 .limit(needed)
                 .toList();
         var rank = 1;
         for (var file : files) {
-            if (timedOut(deadline)) return true;
             var candidate = candidate(candidates, file.toString(), 0.2 - (rank * 0.001), "weighted_sample");
             candidate.addSignal("size", Map.of("bytes", file.size().orElse(0L)));
             rank++;
         }
-        return false;
+        return capped || timedOut(deadline);
+    }
+
+    private Set<ProjectFile> sourceFiles(IAnalyzer analyzer) {
+        var analyzedFiles = analyzer.getAnalyzedFiles();
+        if (!analyzedFiles.isEmpty()) {
+            return analyzedFiles;
+        }
+        var project = contextManager.getProject();
+        return project.getAnalyzerLanguages().stream()
+                .flatMap(language -> project.getAnalyzableFiles(language).stream())
+                .collect(Collectors.toSet());
     }
 
     private static int maxCyclomaticComplexity(IAnalyzer analyzer, ProjectFile file) {
