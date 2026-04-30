@@ -528,6 +528,23 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void promptConfigSnapshotOmitsGuiOnlyKeys() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(promptRequest(created.sessionId(), "/config"), fixture.contextFor(created.sessionId()));
+
+            var messages = joinedPromptMessages(fixture.transport);
+            for (var key : BrokkAcpAgent.GUI_ONLY_GLOBAL_KEYS) {
+                assertFalse(
+                        messages.contains("\"" + key + "\""),
+                        "Snapshot must not expose GUI-only key '" + key + "'. Update buildGlobalSettingsMap "
+                                + "if this is intentional. Snapshot was: " + messages);
+            }
+        }
+    }
+
+    @Test
     void promptConfigUpdatesProjectScopedSettings() {
         var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
 
@@ -559,27 +576,48 @@ class BrokkAcpAgentTest {
             agent.prompt(
                     promptRequest(
                             created.sessionId(),
-                            "/config {\"global\":{\"theme\":\"dark\",\"codeBlockWrapMode\":false,\"watchServiceImplPreference\":\"native\",\"github\":{\"token\":\"gh-token\",\"cloneProtocol\":\"ssh\",\"shallowCloneEnabled\":true,\"shallowCloneDepth\":7},\"advancedMode\":true,\"diffUnifiedView\":true,\"persistPerProjectBounds\":true,\"instructionsTabInsertIndentation\":true,\"verticalActivityLayout\":true,\"notifications\":{\"showCost\":false,\"showFreeInternalLLMCost\":false,\"showError\":false,\"showConfirm\":false,\"showInfo\":false}}}"),
+                            "/config {\"global\":{\"github\":{\"token\":\"gh-token\",\"cloneProtocol\":\"ssh\",\"shallowCloneEnabled\":true,\"shallowCloneDepth\":7},\"exceptionReportingEnabled\":false}}"),
                     fixture.contextFor(created.sessionId()));
 
-            assertEquals("dark", MainProject.getTheme());
-            assertFalse(MainProject.getCodeBlockWrapMode());
-            assertEquals("native", MainProject.getWatchServiceImplPreference());
             assertEquals("gh-token", MainProject.getGitHubToken());
             assertEquals("ssh", MainProject.getGitHubCloneProtocol());
             assertTrue(MainProject.getGitHubShallowCloneEnabled());
             assertEquals(7, MainProject.getGitHubShallowCloneDepth());
-            assertTrue(GlobalUiSettings.isAdvancedMode());
-            assertTrue(GlobalUiSettings.isDiffUnifiedView());
-            assertTrue(GlobalUiSettings.isPersistPerProjectBounds());
-            assertTrue(GlobalUiSettings.isInstructionsTabInsertIndentation());
-            assertTrue(GlobalUiSettings.isVerticalActivityLayout());
-            assertFalse(GlobalUiSettings.isShowCostNotifications());
-            assertFalse(GlobalUiSettings.isShowFreeInternalLLMCostNotifications());
-            assertFalse(GlobalUiSettings.isShowErrorNotifications());
-            assertFalse(GlobalUiSettings.isShowConfirmNotifications());
-            assertFalse(GlobalUiSettings.isShowInfoNotifications());
+            assertFalse(MainProject.getExceptionReportingEnabled());
             assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
+        }
+    }
+
+    @Test
+    void promptConfigRejectsGuiOnlyKeys() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var initialToken = MainProject.getGitHubToken();
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config global.theme dark"),
+                    fixture.contextFor(created.sessionId()));
+
+            var messages = joinedPromptMessages(fixture.transport);
+            assertTrue(
+                    messages.contains("global.theme"),
+                    "Rejection message should name the offending key, got: " + messages);
+            assertTrue(
+                    messages.contains("Brokk desktop app"),
+                    "Rejection message should point at the desktop app, got: " + messages);
+        }
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(
+                            created.sessionId(),
+                            "/config {\"global\":{\"theme\":\"dark\",\"github\":{\"token\":\"should-not-apply\"}}}"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals(
+                    initialToken,
+                    MainProject.getGitHubToken(),
+                    "GUI-only rejection must fail the whole batch — the github.token sibling must not be silently applied");
         }
     }
 
@@ -615,10 +653,10 @@ class BrokkAcpAgentTest {
 
         try (var fixture = new PermissionFixture()) {
             agent.prompt(
-                    promptRequest(created.sessionId(), "/config global.theme dark"),
+                    promptRequest(created.sessionId(), "/config global.exceptionReportingEnabled false"),
                     fixture.contextFor(created.sessionId()));
 
-            assertEquals("dark", MainProject.getTheme());
+            assertFalse(MainProject.getExceptionReportingEnabled());
             assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
         }
     }
