@@ -882,11 +882,11 @@ class BrokkAcpAgentTest {
         var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
 
         assertNotNull(created.configOptions());
-        // All three selectors must come through configOptions. IntelliJ hides legacy `modes` and
+        // All selectors must come through configOptions. IntelliJ hides legacy `modes` and
         // `models` channels once configOptions is non-empty, so dropping any of these would make
         // the corresponding toolbar element vanish.
         assertEquals(
-                List.of("behavior_mode", "permission_mode", "model_selection"),
+                List.of("behavior_mode", "permission_mode", "model_selection", "code_model_selection"),
                 created.configOptions().stream()
                         .map(AcpProtocol.SessionConfigOption::id)
                         .toList());
@@ -954,6 +954,23 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void newSessionAdvertisesCodeModelDropdownWithModelCategory() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var codeModel = created.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("model", codeModel.category());
+        assertEquals("select", codeModel.type());
+        assertNotNull(codeModel.currentValue());
+        assertFalse(codeModel.currentValue().isBlank());
+        assertFalse(codeModel.options().isEmpty());
+        assertTrue(codeModel.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .anyMatch(codeModel.currentValue()::equals));
+    }
+
+    @Test
     void setSessionConfigOptionRejectsUnknownBehaviorMode() {
         var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
         org.junit.jupiter.api.Assertions.assertThrows(
@@ -975,6 +992,81 @@ class BrokkAcpAgentTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("acceptEdits", permission.currentValue());
+    }
+
+    @Test
+    void setSessionConfigOptionStoresCodeModel() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var initial = created.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        var selectedValue = initial.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .filter(v -> !v.equals(initial.currentValue()))
+                .findFirst()
+                .orElse(initial.currentValue());
+
+        var resp = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", selectedValue, null));
+
+        var updated = resp.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(selectedValue, updated.currentValue());
+        assertTrue(updated.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .anyMatch(selectedValue::equals));
+    }
+
+    @Test
+    void loadSessionRetainsConfiguredCodeModel() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var initial = created.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        var selectedValue = initial.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .filter(v -> !v.equals(initial.currentValue()))
+                .findFirst()
+                .orElse(initial.currentValue());
+
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", selectedValue, null));
+
+        var loaded = agent.loadSession(
+                new AcpSchema.LoadSessionRequest(created.sessionId(), projectRoot.toString(), List.of(), null));
+
+        var updated = loaded.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(selectedValue, updated.currentValue());
+        assertTrue(updated.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .anyMatch(selectedValue::equals));
+    }
+
+    @Test
+    void resumeSessionSanitizesStaleCodeModelSelection() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", "not-a-real-model", null));
+
+        var resumed = agent.resumeSession(
+                new AcpProtocol.ResumeSessionRequest(created.sessionId(), projectRoot.toString(), null, null));
+
+        var updated = resumed.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertFalse(updated.currentValue().isBlank());
+        assertTrue(updated.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .anyMatch(updated.currentValue()::equals));
     }
 
     @Test
@@ -1007,20 +1099,29 @@ class BrokkAcpAgentTest {
                     Map.of("cwd", projectRoot.toString(), "mcpServers", List.of()));
             var sessionId = ((AcpProtocol.NewSessionResponseExt) newSession.result()).sessionId();
 
+            var advertised = ((AcpProtocol.NewSessionResponseExt) newSession.result())
+                    .configOptions().stream()
+                            .filter(o -> "code_model_selection".equals(o.id()))
+                            .findFirst()
+                            .orElseThrow();
+            var selectedValue = advertised.options().stream()
+                    .map(AcpProtocol.SessionConfigSelectOption::value)
+                    .findFirst()
+                    .orElseThrow();
+
             var setConfig = transport.exchange(
                     AcpProtocol.METHOD_SESSION_SET_CONFIG_OPTION,
                     "setcfg",
-                    Map.of("sessionId", sessionId, "configId", "permission_mode", "value", "readOnly"));
+                    Map.of("sessionId", sessionId, "configId", "code_model_selection", "value", selectedValue));
             assertNull(setConfig.error());
             var result = assertInstanceOf(AcpProtocol.SetSessionConfigOptionResponse.class, setConfig.result());
             assertEquals(
-                    "readOnly",
+                    selectedValue,
                     result.configOptions().stream()
-                            .filter(o -> "permission_mode".equals(o.id()))
+                            .filter(o -> "code_model_selection".equals(o.id()))
                             .findFirst()
                             .orElseThrow()
                             .currentValue());
-            assertEquals(PermissionMode.READ_ONLY, agent.permissionModeFor(sessionId));
         }
     }
 
