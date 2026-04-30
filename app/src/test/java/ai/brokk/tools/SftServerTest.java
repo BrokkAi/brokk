@@ -296,18 +296,18 @@ class SftServerTest {
         initGitRepo(repoA);
         initGitRepo(repoB);
 
-        var aFile = repoA.resolve("src/A.java");
+        var aFile = repoA.resolve("src/A.txt");
         Files.createDirectories(aFile.getParent());
-        Files.writeString(aFile, "class A { void before() {} }\n");
+        Files.writeString(aFile, "repo-a content before\n");
         commitAll(repoA, "a before");
-        Files.writeString(aFile, "class A { void after() {} }\n");
+        Files.writeString(aFile, "repo-a content after\n");
         commitAll(repoA, "a after");
 
-        var bFile = repoB.resolve("src/B.java");
+        var bFile = repoB.resolve("src/B.txt");
         Files.createDirectories(bFile.getParent());
-        Files.writeString(bFile, "class B { void before() {} }\n");
+        Files.writeString(bFile, "repo-b content before\n");
         var from = commitAll(repoB, "b before");
-        Files.writeString(bFile, "class B { void after() {} }\n");
+        Files.writeString(bFile, "repo-b content after\n");
         var to = commitAll(repoB, "b after");
 
         try (var server = new SftServer(0)) {
@@ -324,9 +324,9 @@ class SftServerTest {
             var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
 
             assertEquals(200, response.statusCode());
-            assertTrue(response.body().contains("src/B.java"));
+            assertTrue(response.body().contains("src/B.txt"));
             assertTrue(response.body().contains("after"));
-            assertFalse(response.body().contains("src/A.java"));
+            assertFalse(response.body().contains("src/A.txt"));
         }
     }
 
