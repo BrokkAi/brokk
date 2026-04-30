@@ -905,30 +905,33 @@ class BrokkAcpAgentTest {
     void gateBypassAllowsEverything() {
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
-                PermissionGate.decide(PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EDIT, "editFile", false));
+                PermissionGate.decide(
+                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EDIT, "editFile", false, null));
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
-                PermissionGate.decide(PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EXECUTE, "shell", false));
+                PermissionGate.decide(
+                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EXECUTE, "shell", false, null));
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
-                PermissionGate.decide(PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.OTHER, "weird", false));
+                PermissionGate.decide(
+                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.OTHER, "weird", false, null));
     }
 
     @Test
     void gateReadOnlyRejectsEditExecuteAndOther() {
         assertEquals(
                 PermissionGate.Outcome.REJECT,
-                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", false));
+                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", false, null));
         assertEquals(
                 PermissionGate.Outcome.REJECT,
-                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EXECUTE, "shell", false));
+                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EXECUTE, "shell", false, null));
         assertEquals(
                 PermissionGate.Outcome.REJECT,
-                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.OTHER, "weird", false));
+                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.OTHER, "weird", false, null));
         // Always-allow does not lift the read-only brake.
         assertEquals(
                 PermissionGate.Outcome.REJECT,
-                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", true));
+                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", true, null));
     }
 
     @Test
@@ -940,7 +943,7 @@ class BrokkAcpAgentTest {
                 AcpSchema.ToolKind.FETCH)) {
             assertEquals(
                     PermissionGate.Outcome.ALLOW,
-                    PermissionGate.decide(PermissionMode.READ_ONLY, k, "anything", false),
+                    PermissionGate.decide(PermissionMode.READ_ONLY, k, "anything", false, null),
                     "READ_ONLY must allow " + k);
         }
     }
@@ -949,26 +952,26 @@ class BrokkAcpAgentTest {
     void gateAcceptEditsAllowsEditButPromptsExecute() {
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
-                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EDIT, "editFile", false));
+                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EDIT, "editFile", false, null));
         assertEquals(
                 PermissionGate.Outcome.PROMPT,
-                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EXECUTE, "shell", false));
+                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EXECUTE, "shell", false, null));
         assertEquals(
                 PermissionGate.Outcome.PROMPT,
-                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.OTHER, "weird", false));
+                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.OTHER, "weird", false, null));
     }
 
     @Test
     void gateDefaultPromptsExceptForReadOnlyKinds() {
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
-                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.READ, "readFile", false));
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.READ, "readFile", false, null));
         assertEquals(
                 PermissionGate.Outcome.PROMPT,
-                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", false));
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", false, null));
         assertEquals(
                 PermissionGate.Outcome.PROMPT,
-                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", false));
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", false, null));
     }
 
     @Test
@@ -976,11 +979,11 @@ class BrokkAcpAgentTest {
         // Always-allow short-circuits the prompt for cacheable tools…
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
-                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", true));
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", true, null));
         // …but never for shell, where one approval would blanket-allow every future shell command.
         assertEquals(
                 PermissionGate.Outcome.PROMPT,
-                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", true));
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", true, null));
     }
 
     @Test

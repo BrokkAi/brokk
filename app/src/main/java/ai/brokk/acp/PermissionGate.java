@@ -1,6 +1,7 @@
 package ai.brokk.acp;
 
 import com.agentclientprotocol.sdk.spec.AcpSchema;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Pure permission-gate logic. Given a session's {@link PermissionMode} and the kind/name of the
@@ -36,13 +37,26 @@ final class PermissionGate {
         return "shell".equals(toolName);
     }
 
+    /** Tools that pass a raw shell command string we can safety-check via {@link SafeCommand}. */
+    private static boolean isShellExecutionTool(String toolName) {
+        return "runShellCommand".equals(toolName) || "shell".equals(toolName);
+    }
+
     /**
      * Returns the gate's outcome for the given mode/kind/tool/cache-state combination.
      *
      * @param isAlwaysAllowed {@code true} iff the user has previously chosen "Always allow" for
      *     this tool in this session (i.e. the sticky cache holds an ALLOW verdict).
+     * @param rawCommand for shell-execution tools, the raw command string the model wants to run;
+     *     used to short-circuit the prompt for known-safe read-only commands. {@code null} for
+     *     non-shell tools or when the command is not available at gate time.
      */
-    static Outcome decide(PermissionMode mode, AcpSchema.ToolKind kind, String toolName, boolean isAlwaysAllowed) {
+    static Outcome decide(
+            PermissionMode mode,
+            AcpSchema.ToolKind kind,
+            String toolName,
+            boolean isAlwaysAllowed,
+            @Nullable String rawCommand) {
         // BYPASS_PERMISSIONS: trust everything. Explicit user opt-out of the gate.
         if (mode == PermissionMode.BYPASS_PERMISSIONS) {
             return Outcome.ALLOW;
@@ -62,6 +76,13 @@ final class PermissionGate {
 
         // ACCEPT_EDITS auto-allows EDIT but still gates EXECUTE/OTHER.
         if (mode == PermissionMode.ACCEPT_EDITS && kind == AcpSchema.ToolKind.EDIT) {
+            return Outcome.ALLOW;
+        }
+
+        // Safe-command auto-allow: read-only shell commands (ls, cat, git status, ...) skip the
+        // prompt entirely. Mirrors Codex's is_safe_command.rs. Placed after the READ_ONLY reject so
+        // strict mode still blocks every shell call.
+        if (rawCommand != null && isShellExecutionTool(toolName) && SafeCommand.isKnownSafe(rawCommand)) {
             return Outcome.ALLOW;
         }
 

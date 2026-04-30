@@ -220,12 +220,12 @@ final class AcpRequestContext implements AcpPromptContext {
 
     @Override
     public boolean askPermission(String action, String toolName) {
-        return askPermissionDetailed(action, toolName, toolName, false).isApproved();
+        return askPermissionDetailed(action, toolName, toolName, false, null).isApproved();
     }
 
     @Override
     public PermissionDecision askPermissionDetailed(
-            String action, String toolName, String cacheKey, boolean offerSandboxBypass) {
+            String action, String toolName, String cacheKey, boolean offerSandboxBypass, @Nullable String rawCommand) {
         boolean cacheable = !NON_CACHEABLE_TOOL_NAMES.contains(toolName);
         var cache = cacheable ? agent : null;
 
@@ -240,7 +240,7 @@ final class AcpRequestContext implements AcpPromptContext {
             var kind = PermissionGate.classify(toolName);
             boolean alwaysAllowed = sticky.filter(v -> v != BrokkAcpAgent.PermissionVerdict.DENY)
                     .isPresent();
-            switch (PermissionGate.decide(mode, kind, toolName, alwaysAllowed)) {
+            switch (PermissionGate.decide(mode, kind, toolName, alwaysAllowed, rawCommand)) {
                 case ALLOW -> {
                     return sticky.filter(v -> v == BrokkAcpAgent.PermissionVerdict.ALLOW_NO_SANDBOX)
                                     .isPresent()

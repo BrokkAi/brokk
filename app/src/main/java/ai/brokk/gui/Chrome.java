@@ -9,6 +9,7 @@ import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
+import ai.brokk.acp.SafeCommand;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -2249,6 +2250,15 @@ public class Chrome
     public ApprovalResult beforeToolCall(ToolExecutionRequest request, boolean destructive) {
         if (!destructive) {
             return ApprovalResult.APPROVED;
+        }
+        // Phase 1 safe-command short-circuit: skip the banner for known-safe read-only shell
+        // commands (ls, cat, git status, ...). Mirrors the ACP path's PermissionGate logic so
+        // GUI and ACP behave identically. The sandbox still applies to the executed command.
+        if ("runShellCommand".equals(request.name())) {
+            var command = extractJsonField(request.arguments(), "command");
+            if (command != null && SafeCommand.isKnownSafe(command)) {
+                return ApprovalResult.APPROVED;
+            }
         }
         var approval = computeApprovalContext(request);
         var cached = sessionApprovedTools.get(approval.sessionKey());

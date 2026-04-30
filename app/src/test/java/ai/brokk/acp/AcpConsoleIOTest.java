@@ -586,7 +586,11 @@ class AcpConsoleIOTest {
 
         @Override
         public PermissionDecision askPermissionDetailed(
-                String action, String toolName, String cacheKey, boolean offerSandboxBypass) {
+                String action,
+                String toolName,
+                String cacheKey,
+                boolean offerSandboxBypass,
+                @Nullable String rawCommand) {
             return PermissionDecision.ALLOW;
         }
 

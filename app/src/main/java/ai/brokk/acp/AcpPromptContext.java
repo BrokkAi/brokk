@@ -1,6 +1,7 @@
 package ai.brokk.acp;
 
 import com.agentclientprotocol.sdk.agent.SyncPromptContext;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Brokk-internal extension of {@link SyncPromptContext} that adds tool-aware permission prompts so
@@ -46,9 +47,12 @@ interface AcpPromptContext extends SyncPromptContext {
      * @param cacheKey key used for the session sticky cache; for shell tools this should encode the
      *     specific command/task so a session-level approval doesn't blanket-allow other invocations
      * @param offerSandboxBypass whether to offer the {@code allow_no_sandbox*} options
+     * @param rawCommand for shell-execution tools, the raw command string the model wants to run.
+     *     Enables {@link SafeCommand}'s known-safe auto-approval for read-only commands like
+     *     {@code ls}, {@code cat}, or {@code git status}. {@code null} for non-shell tools.
      */
     PermissionDecision askPermissionDetailed(
-            String action, String toolName, String cacheKey, boolean offerSandboxBypass);
+            String action, String toolName, String cacheKey, boolean offerSandboxBypass, @Nullable String rawCommand);
 
     @Override
     default boolean askPermission(String action) {
