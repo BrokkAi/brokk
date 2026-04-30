@@ -6,6 +6,7 @@ import static org.treesitter.GoNodeType.*;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.GoAnalyzerCache;
 import ai.brokk.analyzer.go.CognitiveComplexityAnalysis;
+import ai.brokk.analyzer.go.GoSourceLookupAliases;
 import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import java.nio.file.Path;
@@ -54,10 +55,6 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     // Pattern to strip Go comments (line comments // and block comments /* */)
     private static final Pattern GO_COMMENT_PATTERN = Pattern.compile("//[^\r\n]*|/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/");
-
-    private static final Pattern GO_RECEIVER_QUALIFIER =
-            Pattern.compile("\\(\\*?([A-Za-z_][A-Za-z0-9_]*(?:\\[[^\\]]+])?)\\)");
-    private static final Pattern GO_TYPE_ARGUMENTS = Pattern.compile("\\[[^\\]]+\\]");
 
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             CLASS_LIKE_NODE_TYPES,
@@ -163,77 +160,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     @Override
     public Collection<SourceLookupAlias> sourceLookupAliases(String requestedName) {
-        return sourceLookupAliasesForGo(requestedName);
-    }
-
-    private static Collection<SourceLookupAlias> sourceLookupAliasesForGo(String requestedName) {
-        LinkedHashSet<SourceLookupAlias> aliases = new LinkedHashSet<>();
-        String normalizedName = requestedName.strip();
-        addSourceLookupAlias(aliases, SourceLookupAlias.anySource(normalizedName));
-        if (normalizedName.isEmpty()) {
-            return aliases;
-        }
-
-        String receiverName = normalizeGoReceiverSyntax(normalizedName);
-        String strippedReceiverName = stripGoTypeArguments(receiverName);
-        addSourceLookupAlias(aliases, SourceLookupAlias.anySource(receiverName));
-        addSourceLookupAlias(aliases, SourceLookupAlias.anySource(strippedReceiverName));
-
-        addGoPathAliases(aliases, normalizedName);
-        addGoPathAliases(aliases, receiverName);
-        addGoPathAliases(aliases, strippedReceiverName);
-
-        return aliases;
-    }
-
-    private static void addGoPathAliases(Set<SourceLookupAlias> aliases, String name) {
-        String unixName = name.replace('\\', '/');
-        addGoPathAliasForSuffix(aliases, unixName);
-    }
-
-    private static void addGoPathAliasForSuffix(Set<SourceLookupAlias> aliases, String pathQualifiedName) {
-        int slashIdx = pathQualifiedName.lastIndexOf('/');
-        String pathPrefix = slashIdx >= 0 ? pathQualifiedName.substring(0, slashIdx) : "";
-        String tail = slashIdx >= 0 ? pathQualifiedName.substring(slashIdx + 1) : pathQualifiedName;
-        var parts = List.of(tail.split("\\."));
-        if (parts.size() < 2) {
-            return;
-        }
-
-        String packageName = parts.getFirst();
-        String packageDirectory = pathPrefix.isEmpty() ? packageName : pathPrefix + "/" + packageName;
-        if (slashIdx >= 0) {
-            addSourceLookupAlias(
-                    aliases,
-                    SourceLookupAlias.sourceDirectory(
-                            packageName + "." + String.join(".", parts.subList(1, parts.size())), packageDirectory));
-        }
-
-        if (parts.size() < 4) {
-            return;
-        }
-
-        var aliasParts = new ArrayList<String>(parts.size() - 1);
-        aliasParts.add(packageName);
-        aliasParts.addAll(parts.subList(2, parts.size()));
-        addSourceLookupAlias(
-                aliases,
-                SourceLookupAlias.sourceFile(
-                        String.join(".", aliasParts), packageDirectory + "/" + parts.get(1) + ".go"));
-    }
-
-    private static String normalizeGoReceiverSyntax(String name) {
-        return GO_RECEIVER_QUALIFIER.matcher(name).replaceAll("$1");
-    }
-
-    private static String stripGoTypeArguments(String name) {
-        return GO_TYPE_ARGUMENTS.matcher(name).replaceAll("");
-    }
-
-    private static void addSourceLookupAlias(Set<SourceLookupAlias> aliases, SourceLookupAlias alias) {
-        if (!alias.lookupName().isBlank()) {
-            aliases.add(alias);
-        }
+        return GoSourceLookupAliases.create(getTSParser(), requestedName);
     }
 
     @Override

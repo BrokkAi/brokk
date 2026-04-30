@@ -1470,4 +1470,26 @@ public class GoAnalyzerTest {
                     inlineAnalyzer.getSkeleton(prefs).orElseThrow());
         }
     }
+
+    @Test
+    void sourceLookupAliasesNormalizePathQualifiedReceiverWithTreeSitter() {
+        var aliases = analyzer.sourceLookupAliases("lib/auth.db.(*Server[T]).GenerateDatabaseCert");
+
+        assertTrue(
+                aliases.contains(IAnalyzer.SourceLookupAlias.anySource("lib/auth.db.Server.GenerateDatabaseCert")),
+                "Expected receiver syntax to normalize through tree-sitter. Found: " + aliases);
+        assertTrue(
+                aliases.contains(
+                        IAnalyzer.SourceLookupAlias.sourceFile("auth.Server.GenerateDatabaseCert", "lib/auth/db.go")),
+                "Expected path-qualified file alias after receiver normalization. Found: " + aliases);
+    }
+
+    @Test
+    void sourceLookupAliasesStripGoTypeArgumentsWithTreeSitter() {
+        var aliases = analyzer.sourceLookupAliases("server.Server[T].Evaluate");
+
+        assertTrue(
+                aliases.contains(IAnalyzer.SourceLookupAlias.anySource("server.Server.Evaluate")),
+                "Expected type arguments to be stripped through tree-sitter. Found: " + aliases);
+    }
 }
