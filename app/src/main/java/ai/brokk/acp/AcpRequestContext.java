@@ -248,8 +248,13 @@ final class AcpRequestContext implements AcpPromptContext {
         boolean cacheable = !NON_CACHEABLE_TOOL_NAMES.contains(toolName);
         var cache = cacheable ? agent : null;
 
+        // Lookup order: in-RAM sticky cache (this session) → on-disk persistent rules (Phase 2).
+        // The in-RAM cache wins on hit so we don't re-read the rules file on every prompt.
         Optional<BrokkAcpAgent.PermissionVerdict> sticky =
                 cache != null ? cache.stickyPermissionFor(sessionId, cacheKey) : Optional.empty();
+        if (sticky.isEmpty() && cache != null) {
+            sticky = cache.persistentPermissionFor(sessionId, toolName, PermissionRules.argMatchOf(toolName, cacheKey));
+        }
 
         // Session-level PermissionMode is consulted BEFORE the sticky cache so READ_ONLY can deny
         // even tools the user previously approved, and BYPASS_PERMISSIONS can short-circuit before
@@ -303,14 +308,19 @@ final class AcpRequestContext implements AcpPromptContext {
         }
         var optionId = selected.optionId();
         if (cache != null) {
-            switch (optionId) {
-                case "allow_always" ->
-                    cache.rememberPermission(sessionId, cacheKey, BrokkAcpAgent.PermissionVerdict.ALLOW);
-                case "allow_no_sandbox_always" ->
-                    cache.rememberPermission(sessionId, cacheKey, BrokkAcpAgent.PermissionVerdict.ALLOW_NO_SANDBOX);
-                case "reject_always" ->
-                    cache.rememberPermission(sessionId, cacheKey, BrokkAcpAgent.PermissionVerdict.DENY);
-                default -> {}
+            BrokkAcpAgent.PermissionVerdict toRemember =
+                    switch (optionId) {
+                        case "allow_always" -> BrokkAcpAgent.PermissionVerdict.ALLOW;
+                        case "allow_no_sandbox_always" -> BrokkAcpAgent.PermissionVerdict.ALLOW_NO_SANDBOX;
+                        case "reject_always" -> BrokkAcpAgent.PermissionVerdict.DENY;
+                        default -> null;
+                    };
+            if (toRemember != null) {
+                cache.rememberPermission(sessionId, cacheKey, toRemember);
+                // Persist across sessions (Phase 2). Failure to write is logged inside the agent
+                // and does not break the in-RAM caching path.
+                cache.rememberPermissionPersistently(
+                        sessionId, toolName, PermissionRules.argMatchOf(toolName, cacheKey), toRemember);
             }
         }
         return switch (optionId) {
