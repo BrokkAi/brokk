@@ -242,10 +242,11 @@ final class AcpRequestContext implements AcpPromptContext {
                     .isPresent();
             switch (PermissionGate.decide(mode, kind, toolName, alwaysAllowed)) {
                 case ALLOW -> {
-                    return sticky.filter(v -> v == BrokkAcpAgent.PermissionVerdict.ALLOW_NO_SANDBOX)
+                    var base = sticky.filter(v -> v == BrokkAcpAgent.PermissionVerdict.ALLOW_NO_SANDBOX)
                                     .isPresent()
                             ? PermissionDecision.ALLOW_NO_SANDBOX
                             : PermissionDecision.ALLOW;
+                    return applySandboxOverride(base, toolName);
                 }
                 case REJECT -> {
                     sendMessage("\n**" + toolName + " denied:** " + PermissionGate.READ_ONLY_REJECTION + "\n");
@@ -261,7 +262,7 @@ final class AcpRequestContext implements AcpPromptContext {
 
         if (sticky.isPresent()) {
             return switch (sticky.get()) {
-                case ALLOW -> PermissionDecision.ALLOW;
+                case ALLOW -> applySandboxOverride(PermissionDecision.ALLOW, toolName);
                 case ALLOW_NO_SANDBOX -> PermissionDecision.ALLOW_NO_SANDBOX;
                 case DENY -> PermissionDecision.DENY;
             };
@@ -294,10 +295,25 @@ final class AcpRequestContext implements AcpPromptContext {
             }
         }
         return switch (optionId) {
-            case "allow_once", "allow_always" -> PermissionDecision.ALLOW;
+            case "allow_once", "allow_always" -> applySandboxOverride(PermissionDecision.ALLOW, toolName);
             case "allow_no_sandbox_once", "allow_no_sandbox_always" -> PermissionDecision.ALLOW_NO_SANDBOX;
             default -> PermissionDecision.DENY;
         };
+    }
+
+    /**
+     * Upgrades an {@link PermissionDecision#ALLOW} to {@link PermissionDecision#ALLOW_NO_SANDBOX}
+     * when the session has opted out of the kernel sandbox via {@code /sandbox off}. Logs the
+     * upgrade so audit trails can correlate sandbox-off transitions with the actual tool calls
+     * that ran without filesystem isolation. Idempotent for {@code DENY} and already-no-sandbox
+     * decisions.
+     */
+    private PermissionDecision applySandboxOverride(PermissionDecision base, String toolName) {
+        if (base == PermissionDecision.ALLOW && agent != null && agent.isSandboxDisabledFor(sessionId)) {
+            logger.warn("ACP tool allowed without sandbox via /sandbox off (session={}, tool={})", sessionId, toolName);
+            return PermissionDecision.ALLOW_NO_SANDBOX;
+        }
+        return base;
     }
 
     /**
