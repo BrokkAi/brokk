@@ -290,7 +290,11 @@ public class AcpConsoleIO extends MemoryConsole {
                 var cacheKey = arg.isEmpty() ? toolName : toolName + ":" + arg;
                 var prompt =
                         arg.isEmpty() ? "Allow shell tool: " + toolName + "?" : "Allow " + toolName + ": " + arg + "?";
-                var decision = context.askPermissionDetailed(prompt, toolName, cacheKey, true);
+                // Pass the raw command for runShellCommand so SafeCommand can auto-approve known
+                // safe read-only commands. For other shell-like tools (e.g. callShellAgent) the
+                // "command" is a high-level task description, so safety can't be checked statically.
+                var rawCommand = "runShellCommand".equals(toolName) && !arg.isEmpty() ? arg : null;
+                var decision = context.askPermissionDetailed(prompt, toolName, cacheKey, true, rawCommand);
                 result = switch (decision) {
                     case ALLOW -> ApprovalResult.APPROVED;
                     case ALLOW_NO_SANDBOX -> ApprovalResult.APPROVED_NO_SANDBOX;
