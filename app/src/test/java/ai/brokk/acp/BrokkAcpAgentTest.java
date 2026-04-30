@@ -14,6 +14,7 @@ import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.io.ProjectFiles;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.testutil.TestService;
 import ai.brokk.util.GlobalUiSettings;
 import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -49,6 +51,11 @@ class BrokkAcpAgentTest {
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws Exception {
         projectRoot = tempDir.toAbsolutePath().normalize();
+        System.setProperty(
+                "brokk.acp.settings.path",
+                tempDir.resolve(".brokk-test-acp-settings.json")
+                        .toAbsolutePath()
+                        .toString());
         var project = MainProject.forTests(projectRoot);
         testService = new TestService(project);
         contextManager = new ContextManager(project, new ai.brokk.Service.Provider() {
@@ -76,6 +83,7 @@ class BrokkAcpAgentTest {
         if (contextManager != null) {
             contextManager.close();
         }
+        System.clearProperty("brokk.acp.settings.path");
     }
 
     @Test
@@ -1274,6 +1282,67 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void newSessionStartupUsesSingleResolvedCatalogForModelStateAndDropdowns() throws Exception {
+        var stableModels = Map.of("late-model", TestService.modelInfo(true, true));
+        var project = contextManager.getProject();
+        jobRunner.shutdown();
+        contextManager.close();
+
+        var delayedServiceRef = new AtomicReference<>(new DelayedAvailableModelsTestService(project, 3, stableModels));
+        contextManager = new ContextManager(project, new ai.brokk.Service.Provider() {
+            @Override
+            public ai.brokk.AbstractService get() {
+                return delayedServiceRef.get();
+            }
+
+            @Override
+            public void reinit(ai.brokk.project.IProject p) {
+                delayedServiceRef.set(new DelayedAvailableModelsTestService(p, 3, stableModels));
+            }
+        });
+        var jobStore = new JobStore(projectRoot.resolve(".brokk-test-jobs-delayed"));
+        jobRunner = new JobRunner(contextManager, jobStore);
+        agent = new BrokkAcpAgent(contextManager, jobRunner, jobStore);
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var expectedBaseModelIds =
+                ModelProperties.BASE_MODEL_IDS.stream().sorted().toList();
+
+        var advertisedModelIds = created.models().availableModels().stream()
+                .map(AcpSchema.ModelInfo::modelId)
+                .toList();
+        var modelOptionValues = modelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        var codeModelOptionValues = codeModelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+
+        assertEquals(expectedBaseModelIds, advertisedModelIds);
+        assertEquals(advertisedModelIds, modelOptionValues);
+        assertEquals(advertisedModelIds, codeModelOptionValues);
+        assertEquals("gemini-3-flash-preview", created.models().currentModelId());
+        assertEquals("gemini-3-flash-preview", modelSelectionOption(created).currentValue());
+        assertEquals("gemini-3-flash-preview", codeModelSelectionOption(created).currentValue());
+        assertEquals(3, delayedServiceRef.get().getAvailableModelsCallCount());
+    }
+
+    @Test
+    void newSessionNormalizesPlannerBeforeCodeFallbackSelection() {
+        seedModelCapabilities(Map.of("aaa-model", TestService.modelInfo(true, true)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertEquals("aaa-model/medium", created.models().currentModelId());
+        assertEquals("aaa-model/medium", modelSelectionOption(created).currentValue());
+        assertEquals("aaa-model/disable", codeModelSelectionOption(created).currentValue());
+        assertTrue(codeModelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .anyMatch("aaa-model/disable"::equals));
+    }
+
+    @Test
     void setSessionConfigOptionRejectsUnknownBehaviorMode() {
         var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
         org.junit.jupiter.api.Assertions.assertThrows(
@@ -1581,6 +1650,33 @@ class BrokkAcpAgentTest {
                 .map(AcpSchema.TextContent.class::cast)
                 .map(AcpSchema.TextContent::text)
                 .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    private static final class DelayedAvailableModelsTestService extends TestService {
+        private final AtomicInteger getAvailableModelsCallCount = new AtomicInteger();
+        private final int emptyCallCount;
+        private final Map<String, Map<String, Object>> stableModels;
+
+        private DelayedAvailableModelsTestService(
+                ai.brokk.project.IProject project, int emptyCallCount, Map<String, Map<String, Object>> stableModels) {
+            super(project);
+            this.emptyCallCount = emptyCallCount;
+            this.stableModels = stableModels;
+            setAvailableModels(stableModels);
+        }
+
+        @Override
+        public Map<String, String> getAvailableModels() {
+            if (getAvailableModelsCallCount.getAndIncrement() < emptyCallCount) {
+                return Map.of();
+            }
+            return stableModels.keySet().stream()
+                    .collect(java.util.stream.Collectors.toMap(name -> name, name -> name));
+        }
+
+        int getAvailableModelsCallCount() {
+            return getAvailableModelsCallCount.get();
+        }
     }
 
     static final class FakeTransport implements AcpAgentTransport {
