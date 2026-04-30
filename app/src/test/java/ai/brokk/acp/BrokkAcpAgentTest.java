@@ -32,9 +32,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import reactor.core.publisher.Mono;
@@ -531,9 +531,13 @@ class BrokkAcpAgentTest {
 
             assertEquals("feat: {{description}}", contextManager.getProject().getCommitMessageFormat());
             assertTrue(contextManager.getProject().getAutoUpdateLocalDependencies());
-            assertEquals("/bin/bash", contextManager.getProject().getShellConfig().executable());
-            assertEquals(List.of("-lc"), contextManager.getProject().getShellConfig().args());
-            assertEquals(MainProject.DataRetentionPolicy.MINIMAL, contextManager.getProject().getDataRetentionPolicy());
+            assertEquals(
+                    "/bin/bash", contextManager.getProject().getShellConfig().executable());
+            assertEquals(
+                    List.of("-lc"), contextManager.getProject().getShellConfig().args());
+            assertEquals(
+                    MainProject.DataRetentionPolicy.MINIMAL,
+                    contextManager.getProject().getDataRetentionPolicy());
             assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
         }
     }
@@ -576,8 +580,7 @@ class BrokkAcpAgentTest {
 
         try (var fixture = new PermissionFixture()) {
             agent.prompt(
-                    promptRequest(created.sessionId(), "/config {not-json}"),
-                    fixture.contextFor(created.sessionId()));
+                    promptRequest(created.sessionId(), "/config {not-json}"), fixture.contextFor(created.sessionId()));
 
             assertTrue(joinedPromptMessages(fixture.transport).contains("Error: invalid JSON payload for /config."));
         }
@@ -1653,7 +1656,7 @@ class BrokkAcpAgentTest {
      * Two {@code session/new} calls with different {@code cwd}s must materialize independent
      * bundles; sessions in one must not appear in {@code listSessions} for the other.
      */
-    @org.junit.jupiter.api.Nested
+    @Nested
     class PerCwdBundles {
 
         private Path rootA;

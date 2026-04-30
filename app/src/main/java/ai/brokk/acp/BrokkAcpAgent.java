@@ -18,8 +18,6 @@ import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
-import ai.brokk.issues.IssuesProviderConfig.GithubConfig;
-import ai.brokk.issues.IssuesProviderConfig.JiraConfig;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssuesProviderConfig.GithubConfig;
 import ai.brokk.issues.IssuesProviderConfig.JiraConfig;
@@ -1640,7 +1638,8 @@ public class BrokkAcpAgent {
             }
 
             applyConfigUpdate(sessionId, bundle, update);
-            promptContext.sendMessage("Updated configuration successfully.\n\n" + renderConfigSnapshot(sessionId, bundle));
+            promptContext.sendMessage(
+                    "Updated configuration successfully.\n\n" + renderConfigSnapshot(sessionId, bundle));
         } catch (JsonProcessingException e) {
             promptContext.sendMessage(
                     "Error: invalid JSON payload for /config. Example: /config {\"global\":{\"theme\":\"dark\"}}\n\n"
@@ -1797,9 +1796,11 @@ public class BrokkAcpAgent {
         map.put("startupOpenMode", MainProject.getStartupOpenMode().name());
         map.put("watchServiceImplPreference", MainProject.getWatchServiceImplPreference());
         map.put("otherModelsVendorPreference", MainProject.getOtherModelsVendorPreference());
-        map.put("jvmMemorySettings", Map.of(
-                "automatic", MainProject.getJvmMemorySettings().automatic(),
-                "manualMb", MainProject.getJvmMemorySettings().manualMb()));
+        map.put(
+                "jvmMemorySettings",
+                Map.of(
+                        "automatic", MainProject.getJvmMemorySettings().automatic(),
+                        "manualMb", MainProject.getJvmMemorySettings().manualMb()));
         map.put(
                 "github",
                 Map.of(
@@ -1817,8 +1818,10 @@ public class BrokkAcpAgent {
                 "favoriteModels",
                 MainProject.loadFavoriteModels().stream()
                         .map(favorite -> Map.of(
-                                "alias", favorite.alias(),
-                                "config", Map.of(
+                                "alias",
+                                favorite.alias(),
+                                "config",
+                                Map.of(
                                         "name",
                                         favorite.config().name(),
                                         "reasoning",
@@ -1847,12 +1850,17 @@ public class BrokkAcpAgent {
         map.put(
                 "sessionDefaults",
                 Map.of(
-                        "plannerModel", modelBySession.getOrDefault(sessionId, defaultModelId),
-                        "plannerReasoning", reasoningBySession.getOrDefault(sessionId, defaultReasoningLevel),
-                        "codeModel", codeModelBySession.getOrDefault(sessionId, preferredCodeBaseModel(sessionId)),
+                        "plannerModel",
+                        modelBySession.getOrDefault(sessionId, defaultModelId),
+                        "plannerReasoning",
+                        reasoningBySession.getOrDefault(sessionId, defaultReasoningLevel),
+                        "codeModel",
+                        codeModelBySession.getOrDefault(sessionId, preferredCodeBaseModel(sessionId)),
                         "codeReasoning",
                         codeReasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL_CODE)));
-        map.put("availableModels", service.getAvailableModels().keySet().stream().sorted().toList());
+        map.put(
+                "availableModels",
+                service.getAvailableModels().keySet().stream().sorted().toList());
 
         return map;
     }
@@ -1885,20 +1893,24 @@ public class BrokkAcpAgent {
     private void applyBuildSettings(IProject project, JsonNode request) {
         var current = project.awaitBuildDetails();
 
-        String buildLintCommand =
-                request.has("buildLintCommand") ? textOrEmpty(request.get("buildLintCommand")) : current.buildLintCommand();
-        boolean buildLintEnabled =
-                request.has("buildLintEnabled") ? request.get("buildLintEnabled").asBoolean() : current.buildLintEnabled();
+        String buildLintCommand = request.has("buildLintCommand")
+                ? textOrEmpty(request.get("buildLintCommand"))
+                : current.buildLintCommand();
+        boolean buildLintEnabled = request.has("buildLintEnabled")
+                ? request.get("buildLintEnabled").asBoolean()
+                : current.buildLintEnabled();
         String testAllCommand =
                 request.has("testAllCommand") ? textOrEmpty(request.get("testAllCommand")) : current.testAllCommand();
         boolean testAllEnabled =
                 request.has("testAllEnabled") ? request.get("testAllEnabled").asBoolean() : current.testAllEnabled();
-        String testSomeCommand =
-                request.has("testSomeCommand") ? textOrEmpty(request.get("testSomeCommand")) : current.testSomeCommand();
+        String testSomeCommand = request.has("testSomeCommand")
+                ? textOrEmpty(request.get("testSomeCommand"))
+                : current.testSomeCommand();
         boolean testSomeEnabled =
                 request.has("testSomeEnabled") ? request.get("testSomeEnabled").asBoolean() : current.testSomeEnabled();
-        Set<String> exclusionPatterns =
-                request.has("exclusionPatterns") ? stringSet(request.get("exclusionPatterns")) : current.exclusionPatterns();
+        Set<String> exclusionPatterns = request.has("exclusionPatterns")
+                ? stringSet(request.get("exclusionPatterns"))
+                : current.exclusionPatterns();
         Map<String, String> environmentVariables = request.has("environmentVariables")
                 ? stringMap(request.get("environmentVariables"))
                 : current.environmentVariables();
@@ -1955,16 +1967,20 @@ public class BrokkAcpAgent {
                     textOrEmpty(request.get("codeAgentTestScope")), project.getCodeAgentTestScope()));
         }
         if (request.has("runCommandTimeoutSeconds")) {
-            mainProject.setRunCommandTimeoutSeconds(request.get("runCommandTimeoutSeconds").asLong());
+            mainProject.setRunCommandTimeoutSeconds(
+                    request.get("runCommandTimeoutSeconds").asLong());
         }
         if (request.has("testCommandTimeoutSeconds")) {
-            mainProject.setTestCommandTimeoutSeconds(request.get("testCommandTimeoutSeconds").asLong());
+            mainProject.setTestCommandTimeoutSeconds(
+                    request.get("testCommandTimeoutSeconds").asLong());
         }
         if (request.has("autoUpdateLocalDependencies")) {
-            project.setAutoUpdateLocalDependencies(request.get("autoUpdateLocalDependencies").asBoolean());
+            project.setAutoUpdateLocalDependencies(
+                    request.get("autoUpdateLocalDependencies").asBoolean());
         }
         if (request.has("autoUpdateGitDependencies")) {
-            project.setAutoUpdateGitDependencies(request.get("autoUpdateGitDependencies").asBoolean());
+            project.setAutoUpdateGitDependencies(
+                    request.get("autoUpdateGitDependencies").asBoolean());
         }
     }
 
@@ -1986,26 +2002,27 @@ public class BrokkAcpAgent {
             throw new IllegalArgumentException("Invalid issueProvider.type: " + typeStr);
         }
 
-        IssueProvider provider = switch (type) {
-            case NONE -> IssueProvider.none();
-            case GITHUB -> {
-                var configNode = requestNode.get("config");
-                if (configNode == null || configNode.isNull()) {
-                    yield IssueProvider.github();
-                }
-                yield IssueProvider.github(
-                        configNode.has("owner") ? textOrEmpty(configNode.get("owner")) : "",
-                        configNode.has("repo") ? textOrEmpty(configNode.get("repo")) : "",
-                        configNode.has("host") ? textOrEmpty(configNode.get("host")) : "");
-            }
-            case JIRA -> {
-                var configNode = requireObject(requestNode, "config");
-                yield IssueProvider.jira(
-                        configNode.has("baseUrl") ? textOrEmpty(configNode.get("baseUrl")) : "",
-                        configNode.has("apiToken") ? textOrEmpty(configNode.get("apiToken")) : "",
-                        configNode.has("projectKey") ? textOrEmpty(configNode.get("projectKey")) : "");
-            }
-        };
+        IssueProvider provider =
+                switch (type) {
+                    case NONE -> IssueProvider.none();
+                    case GITHUB -> {
+                        var configNode = requestNode.get("config");
+                        if (configNode == null || configNode.isNull()) {
+                            yield IssueProvider.github();
+                        }
+                        yield IssueProvider.github(
+                                configNode.has("owner") ? textOrEmpty(configNode.get("owner")) : "",
+                                configNode.has("repo") ? textOrEmpty(configNode.get("repo")) : "",
+                                configNode.has("host") ? textOrEmpty(configNode.get("host")) : "");
+                    }
+                    case JIRA -> {
+                        var configNode = requireObject(requestNode, "config");
+                        yield IssueProvider.jira(
+                                configNode.has("baseUrl") ? textOrEmpty(configNode.get("baseUrl")) : "",
+                                configNode.has("apiToken") ? textOrEmpty(configNode.get("apiToken")) : "",
+                                configNode.has("projectKey") ? textOrEmpty(configNode.get("projectKey")) : "");
+                    }
+                };
         project.setIssuesProvider(provider);
     }
 
@@ -2045,10 +2062,11 @@ public class BrokkAcpAgent {
         }
         if (global.has("proxySetting")) {
             try {
-                MainProject.setLlmProxySetting(
-                        MainProject.LlmProxySetting.valueOf(requireText(global, "proxySetting").toUpperCase(Locale.ROOT)));
+                MainProject.setLlmProxySetting(MainProject.LlmProxySetting.valueOf(
+                        requireText(global, "proxySetting").toUpperCase(Locale.ROOT)));
             } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("Invalid global.proxySetting: " + requireText(global, "proxySetting"));
+                throw new IllegalArgumentException(
+                        "Invalid global.proxySetting: " + requireText(global, "proxySetting"));
             }
         }
         if (global.has("customEndpoint")) {
@@ -2102,7 +2120,9 @@ public class BrokkAcpAgent {
         if (global.has("jvmMemorySettings")) {
             var memory = requireObject(global, "jvmMemorySettings");
             var automatic = memory.has("automatic") ? memory.get("automatic").asBoolean() : true;
-            var manualMb = memory.has("manualMb") ? memory.get("manualMb").asInt() : MainProject.getJvmMemorySettings().manualMb();
+            var manualMb = memory.has("manualMb")
+                    ? memory.get("manualMb").asInt()
+                    : MainProject.getJvmMemorySettings().manualMb();
             MainProject.setJvmMemorySettings(new MainProject.JvmMemorySettings(automatic, manualMb));
         }
         if (global.has("github")) {
@@ -2114,17 +2134,21 @@ public class BrokkAcpAgent {
                 MainProject.setGitHubCloneProtocol(textOrEmpty(github.get("cloneProtocol")));
             }
             if (github.has("shallowCloneEnabled")) {
-                MainProject.setGitHubShallowCloneEnabled(github.get("shallowCloneEnabled").asBoolean());
+                MainProject.setGitHubShallowCloneEnabled(
+                        github.get("shallowCloneEnabled").asBoolean());
             }
             if (github.has("shallowCloneDepth")) {
-                MainProject.setGitHubShallowCloneDepth(github.get("shallowCloneDepth").asInt());
+                MainProject.setGitHubShallowCloneDepth(
+                        github.get("shallowCloneDepth").asInt());
             }
         }
         if (global.has("exceptionReportingEnabled")) {
-            MainProject.setExceptionReportingEnabled(global.get("exceptionReportingEnabled").asBoolean());
+            MainProject.setExceptionReportingEnabled(
+                    global.get("exceptionReportingEnabled").asBoolean());
         }
         if (global.has("openAiCodexOauthConnected")) {
-            MainProject.setOpenAiCodexOauthConnected(global.get("openAiCodexOauthConnected").asBoolean());
+            MainProject.setOpenAiCodexOauthConnected(
+                    global.get("openAiCodexOauthConnected").asBoolean());
         }
         if (global.has("favoriteModels")) {
             MainProject.saveFavoriteModels(parseFavoriteModels(global.get("favoriteModels")));
@@ -2136,31 +2160,38 @@ public class BrokkAcpAgent {
             GlobalUiSettings.saveDiffUnifiedView(global.get("diffUnifiedView").asBoolean());
         }
         if (global.has("persistPerProjectBounds")) {
-            GlobalUiSettings.savePersistPerProjectBounds(global.get("persistPerProjectBounds").asBoolean());
+            GlobalUiSettings.savePersistPerProjectBounds(
+                    global.get("persistPerProjectBounds").asBoolean());
         }
         if (global.has("instructionsTabInsertIndentation")) {
-            GlobalUiSettings.saveInstructionsTabInsertIndentation(global.get("instructionsTabInsertIndentation").asBoolean());
+            GlobalUiSettings.saveInstructionsTabInsertIndentation(
+                    global.get("instructionsTabInsertIndentation").asBoolean());
         }
         if (global.has("verticalActivityLayout")) {
-            GlobalUiSettings.saveVerticalActivityLayout(global.get("verticalActivityLayout").asBoolean());
+            GlobalUiSettings.saveVerticalActivityLayout(
+                    global.get("verticalActivityLayout").asBoolean());
         }
         if (global.has("notifications")) {
             var notifications = requireObject(global, "notifications");
             if (notifications.has("showCost")) {
-                GlobalUiSettings.saveShowCostNotifications(notifications.get("showCost").asBoolean());
+                GlobalUiSettings.saveShowCostNotifications(
+                        notifications.get("showCost").asBoolean());
             }
             if (notifications.has("showFreeInternalLLMCost")) {
                 GlobalUiSettings.saveShowFreeInternalLLMCostNotifications(
                         notifications.get("showFreeInternalLLMCost").asBoolean());
             }
             if (notifications.has("showError")) {
-                GlobalUiSettings.saveShowErrorNotifications(notifications.get("showError").asBoolean());
+                GlobalUiSettings.saveShowErrorNotifications(
+                        notifications.get("showError").asBoolean());
             }
             if (notifications.has("showConfirm")) {
-                GlobalUiSettings.saveShowConfirmNotifications(notifications.get("showConfirm").asBoolean());
+                GlobalUiSettings.saveShowConfirmNotifications(
+                        notifications.get("showConfirm").asBoolean());
             }
             if (notifications.has("showInfo")) {
-                GlobalUiSettings.saveShowInfoNotifications(notifications.get("showInfo").asBoolean());
+                GlobalUiSettings.saveShowInfoNotifications(
+                        notifications.get("showInfo").asBoolean());
             }
         }
         if (global.has("sessionDefaults")) {
@@ -2178,8 +2209,8 @@ public class BrokkAcpAgent {
                         bundle.cm().getService(),
                         plannerModel,
                         true);
-                var sanitizedReasoning =
-                        sanitizeReasoningLevelForModel(normalized.baseModel(), plannerReasoning, bundle.cm().getService());
+                var sanitizedReasoning = sanitizeReasoningLevelForModel(
+                        normalized.baseModel(), plannerReasoning, bundle.cm().getService());
                 modelBySession.put(sessionId, normalized.baseModel());
                 reasoningBySession.put(sessionId, sanitizedReasoning);
                 saveAcpDefaults(normalized.baseModel(), sanitizedReasoning);
@@ -2267,7 +2298,8 @@ public class BrokkAcpAgent {
             throw new IllegalArgumentException("Expected JSON object of string values");
         }
         var values = new LinkedHashMap<String, String>();
-        node.properties().forEach(entry -> values.put(entry.getKey(), entry.getValue().asText("")));
+        node.properties()
+                .forEach(entry -> values.put(entry.getKey(), entry.getValue().asText("")));
         return Map.copyOf(values);
     }
 
