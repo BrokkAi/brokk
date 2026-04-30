@@ -50,13 +50,18 @@ final class PermissionGate {
      * @param rawCommand for shell-execution tools, the raw command string the model wants to run;
      *     used to short-circuit the prompt for known-safe read-only commands. {@code null} for
      *     non-shell tools or when the command is not available at gate time.
+     * @param sandboxActive {@code true} iff the kernel sandbox (Apple Seatbelt / Linux Bubblewrap)
+     *     is going to be applied to this command. When true, non-dangerous shell commands skip the
+     *     prompt because the kernel itself prevents writes outside the workspace — this mirrors
+     *     Codex's {@code render_decision_for_unmatched_command} (Phase 3).
      */
     static Outcome decide(
             PermissionMode mode,
             AcpSchema.ToolKind kind,
             String toolName,
             boolean isAlwaysAllowed,
-            @Nullable String rawCommand) {
+            @Nullable String rawCommand,
+            boolean sandboxActive) {
         // BYPASS_PERMISSIONS: trust everything. Explicit user opt-out of the gate.
         if (mode == PermissionMode.BYPASS_PERMISSIONS) {
             return Outcome.ALLOW;
@@ -89,6 +94,17 @@ final class PermissionGate {
         // In-session "Always allow" cache, except for tools where one approval would be carte
         // blanche (currently {@code "shell"}).
         if (!requiresPerCallPrompt(toolName) && isAlwaysAllowed) {
+            return Outcome.ALLOW;
+        }
+
+        // Sandbox-aware auto-allow (Phase 3): when the kernel sandbox will run this command, skip
+        // the prompt for anything we don't classify as dangerous. The sandbox enforces filesystem
+        // safety; we still prompt for network ops, privilege escalation, process control, and
+        // remote-mutating package/git ops because the sandbox doesn't restrict those.
+        if (rawCommand != null
+                && isShellExecutionTool(toolName)
+                && sandboxActive
+                && !DangerousCommand.isDangerous(rawCommand)) {
             return Outcome.ALLOW;
         }
 
