@@ -312,7 +312,7 @@ class AcpConsoleIOTest {
     }
 
     @Test
-    void showNotificationEmitsSyntheticToolCallNotChat() {
+    void showNotificationEmitsCompactToolCall() {
         var ctx = new RecordingPromptContext();
         var io = new AcpConsoleIO(ctx);
 
@@ -324,8 +324,10 @@ class AcpConsoleIOTest {
                 .map(AcpSchema.ToolCall.class::cast)
                 .findFirst()
                 .orElseThrow();
-        assertEquals("Notification", call.title());
+        // Title carries the message; body stays empty so the IDE renders a single-line entry.
+        assertEquals("build started", call.title());
         assertEquals(AcpSchema.ToolCallStatus.COMPLETED, call.status());
+        assertTrue(call.content().isEmpty(), "compact notifications must have empty content");
     }
 
     @Test
@@ -340,45 +342,31 @@ class AcpConsoleIOTest {
     }
 
     @Test
-    void aiBoldBannerWrapsAsSyntheticToolCall() {
+    void aiBoldBannerShapedTokenFlowsAsChat() {
         var ctx = new RecordingPromptContext();
         var io = new AcpConsoleIO(ctx);
 
-        io.llmOutput(
-                "\n**Brokk Context Engine** analyzing repository context…\n",
-                ChatMessageType.AI,
-                LlmOutputMeta.newMessage());
+        // After removing the AI-stream banner-detection heuristic, banner-shaped text in the
+        // AI prose stream is treated as plain prose. Agents that want a synthetic tool_call
+        // must call showStatusBanner directly.
+        var token = "\n**Brokk Context Engine** analyzing repository context\n";
+        io.llmOutput(token, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
-        assertTrue(ctx.messages.isEmpty(), "Bold-banner AI emissions must not flow to chat");
-        var call = ctx.updates.stream()
-                .filter(AcpSchema.ToolCall.class::isInstance)
-                .map(AcpSchema.ToolCall.class::cast)
-                .findFirst()
-                .orElseThrow();
-        assertEquals("Brokk Context Engine", call.title());
-        assertEquals(AcpSchema.ToolKind.THINK, call.kind());
+        assertEquals(List.of(token), ctx.messages);
+        assertTrue(ctx.updates.isEmpty(), "AI prose must not be auto-promoted to a synthetic tool_call");
     }
 
     @Test
-    void aiBacktickBannerWithDefaultMetaStillWraps() {
+    void aiBacktickBannerShapedTokenFlowsAsChat() {
         var ctx = new RecordingPromptContext();
         var io = new AcpConsoleIO(ctx);
 
-        // LutzAgent.emitContextAddedExplanation emits the YAML-bodied banner with
-        // LlmOutputMeta.DEFAULT (not newMessage), so banner detection must be shape-driven,
-        // not meta-driven. The full `Header` + body pattern marks this as a banner regardless
-        // of the newMessage flag.
         var explanation =
                 "`Adding context to workspace`\n```yaml\nfragmentCount: 2\nfragments:\n  - foo\n  - bar\n```\n";
         io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
-        assertTrue(ctx.messages.isEmpty(), "shape-detected banners must not flow to chat regardless of meta");
-        var call = ctx.updates.stream()
-                .filter(AcpSchema.ToolCall.class::isInstance)
-                .map(AcpSchema.ToolCall.class::cast)
-                .findFirst()
-                .orElseThrow();
-        assertEquals("Adding context to workspace", call.title());
+        assertEquals(List.of(explanation), ctx.messages);
+        assertTrue(ctx.updates.isEmpty(), "Backtick-shaped AI prose must not be auto-promoted");
     }
 
     @Test
@@ -397,24 +385,23 @@ class AcpConsoleIOTest {
     }
 
     @Test
-    void aiBacktickBannerWithNewMessageWrapsAsSyntheticToolCall() {
+    void showStatusBannerEmitsTitleOnlyCard() {
         var ctx = new RecordingPromptContext();
         var io = new AcpConsoleIO(ctx);
 
-        var explanation =
-                "`Adding context to workspace`\n```yaml\nfragmentCount: 2\nfragments:\n  - foo\n  - bar\n```\n";
-        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        io.showStatusBanner(
+                "Adding context to workspace",
+                java.util.Map.of("fragmentCount", 2, "fragments", List.of("foo", "bar")));
 
-        assertTrue(ctx.messages.isEmpty(), "backtick banners with newMessage must be wrapped");
+        assertTrue(ctx.messages.isEmpty(), "showStatusBanner must not flow to chat");
         var call = ctx.updates.stream()
                 .filter(AcpSchema.ToolCall.class::isInstance)
                 .map(AcpSchema.ToolCall.class::cast)
                 .findFirst()
                 .orElseThrow();
         assertEquals("Adding context to workspace", call.title());
-        var block = (AcpSchema.ToolCallContentBlock) call.content().getFirst();
-        var text = ((AcpSchema.TextContent) block.content()).text();
-        assertTrue(text.contains("fragmentCount"), "yaml body should be carried into content");
+        assertEquals(AcpSchema.ToolKind.THINK, call.kind());
+        assertTrue(call.content().isEmpty(), "title-only card carries no body");
     }
 
     @Test
@@ -429,6 +416,77 @@ class AcpConsoleIOTest {
 
         assertEquals(List.of(answer), ctx.messages);
         assertTrue(ctx.updates.isEmpty(), "Final-answer text must stay as chat, not be wrapped");
+    }
+
+    @Test
+    void commandStartTitleStaysSingleLineForLongCommand() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        var longCommand =
+                "cd brokk-code;uv run pytest -q brokk-code/tests/test_bifrost_launcher.py brokk-code/tests/test_cli_modes.py";
+        io.commandStart("Verification", longCommand);
+
+        var call = ctx.updates.stream()
+                .filter(AcpSchema.ToolCall.class::isInstance)
+                .map(AcpSchema.ToolCall.class::cast)
+                .findFirst()
+                .orElseThrow();
+        var title = call.title();
+        assertFalse(title.contains("\n"), "title must be single-line, got: " + title);
+        assertFalse(
+                title.contains("[truncated"), "title must not contain a body-style truncation marker, got: " + title);
+        assertTrue(title.length() <= 80, "title must be capped at 80 chars, got " + title.length() + ": " + title);
+        assertTrue(title.startsWith("Verification: "), "title should keep the stage prefix, got: " + title);
+        assertTrue(title.endsWith("..."), "title should end with an ellipsis when truncated, got: " + title);
+    }
+
+    @Test
+    void commandResultPreservesStreamedOutputWhenCommandFails() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        var command = "uv run pytest -q";
+        io.commandStart("Verification", command);
+
+        // ProjectBuildRunner builds `fullOutput = stdout + "\n" + e.getMessage() + "\n" + e.getOutput()`
+        // and passes it as `output`. The exception arg is just `e.getMessage()`. The richer output
+        // must win.
+        var streamedOutput = "FAILED tests/test_x.py::test_a - AssertionError: expected 1 got 2";
+        var processError = "process 'uv run pytest -q' signaled error code 4";
+        var fullOutput = streamedOutput + "\n" + processError;
+        io.commandResult("Verification", command, false, fullOutput, processError);
+
+        var failed = ctx.updates.stream()
+                .filter(AcpSchema.ToolCallUpdateNotification.class::isInstance)
+                .map(AcpSchema.ToolCallUpdateNotification.class::cast)
+                .filter(u -> u.status() == AcpSchema.ToolCallStatus.FAILED)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a FAILED tool_call_update"));
+        var block = (AcpSchema.ToolCallContentBlock) failed.content().getFirst();
+        var text = ((AcpSchema.TextContent) block.content()).text();
+        assertTrue(
+                text.contains(streamedOutput), "rendered body must preserve the streamed stdout/stderr, got: " + text);
+    }
+
+    @Test
+    void commandResultFallsBackToExceptionWhenOutputIsBlank() {
+        var ctx = new RecordingPromptContext();
+        var io = new AcpConsoleIO(ctx);
+
+        var command = "false";
+        io.commandStart("Verification", command);
+        io.commandResult("Verification", command, false, "", "process 'false' signaled error code 1");
+
+        var failed = ctx.updates.stream()
+                .filter(AcpSchema.ToolCallUpdateNotification.class::isInstance)
+                .map(AcpSchema.ToolCallUpdateNotification.class::cast)
+                .filter(u -> u.status() == AcpSchema.ToolCallStatus.FAILED)
+                .findFirst()
+                .orElseThrow();
+        var block = (AcpSchema.ToolCallContentBlock) failed.content().getFirst();
+        var text = ((AcpSchema.TextContent) block.content()).text();
+        assertTrue(text.contains("error code 1"), "exception text must surface when output is blank, got: " + text);
     }
 
     private static final class RecordingPromptContext implements AcpPromptContext {
@@ -524,6 +582,16 @@ class AcpConsoleIOTest {
         @Override
         public boolean askPermission(String action, String toolName) {
             return true;
+        }
+
+        @Override
+        public PermissionDecision askPermissionDetailed(
+                String action,
+                String toolName,
+                String cacheKey,
+                boolean offerSandboxBypass,
+                @Nullable String rawCommand) {
+            return PermissionDecision.ALLOW;
         }
 
         @Override

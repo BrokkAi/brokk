@@ -224,6 +224,18 @@ public class OpenAiOAuthService {
         }
     }
 
+    /**
+     * Stops the OAuth callback server (if any) and clears pending state. Safe to call when no flow
+     * is in progress; in that case it is a no-op. Used by callers that need to abandon a pending
+     * authorization without waiting for the user (e.g. ACP {@code /codex-login} timeout / cancel)
+     * so the local port and PKCE state do not linger across attempts.
+     */
+    public static void cancelAuthorization() {
+        synchronized (lock) {
+            stopActiveServerInternal();
+        }
+    }
+
     private static void handleCallback(HttpExchange exchange) {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = parseQueryParams(query);

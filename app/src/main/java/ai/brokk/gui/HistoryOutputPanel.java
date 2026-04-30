@@ -109,6 +109,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         ALLOW,
         ALLOW_SESSION,
         ALLOW_NO_SANDBOX,
+        ALLOW_NO_SANDBOX_SESSION,
         DENY
     }
 
@@ -561,6 +562,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var noSandboxButton = new MaterialButton("Allow Without Sandbox");
             noSandboxButton.addActionListener(e -> resolveApproval(ApprovalChoice.ALLOW_NO_SANDBOX));
             buttonPanel.add(noSandboxButton);
+
+            var noSandboxSessionButton = new MaterialButton("Always Allow Without Sandbox");
+            noSandboxSessionButton.addActionListener(e -> resolveApproval(ApprovalChoice.ALLOW_NO_SANDBOX_SESSION));
+            buttonPanel.add(noSandboxSessionButton);
         }
         buttonPanel.add(denyButton);
 
@@ -1644,7 +1649,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private void openOutputWindowStreaming() {
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
-        String currentMarkdown = Messages.format(currentMessages);
+        String currentMarkdown = Messages.formatForDisplay(currentMessages);
         var history = new ArrayList<>(contextManager.liveContext().getTaskHistory());
         history.add(new TaskEntry(-1, "Streaming Output...", currentMarkdown, currentMarkdown, null, null));
 

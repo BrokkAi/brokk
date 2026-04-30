@@ -13,8 +13,11 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.io.ProjectFiles;
+import ai.brokk.openai.OpenAiOAuthService;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.testutil.TestService;
+import ai.brokk.util.GlobalUiSettings;
 import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
 import com.agentclientprotocol.sdk.spec.AcpAgentSession;
 import com.agentclientprotocol.sdk.spec.AcpAgentTransport;
@@ -22,17 +25,20 @@ import com.agentclientprotocol.sdk.spec.AcpSchema;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.TypeRef;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import reactor.core.publisher.Mono;
@@ -40,14 +46,31 @@ import reactor.core.publisher.Mono;
 class BrokkAcpAgentTest {
     private ContextManager contextManager;
     private JobRunner jobRunner;
+    private TestService testService;
     private BrokkAcpAgent agent;
     private Path projectRoot;
 
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws Exception {
         projectRoot = tempDir.toAbsolutePath().normalize();
+        System.setProperty(
+                "brokk.acp.settings.path",
+                tempDir.resolve(".brokk-test-acp-settings.json")
+                        .toAbsolutePath()
+                        .toString());
         var project = MainProject.forTests(projectRoot);
-        contextManager = new ContextManager(project, TestService.provider(project));
+        testService = new TestService(project);
+        contextManager = new ContextManager(project, new ai.brokk.Service.Provider() {
+            @Override
+            public ai.brokk.AbstractService get() {
+                return testService;
+            }
+
+            @Override
+            public void reinit(ai.brokk.project.IProject p) {
+                testService = new TestService(p);
+            }
+        });
         var jobStore = new JobStore(projectRoot.resolve(".brokk-test-jobs"));
         jobRunner = new JobRunner(contextManager, jobStore);
         agent = new BrokkAcpAgent(contextManager, jobRunner, jobStore);
@@ -55,12 +78,14 @@ class BrokkAcpAgentTest {
 
     @AfterEach
     void tearDown() {
+        GlobalUiSettings.resetForTests();
         if (jobRunner != null) {
             jobRunner.shutdown();
         }
         if (contextManager != null) {
             contextManager.close();
         }
+        System.clearProperty("brokk.acp.settings.path");
     }
 
     @Test
@@ -113,6 +138,49 @@ class BrokkAcpAgentTest {
                 new AcpProtocol.ResumeSessionRequest(second.sessionId(), projectRoot.toString(), null, null));
         assertEquals(second.sessionId(), contextManager.getCurrentSessionId().toString());
     }
+
+    // ---- #3421: sanitizeReasoningLevel pure decision logic -------------------------------
+
+    @Test
+    void sanitizeReasoningLevel_unknownLevelNormalizesToDefault() {
+        // Any id outside REASONING_LEVEL_IDS becomes "default" before capability checks.
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("ultra", true, true));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("", true, true));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("LOW", true, true)); // case-sensitive
+    }
+
+    @Test
+    void sanitizeReasoningLevel_modelLacksEffortSupport_anyNonDefaultBecomesDefault() {
+        // When the model does not advertise reasoning_effort, low/medium/high/disable are all unsupported.
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("low", false, false));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("medium", false, false));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("high", false, false));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("disable", false, false));
+    }
+
+    @Test
+    void sanitizeReasoningLevel_modelSupportsEffort_lowMediumHighPassThrough() {
+        assertEquals("low", BrokkAcpAgent.sanitizeReasoningLevel("low", true, false));
+        assertEquals("medium", BrokkAcpAgent.sanitizeReasoningLevel("medium", true, false));
+        assertEquals("high", BrokkAcpAgent.sanitizeReasoningLevel("high", true, false));
+    }
+
+    @Test
+    void sanitizeReasoningLevel_disableRequiresExplicitDisableSupport() {
+        // supportsEffort=true, supportsDisable=false -> "disable" must drop to "default"
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("disable", true, false));
+        // both supported -> "disable" passes through
+        assertEquals("disable", BrokkAcpAgent.sanitizeReasoningLevel("disable", true, true));
+    }
+
+    @Test
+    void sanitizeReasoningLevel_defaultLevelAlwaysPassesRegardlessOfCapabilities() {
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("default", false, false));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("default", true, false));
+        assertEquals("default", BrokkAcpAgent.sanitizeReasoningLevel("default", true, true));
+    }
+
+    // ---- end #3421 -----------------------------------------------------------------------
 
     @Test
     void closeSessionClearsAcpStateButDoesNotDeleteBrokkSession() {
@@ -445,6 +513,343 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void promptBareConfigReturnsSnapshotWithoutRunningJob() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            var response = agent.prompt(
+                    promptRequest(created.sessionId(), "/config"), fixture.contextFor(created.sessionId()));
+
+            assertEquals(AcpSchema.PromptResponse.endTurn().stopReason(), response.stopReason());
+            var messages = joinedPromptMessages(fixture.transport);
+            assertTrue(messages.contains("Current editable Brokk configuration."));
+            assertTrue(messages.contains("\"buildDetails\""));
+            assertTrue(messages.contains("\"global\""));
+        }
+    }
+
+    @Test
+    void promptConfigSnapshotOmitsGuiOnlyKeys() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(promptRequest(created.sessionId(), "/config"), fixture.contextFor(created.sessionId()));
+
+            var messages = joinedPromptMessages(fixture.transport);
+            for (var key : BrokkAcpAgent.GUI_ONLY_GLOBAL_KEYS) {
+                assertFalse(
+                        messages.contains("\"" + key + "\""),
+                        "Snapshot must not expose GUI-only key '" + key + "'. Update buildGlobalSettingsMap "
+                                + "if this is intentional. Snapshot was: " + messages);
+            }
+        }
+    }
+
+    @Test
+    void promptConfigUpdatesProjectScopedSettings() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(
+                            created.sessionId(),
+                            "/config {\"projectSettings\":{\"commitMessageFormat\":\"feat: {{description}}\",\"autoUpdateLocalDependencies\":true},\"shellConfig\":{\"executable\":\"/bin/bash\",\"args\":[\"-lc\"]},\"dataRetentionPolicy\":\"MINIMAL\"}"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals("feat: {{description}}", contextManager.getProject().getCommitMessageFormat());
+            assertTrue(contextManager.getProject().getAutoUpdateLocalDependencies());
+            assertEquals(
+                    "/bin/bash", contextManager.getProject().getShellConfig().executable());
+            assertEquals(
+                    List.of("-lc"), contextManager.getProject().getShellConfig().args());
+            assertEquals(
+                    MainProject.DataRetentionPolicy.MINIMAL,
+                    contextManager.getProject().getDataRetentionPolicy());
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
+        }
+    }
+
+    @Test
+    void promptConfigUpdatesRepresentativeGlobalSettings() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(
+                            created.sessionId(),
+                            "/config {\"global\":{\"github\":{\"token\":\"gh-token\",\"cloneProtocol\":\"ssh\",\"shallowCloneEnabled\":true,\"shallowCloneDepth\":7},\"exceptionReportingEnabled\":false}}"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals("gh-token", MainProject.getGitHubToken());
+            assertEquals("ssh", MainProject.getGitHubCloneProtocol());
+            assertTrue(MainProject.getGitHubShallowCloneEnabled());
+            assertEquals(7, MainProject.getGitHubShallowCloneDepth());
+            assertFalse(MainProject.getExceptionReportingEnabled());
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
+        }
+    }
+
+    @Test
+    void promptConfigRejectsGuiOnlyKeys() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var initialToken = MainProject.getGitHubToken();
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config global.theme dark"),
+                    fixture.contextFor(created.sessionId()));
+
+            var messages = joinedPromptMessages(fixture.transport);
+            assertTrue(
+                    messages.contains("global.theme"),
+                    "Rejection message should name the offending key, got: " + messages);
+            assertTrue(
+                    messages.contains("Brokk desktop app"),
+                    "Rejection message should point at the desktop app, got: " + messages);
+        }
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(
+                            created.sessionId(),
+                            "/config {\"global\":{\"theme\":\"dark\",\"github\":{\"token\":\"should-not-apply\"}}}"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals(
+                    initialToken,
+                    MainProject.getGitHubToken(),
+                    "GUI-only rejection must fail the whole batch — the github.token sibling must not be silently applied");
+        }
+    }
+
+    @Test
+    void promptConfigReportsInvalidPayloadCleanly() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config {not-json}"), fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Error: invalid JSON payload for /config."));
+        }
+    }
+
+    @Test
+    void promptConfigReportsInvalidValueCleanly() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config {\"dataRetentionPolicy\":\"INVALID\"}"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport)
+                    .contains("Error updating configuration: Invalid dataRetentionPolicy: INVALID"));
+        }
+    }
+
+    @Test
+    void promptConfigPathSetUpdatesScalar() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config global.exceptionReportingEnabled false"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertFalse(MainProject.getExceptionReportingEnabled());
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
+        }
+    }
+
+    @Test
+    void promptConfigPathSetParsesJsonLiteral() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config projectSettings.runCommandTimeoutSeconds 30"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals(30L, contextManager.getProject().getRunCommandTimeoutSeconds());
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
+        }
+    }
+
+    @Test
+    void promptConfigPathSetUpdatesTopLevelScalar() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config dataRetentionPolicy MINIMAL"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals(
+                    MainProject.DataRetentionPolicy.MINIMAL,
+                    contextManager.getProject().getDataRetentionPolicy());
+        }
+    }
+
+    @Test
+    void promptConfigPathShowReturnsSingleSection() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config dataRetentionPolicy"),
+                    fixture.contextFor(created.sessionId()));
+
+            var messages = joinedPromptMessages(fixture.transport);
+            assertTrue(messages.contains("Configuration at `dataRetentionPolicy`:"));
+        }
+    }
+
+    @Test
+    void promptConfigPathShowReportsUnknownPath() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config global.nonExistentKey"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport)
+                    .contains("Error: configuration path not found: global.nonExistentKey"));
+        }
+    }
+
+    @Test
+    void promptConfigPathSetReportsInvalidValue() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config dataRetentionPolicy INVALID"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport)
+                    .contains("Error updating configuration: Invalid dataRetentionPolicy: INVALID"));
+        }
+    }
+
+    @Test
+    void promptConfigPathSetReportsUnknownSection() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config bogusSection somevalue"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport)
+                    .contains("Error: unknown configuration section: bogusSection"));
+        }
+    }
+
+    @Test
+    void promptCodexLoginUnknownArgPrintsUsage() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/codex-login bogus"), fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport).contains("unknown /codex-login argument 'bogus'"));
+        }
+    }
+
+    @Test
+    void promptCodexLoginStatusReportsConnectedAndNotConnected() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        boolean previous = MainProject.isOpenAiCodexOauthConnected();
+        try (var fixture = new PermissionFixture()) {
+            MainProject.setOpenAiCodexOauthConnected(true);
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/codex-login status"), fixture.contextFor(created.sessionId()));
+            assertTrue(joinedPromptMessages(fixture.transport).contains("**connected**"));
+
+            try (var fixture2 = new PermissionFixture()) {
+                MainProject.setOpenAiCodexOauthConnected(false);
+                agent.prompt(
+                        promptRequest(created.sessionId(), "/codex-login status"),
+                        fixture2.contextFor(created.sessionId()));
+                assertTrue(joinedPromptMessages(fixture2.transport).contains("**not connected**"));
+            }
+        } finally {
+            MainProject.setOpenAiCodexOauthConnected(previous);
+        }
+    }
+
+    @Test
+    void promptCodexLoginStartRefusesWhenAlreadyConnected() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        boolean previous = MainProject.isOpenAiCodexOauthConnected();
+        try (var fixture = new PermissionFixture()) {
+            MainProject.setOpenAiCodexOauthConnected(true);
+            agent.prompt(promptRequest(created.sessionId(), "/codex-login"), fixture.contextFor(created.sessionId()));
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Already signed in to Codex"));
+        } finally {
+            MainProject.setOpenAiCodexOauthConnected(previous);
+        }
+    }
+
+    @Test
+    void promptCodexLoginStartRefusesWhenBrokkKeyBlank() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        boolean previousConnected = MainProject.isOpenAiCodexOauthConnected();
+        String previousKey = MainProject.getBrokkKey();
+        try (var fixture = new PermissionFixture()) {
+            MainProject.setOpenAiCodexOauthConnected(false);
+            MainProject.setHeadlessBrokkApiKeyOverride("");
+            agent.prompt(promptRequest(created.sessionId(), "/codex-login"), fixture.contextFor(created.sessionId()));
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Brokk key is not set"));
+        } finally {
+            MainProject.setOpenAiCodexOauthConnected(previousConnected);
+            MainProject.setHeadlessBrokkApiKeyOverride(previousKey.isBlank() ? null : previousKey);
+        }
+    }
+
+    @Test
+    void promptCodexLoginCloseSessionAllowsRetryFromAnotherSession() throws InterruptedException {
+        boolean previousConnected = MainProject.isOpenAiCodexOauthConnected();
+        Runnable previousHook = OpenAiOAuthService.testAuthorizationHook;
+        try {
+            MainProject.setOpenAiCodexOauthConnected(false);
+            MainProject.setHeadlessBrokkApiKeyOverride("test-brokk-key");
+            // Hook bypasses the real port-1455 callback server while still letting our agent's
+            // CAS/listener bookkeeping run.
+            OpenAiOAuthService.testAuthorizationHook = () -> {};
+
+            var first = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+            try (var fixture = new PermissionFixture()) {
+                agent.prompt(promptRequest(first.sessionId(), "/codex-login"), fixture.contextFor(first.sessionId()));
+                assertTrue(joinedPromptMessages(fixture.transport).contains("Opened your browser to sign in to Codex"));
+            }
+
+            agent.closeSession(new AcpProtocol.CloseSessionRequest(first.sessionId(), null));
+
+            // After the owning session closed, a new session must be able to start its own login
+            // without hitting the "Another session is already signing in" guard.
+            var second = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+            try (var fixture = new PermissionFixture()) {
+                agent.prompt(promptRequest(second.sessionId(), "/codex-login"), fixture.contextFor(second.sessionId()));
+                var messages = joinedPromptMessages(fixture.transport);
+                assertFalse(messages.contains("Another session"), messages);
+                assertTrue(messages.contains("Opened your browser to sign in to Codex"), messages);
+            }
+        } finally {
+            // clearAllSessions drops any pendingLogin and unregisters its MainProject listener so a
+            // later test that flips the OAuth flag does not fire the leaked listener and trigger
+            // saveFavoriteModels(CODEX_OAUTH_FAVORITES) globally.
+            agent.clearAllSessions();
+            OpenAiOAuthService.testAuthorizationHook = previousHook;
+            MainProject.setOpenAiCodexOauthConnected(previousConnected);
+            MainProject.setHeadlessBrokkApiKeyOverride(null);
+        }
+    }
+
+    @Test
     void initializeAdvertisesMcpCapabilities() {
         var response = agent.initialize();
         var mcp = response.agentCapabilities().mcpCapabilities();
@@ -505,6 +910,219 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void sandboxDisabledDefaultsToFalse() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertFalse(agent.isSandboxDisabledFor(created.sessionId()));
+    }
+
+    @Test
+    void setSandboxDisabledForFlipsTheFlag() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        agent.setSandboxDisabledFor(created.sessionId(), true);
+        assertTrue(agent.isSandboxDisabledFor(created.sessionId()));
+
+        agent.setSandboxDisabledFor(created.sessionId(), false);
+        assertFalse(agent.isSandboxDisabledFor(created.sessionId()));
+    }
+
+    @Test
+    void closeSessionClearsSandboxDisabled() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setSandboxDisabledFor(created.sessionId(), true);
+        assertTrue(agent.isSandboxDisabledFor(created.sessionId()));
+
+        agent.closeSession(new AcpProtocol.CloseSessionRequest(created.sessionId(), null));
+
+        assertFalse(agent.isSandboxDisabledFor(created.sessionId()));
+    }
+
+    @Test
+    void extractResourceRelPathsHandlesFileUriResourceLink() {
+        var fileUnderRoot = projectRoot.resolve("src/main/java/Foo.java");
+        var blocks = List.<AcpSchema.ContentBlock>of(
+                new AcpSchema.TextContent("summarize @file:Foo.java"),
+                new AcpSchema.ResourceLink(
+                        "resource_link",
+                        "Foo.java",
+                        fileUnderRoot.toUri().toString(),
+                        null,
+                        "manual",
+                        null,
+                        null,
+                        null,
+                        null));
+
+        var paths = BrokkAcpAgent.extractResourceRelPaths(blocks, projectRoot);
+
+        assertEquals(List.of("src/main/java/Foo.java"), paths);
+    }
+
+    @Test
+    void extractResourceRelPathsHandlesEmbeddedTextResource() {
+        var fileUnderRoot = projectRoot.resolve("README.md");
+        var embedded = new AcpSchema.Resource(
+                "resource",
+                new AcpSchema.TextResourceContents(
+                        "# Hello", fileUnderRoot.toUri().toString(), "text/markdown"),
+                null,
+                null);
+
+        var paths = BrokkAcpAgent.extractResourceRelPaths(List.of(embedded), projectRoot);
+
+        assertEquals(List.of("README.md"), paths);
+    }
+
+    @Test
+    void extractResourceRelPathsRejectsUriOutsideRoot() {
+        var outside = projectRoot.resolveSibling("other-repo").resolve("Secret.java");
+        var blocks = List.<AcpSchema.ContentBlock>of(new AcpSchema.ResourceLink(
+                "resource_link", "Secret.java", outside.toUri().toString(), null, null, null, null, null, null));
+
+        var paths = BrokkAcpAgent.extractResourceRelPaths(blocks, projectRoot);
+
+        assertTrue(paths.isEmpty(), "URI outside root must not produce a relative path");
+    }
+
+    @Test
+    void extractResourceRelPathsDedupesAndIgnoresNonResourceBlocks() {
+        var f = projectRoot.resolve("a/b.java");
+        var blocks = List.<AcpSchema.ContentBlock>of(
+                new AcpSchema.TextContent("ignore me"),
+                new AcpSchema.ResourceLink(
+                        "resource_link", "b.java", f.toUri().toString(), null, null, null, null, null, null),
+                new AcpSchema.ResourceLink(
+                        "resource_link", "b.java again", f.toUri().toString(), null, null, null, null, null, null));
+
+        var paths = BrokkAcpAgent.extractResourceRelPaths(blocks, projectRoot);
+
+        assertEquals(List.of("a/b.java"), paths);
+    }
+
+    @Test
+    void extractResourceRelPathsAcceptsBareRelativeUri() {
+        var blocks = List.<AcpSchema.ContentBlock>of(
+                new AcpSchema.ResourceLink("resource_link", "x", "src/X.java", null, null, null, null, null, null));
+
+        var paths = BrokkAcpAgent.extractResourceRelPaths(blocks, projectRoot);
+
+        assertEquals(List.of("src/X.java"), paths);
+    }
+
+    @Test
+    void extractResourceRelPathsReturnsEmptyForNullOrTextOnly() {
+        assertTrue(BrokkAcpAgent.extractResourceRelPaths(null, projectRoot).isEmpty());
+        assertTrue(BrokkAcpAgent.extractResourceRelPaths(List.of(), projectRoot).isEmpty());
+        assertTrue(BrokkAcpAgent.extractResourceRelPaths(List.of(new AcpSchema.TextContent("hi")), projectRoot)
+                .isEmpty());
+    }
+
+    @Test
+    void inboundActivityTrackerUpdatesTimestampOnRead() throws Exception {
+        var bytes = "hello\nworld\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        var tracker = new AcpServerMain.InboundActivityTracker(new java.io.ByteArrayInputStream(bytes));
+        long initial = tracker.lastReadAtMillis();
+        Thread.sleep(5);
+
+        // Single-byte read advances the timestamp.
+        int b = tracker.read();
+        assertNotEquals(-1, b);
+        long afterSingle = tracker.lastReadAtMillis();
+        assertTrue(afterSingle >= initial, "single-byte read must advance timestamp");
+
+        // Bulk read advances the timestamp again.
+        Thread.sleep(5);
+        var buf = new byte[64];
+        int n = tracker.read(buf, 0, buf.length);
+        assertTrue(n > 0);
+        long afterBulk = tracker.lastReadAtMillis();
+        assertTrue(afterBulk >= afterSingle, "bulk read must advance timestamp");
+
+        // EOF (read returning -1) must NOT advance the timestamp.
+        long beforeEof = tracker.lastReadAtMillis();
+        Thread.sleep(5);
+        assertEquals(-1, tracker.read());
+        assertEquals(beforeEof, tracker.lastReadAtMillis(), "EOF must not advance timestamp");
+    }
+
+    @Test
+    void permissionTimeoutSurfacesAsDenialAndUserMessage() {
+        var transport = new FakeTransport();
+        // 200ms SDK timeout → AcpRequestContext.requestPermission's onErrorResume(TimeoutException)
+        // catches the SDK-emitted TimeoutException and converts it to PermissionCancelled.
+        var shortSession = new AcpAgentSession(Duration.ofMillis(200), transport, Map.of(), Map.of());
+        var ctx = new AcpRequestContext(shortSession, "session-timeout", null, agent);
+        try {
+            // Intentionally do NOT register a respondTo handler — the request will dangle and
+            // the SDK's per-request timeout fires.
+            int outstandingBefore = AcpRequestContext.OUTSTANDING_PERMISSION_REQUESTS.get();
+
+            boolean approved = ctx.askPermission("Allow destructive: doRm?", "doRm");
+
+            assertFalse(approved, "timeout must surface as denial");
+            assertEquals(
+                    outstandingBefore,
+                    AcpRequestContext.OUTSTANDING_PERMISSION_REQUESTS.get(),
+                    "OUTSTANDING_PERMISSION_REQUESTS must decrement even on timeout");
+
+            var notifications = transport.sentMessages.stream()
+                    .filter(AcpSchema.JSONRPCNotification.class::isInstance)
+                    .map(AcpSchema.JSONRPCNotification.class::cast)
+                    .filter(n -> AcpSchema.METHOD_SESSION_UPDATE.equals(n.method()))
+                    .map(n ->
+                            transport.mapper.convertValue(n.params(), new TypeRef<AcpSchema.SessionNotification>() {}))
+                    .toList();
+            assertTrue(
+                    notifications.stream()
+                            .anyMatch(n -> n.update() instanceof AcpSchema.AgentMessageChunk a
+                                    && a.content() instanceof AcpSchema.TextContent t
+                                    && t.text().toLowerCase().contains("timed out")),
+                    "user must see a 'timed out' chat message on permission timeout");
+        } finally {
+            shortSession.close();
+        }
+    }
+
+    /**
+     * Replays the exact JSON-RPC response shape captured from IntelliJ when the user clicks
+     * "Allow once" on a destructive-tool permission dialog (acp-logs zip 2026-04-28). Includes
+     * the IDE-side {@code "type"} envelope discriminator and the duplicate-name {@code outcome}
+     * discriminator on {@code PermissionSelected}. Verifies that:
+     * <ul>
+     *   <li>{@code AcpSchema.deserializeJsonRpcMessage} routes it as a {@code JSONRPCResponse}
+     *       (the leading {@code type} field must not derail classification),</li>
+     *   <li>{@code unmarshalFrom} produces a {@code PermissionSelected} with the correct
+     *       {@code optionId}, and</li>
+     *   <li>the canonical {@code askPermission} return path treats {@code allow_once} as approval.</li>
+     * </ul>
+     * If this test fails, the "approval click does nothing" bug is in agent-side parsing; if it
+     * passes, the bug is upstream of the parser (response not actually reaching the agent).
+     */
+    @Test
+    void permissionResponseFromIntellijDeserializesAndApproves() throws Exception {
+        var wireLine = "{\"type\":\"com.agentclientprotocol.rpc.JsonRpcResponse\","
+                + "\"id\":\"1b8d5f1d-0\","
+                + "\"result\":{\"outcome\":{\"outcome\":\"selected\",\"optionId\":\"allow_once\"}},"
+                + "\"jsonrpc\":\"2.0\"}";
+
+        var mapper = McpJsonDefaults.getMapper();
+        var message = AcpSchema.deserializeJsonRpcMessage(mapper, wireLine);
+
+        var response = assertInstanceOf(AcpSchema.JSONRPCResponse.class, message);
+        assertEquals("1b8d5f1d-0", response.id());
+        assertNull(response.error());
+
+        var permResponse =
+                mapper.convertValue(response.result(), new TypeRef<AcpSchema.RequestPermissionResponse>() {});
+        var selected = assertInstanceOf(AcpSchema.PermissionSelected.class, permResponse.outcome());
+        assertEquals("allow_once", selected.optionId());
+
+        // askPermission returns true for allow_once / allow_always.
+        assertTrue("allow_once".equals(selected.optionId()) || "allow_always".equals(selected.optionId()));
+    }
+
+    @Test
     void runtimeRoutesNewSessionMethods() {
         var transport = new FakeTransport();
         try (var runtime = new BrokkAcpRuntime(transport, agent)) {
@@ -516,7 +1134,7 @@ class BrokkAcpAgentTest {
                     AcpSchema.METHOD_SESSION_NEW,
                     "new",
                     Map.of("cwd", projectRoot.toString(), "mcpServers", List.of()));
-            var newSessionResult = assertInstanceOf(AcpSchema.NewSessionResponse.class, newSession.result());
+            var newSessionResult = assertInstanceOf(AcpProtocol.NewSessionResponseExt.class, newSession.result());
 
             var list =
                     transport.exchange(AcpProtocol.METHOD_SESSION_LIST, "list", Map.of("cwd", projectRoot.toString()));
@@ -539,6 +1157,922 @@ class BrokkAcpAgentTest {
                     "fork",
                     Map.of("sessionId", newSessionResult.sessionId(), "cwd", projectRoot.toString()));
             assertInstanceOf(AcpProtocol.ForkSessionResponse.class, fork.result());
+        }
+    }
+
+    // ---- PermissionMode and gate ----
+
+    @Test
+    void permissionModeParseRoundTrip() {
+        for (var mode : PermissionMode.values()) {
+            assertEquals(mode, PermissionMode.parse(mode.asString()).orElseThrow());
+        }
+        assertTrue(PermissionMode.parse("not-a-mode").isEmpty());
+        assertTrue(PermissionMode.parse("").isEmpty());
+    }
+
+    @Test
+    void gateBypassAllowsEverything() {
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(
+                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EDIT, "editFile", false, null, false));
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(
+                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EXECUTE, "shell", false, null, false));
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(
+                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.OTHER, "weird", false, null, false));
+    }
+
+    @Test
+    void gateReadOnlyRejectsEditExecuteAndOther() {
+        assertEquals(
+                PermissionGate.Outcome.REJECT,
+                PermissionGate.decide(
+                        PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", false, null, false));
+        assertEquals(
+                PermissionGate.Outcome.REJECT,
+                PermissionGate.decide(
+                        PermissionMode.READ_ONLY, AcpSchema.ToolKind.EXECUTE, "shell", false, null, false));
+        assertEquals(
+                PermissionGate.Outcome.REJECT,
+                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.OTHER, "weird", false, null, false));
+        // Always-allow does not lift the read-only brake.
+        assertEquals(
+                PermissionGate.Outcome.REJECT,
+                PermissionGate.decide(
+                        PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", true, null, false));
+    }
+
+    @Test
+    void gateReadOnlyAllowsInformationalKinds() {
+        for (var k : List.of(
+                AcpSchema.ToolKind.READ,
+                AcpSchema.ToolKind.SEARCH,
+                AcpSchema.ToolKind.THINK,
+                AcpSchema.ToolKind.FETCH)) {
+            assertEquals(
+                    PermissionGate.Outcome.ALLOW,
+                    PermissionGate.decide(PermissionMode.READ_ONLY, k, "anything", false, null, false),
+                    "READ_ONLY must allow " + k);
+        }
+    }
+
+    @Test
+    void gateAcceptEditsAllowsEditButPromptsExecute() {
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(
+                        PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EDIT, "editFile", false, null, false));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(
+                        PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EXECUTE, "shell", false, null, false));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(
+                        PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.OTHER, "weird", false, null, false));
+    }
+
+    @Test
+    void gateDefaultPromptsExceptForReadOnlyKinds() {
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.READ, "readFile", false, null, false));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", false, null, false));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", false, null, false));
+    }
+
+    @Test
+    void gateAlwaysAllowSkipsPromptExceptForShell() {
+        // Always-allow short-circuits the prompt for cacheable tools…
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", true, null, false));
+        // …but never for shell, where one approval would blanket-allow every future shell command.
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", true, null, false));
+    }
+
+    @Test
+    void gateSandboxActiveSkipsPromptForNonDangerousShellCommands() {
+        // Phase 3: with sandbox active, mvn test should auto-allow.
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT, AcpSchema.ToolKind.OTHER, "runShellCommand", false, "mvn test", true));
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT,
+                        AcpSchema.ToolKind.OTHER,
+                        "runShellCommand",
+                        false,
+                        "./gradlew build",
+                        true));
+    }
+
+    @Test
+    void gateSandboxActiveStillPromptsForDangerousShellCommands() {
+        // Phase 3: dangerous commands keep prompting even with sandbox on.
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT, AcpSchema.ToolKind.OTHER, "runShellCommand", false, "git push", true));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT,
+                        AcpSchema.ToolKind.OTHER,
+                        "runShellCommand",
+                        false,
+                        "rm -rf foo",
+                        true));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT,
+                        AcpSchema.ToolKind.OTHER,
+                        "runShellCommand",
+                        false,
+                        "curl https://evil.com",
+                        true));
+    }
+
+    @Test
+    void gateSandboxInactiveStillPromptsForNonDangerousShellCommands() {
+        // Sandbox unavailable / opted-out → must keep prompting non-safe-list commands.
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT, AcpSchema.ToolKind.OTHER, "runShellCommand", false, "mvn test", false));
+    }
+
+    @Test
+    void gateReadOnlyStillBlocksShellEvenWithSandbox() {
+        // READ_ONLY rejection runs before the sandbox-aware branch, so /sandbox on doesn't
+        // weaken read-only mode.
+        assertEquals(
+                PermissionGate.Outcome.REJECT,
+                PermissionGate.decide(
+                        PermissionMode.READ_ONLY,
+                        AcpSchema.ToolKind.EXECUTE,
+                        "runShellCommand",
+                        false,
+                        "mvn test",
+                        true));
+    }
+
+    @Test
+    void gateClassifiesBrokkToolNames() {
+        assertEquals(AcpSchema.ToolKind.EXECUTE, PermissionGate.classify("shell"));
+        assertEquals(AcpSchema.ToolKind.SEARCH, PermissionGate.classify("searchAgent"));
+        assertEquals(AcpSchema.ToolKind.SEARCH, PermissionGate.classify("findFiles"));
+        assertEquals(AcpSchema.ToolKind.READ, PermissionGate.classify("getSummaries"));
+        assertEquals(AcpSchema.ToolKind.READ, PermissionGate.classify("listFiles"));
+        assertEquals(AcpSchema.ToolKind.EDIT, PermissionGate.classify("addFiles"));
+        assertEquals(AcpSchema.ToolKind.EDIT, PermissionGate.classify("replaceText"));
+        assertEquals(AcpSchema.ToolKind.THINK, PermissionGate.classify("createOrReplaceTaskList"));
+        assertEquals(AcpSchema.ToolKind.OTHER, PermissionGate.classify("totallyUnknown"));
+    }
+
+    // ---- session/set_config_option handler ----
+
+    @Test
+    void newSessionAdvertisesBothDropdowns() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertNotNull(created.configOptions());
+        // All selectors must come through configOptions. IntelliJ hides legacy `modes` and
+        // `models` channels once configOptions is non-empty, so dropping any of these would make
+        // the corresponding toolbar element vanish.
+        assertEquals(
+                List.of("behavior_mode", "permission_mode", "model_selection", "code_model_selection"),
+                created.configOptions().stream()
+                        .map(AcpProtocol.SessionConfigOption::id)
+                        .toList());
+
+        var behavior = created.configOptions().stream()
+                .filter(o -> "behavior_mode".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("LUTZ", behavior.currentValue());
+        assertEquals("select", behavior.type());
+        assertEquals(
+                List.of("LUTZ", "CODE", "ASK", "PLAN"),
+                behavior.options().stream()
+                        .map(AcpProtocol.SessionConfigSelectOption::value)
+                        .toList());
+
+        var permission = created.configOptions().stream()
+                .filter(o -> "permission_mode".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("default", permission.currentValue());
+        assertEquals("select", permission.type());
+        assertEquals(
+                List.of("default", "acceptEdits", "readOnly", "bypassPermissions"),
+                permission.options().stream()
+                        .map(AcpProtocol.SessionConfigSelectOption::value)
+                        .toList());
+    }
+
+    @Test
+    void setSessionConfigOptionRoutesBehaviorMode() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var captured = new ArrayList<AcpSchema.SessionUpdate>();
+        agent.setSessionUpdateSender((sessionId, update) -> captured.add(update));
+
+        var resp = agent.setSessionConfigOption(
+                new AcpProtocol.SetSessionConfigOptionRequest(created.sessionId(), "behavior_mode", "ASK", null));
+
+        // Existing setMode logic must have stored the new mode and emitted current_mode_update.
+        var modeUpdates = captured.stream()
+                .filter(AcpSchema.CurrentModeUpdate.class::isInstance)
+                .map(AcpSchema.CurrentModeUpdate.class::cast)
+                .toList();
+        assertEquals(1, modeUpdates.size());
+        assertEquals("ASK", modeUpdates.getFirst().currentModeId());
+
+        var behavior = resp.configOptions().stream()
+                .filter(o -> "behavior_mode".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("ASK", behavior.currentValue());
+    }
+
+    @Test
+    void newSessionAdvertisesModelDropdownWithModelCategory() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var model = created.configOptions().stream()
+                .filter(o -> "model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("model", model.category());
+        assertEquals("select", model.type());
+        assertNotNull(model.currentValue());
+        assertFalse(model.options().isEmpty());
+    }
+
+    @Test
+    void newSessionAdvertisesCodeModelDropdownWithModelCategory() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var codeModel = created.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("model", codeModel.category());
+        assertEquals("select", codeModel.type());
+        assertNotNull(codeModel.currentValue());
+        assertFalse(codeModel.currentValue().isBlank());
+        assertFalse(codeModel.options().isEmpty());
+        assertTrue(codeModel.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .anyMatch(codeModel.currentValue()::equals));
+    }
+
+    @Test
+    void newSessionAdvertisesOnlyBaseEntryForModelWithoutEffortSupport() {
+        seedModelCapabilities(Map.of("plain-model", TestService.modelInfo(false, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var optionValues = modelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        var modelValues = created.models().availableModels().stream()
+                .map(AcpSchema.ModelInfo::modelId)
+                .toList();
+
+        assertEquals(List.of("plain-model"), optionValues);
+        assertEquals(List.of("plain-model"), modelValues);
+        assertEquals("plain-model", modelSelectionOption(created).currentValue());
+        assertEquals("plain-model", created.models().currentModelId());
+    }
+
+    @Test
+    void newSessionAdvertisesLowMediumHighForEffortModelWithoutDisable() {
+        seedModelCapabilities(Map.of("effort-model", TestService.modelInfo(true, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var expected = List.of("effort-model", "effort-model/low", "effort-model/medium", "effort-model/high");
+        var optionValues = modelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        var modelValues = created.models().availableModels().stream()
+                .map(AcpSchema.ModelInfo::modelId)
+                .toList();
+
+        assertEquals(expected, optionValues);
+        assertEquals(expected, modelValues);
+    }
+
+    @Test
+    void newSessionAdvertisesDisableOnlyWhenModelSupportsIt() {
+        seedModelCapabilities(Map.of("disable-model", TestService.modelInfo(true, true)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var expected = List.of(
+                "disable-model",
+                "disable-model/low",
+                "disable-model/medium",
+                "disable-model/high",
+                "disable-model/disable");
+        var optionValues = modelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        var modelValues = created.models().availableModels().stream()
+                .map(AcpSchema.ModelInfo::modelId)
+                .toList();
+
+        assertEquals(expected, optionValues);
+        assertEquals(expected, modelValues);
+    }
+
+    @Test
+    void configRefreshNormalizesUnsupportedReasoningLevelToValidCurrentSelection() {
+        seedModelCapabilities(Map.of("plain-model", TestService.modelInfo(false, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var response = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "model_selection", "plain-model/high", null));
+
+        assertEquals("plain-model", modelSelectionOption(response).currentValue());
+
+        var resumed = agent.resumeSession(
+                new AcpProtocol.ResumeSessionRequest(created.sessionId(), projectRoot.toString(), null, null));
+        assertEquals("plain-model", resumed.models().currentModelId());
+        assertEquals("plain-model", modelSelectionOption(resumed).currentValue());
+    }
+
+    @Test
+    void configRefreshNormalizesDisableWhenModelDoesNotSupportIt() {
+        seedModelCapabilities(Map.of("effort-model", TestService.modelInfo(true, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var response = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "model_selection", "effort-model/disable", null));
+
+        assertEquals("effort-model", modelSelectionOption(response).currentValue());
+
+        var loaded =
+                agent.loadSession(new AcpSchema.LoadSessionRequest(created.sessionId(), projectRoot.toString(), null));
+        assertEquals("effort-model", loaded.models().currentModelId());
+        assertEquals("effort-model", modelSelectionOption(loaded).currentValue());
+    }
+
+    // ---- Code-model selector capability coverage (mirrors model_selection above) -------
+
+    @Test
+    void newSessionAdvertisesOnlyCodeBaseEntryForModelWithoutEffortSupport() {
+        seedModelCapabilities(Map.of("plain-model", TestService.modelInfo(false, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var optionValues = codeModelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        assertEquals(List.of("plain-model"), optionValues);
+        assertEquals("plain-model", codeModelSelectionOption(created).currentValue());
+    }
+
+    @Test
+    void newSessionAdvertisesCodeLowMediumHighForEffortModelWithoutDisable() {
+        seedModelCapabilities(Map.of("effort-model", TestService.modelInfo(true, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var expected = List.of("effort-model", "effort-model/low", "effort-model/medium", "effort-model/high");
+        var optionValues = codeModelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        assertEquals(expected, optionValues);
+        // DEFAULT_REASONING_LEVEL_CODE = "disable" but the model does not support disable, so
+        // the level sanitizes to "default" and the current selection drops the variant suffix.
+        assertEquals("effort-model", codeModelSelectionOption(created).currentValue());
+    }
+
+    @Test
+    void newSessionAdvertisesCodeDisableOnlyWhenCodeModelSupportsIt() {
+        seedModelCapabilities(Map.of("disable-model", TestService.modelInfo(true, true)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var expected = List.of(
+                "disable-model",
+                "disable-model/low",
+                "disable-model/medium",
+                "disable-model/high",
+                "disable-model/disable");
+        var optionValues = codeModelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        assertEquals(expected, optionValues);
+        // DEFAULT_REASONING_LEVEL_CODE = "disable" and the model supports it, so it survives.
+        assertEquals("disable-model/disable", codeModelSelectionOption(created).currentValue());
+    }
+
+    @Test
+    void setSessionConfigOptionParsesCodeModelVariantAndPersistsAcrossLoad() {
+        seedModelCapabilities(Map.of("effort-model", TestService.modelInfo(true, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var response = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", "effort-model/high", null));
+
+        assertEquals("effort-model/high", codeModelSelectionOption(response).currentValue());
+
+        var loaded =
+                agent.loadSession(new AcpSchema.LoadSessionRequest(created.sessionId(), projectRoot.toString(), null));
+        assertEquals("effort-model/high", codeModelSelectionOption(loaded).currentValue());
+    }
+
+    @Test
+    void configRefreshNormalizesUnsupportedCodeReasoningLevelToValidCurrentSelection() {
+        seedModelCapabilities(Map.of("plain-model", TestService.modelInfo(false, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var response = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", "plain-model/high", null));
+
+        // plain-model does not support reasoning_effort, so /high collapses back to the bare model.
+        assertEquals("plain-model", codeModelSelectionOption(response).currentValue());
+
+        var resumed = agent.resumeSession(
+                new AcpProtocol.ResumeSessionRequest(created.sessionId(), projectRoot.toString(), null, null));
+        assertEquals("plain-model", codeModelSelectionOption(resumed).currentValue());
+    }
+
+    @Test
+    void configRefreshNormalizesCodeDisableWhenCodeModelDoesNotSupportIt() {
+        seedModelCapabilities(Map.of("effort-model", TestService.modelInfo(true, false)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var response = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", "effort-model/disable", null));
+
+        // effort-model supports effort but not disable; /disable normalizes back to base model.
+        assertEquals("effort-model", codeModelSelectionOption(response).currentValue());
+
+        var loaded =
+                agent.loadSession(new AcpSchema.LoadSessionRequest(created.sessionId(), projectRoot.toString(), null));
+        assertEquals("effort-model", codeModelSelectionOption(loaded).currentValue());
+    }
+
+    @Test
+    void newSessionStartupUsesSingleResolvedCatalogForModelStateAndDropdowns() throws Exception {
+        var stableModels = Map.of("late-model", TestService.modelInfo(true, true));
+        var project = contextManager.getProject();
+        jobRunner.shutdown();
+        contextManager.close();
+
+        var delayedServiceRef = new AtomicReference<>(new DelayedAvailableModelsTestService(project, 3, stableModels));
+        contextManager = new ContextManager(project, new ai.brokk.Service.Provider() {
+            @Override
+            public ai.brokk.AbstractService get() {
+                return delayedServiceRef.get();
+            }
+
+            @Override
+            public void reinit(ai.brokk.project.IProject p) {
+                delayedServiceRef.set(new DelayedAvailableModelsTestService(p, 3, stableModels));
+            }
+        });
+        var jobStore = new JobStore(projectRoot.resolve(".brokk-test-jobs-delayed"));
+        jobRunner = new JobRunner(contextManager, jobStore);
+        agent = new BrokkAcpAgent(contextManager, jobRunner, jobStore);
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var expectedBaseModelIds =
+                ModelProperties.BASE_MODEL_IDS.stream().sorted().toList();
+
+        var advertisedModelIds = created.models().availableModels().stream()
+                .map(AcpSchema.ModelInfo::modelId)
+                .toList();
+        var modelOptionValues = modelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+        var codeModelOptionValues = codeModelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .toList();
+
+        assertEquals(expectedBaseModelIds, advertisedModelIds);
+        assertEquals(advertisedModelIds, modelOptionValues);
+        assertEquals(advertisedModelIds, codeModelOptionValues);
+        assertEquals("gemini-3-flash-preview", created.models().currentModelId());
+        assertEquals("gemini-3-flash-preview", modelSelectionOption(created).currentValue());
+        assertEquals("gemini-3-flash-preview", codeModelSelectionOption(created).currentValue());
+        assertEquals(3, delayedServiceRef.get().getAvailableModelsCallCount());
+    }
+
+    @Test
+    void newSessionNormalizesPlannerBeforeCodeFallbackSelection() {
+        seedModelCapabilities(Map.of("aaa-model", TestService.modelInfo(true, true)));
+
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertEquals("aaa-model/medium", created.models().currentModelId());
+        assertEquals("aaa-model/medium", modelSelectionOption(created).currentValue());
+        assertEquals("aaa-model/disable", codeModelSelectionOption(created).currentValue());
+        assertTrue(codeModelSelectionOption(created).options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .anyMatch("aaa-model/disable"::equals));
+    }
+
+    @Test
+    void setSessionConfigOptionRejectsUnknownBehaviorMode() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                        created.sessionId(), "behavior_mode", "BOGUS", null)));
+    }
+
+    @Test
+    void setSessionConfigOptionStoresPermissionMode() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        var resp = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "permission_mode", "acceptEdits", null));
+
+        assertEquals(PermissionMode.ACCEPT_EDITS, agent.permissionModeFor(created.sessionId()));
+        var permission = resp.configOptions().stream()
+                .filter(o -> "permission_mode".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("acceptEdits", permission.currentValue());
+    }
+
+    @Test
+    void setSessionConfigOptionStoresCodeModel() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var initial = created.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        var selectedValue = initial.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .filter(v -> !v.equals(initial.currentValue()))
+                .findFirst()
+                .orElse(initial.currentValue());
+
+        var resp = agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", selectedValue, null));
+
+        var updated = resp.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(selectedValue, updated.currentValue());
+        assertTrue(updated.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .anyMatch(selectedValue::equals));
+    }
+
+    @Test
+    void loadSessionRetainsConfiguredCodeModel() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var initial = created.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        var selectedValue = initial.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .filter(v -> !v.equals(initial.currentValue()))
+                .findFirst()
+                .orElse(initial.currentValue());
+
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", selectedValue, null));
+
+        var loaded = agent.loadSession(
+                new AcpSchema.LoadSessionRequest(created.sessionId(), projectRoot.toString(), List.of(), null));
+
+        var updated = loaded.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(selectedValue, updated.currentValue());
+        assertTrue(updated.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .anyMatch(selectedValue::equals));
+    }
+
+    @Test
+    void resumeSessionSanitizesStaleCodeModelSelection() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", "not-a-real-model", null));
+
+        var resumed = agent.resumeSession(
+                new AcpProtocol.ResumeSessionRequest(created.sessionId(), projectRoot.toString(), null, null));
+
+        var updated = resumed.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+        assertFalse(updated.currentValue().isBlank());
+        assertTrue(updated.options().stream()
+                .map(AcpProtocol.SessionConfigSelectOption::value)
+                .anyMatch(updated.currentValue()::equals));
+    }
+
+    @Test
+    void setSessionConfigOptionRejectsUnknownValue() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        var ex = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                        created.sessionId(), "permission_mode", "bogus", null)));
+        assertTrue(ex.getMessage().contains("Unknown permission mode"));
+    }
+
+    @Test
+    void setSessionConfigOptionRejectsUnknownConfigId() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                        created.sessionId(), "made_up", "default", null)));
+    }
+
+    @Test
+    void runtimeRoutesSetSessionConfigOption() {
+        var transport = new FakeTransport();
+        try (var runtime = new BrokkAcpRuntime(transport, agent)) {
+            transport.exchange(AcpSchema.METHOD_INITIALIZE, "init", Map.of("protocolVersion", 1));
+            var newSession = transport.exchange(
+                    AcpSchema.METHOD_SESSION_NEW,
+                    "new",
+                    Map.of("cwd", projectRoot.toString(), "mcpServers", List.of()));
+            var sessionId = ((AcpProtocol.NewSessionResponseExt) newSession.result()).sessionId();
+
+            var advertised = ((AcpProtocol.NewSessionResponseExt) newSession.result())
+                    .configOptions().stream()
+                            .filter(o -> "code_model_selection".equals(o.id()))
+                            .findFirst()
+                            .orElseThrow();
+            var selectedValue = advertised.options().stream()
+                    .map(AcpProtocol.SessionConfigSelectOption::value)
+                    .findFirst()
+                    .orElseThrow();
+
+            var setConfig = transport.exchange(
+                    AcpProtocol.METHOD_SESSION_SET_CONFIG_OPTION,
+                    "setcfg",
+                    Map.of("sessionId", sessionId, "configId", "code_model_selection", "value", selectedValue));
+            assertNull(setConfig.error());
+            var result = assertInstanceOf(AcpProtocol.SetSessionConfigOptionResponse.class, setConfig.result());
+            assertEquals(
+                    selectedValue,
+                    result.configOptions().stream()
+                            .filter(o -> "code_model_selection".equals(o.id()))
+                            .findFirst()
+                            .orElseThrow()
+                            .currentValue());
+        }
+    }
+
+    // ---- askPermission honors PermissionMode ----
+
+    @Test
+    void askPermissionShortCircuitsUnderBypass() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "permission_mode", "bypassPermissions", null));
+
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "reject_once"));
+            });
+
+            var ctx = fixture.contextFor(created.sessionId());
+            assertTrue(ctx.askPermission("Allow editFile?", "editFile"));
+            assertTrue(ctx.askPermission("Allow shell?", "shell"));
+            assertEquals(0, calls.get(), "BYPASS must not round-trip to client");
+        }
+    }
+
+    @Test
+    void askPermissionRejectsEditsUnderReadOnly() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "permission_mode", "readOnly", null));
+
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_once"));
+            });
+
+            var ctx = fixture.contextFor(created.sessionId());
+            assertFalse(ctx.askPermission("Allow editFile?", "editFile"));
+            assertFalse(ctx.askPermission("Allow shell?", "shell"));
+            assertTrue(ctx.askPermission("Allow readFile?", "readFile"));
+            assertEquals(0, calls.get(), "READ_ONLY must decide locally without round-tripping");
+
+            var sawDenialMessage = fixture.transport.sessionUpdates().stream()
+                    .anyMatch(n -> n.update() instanceof AcpSchema.AgentMessageChunk a
+                            && a.content() instanceof AcpSchema.TextContent t
+                            && t.text().contains("denied"));
+            assertTrue(sawDenialMessage, "user must see a denial chat message under READ_ONLY");
+        }
+    }
+
+    @Test
+    void askPermissionAutoAllowsEditsUnderAcceptEdits() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "permission_mode", "acceptEdits", null));
+
+        try (var fixture = new PermissionFixture()) {
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            fixture.transport.respondTo(AcpSchema.METHOD_SESSION_REQUEST_PERMISSION, params -> {
+                calls.incrementAndGet();
+                return new AcpSchema.RequestPermissionResponse(
+                        new AcpSchema.PermissionSelected("selected", "allow_once"));
+            });
+
+            var ctx = fixture.contextFor(created.sessionId());
+            assertTrue(ctx.askPermission("Allow editFile?", "editFile"));
+            assertEquals(0, calls.get(), "ACCEPT_EDITS must not prompt for edits");
+
+            assertTrue(ctx.askPermission("Allow shell?", "shell"));
+            assertEquals(1, calls.get(), "ACCEPT_EDITS must still prompt for shell");
+        }
+    }
+
+    @Test
+    void codeModelSelectionPersistsDefaultsAcrossAgentRestart() throws Exception {
+        seedModelCapabilities(Map.of(
+                "effort-model", TestService.modelInfo(true, false),
+                "plain-model", TestService.modelInfo(false, false)));
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", "effort-model/high", null));
+
+        // Simulate a JVM restart by constructing a fresh agent against the same
+        // acp_settings.json (its path is redirected to tempDir in setUp).
+        var revivedJobStore = new JobStore(projectRoot.resolve(".brokk-test-jobs-revived"));
+        var revivedAgent = new BrokkAcpAgent(contextManager, jobRunner, revivedJobStore);
+        var revived = revivedAgent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertEquals("effort-model/high", codeModelSelectionOption(revived).currentValue());
+    }
+
+    @Test
+    void setModelPromotesDefaultsForSubsequentSessionsInSameJvm() {
+        seedModelCapabilities(Map.of(
+                "effort-model", TestService.modelInfo(true, false),
+                "plain-model", TestService.modelInfo(false, false)));
+        var firstSession = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setModel(new AcpSchema.SetSessionModelRequest(firstSession.sessionId(), "plain-model"));
+
+        var secondSession = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertEquals("plain-model", modelSelectionOption(secondSession).currentValue());
+    }
+
+    @Test
+    void loadAcpDefaultsReadsCodeModelKeysFromPersistedFile() throws Exception {
+        seedModelCapabilities(Map.of(
+                "effort-model", TestService.modelInfo(true, false),
+                "plain-model", TestService.modelInfo(false, false)));
+        var settingsPath = Path.of(System.getProperty("brokk.acp.settings.path"));
+        var json = "{\"default_model\":\"plain-model\",\"default_reasoning\":\"medium\","
+                + "\"default_code_model\":\"effort-model\",\"default_code_reasoning\":\"high\"}";
+        Files.writeString(settingsPath, json);
+
+        var freshJobStore = new JobStore(projectRoot.resolve(".brokk-test-jobs-fresh"));
+        var freshAgent = new BrokkAcpAgent(contextManager, jobRunner, freshJobStore);
+        var session = freshAgent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertEquals("plain-model", modelSelectionOption(session).currentValue());
+        assertEquals("effort-model/high", codeModelSelectionOption(session).currentValue());
+    }
+
+    private void seedModelCapabilities(Map<String, Map<String, Object>> modelInfoByName) {
+        testService.setAvailableModels(modelInfoByName);
+    }
+
+    private static AcpProtocol.SessionConfigOption modelSelectionOption(AcpProtocol.NewSessionResponseExt response) {
+        return response.configOptions().stream()
+                .filter(o -> "model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption modelSelectionOption(AcpProtocol.ResumeSessionResponse response) {
+        return response.configOptions().stream()
+                .filter(o -> "model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption modelSelectionOption(AcpProtocol.LoadSessionResponseExt response) {
+        return response.configOptions().stream()
+                .filter(o -> "model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption modelSelectionOption(
+            AcpProtocol.SetSessionConfigOptionResponse response) {
+        return response.configOptions().stream()
+                .filter(o -> "model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption codeModelSelectionOption(
+            AcpProtocol.NewSessionResponseExt response) {
+        return response.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption codeModelSelectionOption(
+            AcpProtocol.ResumeSessionResponse response) {
+        return response.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption codeModelSelectionOption(
+            AcpProtocol.LoadSessionResponseExt response) {
+        return response.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpProtocol.SessionConfigOption codeModelSelectionOption(
+            AcpProtocol.SetSessionConfigOptionResponse response) {
+        return response.configOptions().stream()
+                .filter(o -> "code_model_selection".equals(o.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static AcpSchema.PromptRequest promptRequest(String sessionId, String text) {
+        return new AcpSchema.PromptRequest(sessionId, List.of(new AcpSchema.TextContent(text)));
+    }
+
+    private static String joinedPromptMessages(FakeTransport transport) {
+        return transport.sessionUpdates().stream()
+                .map(AcpSchema.SessionNotification::update)
+                .filter(AcpSchema.AgentMessageChunk.class::isInstance)
+                .map(AcpSchema.AgentMessageChunk.class::cast)
+                .map(AcpSchema.AgentMessageChunk::content)
+                .filter(AcpSchema.TextContent.class::isInstance)
+                .map(AcpSchema.TextContent.class::cast)
+                .map(AcpSchema.TextContent::text)
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    private static final class DelayedAvailableModelsTestService extends TestService {
+        private final AtomicInteger getAvailableModelsCallCount = new AtomicInteger();
+        private final int emptyCallCount;
+        private final Map<String, Map<String, Object>> stableModels;
+
+        private DelayedAvailableModelsTestService(
+                ai.brokk.project.IProject project, int emptyCallCount, Map<String, Map<String, Object>> stableModels) {
+            super(project);
+            this.emptyCallCount = emptyCallCount;
+            this.stableModels = stableModels;
+            setAvailableModels(stableModels);
+        }
+
+        @Override
+        public Map<String, String> getAvailableModels() {
+            if (getAvailableModelsCallCount.getAndIncrement() < emptyCallCount) {
+                return Map.of();
+            }
+            return stableModels.keySet().stream()
+                    .collect(java.util.stream.Collectors.toMap(name -> name, name -> name));
+        }
+
+        int getAvailableModelsCallCount() {
+            return getAvailableModelsCallCount.get();
         }
     }
 
@@ -615,7 +2149,7 @@ class BrokkAcpAgentTest {
      * Two {@code session/new} calls with different {@code cwd}s must materialize independent
      * bundles; sessions in one must not appear in {@code listSessions} for the other.
      */
-    @org.junit.jupiter.api.Nested
+    @Nested
     class PerCwdBundles {
 
         private Path rootA;

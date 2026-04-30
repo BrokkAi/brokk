@@ -16,10 +16,16 @@ import com.fasterxml.jackson.databind.ser.BeanPropertyWriter;
 import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
+import java.io.FilterInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -95,8 +101,14 @@ public final class AcpServerMain {
             var agent = new BrokkAcpAgent(defaultWorkspaceDir, factory);
             var jsonMapper = McpJsonDefaults.getMapper();
             patchAcpDuplicateKeyBug(jsonMapper);
-            var transport = new StdioAcpAgentTransport(jsonMapper);
+
+            // Wrap System.in so we can detect "stdin has gone quiet while we're awaiting a
+            // response" — symptom of the IDE failing to deliver a permission verdict (see
+            // the watchdog scheduled below).
+            var inboundTracker = new InboundActivityTracker(System.in);
+            var transport = new StdioAcpAgentTransport(jsonMapper, inboundTracker, System.out);
             var runtime = new BrokkAcpRuntime(transport, agent);
+            startInboundWatchdog(inboundTracker);
 
             // Register shutdown hook -- close transport first (stop accepting requests),
             // then close every active bundle (cancels active jobs + closes its ContextManager).
@@ -164,6 +176,91 @@ public final class AcpServerMain {
             throw new RuntimeException("Interrupted while initializing workspace " + root, e);
         } catch (IOException e) {
             throw new RuntimeException("Failed to initialize workspace " + root, e);
+        }
+    }
+
+    /**
+     * Watchdog frequency. Cheap; runs on a single daemon thread.
+     */
+    private static final Duration WATCHDOG_PERIOD = Duration.ofSeconds(15);
+
+    /**
+     * If we've been awaiting a {@code session/request_permission} response and stdin has been
+     * silent at least this long, log a warning. {@link AcpRequestContext#PERMISSION_TIMEOUT}'s
+     * per-call timeout will eventually fire and surface a denial to the user — this watchdog
+     * provides earlier diagnostic breadcrumbs in {@code ~/.brokk/debug.log} so the failure mode
+     * (IDE never delivered the verdict) is easy to spot in incident logs. Sized smaller than
+     * {@code PERMISSION_TIMEOUT} so a stuck IDE dialog produces at least one log breadcrumb before
+     * the per-call timeout itself fires, but large enough that legitimate human think-time
+     * doesn't spam the log every {@link #WATCHDOG_PERIOD}.
+     */
+    private static final Duration INBOUND_STALL_THRESHOLD = Duration.ofMinutes(2);
+
+    /**
+     * Schedules a daemon task that warns when stdin has been quiet for {@link
+     * #INBOUND_STALL_THRESHOLD} or more while at least one outbound permission request is
+     * outstanding. Diagnostics only — does not unblock anything; the per-call timeout in
+     * {@link AcpRequestContext} handles user-visible recovery.
+     */
+    private static void startInboundWatchdog(InboundActivityTracker tracker) {
+        var executor = Executors.newSingleThreadScheduledExecutor(r -> {
+            var t = new Thread(r, "AcpServer-inbound-watchdog");
+            t.setDaemon(true);
+            return t;
+        });
+        executor.scheduleAtFixedRate(
+                () -> {
+                    int outstanding = AcpRequestContext.OUTSTANDING_PERMISSION_REQUESTS.get();
+                    if (outstanding <= 0) {
+                        return;
+                    }
+                    long quietMillis = System.currentTimeMillis() - tracker.lastReadAtMillis();
+                    if (quietMillis >= INBOUND_STALL_THRESHOLD.toMillis()) {
+                        logger.warn(
+                                "Inbound stdin has been quiet for {}s while {} permission request(s) "
+                                        + "are awaiting a response. The client may have failed to deliver "
+                                        + "the verdict; brokk will time out the request after {}.",
+                                quietMillis / 1000,
+                                outstanding,
+                                AcpRequestContext.PERMISSION_TIMEOUT);
+                    }
+                },
+                WATCHDOG_PERIOD.toSeconds(),
+                WATCHDOG_PERIOD.toSeconds(),
+                TimeUnit.SECONDS);
+    }
+
+    /**
+     * {@link FilterInputStream} that records the wall-clock timestamp of the last byte successfully
+     * read from the underlying stream. Used by the inbound watchdog to detect stdin stalls.
+     */
+    static final class InboundActivityTracker extends FilterInputStream {
+        private final AtomicLong lastReadAtMillis = new AtomicLong(System.currentTimeMillis());
+
+        InboundActivityTracker(InputStream in) {
+            super(in);
+        }
+
+        long lastReadAtMillis() {
+            return lastReadAtMillis.get();
+        }
+
+        @Override
+        public int read() throws IOException {
+            int b = super.read();
+            if (b != -1) {
+                lastReadAtMillis.set(System.currentTimeMillis());
+            }
+            return b;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            int n = super.read(b, off, len);
+            if (n > 0) {
+                lastReadAtMillis.set(System.currentTimeMillis());
+            }
+            return n;
         }
     }
 

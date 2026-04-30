@@ -254,7 +254,7 @@ public class DtoMapper {
             var messages = dto.messages().stream()
                     .map(msgDto -> fromChatMessageDto(msgDto, reader))
                     .toList();
-            markdown = Messages.format(messages);
+            markdown = Messages.formatForDisplay(messages);
         }
 
         boolean escapeHtml = dto.escapeHtml() == null || dto.escapeHtml();

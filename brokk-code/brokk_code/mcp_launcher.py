@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Optional
 
 from brokk_code.executor import BUNDLED_EXECUTOR_VERSION, ExecutorError, ensure_jbang_ready
-from brokk_code.runtime_utils import find_dev_jar
 
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
@@ -93,10 +92,6 @@ def _resolve_mcp_command(
 ) -> list[str]:
     if jar_path:
         return _build_direct_mcp_command(main_class, jar_path)
-
-    dev_jar = find_dev_jar(workspace_dir, subproject=subproject)
-    if dev_jar:
-        return _build_direct_mcp_command(main_class, dev_jar)
 
     jbang_binary = ensure_jbang_ready()
     return _build_jbang_mcp_command(

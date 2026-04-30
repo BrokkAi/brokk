@@ -38,19 +38,22 @@ import org.jetbrains.annotations.Nullable;
  */
 public abstract class AbstractService implements ExceptionReporter.ReportingService {
 
+    protected static final Logger logger = LogManager.getLogger(AbstractService.class);
+
     // Constants and configuration
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
 
     public static final long FLEX_FIRST_TOKEN_TIMEOUT_SECONDS = 15L * 60L; // 15 minutes
-    public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
-    public static final long NEXT_TOKEN_TIMEOUT_SECONDS = DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
+    public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS =
+            parseTimeoutSeconds("BRK_FIRST_TOKEN_TIMEOUT", 2L * 60L); // 2 minutes
+    public static final long NEXT_TOKEN_TIMEOUT_SECONDS =
+            parseTimeoutSeconds("BRK_NEXT_TOKEN_TIMEOUT", DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS);
 
     public static final String UNAVAILABLE = "AI is unavailable";
     public static final String CUSTOM_ENDPOINT_DUMMY_KEY = "no-key-required";
 
-    protected final Logger logger = LogManager.getLogger(AbstractService.class);
     protected final ObjectMapper objectMapper = new ObjectMapper();
     protected final IProject project;
 
@@ -66,6 +69,25 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public AbstractService(IProject project) {
         // Intentionally minimal: no network calls here
         this.project = project;
+    }
+
+    private static long parseTimeoutSeconds(String envName, long fallbackSeconds) {
+        var rawValue = System.getenv(envName);
+        if (rawValue == null || rawValue.isBlank()) {
+            return fallbackSeconds;
+        }
+        try {
+            var parsed = Long.parseLong(rawValue.trim());
+            if (parsed > 0) {
+                logger.debug("Overriding {} with {} seconds", envName, parsed);
+                return parsed;
+            }
+        } catch (NumberFormatException e) {
+            logger.warn("Could not parse {}='{}' as seconds; using fallback {}", envName, rawValue, fallbackSeconds);
+            return fallbackSeconds;
+        }
+        logger.warn("{} value '{}' is not positive; using fallback {}", envName, rawValue, fallbackSeconds);
+        return fallbackSeconds;
     }
 
     public abstract float getUserBalance() throws IOException;
@@ -382,11 +404,21 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      */
     public Map<String, String> getAvailableModels() {
         boolean codexConnected = MainProject.isOpenAiCodexOauthConnected();
+        boolean restrictToOauth = codexConnected && MainProject.isRestrictToOauthModelsWhenConnected();
         return modelInfoMap.keySet().stream()
                 .filter(name -> !UNAVAILABLE.equals(name))
                 .filter(name -> !ModelProperties.SYSTEM_ONLY_MODELS.contains(name))
                 .filter(name -> codexConnected || !isCodexModel(name))
+                .filter(name -> !restrictToOauth || isAllowedOauthRestrictedModel(name))
                 .collect(Collectors.toMap(name -> name, name -> modelLocations.getOrDefault(name, name)));
+    }
+
+    private static boolean isAllowedOauthRestrictedModel(String name) {
+        return name.endsWith("-oauth") && !isExcludedOauthRestrictedModel(name);
+    }
+
+    private static boolean isExcludedOauthRestrictedModel(String name) {
+        return name.startsWith("gpt-5.1-") || name.startsWith("gpt-5.2-codex");
     }
 
     /**
@@ -612,8 +644,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         if (!supportsReasoningEffort(nameOf(model))) {
             level = ReasoningLevel.DEFAULT;
         }
+        // DEFAULT omits reasoning_effort entirely. For OpenAI gpt-5.2-5.4 the model's own
+        // default reasoning is disable-equivalent and they reject the literal "disable" string,
+        // so omitting the parameter is the correct way to honor DISABLE intent on those models.
         if (!supportsReasoningDisable(nameOf(model)) && level == ReasoningLevel.DISABLE) {
-            level = ReasoningLevel.LOW;
+            level = ReasoningLevel.DEFAULT;
         }
 
         var config = ModelConfig.from(model, this);

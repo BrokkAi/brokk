@@ -81,15 +81,21 @@ class AgentDefinitionTest {
         var def = new AgentDefinition(
                 "test",
                 "desc",
-                List.of("reportSecretLikeCode", "reportTestAssertionSmells"),
+                List.of(
+                        "reportSecretLikeCode",
+                        "reportTestAssertionSmells",
+                        "reportDeadCodeAndUnusedAbstractionSmells"),
                 null,
                 "prompt",
                 "project");
         assertTrue(def.validate().isEmpty(), "Expected no errors but got: " + def.validate());
         assertTrue(AgentDefinition.READ_ONLY_TOOL_NAMES.contains("reportSecretLikeCode"));
         assertTrue(AgentDefinition.READ_ONLY_TOOL_NAMES.contains("reportTestAssertionSmells"));
+        assertTrue(AgentDefinition.READ_ONLY_TOOL_NAMES.contains("reportDeadCodeAndUnusedAbstractionSmells"));
         assertTrue(AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES.contains("reportSecretLikeCode"));
         assertTrue(AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES.contains("reportTestAssertionSmells"));
+        assertTrue(
+                AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES.contains("reportDeadCodeAndUnusedAbstractionSmells"));
     }
 
     @Test
@@ -117,6 +123,7 @@ class AgentDefinitionTest {
                         "computeCyclomaticComplexity",
                         "computeCognitiveComplexity",
                         "reportLongMethodAndGodObjectSmells",
+                        "reportDeadCodeAndUnusedAbstractionSmells",
                         "reportExceptionHandlingSmells",
                         "reportStructuralCloneSmells",
                         "reportSecretLikeCode",

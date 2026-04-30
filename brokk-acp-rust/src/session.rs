@@ -173,6 +173,22 @@ impl Session {
     }
 }
 
+/// Snapshot of the per-session data needed to start a prompt turn. The
+/// conversation history is cloned exactly once under the read lock; callers
+/// consume it (via `.into_iter()`) when constructing protocol-specific
+/// message types, so no further string clones happen on the prompt path.
+///
+/// This intentionally exposes raw `ConversationTurn` rather than a
+/// pre-built `Vec<ChatMessage>` so `session.rs` doesn't depend on the LLM
+/// transport layer — message assembly belongs at the call site.
+#[derive(Debug)]
+pub struct SessionSnapshot {
+    pub cwd: PathBuf,
+    pub mode: SessionMode,
+    pub model: String,
+    pub history: Vec<ConversationTurn>,
+}
+
 // ---------------------------------------------------------------------------
 // Zip I/O: read/write executor-compatible session zips
 // ---------------------------------------------------------------------------
@@ -375,31 +391,28 @@ fn write_new_session_zip(zip_path: &Path, manifest: &SessionManifest) {
 }
 
 /// Update manifest.json and add a conversation turn to an existing session zip.
-fn append_turn_to_zip(zip_path: &Path, manifest: &SessionManifest, turn: &ConversationTurn) {
+///
+/// Failures of the framing operations (open, archive read, finalize, rename) are
+/// surfaced to the caller so the in-memory `add_turn` can roll back and keep
+/// `memory == disk`. Per-entry write failures inside the zip are still logged
+/// only; if any of those occur the temp zip is incomplete and the rename step
+/// will fail downstream, so callers still see the error.
+fn append_turn_to_zip(
+    zip_path: &Path,
+    manifest: &SessionManifest,
+    turn: &ConversationTurn,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+
     // Read the existing zip, rebuild with new content
-    let file = match std::fs::File::open(zip_path) {
-        Ok(f) => f,
-        Err(e) => {
-            tracing::warn!("failed to open session zip for update: {e}");
-            return;
-        }
-    };
-    let mut archive = match zip::ZipArchive::new(file) {
-        Ok(a) => a,
-        Err(e) => {
-            tracing::warn!("failed to read session zip: {e}");
-            return;
-        }
-    };
+    let file = std::fs::File::open(zip_path)
+        .with_context(|| format!("opening session zip {} for update", zip_path.display()))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .with_context(|| format!("reading session zip {}", zip_path.display()))?;
 
     let tmp = zip_path.with_extension("tmp");
-    let out_file = match std::fs::File::create(&tmp) {
-        Ok(f) => f,
-        Err(e) => {
-            tracing::warn!("failed to create temp zip: {e}");
-            return;
-        }
-    };
+    let out_file = std::fs::File::create(&tmp)
+        .with_context(|| format!("creating temp zip {}", tmp.display()))?;
 
     let mut zip_writer = zip::ZipWriter::new(out_file);
     let options = zip::write::SimpleFileOptions::default()
@@ -564,10 +577,12 @@ fn append_turn_to_zip(zip_path: &Path, manifest: &SessionManifest, turn: &Conver
         let _ = zip_writer.write_all(turn.agent_response.as_bytes());
     }
 
-    let _ = zip_writer.finish();
-    if let Err(e) = std::fs::rename(&tmp, zip_path) {
-        tracing::warn!("failed to rename updated session zip: {e}");
-    }
+    zip_writer
+        .finish()
+        .with_context(|| format!("finalizing temp zip {}", tmp.display()))?;
+    std::fs::rename(&tmp, zip_path)
+        .with_context(|| format!("renaming {} to {}", tmp.display(), zip_path.display()))?;
+    Ok(())
 }
 
 /// Replace manifest.json in an existing session zip, copying all other entries as-is.
@@ -727,21 +742,41 @@ impl SessionStore {
     }
 
     /// Get session from memory, or load from disk if it exists.
+    ///
+    /// Note: this clones the full `Session` (including the conversation history
+    /// vec). Callers on the hot prompt path should prefer `build_prompt_state`,
+    /// which constructs the message list under the read lock without copying
+    /// the history twice.
     pub async fn get_session(&self, id: &str, cwd: &Path) -> Option<Session> {
-        // Check memory first
-        if let Some(s) = self.sessions.read().await.get(id).cloned() {
-            return Some(s);
+        if !self.load_into_memory_if_cold(id, cwd).await {
+            return None;
         }
-        // Try to load from executor's session zip on disk (on a blocking worker).
+        self.sessions.read().await.get(id).cloned()
+    }
+
+    /// Ensure the session is in memory, loading it from disk if needed.
+    /// Returns true iff the session ends up loaded.
+    ///
+    /// Note: if a session is already in memory, this is a no-op and the
+    /// disk copy is NOT re-read. Live in-memory state (e.g. an updated
+    /// `permission_mode` or pushed history turn) takes precedence over
+    /// whatever is on disk.
+    async fn load_into_memory_if_cold(&self, id: &str, cwd: &Path) -> bool {
+        if self.sessions.read().await.contains_key(id) {
+            return true;
+        }
         let zip_path = session_zip_path(cwd, id);
-        let (manifest, history) = tokio::task::spawn_blocking(move || {
+        let loaded = tokio::task::spawn_blocking(move || {
             let manifest = read_manifest_from_zip(&zip_path)?;
             let history = read_history_from_zip(&zip_path);
             Some((manifest, history))
         })
         .await
         .ok()
-        .flatten()?;
+        .flatten();
+        let Some((manifest, history)) = loaded else {
+            return false;
+        };
 
         // Prefer persisted mode/model; fall back to server defaults.
         let mode = manifest
@@ -768,11 +803,33 @@ impl SessionStore {
             permission_mode: PermissionMode::Default,
             always_allow_tools: HashSet::new(),
         };
-        self.sessions
-            .write()
-            .await
-            .insert(id.to_string(), session.clone());
-        Some(session)
+        let mut sessions = self.sessions.write().await;
+        // Race window: another task may have inserted under the same id while
+        // we read from disk. `or_insert` keeps the existing in-memory entry
+        // (which may carry mutations not yet persisted, like a newer
+        // `permission_mode` or pushed turn) and silently drops our freshly
+        // loaded copy. The on-disk zip is read-only on this path so no
+        // information is lost.
+        sessions.entry(id.to_string()).or_insert(session);
+        true
+    }
+
+    /// Snapshot the per-session data needed to start a prompt turn,
+    /// cloning the conversation history exactly once (under the read lock).
+    /// Callers consume `history` to build protocol-specific message types
+    /// without further string copies.
+    pub async fn snapshot(&self, id: &str, fallback_cwd: &Path) -> Option<SessionSnapshot> {
+        if !self.load_into_memory_if_cold(id, fallback_cwd).await {
+            return None;
+        }
+        let sessions = self.sessions.read().await;
+        let s = sessions.get(id)?;
+        Some(SessionSnapshot {
+            cwd: s.cwd.clone(),
+            mode: s.mode,
+            model: s.model.clone(),
+            history: s.history.clone(),
+        })
     }
 
     pub async fn update_cwd(&self, id: &str, cwd: PathBuf) {
@@ -851,12 +908,29 @@ impl SessionStore {
     }
 
     /// Add a conversation turn and persist it to the session zip.
-    pub async fn add_turn(&self, id: &str, turn: ConversationTurn) {
+    ///
+    /// Returns `Ok(())` on successful persistence, or `Err` if the zip
+    /// rewrite failed. On error the in-memory turn is rolled back so memory
+    /// and disk stay in sync: the next prompt either succeeds (with both
+    /// written) or surfaces the same error again deterministically. The
+    /// atomic temp-then-rename in `append_turn_to_zip` guarantees the
+    /// on-disk zip is unchanged on any failure path.
+    ///
+    /// Concurrency: callers must serialize `add_turn` per session. The agent
+    /// achieves this by holding the per-session cancellation token via
+    /// `start_prompt`/`finish_prompt` for the entire prompt-plus-persistence
+    /// window — `finish_prompt` runs *after* `add_turn` returns. Without
+    /// that ordering, a second `session/prompt` could push a new turn
+    /// between this turn's push and its rollback `pop()`, removing the
+    /// wrong entry.
+    pub async fn add_turn(&self, id: &str, turn: ConversationTurn) -> anyhow::Result<()> {
         // Mutate in-memory state first, then release the lock BEFORE blocking I/O.
+        // Capture pre-mutation `modified` so we can reverse the bump on failure.
         let snapshot = {
             let mut sessions = self.sessions.write().await;
             match sessions.get_mut(id) {
                 Some(session) => {
+                    let prev_modified = session.manifest.modified;
                     session.history.push(turn.clone());
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -866,17 +940,43 @@ impl SessionStore {
                     Some((
                         session_zip_path(&session.cwd, &session.id),
                         session.manifest.clone(),
+                        prev_modified,
                     ))
                 }
                 None => None,
             }
         };
-        if let Some((zip_path, manifest)) = snapshot {
-            let _ = tokio::task::spawn_blocking(move || {
-                append_turn_to_zip(&zip_path, &manifest, &turn)
-            })
-            .await;
+        let Some((zip_path, manifest, prev_modified)) = snapshot else {
+            // Session is unknown -- no in-memory state to roll back, nothing
+            // to persist. Treat as a no-op success.
+            return Ok(());
+        };
+
+        let turn_for_zip = turn.clone();
+        let join_result = tokio::task::spawn_blocking(move || {
+            append_turn_to_zip(&zip_path, &manifest, &turn_for_zip)
+        })
+        .await;
+
+        let persist_result = match join_result {
+            Ok(r) => r,
+            Err(join_err) => Err(anyhow::anyhow!(
+                "session persistence task panicked: {join_err}"
+            )),
+        };
+
+        if let Err(e) = persist_result {
+            tracing::error!(
+                session_id = %id,
+                "failed to persist conversation turn; rolling back in-memory state: {e:#}"
+            );
+            if let Some(session) = self.sessions.write().await.get_mut(id) {
+                session.history.pop();
+                session.manifest.modified = prev_modified;
+            }
+            return Err(e);
         }
+        Ok(())
     }
 
     /// List sessions from disk, filtered by cwd.
@@ -904,5 +1004,72 @@ impl SessionStore {
 
     pub async fn finish_prompt(&self, session_id: &str) {
         self.cancel_tokens.write().await.remove(session_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build an in-memory session that has NEVER been written to disk, then
+    /// call `add_turn`. The append step must fail (because the zip file
+    /// doesn't exist), and the in-memory state must be rolled back so
+    /// `history` is empty and `manifest.modified` matches the pre-call value.
+    #[tokio::test]
+    async fn add_turn_rolls_back_on_persistence_failure() {
+        let store = SessionStore::new("test-model".to_string());
+
+        // Hand-construct a session and inject it into the in-memory map without
+        // ever calling `create_session` (which would write a zip on disk).
+        let id = "rollback-test".to_string();
+        let cwd = std::env::temp_dir().join(format!("brokk-acp-rust-rollback-{}", id));
+        let session = Session::new(id.clone(), cwd, "test-model".to_string(), "test".into());
+        let pre_modified = session.manifest.modified;
+        store.sessions.write().await.insert(id.clone(), session);
+
+        let result = store
+            .add_turn(
+                &id,
+                ConversationTurn {
+                    user_prompt: "hello".into(),
+                    agent_response: "world".into(),
+                },
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "add_turn should fail when the session zip doesn't exist on disk"
+        );
+
+        let sessions = store.sessions.read().await;
+        let s = sessions.get(&id).expect("session still in memory");
+        assert!(
+            s.history.is_empty(),
+            "rollback should have popped the optimistically-pushed turn, got {:?}",
+            s.history
+        );
+        assert_eq!(
+            s.manifest.modified, pre_modified,
+            "rollback should restore the pre-call manifest.modified timestamp"
+        );
+    }
+
+    /// Sanity check that `add_turn` on an unknown session id is a no-op
+    /// success rather than an error -- callers may race between session
+    /// removal (none today, but reserved) and turn persistence.
+    #[tokio::test]
+    async fn add_turn_unknown_session_is_noop_success() {
+        let store = SessionStore::new("test-model".to_string());
+        let result = store
+            .add_turn(
+                "no-such-session",
+                ConversationTurn {
+                    user_prompt: "x".into(),
+                    agent_response: "y".into(),
+                },
+            )
+            .await;
+        assert!(result.is_ok());
     }
 }

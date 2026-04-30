@@ -13,6 +13,7 @@ import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.util.Json;
 import ai.brokk.util.Lines;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ResponseFormatType;
@@ -195,8 +196,10 @@ public class ReferenceAgent {
                         .jsonSchema(schema)
                         .build());
 
-        String prompt = buildReferenceClassificationPrompt(goal, conversationHistory, candidates);
-        var result = llm.sendRequest(List.of(new UserMessage(prompt)), requestOptions);
+        String userPrompt = buildReferenceClassificationUserPrompt(goal, conversationHistory, candidates);
+        var result = llm.sendRequest(
+                List.of(new SystemMessage(REFERENCE_CLASSIFICATION_SYSTEM_PROMPT), new UserMessage(userPrompt)),
+                requestOptions);
         if (result.error() != null) {
             return Set.of();
         }
@@ -207,13 +210,8 @@ public class ReferenceAgent {
         return relevant;
     }
 
-    private static String buildReferenceClassificationPrompt(
-            String goal, String conversationHistory, List<String> references) {
-        var mapper = Json.getMapper();
-        var valuesArray = mapper.createArrayNode();
-        references.forEach(valuesArray::add);
-
-        return """
+    private static final String REFERENCE_CLASSIFICATION_SYSTEM_PROMPT =
+            """
           You are filtering candidate references extracted from the user's request.
 
           Your task is to keep the references that are plausibly useful as initial anchors for later
@@ -235,6 +233,22 @@ public class ReferenceAgent {
           - The goal is not to find the minimum perfect set; the goal is to avoid missing anchors that would help the next search step start in the right place.
           - ... While avoiding junk and noise.
 
+          Output JSON with a single field:
+          - "relevant": array of reference strings chosen from the candidate list.
+
+          Requirements:
+          - Return only strings from the provided candidate list.
+          - Preserve exact spelling.
+          - No commentary.
+          """;
+
+    private static String buildReferenceClassificationUserPrompt(
+            String goal, String conversationHistory, List<String> references) {
+        var mapper = Json.getMapper();
+        var valuesArray = mapper.createArrayNode();
+        references.forEach(valuesArray::add);
+
+        return """
           <conversation_history>
           %s
           </conversation_history>
@@ -245,14 +259,6 @@ public class ReferenceAgent {
 
           References:
           %s
-
-          Output JSON with a single field:
-          - "relevant": array of reference strings chosen from the candidate list.
-
-          Requirements:
-          - Return only strings from the provided candidate list.
-          - Preserve exact spelling.
-          - No commentary.
           """
                 .formatted(conversationHistory, goal, valuesArray);
     }

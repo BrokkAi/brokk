@@ -37,7 +37,7 @@ import org.jetbrains.annotations.Nullable;
  * triggering expensive analyzer build logic while satisfying callers (CodeAgent) that expect an AnalyzerWrapper to
  * exist and support pause()/resume()/get().
  */
-public final class TestContextManager implements IAppContextManager {
+public class TestContextManager implements IAppContextManager {
     private final IProject project;
     private final AtomicReference<IAnalyzer> analyzerRef;
     private final IGitRepo repo;

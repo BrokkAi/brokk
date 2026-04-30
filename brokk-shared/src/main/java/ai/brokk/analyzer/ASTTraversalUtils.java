@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSException;
@@ -41,6 +42,40 @@ public class ASTTraversalUtils {
         return left.getStartByte() == right.getStartByte() && left.getEndByte() == right.getEndByte();
     }
 
+    /** Returns valid named children in source order. */
+    public static List<TSNode> namedChildren(TSNode node) {
+        var children = new ArrayList<TSNode>();
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (isValid(child)) {
+                children.add(requireNonNull(child));
+            }
+        }
+        return children;
+    }
+
+    /** Returns valid children in source order, including anonymous token nodes. */
+    public static List<TSNode> children(TSNode node) {
+        var children = new ArrayList<TSNode>();
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (isValid(child)) {
+                children.add(requireNonNull(child));
+            }
+        }
+        return children;
+    }
+
+    /** Finds the first direct named child whose type is in the supplied set. */
+    public static @Nullable TSNode directNamedChildOfAnyType(TSNode node, Set<String> types) {
+        for (TSNode child : namedChildren(node)) {
+            if (types.contains(typeOf(child))) {
+                return child;
+            }
+        }
+        return null;
+    }
+
     /** Recursively finds the first node matching the given predicate. */
     public static @Nullable TSNode findNodeRecursive(@Nullable TSNode rootNode, Predicate<TSNode> predicate) {
         if (!isValid(rootNode)) {
@@ -53,13 +88,10 @@ public class ASTTraversalUtils {
         }
 
         // Recursively search children
-        for (int i = 0; i < root.getChildCount(); i++) {
-            var child = root.getChild(i);
-            if (isValid(child)) {
-                var result = findNodeRecursive(child, predicate);
-                if (result != null) {
-                    return result;
-                }
+        for (TSNode child : children(root)) {
+            var result = findNodeRecursive(child, predicate);
+            if (result != null) {
+                return result;
             }
         }
 
@@ -85,11 +117,8 @@ public class ASTTraversalUtils {
         }
 
         // Recursively search children
-        for (int i = 0; i < current.getChildCount(); i++) {
-            var child = current.getChild(i);
-            if (isValid(child)) {
-                findAllNodesRecursiveInternal(child, predicate, results);
-            }
+        for (TSNode child : children(current)) {
+            findAllNodesRecursiveInternal(child, predicate, results);
         }
     }
 

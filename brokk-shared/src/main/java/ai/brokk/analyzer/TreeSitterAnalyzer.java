@@ -39,6 +39,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -111,6 +112,45 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             outLen--;
         }
         return new String(out, 0, outLen);
+    }
+
+    protected int computeCognitiveComplexity(CodeUnit cu, BiFunction<TSNode, SourceContent, Integer> scorer) {
+        if (!cu.isFunction()) return 0;
+        return computeCognitiveComplexities(cu.source(), scorer).getOrDefault(cu, 0);
+    }
+
+    protected Map<CodeUnit, Integer> computeCognitiveComplexities(
+            ProjectFile file, BiFunction<TSNode, SourceContent, Integer> scorer) {
+        Map<CodeUnit, Integer> result = withTreeOf(
+                file,
+                tree -> withSource(
+                        file,
+                        content -> {
+                            var complexities = new LinkedHashMap<CodeUnit, Integer>();
+                            for (CodeUnit cu : functionCodeUnitsInFile(file)) {
+                                TSNode cuNode = primaryNodeForCodeUnit(tree, cu);
+                                if (cuNode != null) {
+                                    complexities.put(cu, scorer.apply(cuNode, content));
+                                }
+                            }
+                            return complexities;
+                        },
+                        Map.of()),
+                Map.of());
+        return result != null ? result : Map.of();
+    }
+
+    private List<CodeUnit> functionCodeUnitsInFile(ProjectFile file) {
+        var functions = new ArrayList<CodeUnit>();
+        var work = new ArrayDeque<>(getTopLevelDeclarations(file));
+        while (!work.isEmpty()) {
+            CodeUnit cu = work.pop();
+            if (cu.isFunction()) {
+                functions.add(cu);
+            }
+            work.addAll(getDirectChildren(cu));
+        }
+        return functions;
     }
 
     protected static boolean hasDescendantOfAnyTypeInclusive(TSNode root, Set<String> targetTypes) {

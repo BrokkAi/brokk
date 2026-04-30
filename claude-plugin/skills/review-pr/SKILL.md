@@ -81,13 +81,14 @@ git log "$DEFAULT_BRANCH"..HEAD --oneline
 
 ### Preparation
 
-1. Call `activateWorkspace` with the current project path so Brokk tools work.
+1. Call `activate_workspace` with the current project path so Brokk tools work.
 2. Parse the diff to build a list of **changed files**, grouped into
    categories: source, test, infrastructure/config, documentation.
 3. Note the total lines added and removed.
 4. If the diff exceeds 2000 lines, summarize it by file and pass only the
-   relevant file subset to each reviewer. Instruct reviewers to use
-   `getFileContents` and `getMethodSources` to read full details as needed.
+   relevant file subset to each reviewer. Instruct reviewers to use the
+   built-in `Read` tool for raw file contents and Brokk's
+   `get_symbol_sources` for specific method or class bodies.
 
 Store the PR title, PR body (description), diff text, and changed-file list --
 you will include all of these in every reviewer prompt.

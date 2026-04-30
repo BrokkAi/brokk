@@ -6,9 +6,12 @@ on the editor inheriting a PATH that finds them at agent-launch time. Pass
 `--brokk-acp-binary PATH` to override `brokk-acp`.
 
 For the `brokk bifrost` MCP subcommand, `resolve_bifrost_binary` prefers (in
-order): explicit override, an entry on `$PATH`, then a downloaded-and-cached
-release binary pinned to `BUNDLED_BIFROST_VERSION`. Cached binaries live under
-`get_global_cache_dir() / "bifrost" / <version>`.
+order): explicit override, an entry on `$PATH` whose `--version` output matches
+`BUNDLED_BIFROST_VERSION`, then a downloaded-and-cached release binary pinned
+to that same version. Cached binaries live under
+`get_global_cache_dir() / "bifrost" / <version>`. A `$PATH` binary whose version
+does not match (or does not respond to `--version`) is skipped and the bundled
+release is used instead.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -34,11 +38,12 @@ from brokk_code.settings import get_global_cache_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_BIFROST_VERSION = "0.1.1"
+BUNDLED_BIFROST_VERSION = "0.1.2"
 
 _BIFROST_RELEASE_URL = "https://github.com/BrokkAi/bifrost/releases/download"
 _BIFROST_DOWNLOAD_TIMEOUT_SECONDS = 300.0
 _BIFROST_LOCK_TIMEOUT_SECONDS = 600.0
+_BIFROST_VERSION_PROBE_TIMEOUT_SECONDS = 5.0
 
 
 class RustAcpInstallError(Exception):
@@ -100,13 +105,53 @@ def resolve_bifrost_binary(
 
     on_path = shutil.which("bifrost")
     if on_path:
-        return Path(on_path)
+        on_path_p = Path(on_path)
+        if _bifrost_version_matches(on_path_p, version):
+            return on_path_p
+        logger.info(
+            "Ignoring bifrost on $PATH at %s: version does not match bundled %s",
+            on_path_p,
+            version,
+        )
 
     binary_path = _bifrost_cache_binary_path(version)
     if binary_path.exists() and os.access(binary_path, os.X_OK):
         return binary_path
 
     return _download_bifrost(version)
+
+
+def _bifrost_version_matches(binary_path: Path, expected_version: str) -> bool:
+    """Return True iff `<binary_path> --version` prints `bifrost <expected_version>`.
+
+    Falls back to False on any error (timeout, non-zero exit, unparseable output).
+    """
+    try:
+        proc = subprocess.run(
+            [str(binary_path), "--version"],
+            capture_output=True,
+            text=True,
+            timeout=_BIFROST_VERSION_PROBE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.debug("Failed to probe %s --version: %s", binary_path, exc)
+        return False
+
+    if proc.returncode != 0:
+        logger.debug(
+            "%s --version exited %d; stderr=%r",
+            binary_path,
+            proc.returncode,
+            proc.stderr,
+        )
+        return False
+
+    lines = (proc.stdout or "").strip().splitlines()
+    if not lines:
+        return False
+    tokens = lines[0].split()
+    return len(tokens) >= 2 and tokens[0] == "bifrost" and tokens[1] == expected_version
 
 
 def _bifrost_triple() -> str:
@@ -219,8 +264,7 @@ def _download_bifrost(version: str) -> Path:
             actual_sha = _file_sha256(archive_path)
             if expected_sha != actual_sha:
                 raise BifrostInstallError(
-                    f"Checksum mismatch for {asset_name}: "
-                    f"expected {expected_sha}, got {actual_sha}"
+                    f"Checksum mismatch for {asset_name}: expected {expected_sha}, got {actual_sha}"
                 )
 
             extracted_dir = tmp_path / "extracted"
@@ -284,9 +328,7 @@ def _find_extracted_binary(root: Path) -> Path:
     expected = _bifrost_binary_filename()
     matches = [p for p in root.rglob(expected) if p.is_file()]
     if not matches:
-        raise BifrostInstallError(
-            f"No '{expected}' found inside extracted archive at {root}"
-        )
+        raise BifrostInstallError(f"No '{expected}' found inside extracted archive at {root}")
     # Prefer the shallowest match if multiple (release archives ship one binary at root).
     matches.sort(key=lambda p: len(p.parts))
     return matches[0]

@@ -9,6 +9,9 @@ import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
+import ai.brokk.acp.BrokkAcpAgent;
+import ai.brokk.acp.PermissionRules;
+import ai.brokk.acp.SafeCommand;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -124,7 +127,16 @@ public class Chrome
 
     private final RightPanel rightPanel;
     private final ToolsPane toolsPane;
-    private final Set<String> sessionApprovedTools = ConcurrentHashMap.newKeySet();
+    private final Map<String, Boolean> sessionApprovedTools = new ConcurrentHashMap<>();
+
+    /**
+     * Lazy-loaded cross-session permission rules for this project (Phase 2). Backed by
+     * {@code <projectRoot>/.brokk/permission_rules.json}. Initialized on first {@link
+     * #beforeToolCall} that needs it; cached for the lifetime of this Chrome.
+     */
+    @Nullable
+    private volatile PermissionRules permissionRulesCache;
+
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
     private final JTabbedPane fileHistoryPane; // Bottom area for file history
     private int originalLeftVerticalDividerSize;
@@ -2250,9 +2262,32 @@ public class Chrome
         if (!destructive) {
             return ApprovalResult.APPROVED;
         }
+        // Phase 1 safe-command short-circuit: skip the banner for known-safe read-only shell
+        // commands (ls, cat, git status, ...). Mirrors the ACP path's PermissionGate logic so
+        // GUI and ACP behave identically. The sandbox still applies to the executed command.
+        if ("runShellCommand".equals(request.name())) {
+            var command = extractJsonField(request.arguments(), "command");
+            if (command != null && SafeCommand.isKnownSafe(command)) {
+                return ApprovalResult.APPROVED;
+            }
+        }
         var approval = computeApprovalContext(request);
-        if (sessionApprovedTools.contains(approval.sessionKey())) {
-            return ApprovalResult.APPROVED;
+        // Phase 2 cross-session persistence: a previously stored "Always allow / always reject"
+        // verdict (in <projectRoot>/.brokk/permission_rules.json) wins over the in-RAM session
+        // cache, so a manual edit of the rules file or a verdict from a prior IDE run is honored
+        // immediately without firing the banner.
+        var persistentVerdict = permissionRules()
+                .lookup(request.name(), PermissionRules.argMatchOf(request.name(), approval.sessionKey()));
+        if (persistentVerdict.isPresent()) {
+            return switch (persistentVerdict.get()) {
+                case DENY -> ApprovalResult.DENIED;
+                case ALLOW_NO_SANDBOX -> ApprovalResult.APPROVED_NO_SANDBOX;
+                case ALLOW -> ApprovalResult.APPROVED;
+            };
+        }
+        var cached = sessionApprovedTools.get(approval.sessionKey());
+        if (cached != null) {
+            return cached ? ApprovalResult.APPROVED_NO_SANDBOX : ApprovalResult.APPROVED;
         }
         var hop = rightPanel.getHistoryOutputPanel();
         CompletableFuture<HistoryOutputPanel.ApprovalChoice> future;
@@ -2281,11 +2316,15 @@ public class Chrome
         try {
             var choice = future.get();
             if (choice == HistoryOutputPanel.ApprovalChoice.ALLOW_SESSION) {
-                sessionApprovedTools.add(approval.sessionKey());
+                sessionApprovedTools.put(approval.sessionKey(), false);
+                persistRule(request.name(), approval.sessionKey(), BrokkAcpAgent.PermissionVerdict.ALLOW);
+            } else if (choice == HistoryOutputPanel.ApprovalChoice.ALLOW_NO_SANDBOX_SESSION) {
+                sessionApprovedTools.put(approval.sessionKey(), true);
+                persistRule(request.name(), approval.sessionKey(), BrokkAcpAgent.PermissionVerdict.ALLOW_NO_SANDBOX);
             }
             return switch (choice) {
                 case DENY -> ApprovalResult.DENIED;
-                case ALLOW_NO_SANDBOX -> ApprovalResult.APPROVED_NO_SANDBOX;
+                case ALLOW_NO_SANDBOX, ALLOW_NO_SANDBOX_SESSION -> ApprovalResult.APPROVED_NO_SANDBOX;
                 default -> ApprovalResult.APPROVED;
             };
         } catch (ExecutionException e) {
@@ -2294,6 +2333,41 @@ public class Chrome
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return ApprovalResult.DENIED;
+        }
+    }
+
+    /**
+     * Lazy-loads the per-project {@link PermissionRules}. Loaded once on first call and cached in
+     * {@link #permissionRulesCache} for the lifetime of this Chrome — Brokk doesn't watch the
+     * rules file for external edits, so users editing it by hand must restart the IDE.
+     */
+    private PermissionRules permissionRules() {
+        var cached = permissionRulesCache;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (this) {
+            if (permissionRulesCache == null) {
+                permissionRulesCache =
+                        PermissionRules.loadForProject(getProject().getRoot());
+            }
+            return permissionRulesCache;
+        }
+    }
+
+    /**
+     * Persists a permission verdict to disk. Failures (read-only filesystem, permissions issues)
+     * are logged and swallowed; the in-RAM {@code sessionApprovedTools} cache still works for the
+     * remainder of this run.
+     */
+    private void persistRule(String toolName, String sessionKey, BrokkAcpAgent.PermissionVerdict verdict) {
+        try {
+            var argMatch = PermissionRules.argMatchOf(toolName, sessionKey);
+            var rules = permissionRules();
+            rules.put(toolName, argMatch, verdict);
+            rules.save(getProject().getRoot());
+        } catch (Exception e) {
+            logger.warn("Failed to persist permission rule for {}: {}", toolName, e.getMessage());
         }
     }
 
@@ -2318,6 +2392,15 @@ public class Chrome
                         command != null ? command : request.arguments(),
                         "Allow Command for Session",
                         "runShellCommand:" + (command != null ? command : ""),
+                        true);
+            }
+            case "callShellAgent" -> {
+                var task = extractJsonField(request.arguments(), "task");
+                yield new ApprovalContext(
+                        "Agent wants to run a shell agent",
+                        task != null ? task : request.arguments(),
+                        "Allow Shell Agent for Session",
+                        "callShellAgent:" + (task != null ? task : ""),
                         true);
             }
             default ->

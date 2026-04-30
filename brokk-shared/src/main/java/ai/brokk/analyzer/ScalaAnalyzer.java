@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.scala.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.scala.CognitiveComplexityAnalysis;
 import ai.brokk.project.ICoreProject;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -67,6 +68,16 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return SCALA_SYNTAX_PROFILE;
+    }
+
+    @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return computeCognitiveComplexity(cu, CognitiveComplexityAnalysis::compute);
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return computeCognitiveComplexities(file, CognitiveComplexityAnalysis::compute);
     }
 
     @Override

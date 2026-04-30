@@ -1,6 +1,7 @@
 package ai.brokk.acp;
 
 import ai.brokk.LlmOutputMeta;
+import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.MemoryConsole;
@@ -12,11 +13,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.UUID;
@@ -24,6 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.JOptionPane;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -36,6 +40,8 @@ import org.jetbrains.annotations.Nullable;
  * <p>Constructed per-prompt-turn and set as the active console on ContextManager.
  */
 public class AcpConsoleIO extends MemoryConsole {
+    private static final Logger logger = LogManager.getLogger(AcpConsoleIO.class);
+
     private final AcpPromptContext context;
     private final String sessionId;
 
@@ -47,6 +53,18 @@ public class AcpConsoleIO extends MemoryConsole {
 
     /** Tracks tool call ID for commandStart/commandResult lifecycle. */
     private volatile @Nullable String activeCommandToolCallId;
+
+    /**
+     * Per-stream state for suppressing SEARCH/REPLACE block content from agent_message_chunk.
+     * The canonical edit visualization is delivered via {@link #afterFileEdits}'s
+     * tool_call_update with structured diff content; the raw SR prose duplicates that.
+     */
+    private final StringBuilder lineBuffer = new StringBuilder();
+
+    private boolean inSrBlock = false;
+
+    private static final String SR_START_PREFIX = "<<<<<<< SEARCH";
+    private static final String SR_END_PREFIX = ">>>>>>> REPLACE";
 
     /**
      * Tools whose result text is the agent's user-facing answer and is also streamed via
@@ -103,6 +121,18 @@ public class AcpConsoleIO extends MemoryConsole {
 
     // ---- Core LLM output ----
 
+    /**
+     * No-op: the user's prompt is already known to the client via the JSON-RPC
+     * {@code session/prompt} request. The default implementation re-emits the prompt as a
+     * CUSTOM-typed {@code <task sequence=N>...</task>} blob, which the synthetic tool_call
+     * path then renders with an XML-tag title that the client strips, producing an empty
+     * checkmark card.
+     */
+    @Override
+    public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
+        // intentionally empty
+    }
+
     @Override
     public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         super.llmOutput(token, type, meta);
@@ -117,21 +147,55 @@ public class AcpConsoleIO extends MemoryConsole {
             return;
         }
         if (type == ChatMessageType.AI) {
-            // Brokk's agents emit "**Brokk Context Engine** analyzing…" /
-            // "`Adding context to workspace`\n```yaml\n…" status banners as full-message AI
-            // emissions. Detect them by *complete* `**Header**` or `` `Header` `` shape with
-            // content after — this excludes streaming tokens (partial markers) and bare bold
-            // emphasis (no content after the closing marker), and catches banners regardless
-            // of the LlmOutputMeta.newMessage flag (which Brokk doesn't set consistently).
-            // Final-answer text from terminal-answer tools is emitted as `# Answer\n\n…`
-            // (h1, not bold/backtick), so it doesn't match and continues flowing to chat.
-            var banner = tryDetectBanner(token);
-            if (banner.isPresent()) {
-                emitSyntheticToolCall(banner.get(), AcpSchema.ToolKind.THINK);
-                return;
+            var filtered = filterSearchReplaceTokens(token);
+            if (!filtered.isEmpty()) {
+                context.sendMessage(filtered);
             }
+            return;
         }
         context.sendMessage(token);
+    }
+
+    /**
+     * Strip SEARCH/REPLACE block content from a streamed AI token. State is held across calls
+     * via {@link #lineBuffer} and {@link #inSrBlock}.
+     *
+     * <p>Detection is line-based: a line starting with {@link #SR_START_PREFIX} opens the block;
+     * a line starting with {@link #SR_END_PREFIX} closes it. Lines between (and the marker
+     * lines themselves) are dropped. No placeholder is emitted; the structured edit visualization
+     * comes from {@link #afterFileEdits}'s tool_call_update.
+     *
+     * <p>Prose outside SR blocks streams through char-by-char, except a partial line starting
+     * with {@code '<'} or {@code '>'} is buffered until newline so a forming SR marker isn't
+     * accidentally emitted.
+     */
+    private synchronized String filterSearchReplaceTokens(String token) {
+        var out = new StringBuilder();
+        for (int i = 0; i < token.length(); i++) {
+            char c = token.charAt(i);
+            if (c == '\n') {
+                String line = lineBuffer.toString();
+                lineBuffer.setLength(0);
+                String trimmed = line.stripTrailing();
+                if (!inSrBlock && trimmed.startsWith(SR_START_PREFIX)) {
+                    inSrBlock = true;
+                } else if (inSrBlock && trimmed.startsWith(SR_END_PREFIX)) {
+                    inSrBlock = false;
+                } else if (!inSrBlock) {
+                    out.append(line).append('\n');
+                }
+            } else {
+                lineBuffer.append(c);
+                if (!inSrBlock) {
+                    char first = lineBuffer.charAt(0);
+                    if (first != '<' && first != '>') {
+                        out.append(lineBuffer);
+                        lineBuffer.setLength(0);
+                    }
+                }
+            }
+        }
+        return out.toString();
     }
 
     /**
@@ -140,25 +204,52 @@ public class AcpConsoleIO extends MemoryConsole {
      * Empty when the text is normal chat content (incl. streaming tokens that are partial
      * markers, bare bold/code emphasis with no body, or h1/plain text).
      */
-    private static Optional<HeaderAndBody> tryDetectBanner(String text) {
-        var trimmed = text.strip();
-        Matcher m = BOLD_HEADER.matcher(trimmed);
-        if (m.matches()) {
-            var header = m.group(1).strip();
-            var rest = m.group(2).stripLeading();
-            if (!header.isBlank() && !rest.isBlank()) {
-                return Optional.of(new HeaderAndBody(header, rest));
-            }
+    @Override
+    public void showStatusBanner(String headline, Map<String, Object> details) {
+        emitCompactStatus(headline, AcpSchema.ToolKind.THINK);
+    }
+
+    @Override
+    public void showStatusLine(String message) {
+        // Emit via agent_message_chunk so the status renders as inline transcript text.
+        // Replace the shields.io image-markdown that StatusBadge embeds with a bold label,
+        // since Zed's ACP renderer parses markdown text but does not load remote images.
+        var rewritten = rewriteStatusBadge(message);
+        var formatted = "\n" + rewritten + "\n";
+        super.llmOutput(formatted, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
+        context.sendMessage(formatted);
+    }
+
+    private static final Pattern STATUS_BADGE = Pattern.compile(
+            "^!\\[Status\\]\\(https://img\\.shields\\.io/badge/Status-(.+?)-(?:brightgreen|yellow|orange|red)\\?style=flat\\)\\s*");
+
+    private static String rewriteStatusBadge(String message) {
+        var matcher = STATUS_BADGE.matcher(message);
+        if (!matcher.find()) {
+            return message;
         }
-        m = BACKTICK_HEADER.matcher(trimmed);
-        if (m.matches()) {
-            var header = m.group(1).strip();
-            var rest = m.group(2).stripLeading();
-            if (!header.isBlank() && !rest.isBlank()) {
-                return Optional.of(new HeaderAndBody(header, rest));
-            }
-        }
-        return Optional.empty();
+        var label = URLDecoder.decode(matcher.group(1), StandardCharsets.UTF_8);
+        return "**[" + label + "]** " + message.substring(matcher.end());
+    }
+
+    /**
+     * Emit a single completed {@link AcpSchema.ToolCall} carrying just a title — no body. The
+     * client renders this as a one-line entry alongside its peers (matching how
+     * {@code projectFinished} appears as a compact "Project complete" line).
+     */
+    private void emitCompactStatus(String title, AcpSchema.ToolKind kind) {
+        var toolCall = new AcpSchema.ToolCall(
+                "tool_call",
+                UUID.randomUUID().toString(),
+                title,
+                kind,
+                AcpSchema.ToolCallStatus.COMPLETED,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                Map.of("brokk", Map.of("synthetic", true)));
+        context.sendUpdate(sessionId, toolCall);
     }
 
     // ---- Tool call hooks ----
@@ -189,20 +280,83 @@ public class AcpConsoleIO extends MemoryConsole {
         context.sendUpdate(sessionId, toolCall);
 
         if (destructive) {
-            boolean approved = context.askPermission("Allow destructive tool: " + toolName + "?", toolName);
-            if (!approved) {
+            // Tools that ultimately run shell commands (directly or via a sub-agent) get the
+            // sandbox-bypass options and a per-invocation cache key so a session approval doesn't
+            // blanket-allow other tasks. Other destructive tools use the legacy boolean prompt.
+            ApprovalResult result;
+            String shellArgField = SHELL_TOOLS_TO_ARG_FIELD.get(toolName);
+            if (shellArgField != null) {
+                var arg = extractStringArg(request.arguments(), shellArgField);
+                var cacheKey = arg.isEmpty() ? toolName : toolName + ":" + arg;
+                var prompt =
+                        arg.isEmpty() ? "Allow shell tool: " + toolName + "?" : "Allow " + toolName + ": " + arg + "?";
+                // Pass the raw command for runShellCommand so SafeCommand can auto-approve known
+                // safe read-only commands. For other shell-like tools (e.g. callShellAgent) the
+                // "command" is a high-level task description, so safety can't be checked statically.
+                var rawCommand = "runShellCommand".equals(toolName) && !arg.isEmpty() ? arg : null;
+                var decision = context.askPermissionDetailed(prompt, toolName, cacheKey, true, rawCommand);
+                result = switch (decision) {
+                    case ALLOW -> ApprovalResult.APPROVED;
+                    case ALLOW_NO_SANDBOX -> ApprovalResult.APPROVED_NO_SANDBOX;
+                    case DENY -> ApprovalResult.DENIED;
+                };
+            } else {
+                boolean approved = context.askPermission("Allow destructive tool: " + toolName + "?", toolName);
+                result = approved ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
+            }
+            if (!result.isApproved()) {
                 pendingToolKinds.remove(toolCallId);
                 pendingToolTitles.remove(toolCallId);
+                emitDeniedToolCallUpdate(toolCallId, title, kind);
             }
-            return approved ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
+            return result;
         }
         return ApprovalResult.APPROVED;
+    }
+
+    /**
+     * Tools whose approval prompts should expose the sandbox-bypass options. The map value is the
+     * JSON argument name to extract for the per-invocation cache key — e.g. for {@code
+     * runShellCommand("ls -la")} the cache key becomes {@code "runShellCommand:ls -la"}, so a
+     * session-level approval doesn't blanket-allow other commands.
+     */
+    private static final Map<String, String> SHELL_TOOLS_TO_ARG_FIELD =
+            Map.of("runShellCommand", "command", "callShellAgent", "task");
+
+    /** Best-effort extraction of a string argument from a tool-call's JSON payload; "" on miss. */
+    private static String extractStringArg(@Nullable String argumentsJson, String field) {
+        var node = parseArgs(argumentsJson);
+        if (node == null) {
+            return "";
+        }
+        var value = node.get(field);
+        return value != null && value.isTextual() ? value.asText() : "";
+    }
+
+    /**
+     * Emit a terminal {@code tool_call_update} with status FAILED so the client has a signal that
+     * the originally-requested tool call won't proceed. Clients that bind a permission dialog to
+     * the tool-call lifecycle can dismiss the dialog on this update.
+     */
+    private void emitDeniedToolCallUpdate(String toolCallId, String title, AcpSchema.ToolKind kind) {
+        var failed = new AcpSchema.ToolCallUpdateNotification(
+                "tool_call_update",
+                toolCallId,
+                title,
+                kind,
+                AcpSchema.ToolCallStatus.FAILED,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null);
+        context.sendUpdate(sessionId, failed);
     }
 
     @Override
     public ApprovalResult beforeShellCommand(String command) {
         var toolCallId = UUID.randomUUID().toString();
-        var title = "Shell: " + truncate(command, 60);
+        var title = ellipsize("Shell: " + command, 80);
         pendingToolKinds.put(toolCallId, AcpSchema.ToolKind.EXECUTE);
         pendingToolTitles.put(toolCallId, title);
 
@@ -223,6 +377,7 @@ public class AcpConsoleIO extends MemoryConsole {
         if (!approved) {
             pendingToolKinds.remove(toolCallId);
             pendingToolTitles.remove(toolCallId);
+            emitDeniedToolCallUpdate(toolCallId, title, AcpSchema.ToolKind.EXECUTE);
         }
         return approved ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
     }
@@ -288,6 +443,12 @@ public class AcpConsoleIO extends MemoryConsole {
                 ? AcpSchema.ToolCallStatus.COMPLETED
                 : AcpSchema.ToolCallStatus.FAILED;
         var toolId = result.toolId();
+        if (toolId == null) {
+            // Without a correlation id we have nothing to update, and ConcurrentHashMap operations
+            // below would NPE on a null key.
+            logger.warn("afterToolOutput called with null toolId for tool '{}' status={}", result.toolName(), status);
+            return;
+        }
         var kind = pendingToolKinds.getOrDefault(toolId, AcpSchema.ToolKind.OTHER);
         pendingToolKinds.remove(toolId);
         var title = pendingToolTitles.getOrDefault(toolId, displayTitle(result.toolName(), null));
@@ -330,7 +491,7 @@ public class AcpConsoleIO extends MemoryConsole {
         if (role == NotificationRole.COST) {
             return;
         }
-        emitSyntheticToolCall(new HeaderAndBody("Notification", message), AcpSchema.ToolKind.OTHER);
+        emitCompactStatus(message, AcpSchema.ToolKind.OTHER);
     }
 
     @Override
@@ -349,6 +510,8 @@ public class AcpConsoleIO extends MemoryConsole {
 
     @Override
     public void toolError(String msg, String title) {
+        // Errors keep a body — the message can be multi-line stack traces or actionable detail
+        // that's harder to fit in a title alone.
         emitSyntheticToolCall(new HeaderAndBody("Error: " + title, msg), AcpSchema.ToolKind.OTHER);
     }
 
@@ -382,7 +545,7 @@ public class AcpConsoleIO extends MemoryConsole {
     public void commandStart(String stage, String command) {
         // Model build/test commands as tool_call with EXECUTE kind
         var toolCallId = UUID.randomUUID().toString();
-        var title = stage + ": " + truncate(command, 60);
+        var title = ellipsize(stage + ": " + command, 80);
         activeCommandToolCallId = toolCallId;
         pendingToolTitles.put(toolCallId, title);
 
@@ -417,8 +580,10 @@ public class AcpConsoleIO extends MemoryConsole {
         }
 
         var status = success ? AcpSchema.ToolCallStatus.COMPLETED : AcpSchema.ToolCallStatus.FAILED;
-        var resultText = success ? output : (exception != null && !exception.isBlank() ? exception : output);
-        var title = pendingToolTitles.getOrDefault(toolCallId, stage + ": " + truncate(command, 60));
+        // On failure, callers (e.g. ProjectBuildRunner) already concatenate the exception
+        // message into `output`, so prefer it; fall back to `exception` only when output is blank.
+        var resultText = !output.isBlank() ? output : (exception != null && !exception.isBlank() ? exception : output);
+        var title = pendingToolTitles.getOrDefault(toolCallId, ellipsize(stage + ": " + command, 80));
         pendingToolTitles.remove(toolCallId);
 
         List<AcpSchema.ToolCallContent> content = renderToolContent(AcpSchema.ToolKind.EXECUTE, resultText);
@@ -538,9 +703,9 @@ public class AcpConsoleIO extends MemoryConsole {
                     "addMethodsToWorkspace",
                     "addUrlContentsToWorkspace" -> "Add to workspace";
             case "dropWorkspaceFragments" -> "Drop workspace fragments";
-            case "searchAgent" -> "Search agent: " + truncate(textArg(args, "query", "request"), 60);
-            case "callCodeAgent" -> "Code agent: " + truncate(textArg(args, "instructions", "task"), 60);
-            case "callShellAgent" -> "Shell agent: " + truncate(textArg(args, "task", "command"), 60);
+            case "searchAgent" -> ellipsize("Search agent: " + textArg(args, "query", "request"), 80);
+            case "callCodeAgent" -> ellipsize("Code agent: " + textArg(args, "instructions", "task"), 80);
+            case "callShellAgent" -> ellipsize("Shell agent: " + textArg(args, "task", "command"), 80);
             case "callMcpTool" -> "MCP: " + textArg(args, "toolName", "tool");
             case "answer" -> "Final answer";
             case "workspaceComplete" -> "Workspace ready";
@@ -660,10 +825,31 @@ public class AcpConsoleIO extends MemoryConsole {
         if (unwrapped != null) {
             return truncate(unwrapped, MAX_RENDERED_BODY_BYTES);
         }
+        // Unwrap {"explanation": "<text>"} envelopes — the wrapping JSON is internal
+        // bookkeeping; the chat should show the explanation prose.
+        var explanation = unwrapExplanation(parsed);
+        if (explanation != null) {
+            return truncate(explanation, MAX_RENDERED_BODY_BYTES);
+        }
         if (parsed.isArray() && (kind == AcpSchema.ToolKind.SEARCH || kind == AcpSchema.ToolKind.READ)) {
             return renderArrayAsBullets(parsed);
         }
         return renderJsonAsCodeBlock(parsed);
+    }
+
+    /**
+     * If {@code node} matches {@code {"explanation": "<text>"}} (an object with a single
+     * textual {@code explanation} field), return the text; otherwise null.
+     */
+    private static @Nullable String unwrapExplanation(JsonNode node) {
+        if (!node.isObject() || node.size() != 1) {
+            return null;
+        }
+        var explanation = node.get("explanation");
+        if (explanation == null || !explanation.isTextual()) {
+            return null;
+        }
+        return explanation.asText();
     }
 
     private static @Nullable JsonNode tryParseJson(String text) {
@@ -762,6 +948,20 @@ public class AcpConsoleIO extends MemoryConsole {
         return text.substring(0, maxBytes) + "\n... [truncated " + (text.length() - maxBytes) + " chars]";
     }
 
+    /**
+     * Single-line ellipsizer for tool-call titles. Returns a string of length at most {@code max}
+     * with no embedded newline. The body-style {@link #truncate} would inject a "\n... [truncated
+     * N chars]" marker, which a client would render as a multi-line title — never what we want.
+     */
+    private static String ellipsize(String text, int max) {
+        assert max >= 4 : "ellipsize requires room for at least one char plus '...'";
+        var oneLine = text.indexOf('\n') < 0 ? text : text.replace('\n', ' ');
+        if (oneLine.length() <= max) {
+            return oneLine;
+        }
+        return oneLine.substring(0, max - 3) + "...";
+    }
+
     // ---- Tool kind classification ----
 
     /**
@@ -770,38 +970,7 @@ public class AcpConsoleIO extends MemoryConsole {
      * tool name prefixes to match the reference ACP implementation's categories.
      */
     private static AcpSchema.ToolKind classifyTool(String toolName, boolean destructive) {
-        if (destructive) {
-            return AcpSchema.ToolKind.EDIT;
-        }
-        return switch (toolName) {
-            case "shell" -> AcpSchema.ToolKind.EXECUTE;
-            case "searchAgent" -> AcpSchema.ToolKind.SEARCH;
-            case "createOrReplaceTaskList" -> AcpSchema.ToolKind.THINK;
-            default -> classifyByPrefix(toolName);
-        };
-    }
-
-    private static AcpSchema.ToolKind classifyByPrefix(String toolName) {
-        if (toolName.startsWith("search") || toolName.startsWith("find")) {
-            return AcpSchema.ToolKind.SEARCH;
-        }
-        if (toolName.startsWith("get")
-                || toolName.startsWith("list")
-                || toolName.startsWith("skim")
-                || toolName.startsWith("explain")
-                || toolName.startsWith("read")
-                || toolName.startsWith("scan")) {
-            return AcpSchema.ToolKind.READ;
-        }
-        if (toolName.startsWith("add")
-                || toolName.startsWith("drop")
-                || toolName.startsWith("replace")
-                || toolName.startsWith("edit")
-                || toolName.startsWith("write")
-                || toolName.startsWith("create")) {
-            return AcpSchema.ToolKind.EDIT;
-        }
-        return AcpSchema.ToolKind.OTHER;
+        return destructive ? AcpSchema.ToolKind.EDIT : PermissionGate.classify(toolName);
     }
 
     // ---- GUI-only methods: all no-op (inherited defaults from IConsoleIO) ----

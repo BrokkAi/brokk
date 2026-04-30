@@ -337,7 +337,8 @@ public class SessionManager implements AutoCloseable {
                 String currentName = info.name();
                 boolean isDefaultName = currentName.equals("TUI Session")
                         || currentName.equals("New Session")
-                        || currentName.equals("Session");
+                        || currentName.equals("Session")
+                        || currentName.equals("ACP Session");
 
                 if (isDefaultName) {
                     String derived = deriveSessionName(taskInput);

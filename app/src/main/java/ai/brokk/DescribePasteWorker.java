@@ -6,6 +6,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
@@ -59,14 +60,13 @@ public class DescribePasteWorker {
                         var toolContext = new ToolContext(List.of(toolSpec), ToolChoice.REQUIRED, tr);
 
                         var messages = new ArrayList<ChatMessage>();
-                        var prompt =
-                                "Describe the following content in 12 words or fewer, and identify its syntax style by calling the 'describePasteContents' tool. "
-                                        + "The syntaxStyle parameter must be one of the following values: "
+                        messages.add(new SystemMessage(
+                                "Describe pasted content in 12 words or fewer and identify its syntax style "
+                                        + "by calling the 'describePasteContents' tool. The syntaxStyle parameter "
+                                        + "must be one of: "
                                         + String.join(", ", syntaxStyles)
-                                        + ".\n\n"
-                                        + "Content:\n\n"
-                                        + content;
-                        messages.add(new UserMessage(prompt));
+                                        + "."));
+                        messages.add(new UserMessage("Content:\n\n" + content));
 
                         var llm = cm.getLlm(
                                 cm.getService().quickestModel(), "Describe pasted text", TaskResult.Type.SUMMARIZE);

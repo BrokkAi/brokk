@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.cpp.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cpp.CognitiveComplexityAnalysis;
 import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import java.nio.file.InvalidPathException;
@@ -239,6 +240,16 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return CPP_SYNTAX_PROFILE;
+    }
+
+    @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return computeCognitiveComplexity(cu, CognitiveComplexityAnalysis::compute);
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return computeCognitiveComplexities(file, CognitiveComplexityAnalysis::compute);
     }
 
     @Override

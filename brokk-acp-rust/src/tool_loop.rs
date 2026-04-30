@@ -188,6 +188,12 @@ pub(crate) async fn run(
             }
         });
 
+        // Wall-clock bound on this stream is enforced by the reqwest client's
+        // own `.timeout(...)` (see `OpenAiClient::new`); duplicating it here
+        // would fire at ~the same moment with no added value. The original
+        // concern in #3366 -- streams that drip occasional bytes -- is
+        // genuinely about per-chunk inactivity, which a wall-clock timeout
+        // doesn't catch. Tracked as a separate fix in #3453.
         let response = llm
             .stream_chat(
                 model,

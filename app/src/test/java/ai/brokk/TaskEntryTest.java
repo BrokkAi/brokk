@@ -38,9 +38,9 @@ class TaskEntryTest {
         assertEquals("existing-summary", updated.summary());
         assertEquals("new-desc", updated.description());
 
-        assertEquals(md + "\n\n" + Messages.format(List.of(msg2)), updated.mopMarkdown());
+        assertEquals(md + "\n\n" + Messages.formatForDisplay(List.of(msg2)), updated.mopMarkdown());
 
-        // llmLog should be kept consistent when present
+        // llmLog should be kept consistent when present (still framed for LLM consumption)
         assertEquals(md + "\n\n" + Messages.format(List.of(msg2)), updated.llmMarkdown());
     }
 
@@ -55,7 +55,7 @@ class TaskEntryTest {
 
         var updated = entry.withAppendedMopMessages(List.of(msg2), "new-desc");
 
-        assertEquals(md + "\n\n" + Messages.format(List.of(msg2)), updated.mopMarkdown());
+        assertEquals(md + "\n\n" + Messages.formatForDisplay(List.of(msg2)), updated.mopMarkdown());
         assertEquals(md + "\n\n" + Messages.format(List.of(msg2)), updated.llmMarkdown());
     }
 
@@ -72,7 +72,7 @@ class TaskEntryTest {
 
         assertEquals(7, updated.sequence());
         assertEquals("new-desc", updated.description());
-        assertEquals(md + "\n\n" + Messages.format(List.of(msg2, msg3)), updated.mopMarkdown());
+        assertEquals(md + "\n\n" + Messages.formatForDisplay(List.of(msg2, msg3)), updated.mopMarkdown());
     }
 
     @Test

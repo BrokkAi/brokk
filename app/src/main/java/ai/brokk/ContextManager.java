@@ -36,6 +36,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.*;
@@ -774,6 +775,11 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     @Override
     public AbstractService getService() {
         return serviceProvider.get();
+    }
+
+    @Override
+    public StreamingChatModel getCodeModel() {
+        return getService().getModel(ModelProperties.ModelType.CODE);
     }
 
     @Override
@@ -1619,7 +1625,7 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
                 } else {
                     // add the post-task terminal output to the history
                     var log = new ContextOutputFragments.TaskOutputFragment(
-                            "Post-task verification output", Messages.format(getIo().getLlmRawMessages()));
+                            "Post-task verification output", Messages.formatForDisplay(getIo().getLlmRawMessages()));
                     var context2 = context.addHistoryEntry(log, null);
                     pushContext(ctx -> context2);
                 }
@@ -1909,10 +1915,12 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
                 var imageContent = ImageContent.from(l4jImage);
 
                 // Create prompt messages for the LLM
+                var systemMessage =
+                        new SystemMessage("You describe pasted images in a few words for use as a fragment label.");
                 var textContent = TextContent.from(
                         "Briefly describe this image in a few words (e.g., 'screenshot of code', 'diagram of system').");
                 var userMessage = UserMessage.from(textContent, imageContent);
-                List<ChatMessage> messages = List.of(userMessage);
+                List<ChatMessage> messages = List.of(systemMessage, userMessage);
 
                 Llm.StreamingResult result = getLlm(
                                 serviceProvider.get().summarizeModel(),
@@ -2343,7 +2351,7 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
-        var markdown = Messages.format(messages);
+        var markdown = Messages.formatForDisplay(messages);
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, input, markdown, null, null, null));
 
         // rename the session if needed
