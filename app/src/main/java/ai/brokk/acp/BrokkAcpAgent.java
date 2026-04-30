@@ -59,6 +59,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -136,6 +137,14 @@ public class BrokkAcpAgent {
     private final Map<String, String> reasoningBySession = new ConcurrentHashMap<>();
     private final Map<String, String> activeJobBySession = new ConcurrentHashMap<>();
     private final Map<String, Map<String, PermissionVerdict>> stickyPermissionsBySession = new ConcurrentHashMap<>();
+
+    /**
+     * Cross-session persistent permission rules, keyed by project root. Loaded lazily on first
+     * access for a project; survives ACP session close (intentionally NOT cleared by
+     * {@link #clearAllSessions()}). Backing file is {@code <projectRoot>/.brokk/permission_rules.json}.
+     */
+    private final Map<Path, PermissionRules> rulesByProjectRoot = new ConcurrentHashMap<>();
+
     private final Map<String, PermissionMode> permissionModeBySession = new ConcurrentHashMap<>();
     private final Map<String, List<McpServer>> mcpServersBySession = new ConcurrentHashMap<>();
     private static final InheritableThreadLocal<List<McpServer>> SESSION_MCP_SCOPE = new InheritableThreadLocal<>();
@@ -1179,6 +1188,58 @@ public class BrokkAcpAgent {
         stickyPermissionsBySession
                 .computeIfAbsent(sessionId, ignored -> new ConcurrentHashMap<>())
                 .put(toolName, verdict);
+    }
+
+    /**
+     * Looks up a cross-session persisted permission verdict for {@code (toolName, argMatch)} in
+     * the rules file owned by this session's project. Returns empty when the session has no
+     * registered bundle, or when no rule matches. Mirrors {@link #stickyPermissionFor} but persists
+     * across restarts.
+     */
+    @Blocking
+    public Optional<PermissionVerdict> persistentPermissionFor(String sessionId, String toolName, String argMatch) {
+        var bundle = tryBundleForSession(sessionId);
+        if (bundle.isEmpty()) {
+            return Optional.empty();
+        }
+        return rulesFor(bundle.get().root()).lookup(toolName, argMatch);
+    }
+
+    /**
+     * Persists a permission verdict for {@code (toolName, argMatch)} to disk under the session's
+     * project root. Failure to write is logged and swallowed — the verdict still lives in the
+     * in-memory sticky cache for the rest of this session.
+     */
+    @Blocking
+    public void rememberPermissionPersistently(
+            String sessionId, String toolName, String argMatch, PermissionVerdict verdict) {
+        var bundle = tryBundleForSession(sessionId);
+        if (bundle.isEmpty()) {
+            logger.warn("rememberPermissionPersistently called for unknown session {}; skipping disk write", sessionId);
+            return;
+        }
+        var root = bundle.get().root();
+        var store = rulesFor(root);
+        store.put(toolName, argMatch, verdict);
+        try {
+            store.save(root);
+        } catch (IOException e) {
+            logger.warn(
+                    "Failed to persist permission rule ({}, {}, {}) under {}: {}",
+                    toolName,
+                    argMatch,
+                    verdict,
+                    root,
+                    e.getMessage());
+        }
+    }
+
+    /**
+     * Returns the per-project rules store, lazily loading from disk on first access. Cached so
+     * subsequent lookups don't re-parse the file on every prompt.
+     */
+    private PermissionRules rulesFor(Path projectRoot) {
+        return rulesByProjectRoot.computeIfAbsent(projectRoot, PermissionRules::loadForProject);
     }
 
     public void cancel(AcpSchema.CancelNotification notification) {
