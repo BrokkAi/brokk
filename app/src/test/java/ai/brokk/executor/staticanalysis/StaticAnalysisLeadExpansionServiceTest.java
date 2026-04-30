@@ -44,8 +44,43 @@ class StaticAnalysisLeadExpansionServiceTest {
         var seed = response.seeds().getFirst();
         assertEquals("src/main/java/p/User.java", seed.file());
         assertEquals("usage_expansion", seed.selection().kind());
-        assertTrue(seed.suggestedTools().isEmpty());
+        assertEquals(
+                List.of("reportExceptionHandlingSmells", "reportCommentDensityForFiles", "computeCognitiveComplexity"),
+                seed.suggestedTools());
         assertEquals("usage_connectivity", seed.selection().signals().getFirst().kind());
+    }
+
+    @Test
+    void expandLeads_suggestsTestAssertionToolForTestFiles(@TempDir Path root) throws Exception {
+        var target = javaFile(root, "src/main/java/p/Target.java", "package p; public class Target {}");
+        var testFile =
+                javaFile(root, "src/test/java/p/TargetTest.java", "package p; class TargetTest { Target target; }");
+        var analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(new CodeUnit(target, CodeUnitType.CLASS, "p", "Target", null, false));
+        analyzer.setContainsTests(testFile, true);
+        var service = service(root, analyzer);
+
+        var response = service.expandLeads(new StaticAnalysisSeedDtos.NormalizedLeadExpansionRequest(
+                "scan-1",
+                List.of("src/main/java/p/Target.java"),
+                List.of("src/main/java/p/Target.java"),
+                5,
+                15_000,
+                false));
+
+        assertEquals(
+                "completed",
+                response.state(),
+                response.events().getLast().outcome().message());
+        var seed = response.seeds().getFirst();
+        assertEquals("src/test/java/p/TargetTest.java", seed.file());
+        assertEquals(
+                List.of(
+                        "reportExceptionHandlingSmells",
+                        "reportCommentDensityForFiles",
+                        "computeCognitiveComplexity",
+                        "reportTestAssertionSmells"),
+                seed.suggestedTools());
     }
 
     @Test

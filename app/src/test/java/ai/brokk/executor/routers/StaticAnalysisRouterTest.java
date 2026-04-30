@@ -114,6 +114,9 @@ class StaticAnalysisRouterTest {
         assertFalse(seeds.isEmpty());
         var seed = (Map<?, ?>) seeds.getFirst();
         assertEquals("src/main/java/p/User.java", seed.get("file"));
+        assertEquals(
+                List.of("reportExceptionHandlingSmells", "reportCommentDensityForFiles", "computeCognitiveComplexity"),
+                seed.get("suggestedTools"));
         var selection = (Map<?, ?>) seed.get("selection");
         assertEquals("usage_expansion", selection.get("kind"));
     }

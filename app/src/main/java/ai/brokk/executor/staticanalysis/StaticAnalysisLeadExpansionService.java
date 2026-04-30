@@ -4,6 +4,7 @@ import ai.brokk.IAppContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TestFileHeuristics;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.RegexUsageAnalyzer;
 import ai.brokk.analyzer.usages.UsageFinder;
@@ -26,6 +27,10 @@ public final class StaticAnalysisLeadExpansionService {
     private static final int MAX_SYMBOLS_PER_FILE = 8;
     private static final int MAX_USAGE_CANDIDATE_FILES = 250;
     private static final int MAX_USAGES_PER_SYMBOL = 80;
+    private static final String COMMENT_DENSITY_TOOL = "reportCommentDensityForFiles";
+    private static final String COGNITIVE_COMPLEXITY_TOOL = "computeCognitiveComplexity";
+    private static final String EXCEPTION_HANDLING_TOOL = "reportExceptionHandlingSmells";
+    private static final String TEST_ASSERTION_TOOL = "reportTestAssertionSmells";
 
     private final IAppContextManager contextManager;
 
@@ -128,7 +133,7 @@ public final class StaticAnalysisLeadExpansionService {
                             .thenComparing(candidate -> candidate.file.toString()))
                     .limit(request.maxResults())
                     .toList()) {
-                ranked.add(candidate.toRecord(rank++));
+                ranked.add(candidate.toRecord(analyzer, rank++));
             }
 
             var state = capped || timedOut(deadline) ? "capped" : ranked.isEmpty() ? "skipped" : "completed";
@@ -281,7 +286,14 @@ public final class StaticAnalysisLeadExpansionService {
             signalValues.merge("usageCount", usageCount, (a, b) -> (Integer) a + (Integer) b);
         }
 
-        private StaticAnalysisSeedDtos.SeedRecord toRecord(int rank) {
+        private StaticAnalysisSeedDtos.SeedRecord toRecord(IAnalyzer analyzer, int rank) {
+            var suggestedTools = new ArrayList<String>();
+            suggestedTools.add(EXCEPTION_HANDLING_TOOL);
+            suggestedTools.add(COMMENT_DENSITY_TOOL);
+            suggestedTools.add(COGNITIVE_COMPLEXITY_TOOL);
+            if (TestFileHeuristics.isTestFile(file, analyzer)) {
+                suggestedTools.add(TEST_ASSERTION_TOOL);
+            }
             return new StaticAnalysisSeedDtos.SeedRecord(
                     file.toString(),
                     rank,
@@ -291,7 +303,7 @@ public final class StaticAnalysisLeadExpansionService {
                             score,
                             List.of(new StaticAnalysisSeedDtos.Signal("usage_connectivity", signalValues))),
                     List.of(),
-                    List.of());
+                    List.copyOf(suggestedTools));
         }
     }
 }
