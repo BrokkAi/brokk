@@ -30,7 +30,6 @@ import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Environment;
-import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ShellConfig;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
@@ -90,6 +89,29 @@ public class BrokkAcpAgent {
             "dataRetentionPolicy",
             "analyzerLanguages",
             "global");
+
+    /**
+     * Leaf keys under {@code global} that are only consumed by the Brokk Swing desktop app
+     * (theme, notifications, layout flags, JVM-launcher tuning, etc.). They are hidden from the
+     * ACP {@code /config} snapshot and writes to them are rejected — setting them in ACP would
+     * succeed silently with no observable effect, which confuses users.
+     *
+     * <p>Package-private so {@code BrokkAcpAgentTest} can assert exhaustively that the snapshot
+     * omits every key here, catching drift if a future contributor re-adds a {@code map.put}.
+     */
+    static final Set<String> GUI_ONLY_GLOBAL_KEYS = Set.of(
+            "theme",
+            "codeBlockWrapMode",
+            "startupOpenMode",
+            "watchServiceImplPreference",
+            "otherModelsVendorPreference",
+            "jvmMemorySettings",
+            "advancedMode",
+            "diffUnifiedView",
+            "persistPerProjectBounds",
+            "instructionsTabInsertIndentation",
+            "verticalActivityLayout",
+            "notifications");
 
     private static final String ACP_SETTINGS_PATH_PROPERTY = "brokk.acp.settings.path";
     private static final Path DEFAULT_ACP_SETTINGS_PATH =
@@ -2019,7 +2041,7 @@ public class BrokkAcpAgent {
                     Current editable Brokk configuration.
 
                     Usage:
-                    - `/config <path> <value>` to set a value, e.g. `/config global.theme dark`
+                    - `/config <path> <value>` to set a value, e.g. `/config global.exceptionReportingEnabled false`
                     - `/config <path> <json>` to set a JSON literal, e.g. `/config buildDetails.exclusionPatterns ["target","build"]`
                     - `/config <path>` to show just that section/value, e.g. `/config global`
                     - `/config {"section": {...}}` to apply a batch JSON update
@@ -2032,6 +2054,10 @@ public class BrokkAcpAgent {
                     - dataRetentionPolicy
                     - analyzerLanguages
                     - global
+
+                    Note: GUI-only settings (theme, notifications, layout flags, jvmMemorySettings, etc.)
+                    are configurable only in the Brokk desktop app. Including them in a `/config` batch
+                    rejects the entire update — strip them client-side before sending.
 
                     ```json
                     %s
@@ -2154,16 +2180,6 @@ public class BrokkAcpAgent {
                         MainProject.getCustomEndpointApiKey(),
                         "model",
                         MainProject.getCustomEndpointModel()));
-        map.put("theme", MainProject.getTheme());
-        map.put("codeBlockWrapMode", MainProject.getCodeBlockWrapMode());
-        map.put("startupOpenMode", MainProject.getStartupOpenMode().name());
-        map.put("watchServiceImplPreference", MainProject.getWatchServiceImplPreference());
-        map.put("otherModelsVendorPreference", MainProject.getOtherModelsVendorPreference());
-        map.put(
-                "jvmMemorySettings",
-                Map.of(
-                        "automatic", MainProject.getJvmMemorySettings().automatic(),
-                        "manualMb", MainProject.getJvmMemorySettings().manualMb()));
         map.put(
                 "github",
                 Map.of(
@@ -2192,24 +2208,6 @@ public class BrokkAcpAgent {
                                         "tier",
                                         favorite.config().tier().toString().toLowerCase(Locale.ROOT))))
                         .toList());
-        map.put("advancedMode", GlobalUiSettings.isAdvancedMode());
-        map.put("diffUnifiedView", GlobalUiSettings.isDiffUnifiedView());
-        map.put("persistPerProjectBounds", GlobalUiSettings.isPersistPerProjectBounds());
-        map.put("instructionsTabInsertIndentation", GlobalUiSettings.isInstructionsTabInsertIndentation());
-        map.put("verticalActivityLayout", GlobalUiSettings.isVerticalActivityLayout());
-        map.put(
-                "notifications",
-                Map.of(
-                        "showCost",
-                        GlobalUiSettings.isShowCostNotifications(),
-                        "showFreeInternalLLMCost",
-                        GlobalUiSettings.isShowFreeInternalLLMCostNotifications(),
-                        "showError",
-                        GlobalUiSettings.isShowErrorNotifications(),
-                        "showConfirm",
-                        GlobalUiSettings.isShowConfirmNotifications(),
-                        "showInfo",
-                        GlobalUiSettings.isShowInfoNotifications()));
         map.put(
                 "sessionDefaults",
                 Map.of(
@@ -2420,6 +2418,7 @@ public class BrokkAcpAgent {
     }
 
     private void applyGlobalSettings(String sessionId, WorkspaceBundle bundle, JsonNode global) {
+        rejectGuiOnlyKeys(global);
         if (global.has("brokkKey")) {
             MainProject.setBrokkKey(textOrEmpty(global.get("brokkKey")));
         }
@@ -2459,35 +2458,6 @@ public class BrokkAcpAgent {
                 MainProject.setCustomEndpointModel(textOrEmpty(customEndpoint.get("model")));
             }
         }
-        if (global.has("theme")) {
-            MainProject.setTheme(textOrEmpty(global.get("theme")));
-        }
-        if (global.has("codeBlockWrapMode")) {
-            MainProject.setCodeBlockWrapMode(global.get("codeBlockWrapMode").asBoolean());
-        }
-        if (global.has("startupOpenMode")) {
-            try {
-                MainProject.setStartupOpenMode(MainProject.StartupOpenMode.valueOf(
-                        requireText(global, "startupOpenMode").toUpperCase(Locale.ROOT)));
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException(
-                        "Invalid global.startupOpenMode: " + requireText(global, "startupOpenMode"));
-            }
-        }
-        if (global.has("watchServiceImplPreference")) {
-            MainProject.setWatchServiceImplPreference(textOrEmpty(global.get("watchServiceImplPreference")));
-        }
-        if (global.has("otherModelsVendorPreference")) {
-            MainProject.setOtherModelsVendorPreference(textOrEmpty(global.get("otherModelsVendorPreference")));
-        }
-        if (global.has("jvmMemorySettings")) {
-            var memory = requireObject(global, "jvmMemorySettings");
-            var automatic = memory.has("automatic") ? memory.get("automatic").asBoolean() : true;
-            var manualMb = memory.has("manualMb")
-                    ? memory.get("manualMb").asInt()
-                    : MainProject.getJvmMemorySettings().manualMb();
-            MainProject.setJvmMemorySettings(new MainProject.JvmMemorySettings(automatic, manualMb));
-        }
         if (global.has("github")) {
             var github = requireObject(global, "github");
             if (github.has("token")) {
@@ -2515,47 +2485,6 @@ public class BrokkAcpAgent {
         }
         if (global.has("favoriteModels")) {
             MainProject.saveFavoriteModels(parseFavoriteModels(global.get("favoriteModels")));
-        }
-        if (global.has("advancedMode")) {
-            GlobalUiSettings.saveAdvancedMode(global.get("advancedMode").asBoolean());
-        }
-        if (global.has("diffUnifiedView")) {
-            GlobalUiSettings.saveDiffUnifiedView(global.get("diffUnifiedView").asBoolean());
-        }
-        if (global.has("persistPerProjectBounds")) {
-            GlobalUiSettings.savePersistPerProjectBounds(
-                    global.get("persistPerProjectBounds").asBoolean());
-        }
-        if (global.has("instructionsTabInsertIndentation")) {
-            GlobalUiSettings.saveInstructionsTabInsertIndentation(
-                    global.get("instructionsTabInsertIndentation").asBoolean());
-        }
-        if (global.has("verticalActivityLayout")) {
-            GlobalUiSettings.saveVerticalActivityLayout(
-                    global.get("verticalActivityLayout").asBoolean());
-        }
-        if (global.has("notifications")) {
-            var notifications = requireObject(global, "notifications");
-            if (notifications.has("showCost")) {
-                GlobalUiSettings.saveShowCostNotifications(
-                        notifications.get("showCost").asBoolean());
-            }
-            if (notifications.has("showFreeInternalLLMCost")) {
-                GlobalUiSettings.saveShowFreeInternalLLMCostNotifications(
-                        notifications.get("showFreeInternalLLMCost").asBoolean());
-            }
-            if (notifications.has("showError")) {
-                GlobalUiSettings.saveShowErrorNotifications(
-                        notifications.get("showError").asBoolean());
-            }
-            if (notifications.has("showConfirm")) {
-                GlobalUiSettings.saveShowConfirmNotifications(
-                        notifications.get("showConfirm").asBoolean());
-            }
-            if (notifications.has("showInfo")) {
-                GlobalUiSettings.saveShowInfoNotifications(
-                        notifications.get("showInfo").asBoolean());
-            }
         }
         if (global.has("sessionDefaults")) {
             var sessionDefaults = requireObject(global, "sessionDefaults");
@@ -2624,6 +2553,19 @@ public class BrokkAcpAgent {
             throw new IllegalArgumentException(fieldName + " must be a JSON object");
         }
         return node;
+    }
+
+    private static void rejectGuiOnlyKeys(JsonNode global) {
+        var rejected = new ArrayList<String>();
+        global.properties().forEach(entry -> {
+            if (GUI_ONLY_GLOBAL_KEYS.contains(entry.getKey())) {
+                rejected.add("global." + entry.getKey());
+            }
+        });
+        if (!rejected.isEmpty()) {
+            throw new IllegalArgumentException(String.join(", ", rejected)
+                    + " can only be set in the Brokk desktop app; these settings have no effect in ACP.");
+        }
     }
 
     private static JsonNode requireArray(JsonNode parent, String fieldName) {
@@ -2695,7 +2637,7 @@ public class BrokkAcpAgent {
                                 "config",
                                 "Show or update editable Brokk configuration",
                                 new AcpSchema.AvailableCommandInput(
-                                        "[<path> [value] | {section:{...}}] e.g. global.theme dark")),
+                                        "[<path> [value] | {section:{...}}] e.g. global.exceptionReportingEnabled false")),
                         new AcpSchema.AvailableCommand(
                                 "sandbox",
                                 "Show or toggle the kernel sandbox for shell commands",
