@@ -127,6 +127,7 @@ public class BrokkAcpAgent {
 
     public enum PermissionVerdict {
         ALLOW,
+        ALLOW_NO_SANDBOX,
         DENY
     }
 

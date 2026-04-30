@@ -220,8 +220,17 @@ final class AcpRequestContext implements AcpPromptContext {
 
     @Override
     public boolean askPermission(String action, String toolName) {
+        return askPermissionDetailed(action, toolName, toolName, false).isApproved();
+    }
+
+    @Override
+    public PermissionDecision askPermissionDetailed(
+            String action, String toolName, String cacheKey, boolean offerSandboxBypass) {
         boolean cacheable = !NON_CACHEABLE_TOOL_NAMES.contains(toolName);
         var cache = cacheable ? agent : null;
+
+        Optional<BrokkAcpAgent.PermissionVerdict> sticky =
+                cache != null ? cache.stickyPermissionFor(sessionId, cacheKey) : Optional.empty();
 
         // Session-level PermissionMode is consulted BEFORE the sticky cache so READ_ONLY can deny
         // even tools the user previously approved, and BYPASS_PERMISSIONS can short-circuit before
@@ -229,17 +238,18 @@ final class AcpRequestContext implements AcpPromptContext {
         if (agent != null) {
             var mode = agent.permissionModeFor(sessionId);
             var kind = PermissionGate.classify(toolName);
-            boolean alwaysAllowed = cache != null
-                    && cache.stickyPermissionFor(sessionId, toolName)
-                            .filter(v -> v == BrokkAcpAgent.PermissionVerdict.ALLOW)
-                            .isPresent();
+            boolean alwaysAllowed = sticky.filter(v -> v != BrokkAcpAgent.PermissionVerdict.DENY)
+                    .isPresent();
             switch (PermissionGate.decide(mode, kind, toolName, alwaysAllowed)) {
                 case ALLOW -> {
-                    return true;
+                    return sticky.filter(v -> v == BrokkAcpAgent.PermissionVerdict.ALLOW_NO_SANDBOX)
+                                    .isPresent()
+                            ? PermissionDecision.ALLOW_NO_SANDBOX
+                            : PermissionDecision.ALLOW;
                 }
                 case REJECT -> {
                     sendMessage("\n**" + toolName + " denied:** " + PermissionGate.READ_ONLY_REJECTION + "\n");
-                    return false;
+                    return PermissionDecision.DENY;
                 }
                 case PROMPT -> {
                     // Fall through to the legacy sticky-cache + prompt path. We still need the
@@ -249,12 +259,14 @@ final class AcpRequestContext implements AcpPromptContext {
             }
         }
 
-        if (cache != null) {
-            var sticky = cache.stickyPermissionFor(sessionId, toolName);
-            if (sticky.isPresent()) {
-                return sticky.get() == BrokkAcpAgent.PermissionVerdict.ALLOW;
-            }
+        if (sticky.isPresent()) {
+            return switch (sticky.get()) {
+                case ALLOW -> PermissionDecision.ALLOW;
+                case ALLOW_NO_SANDBOX -> PermissionDecision.ALLOW_NO_SANDBOX;
+                case DENY -> PermissionDecision.DENY;
+            };
         }
+
         var toolCall = new AcpSchema.ToolCallUpdate(
                 UUID.randomUUID().toString(),
                 action,
@@ -264,36 +276,61 @@ final class AcpRequestContext implements AcpPromptContext {
                 null,
                 null,
                 null);
-        // Non-cacheable prompts (shell, confirm dialogs) only get once-options to make the
-        // per-invocation nature explicit. Cacheable prompts get the full four-option set.
-        List<AcpSchema.PermissionOption> options = cacheable
-                ? List.of(
-                        new AcpSchema.PermissionOption(
-                                "allow_once", "Allow once", AcpSchema.PermissionOptionKind.ALLOW_ONCE),
-                        new AcpSchema.PermissionOption(
-                                "allow_always", "Always allow", AcpSchema.PermissionOptionKind.ALLOW_ALWAYS),
-                        new AcpSchema.PermissionOption(
-                                "reject_once", "Reject once", AcpSchema.PermissionOptionKind.REJECT_ONCE),
-                        new AcpSchema.PermissionOption(
-                                "reject_always", "Always reject", AcpSchema.PermissionOptionKind.REJECT_ALWAYS))
-                : List.of(
-                        new AcpSchema.PermissionOption(
-                                "allow_once", "Allow", AcpSchema.PermissionOptionKind.ALLOW_ONCE),
-                        new AcpSchema.PermissionOption(
-                                "reject_once", "Reject", AcpSchema.PermissionOptionKind.REJECT_ONCE));
+        var options = buildPermissionOptions(cacheable, offerSandboxBypass);
         var response = requestPermission(new AcpSchema.RequestPermissionRequest(sessionId, toolCall, options));
         if (!(response.outcome() instanceof AcpSchema.PermissionSelected selected)) {
-            return false;
+            return PermissionDecision.DENY;
         }
         var optionId = selected.optionId();
         if (cache != null) {
-            if ("allow_always".equals(optionId)) {
-                cache.rememberPermission(sessionId, toolName, BrokkAcpAgent.PermissionVerdict.ALLOW);
-            } else if ("reject_always".equals(optionId)) {
-                cache.rememberPermission(sessionId, toolName, BrokkAcpAgent.PermissionVerdict.DENY);
+            switch (optionId) {
+                case "allow_always" ->
+                    cache.rememberPermission(sessionId, cacheKey, BrokkAcpAgent.PermissionVerdict.ALLOW);
+                case "allow_no_sandbox_always" ->
+                    cache.rememberPermission(sessionId, cacheKey, BrokkAcpAgent.PermissionVerdict.ALLOW_NO_SANDBOX);
+                case "reject_always" ->
+                    cache.rememberPermission(sessionId, cacheKey, BrokkAcpAgent.PermissionVerdict.DENY);
+                default -> {}
             }
         }
-        return "allow_once".equals(optionId) || "allow_always".equals(optionId);
+        return switch (optionId) {
+            case "allow_once", "allow_always" -> PermissionDecision.ALLOW;
+            case "allow_no_sandbox_once", "allow_no_sandbox_always" -> PermissionDecision.ALLOW_NO_SANDBOX;
+            default -> PermissionDecision.DENY;
+        };
+    }
+
+    /**
+     * Build the permission-option set for an ACP {@code session/request_permission}. Order is
+     * load-bearing: ACP clients render options in array order, and the first option is shown as
+     * the default — so safer choices come first.
+     */
+    private static List<AcpSchema.PermissionOption> buildPermissionOptions(
+            boolean cacheable, boolean offerSandboxBypass) {
+        var options = new ArrayList<AcpSchema.PermissionOption>();
+        options.add(new AcpSchema.PermissionOption(
+                "allow_once", cacheable ? "Allow once" : "Allow", AcpSchema.PermissionOptionKind.ALLOW_ONCE));
+        if (cacheable) {
+            options.add(new AcpSchema.PermissionOption(
+                    "allow_always", "Always allow", AcpSchema.PermissionOptionKind.ALLOW_ALWAYS));
+        }
+        if (offerSandboxBypass) {
+            options.add(new AcpSchema.PermissionOption(
+                    "allow_no_sandbox_once", "Allow without sandbox", AcpSchema.PermissionOptionKind.ALLOW_ONCE));
+            if (cacheable) {
+                options.add(new AcpSchema.PermissionOption(
+                        "allow_no_sandbox_always",
+                        "Always allow without sandbox",
+                        AcpSchema.PermissionOptionKind.ALLOW_ALWAYS));
+            }
+        }
+        options.add(new AcpSchema.PermissionOption(
+                "reject_once", cacheable ? "Reject once" : "Reject", AcpSchema.PermissionOptionKind.REJECT_ONCE));
+        if (cacheable) {
+            options.add(new AcpSchema.PermissionOption(
+                    "reject_always", "Always reject", AcpSchema.PermissionOptionKind.REJECT_ALWAYS));
+        }
+        return options;
     }
 
     @Override
