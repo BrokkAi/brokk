@@ -26,6 +26,7 @@ import ai.brokk.executor.routers.ReviewRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.executor.routers.SettingsRouter;
+import ai.brokk.executor.routers.StaticAnalysisRouter;
 import ai.brokk.project.MainProject;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
@@ -242,6 +243,9 @@ public final class HeadlessExecutorMain {
 
         var modelConfigRouter = new ModelConfigRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/model-config", modelConfigRouter);
+
+        var staticAnalysisRouter = new StaticAnalysisRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/static-analysis", staticAnalysisRouter);
 
         var activityRouter = new ActivityRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/activity", activityRouter);
