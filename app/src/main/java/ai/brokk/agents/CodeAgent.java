@@ -464,8 +464,13 @@ public class CodeAgent {
             es = requestOutcome.es();
 
             // PARSE PHASE parses edit blocks
-            var parseOutcome =
-                    parsePhase(cs, es, streamingResult.text(), parser, metrics); // Ensure parser is available
+            var parseOutcome = parsePhase(
+                    cs,
+                    es,
+                    streamingResult.text(),
+                    streamingResult.isPartial(),
+                    parser,
+                    metrics); // Ensure parser is available
             if (parseOutcome instanceof Step.Fatal fatalParse) {
                 stopDetails = fatalParse.stopDetails();
                 break;
@@ -489,7 +494,8 @@ public class CodeAgent {
             es = parseOutcome.es();
 
             // APPLY PHASE applies blocks
-            var blocksToApply = ((Step.Continue) parseOutcome).blocks();
+            var continueParse = (Step.Continue) parseOutcome;
+            var blocksToApply = continueParse.blocks();
             var applyOutcome = applyPhase(cs, es, blocksToApply, metrics);
             if (applyOutcome instanceof Step.Fatal fatalApply) {
                 stopDetails = fatalApply.stopDetails();
@@ -540,41 +546,17 @@ public class CodeAgent {
                 continue; // Restart main loop
             }
 
-            // If the response was partial, we must ask the LLM to continue *after* applying the blocks we got
-            if (streamingResult.isPartial()) {
-                UserMessage messageForContinue;
-                String consoleLogForContinue;
-                if (blocksToApply.isEmpty()) {
-                    // Treat "partial with no blocks" as a parse failure
-                    int updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
-                    if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
-                        reportComplete(
-                                TaskResult.StopReason.PARSE_ERROR,
-                                "Parse error limit reached (partial with no blocks); ending task.");
-                        stopDetails = new TaskResult.StopDetails(
-                                TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
-                        break;
-                    }
-                    messageForContinue = new UserMessage(
-                            "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
-                    consoleLogForContinue =
-                            "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
-                    es = es.withConsecutiveParseFailures(updatedConsecutiveParseFailures);
-                } else {
-                    messageForContinue = new UserMessage(getContinueFromLastBlockPrompt(blocksToApply.getLast()));
-                    consoleLogForContinue =
-                            "LLM indicated response was partial after %d clean blocks; asking to continue"
-                                    .formatted(blocksToApply.size());
+            // If parse/transport found usable blocks but still needs continuation, continue only after applying them.
+            if (continueParse.nextRequest() != null) {
+                if (metrics != null && continueParse.countContinuationAsParseRetry()) {
+                    metrics.parseRetries++;
                 }
-                var retryCs = cs.withRetryRequest(messageForContinue, TaskResult.StopReason.PARSE_ERROR);
-                report(consoleLogForContinue);
+                var retryCs = cs.withRetryRequest(continueParse.nextRequest(), TaskResult.StopReason.PARSE_ERROR);
+                report(requireNonNull(continueParse.nextRequestLog()));
                 if (isSingleTurnDryRunEnabled()) {
-                    reportComplete(
-                            TaskResult.StopReason.PARSE_ERROR,
-                            "Partial response continuation requested in single-turn mode.");
+                    reportComplete(TaskResult.StopReason.PARSE_ERROR, "Continuation requested in single-turn mode.");
                     stopDetails = new TaskResult.StopDetails(
-                            TaskResult.StopReason.PARSE_ERROR,
-                            "Partial response continuation requested in single-turn mode.");
+                            TaskResult.StopReason.PARSE_ERROR, "Continuation requested in single-turn mode.");
                     break;
                 }
                 cs = retryCs;
@@ -771,7 +753,12 @@ public class CodeAgent {
     }
 
     Step parsePhase(
-            ConversationState cs, EditState es, String llmText, EditBlockParser parser, @Nullable Metrics metrics) {
+            ConversationState cs,
+            EditState es,
+            String llmText,
+            boolean isPartialResponse,
+            EditBlockParser parser,
+            @Nullable Metrics metrics) {
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
         var parseResult =
                 parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
@@ -781,34 +768,19 @@ public class CodeAgent {
             metrics.totalEditBlocks += newlyParsedCount;
         }
 
-        // Handle explicit parse errors from the parser
-        if (parseResult.parseError() != null) {
-            int updatedConsecutiveParseFailures = es.consecutiveParseFailures();
-            UserMessage messageForRetry;
-            String consoleLogForRetry;
-            if (newlyParsedBlocks.isEmpty()) {
-                // Pure parse failure
-                updatedConsecutiveParseFailures++;
+        if (parseResult.parseError() != null && newlyParsedBlocks.isEmpty()) {
+            int updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
 
-                // The bad response is the last message; the user request that caused it is the one before that.
-                // We will remove both from taskMessages, and create a new request that is the original + a reminder.
-                // Note: rawMessages is never modified, it preserves the full conversation history.
-                cs.taskMessages().removeLast(); // bad AI response
-                var lastRequest = (UserMessage) cs.taskMessages().removeLast(); // original user request
+            // The bad response is the last message; the user request that caused it is the one before that.
+            // We will remove both from taskMessages, and create a new request that is the original + a reminder.
+            // Note: rawMessages is never modified, it preserves the full conversation history.
+            cs.taskMessages().removeLast(); // bad AI response
+            var lastRequest = (UserMessage) cs.taskMessages().removeLast(); // original user request
 
-                var reminder =
-                        "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!";
-                var newRequestText = Messages.getText(lastRequest) + "\n\n" + reminder;
-                messageForRetry = new UserMessage(newRequestText);
-                consoleLogForRetry = "Failed to parse LLM response; retrying with format reminder";
-            } else {
-                // Partial parse, then an error
-                updatedConsecutiveParseFailures = 0; // Reset, as we got some good blocks.
-                messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
-                consoleLogForRetry =
-                        "Malformed or incomplete response after %d blocks parsed; asking LLM to continue/fix"
-                                .formatted(newlyParsedCount);
-            }
+            var reminder =
+                    "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!";
+            var newRequestText = Messages.getText(lastRequest) + "\n\n" + reminder;
+            var messageForRetry = new UserMessage(newRequestText);
 
             if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
                 reportComplete(TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
@@ -817,16 +789,52 @@ public class CodeAgent {
             }
 
             var nextCs = cs.withRetryRequest(messageForRetry, TaskResult.StopReason.PARSE_ERROR);
-            // In the case of a parse error, we still want to update totalBlocksParsed with what we found
             var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
-            report(consoleLogForRetry);
+            report("Failed to parse LLM response; retrying with format reminder");
             return new Step.Retry(nextCs, nextEs);
         }
 
-        // No explicit parse error. Reset counter.
+        if (parseResult.parseError() == null && newlyParsedBlocks.isEmpty() && isPartialResponse) {
+            int updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
+            if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+                reportComplete(
+                        TaskResult.StopReason.PARSE_ERROR,
+                        "Parse error limit reached (partial with no blocks); ending task.");
+                return new Step.Fatal(new TaskResult.StopDetails(
+                        TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
+            }
+
+            var messageForRetry = new UserMessage(
+                    "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
+            var nextCs = cs.withRetryRequest(messageForRetry, TaskResult.StopReason.PARSE_ERROR);
+            var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
+            report(
+                    "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue");
+            return new Step.Retry(nextCs, nextEs);
+        }
+
+        // Any usable blocks flow forward to applyPhase in this pass. If the response also needs continuation,
+        // request that only after the blocks have been applied.
+        @Nullable UserMessage nextRequest = null;
+        @Nullable String nextRequestLog = null;
+        boolean countContinuationAsParseRetry = false;
+        if (!newlyParsedBlocks.isEmpty()) {
+            if (parseResult.parseError() != null) {
+                nextRequest = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
+                nextRequestLog = "Malformed or incomplete response after %d blocks parsed; asking LLM to continue/fix"
+                        .formatted(newlyParsedCount);
+                countContinuationAsParseRetry = true;
+            } else if (isPartialResponse) {
+                nextRequest = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
+                nextRequestLog = "LLM indicated response was partial after %d clean blocks; asking to continue"
+                        .formatted(newlyParsedCount);
+            }
+        }
+
         int updatedConsecutiveParseFailures = 0;
         var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
-        return new Step.Continue(cs, nextEs, newlyParsedBlocks);
+        return new Step.Continue(
+                cs, nextEs, newlyParsedBlocks, nextRequest, nextRequestLog, countContinuationAsParseRetry);
     }
 
     /**
@@ -1631,10 +1639,20 @@ public class CodeAgent {
         EditState es();
 
         /** continue to the next phase */
-        record Continue(ConversationState cs, EditState es, SequencedSet<EditBlock.SearchReplaceBlock> blocks)
+        record Continue(
+                ConversationState cs,
+                EditState es,
+                SequencedSet<EditBlock.SearchReplaceBlock> blocks,
+                @Nullable UserMessage nextRequest,
+                @Nullable String nextRequestLog,
+                boolean countContinuationAsParseRetry)
                 implements Step {
+            public Continue(ConversationState cs, EditState es, SequencedSet<EditBlock.SearchReplaceBlock> blocks) {
+                this(cs, es, blocks, null, null, false);
+            }
+
             public Continue(ConversationState cs, EditState es) {
-                this(cs, es, new LinkedHashSet<>());
+                this(cs, es, new LinkedHashSet<>(), null, null, false);
             }
         }
 
