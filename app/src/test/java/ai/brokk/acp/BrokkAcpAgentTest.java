@@ -769,6 +769,35 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void sandboxDisabledDefaultsToFalse() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertFalse(agent.isSandboxDisabledFor(created.sessionId()));
+    }
+
+    @Test
+    void setSandboxDisabledForFlipsTheFlag() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        agent.setSandboxDisabledFor(created.sessionId(), true);
+        assertTrue(agent.isSandboxDisabledFor(created.sessionId()));
+
+        agent.setSandboxDisabledFor(created.sessionId(), false);
+        assertFalse(agent.isSandboxDisabledFor(created.sessionId()));
+    }
+
+    @Test
+    void closeSessionClearsSandboxDisabled() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setSandboxDisabledFor(created.sessionId(), true);
+        assertTrue(agent.isSandboxDisabledFor(created.sessionId()));
+
+        agent.closeSession(new AcpProtocol.CloseSessionRequest(created.sessionId(), null));
+
+        assertFalse(agent.isSandboxDisabledFor(created.sessionId()));
+    }
+
+    @Test
     void extractResourceRelPathsHandlesFileUriResourceLink() {
         var fileUnderRoot = projectRoot.resolve("src/main/java/Foo.java");
         var blocks = List.<AcpSchema.ContentBlock>of(

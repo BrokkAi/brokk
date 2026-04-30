@@ -29,6 +29,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ShellConfig;
@@ -137,6 +138,7 @@ public class BrokkAcpAgent {
     private final Map<String, String> activeJobBySession = new ConcurrentHashMap<>();
     private final Map<String, Map<String, PermissionVerdict>> stickyPermissionsBySession = new ConcurrentHashMap<>();
     private final Map<String, PermissionMode> permissionModeBySession = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> sandboxDisabledBySession = new ConcurrentHashMap<>();
     private final Map<String, List<McpServer>> mcpServersBySession = new ConcurrentHashMap<>();
     private static final InheritableThreadLocal<List<McpServer>> SESSION_MCP_SCOPE = new InheritableThreadLocal<>();
     private final Map<String, TaskList.TaskListData> lastTaskListBySession = new ConcurrentHashMap<>();
@@ -307,6 +309,7 @@ public class BrokkAcpAgent {
         activeJobBySession.clear();
         stickyPermissionsBySession.clear();
         permissionModeBySession.clear();
+        sandboxDisabledBySession.clear();
         mcpServersBySession.clear();
         rejectedMcpServersBySession.clear();
         lastTaskListBySession.clear();
@@ -548,6 +551,7 @@ public class BrokkAcpAgent {
         stickyPermissionsBySession.remove(sessionId);
         sessionsOnFallbackCatalog.remove(sessionId);
         permissionModeBySession.remove(sessionId);
+        sandboxDisabledBySession.remove(sessionId);
         mcpServersBySession.remove(sessionId);
         rejectedMcpServersBySession.remove(sessionId);
         lastTaskListBySession.remove(sessionId);
@@ -583,6 +587,10 @@ public class BrokkAcpAgent {
                     forkSessionId, reasoningBySession.getOrDefault(request.sessionId(), defaultReasoningLevel));
             permissionModeBySession.put(
                     forkSessionId, permissionModeBySession.getOrDefault(request.sessionId(), PermissionMode.DEFAULT));
+            // sandboxDisabledBySession is intentionally NOT inherited: a fork resets to
+            // sandbox-enabled. Treating fork as a fresh session for the kernel-sandbox toggle is
+            // the safer default; users who want the parent's looser posture can re-issue
+            // `/sandbox off` in the fork.
             // Inherit MCP servers from parent unless the fork request supplies a fresh list.
             if (request.mcpServers() != null) {
                 applySessionMcpServers(forkSessionId, request.mcpServers());
@@ -745,6 +753,27 @@ public class BrokkAcpAgent {
     /** Returns the active permission mode for {@code sessionId}, defaulting to {@code DEFAULT}. */
     public PermissionMode permissionModeFor(String sessionId) {
         return permissionModeBySession.getOrDefault(sessionId, PermissionMode.DEFAULT);
+    }
+
+    /**
+     * Returns whether the kernel sandbox has been disabled for {@code sessionId} via the
+     * {@code /sandbox off} slash command. Defaults to {@code false} (sandbox enabled). Affects
+     * shell commands only; other tools do not consult {@link ai.brokk.util.SandboxPolicy}.
+     */
+    public boolean isSandboxDisabledFor(String sessionId) {
+        return sandboxDisabledBySession.getOrDefault(sessionId, false);
+    }
+
+    /**
+     * Sets the per-session sandbox-disabled flag. Used by the {@code /sandbox} slash command;
+     * not exposed via {@code session/set_config_option} on purpose (slash-only by design).
+     */
+    void setSandboxDisabledFor(String sessionId, boolean disabled) {
+        if (disabled) {
+            sandboxDisabledBySession.put(sessionId, true);
+        } else {
+            sandboxDisabledBySession.remove(sessionId);
+        }
     }
 
     /**
@@ -1707,6 +1736,10 @@ public class BrokkAcpAgent {
                 handleConfigCommand(sessionId, parts.length > 1 ? parts[1] : "", bundle, promptContext);
                 yield true;
             }
+            case "/sandbox" -> {
+                handleSandboxCommand(sessionId, parts.length > 1 ? parts[1] : "", promptContext);
+                yield true;
+            }
             default -> false;
         };
     }
@@ -1806,6 +1839,53 @@ public class BrokkAcpAgent {
         } catch (Exception e) {
             logger.error("Failed to handle /config for bundle {}", bundle.root(), e);
             promptContext.sendMessage("Error updating configuration: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Handles {@code /sandbox} with optional {@code on|off} arg. The toggle is per-session and
+     * in-memory only: a fresh session always starts with the sandbox enabled, and {@link
+     * #closeSession} / {@link #clearAllSessions} drop the flag with the rest of the per-session
+     * state. Disabling it makes shell commands run with {@link ai.brokk.util.SandboxPolicy#NONE}
+     * instead of {@link ai.brokk.util.SandboxPolicy#WORKSPACE_WRITE}, by upgrading the {@code
+     * ALLOW} verdicts produced in {@link AcpRequestContext#askPermissionDetailed} to {@code
+     * ALLOW_NO_SANDBOX}.
+     *
+     * <p>Asymmetry note: {@code /sandbox on} re-enables the sandbox for <em>future</em> approvals,
+     * but does not retroactively dégrade tools the user previously approved with "Always allow
+     * without sandbox" in this session — those sticky verdicts are honored as the user's explicit
+     * earlier choice. To force them re-prompt, start a new session.
+     */
+    private void handleSandboxCommand(String sessionId, String arg, AcpPromptContext promptContext) {
+        var trimmed = arg.trim().toLowerCase(Locale.ROOT);
+        var platformNote = Environment.isSandboxAvailable()
+                ? ""
+                : "\n\n_Note: kernel sandbox is not available on this platform (Windows, or Linux without Bubblewrap installed); this toggle has no effect on shell command isolation._";
+        switch (trimmed) {
+            case "" -> {
+                var state = isSandboxDisabledFor(sessionId) ? "**disabled**" : "**enabled**";
+                promptContext.sendMessage("Sandbox is currently " + state
+                        + " for this session. Affects shell commands only.\n\nUsage: `/sandbox on|off`"
+                        + platformNote);
+            }
+            case "on" -> {
+                setSandboxDisabledFor(sessionId, false);
+                logger.info("ACP /sandbox on session={}", sessionId);
+                promptContext.sendMessage(
+                        "Sandbox **enabled** for this session. Shell commands will run with filesystem isolation."
+                                + "\n\n_Note: tools you previously approved with \"Always allow without sandbox\" in this session keep that approval. Start a new session to force re-prompting._"
+                                + platformNote);
+            }
+            case "off" -> {
+                setSandboxDisabledFor(sessionId, true);
+                logger.info("ACP /sandbox off session={}", sessionId);
+                promptContext.sendMessage(
+                        "Sandbox **disabled** for this session. Shell commands will run without filesystem isolation until you re-enable with `/sandbox on` or start a new session."
+                                + platformNote);
+            }
+            default ->
+                promptContext.sendMessage("Error: unknown /sandbox argument '" + arg.trim()
+                        + "'. Usage: `/sandbox on|off` (or `/sandbox` to show status).");
         }
     }
 
@@ -2554,7 +2634,11 @@ public class BrokkAcpAgent {
                                 "config",
                                 "Show or update editable Brokk configuration",
                                 new AcpSchema.AvailableCommandInput(
-                                        "[<path> [value] | {section:{...}}] e.g. global.theme dark")));
+                                        "[<path> [value] | {section:{...}}] e.g. global.theme dark")),
+                        new AcpSchema.AvailableCommand(
+                                "sandbox",
+                                "Show or toggle the kernel sandbox for shell commands",
+                                new AcpSchema.AvailableCommandInput("on|off")));
                 sender.sendSessionUpdate(
                         sessionId, new AcpSchema.AvailableCommandsUpdate("available_commands_update", commands));
             } catch (Exception e) {
