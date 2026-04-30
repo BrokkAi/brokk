@@ -609,6 +609,105 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void promptConfigPathSetUpdatesScalar() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config global.theme dark"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals("dark", MainProject.getTheme());
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
+        }
+    }
+
+    @Test
+    void promptConfigPathSetParsesJsonLiteral() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config projectSettings.runCommandTimeoutSeconds 30"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals(30L, contextManager.getProject().getRunCommandTimeoutSeconds());
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
+        }
+    }
+
+    @Test
+    void promptConfigPathSetUpdatesTopLevelScalar() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config dataRetentionPolicy MINIMAL"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals(
+                    MainProject.DataRetentionPolicy.MINIMAL,
+                    contextManager.getProject().getDataRetentionPolicy());
+        }
+    }
+
+    @Test
+    void promptConfigPathShowReturnsSingleSection() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config dataRetentionPolicy"),
+                    fixture.contextFor(created.sessionId()));
+
+            var messages = joinedPromptMessages(fixture.transport);
+            assertTrue(messages.contains("Configuration at `dataRetentionPolicy`:"));
+        }
+    }
+
+    @Test
+    void promptConfigPathShowReportsUnknownPath() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config global.nonExistentKey"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport)
+                    .contains("Error: configuration path not found: global.nonExistentKey"));
+        }
+    }
+
+    @Test
+    void promptConfigPathSetReportsInvalidValue() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config dataRetentionPolicy INVALID"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport)
+                    .contains("Error updating configuration: Invalid dataRetentionPolicy: INVALID"));
+        }
+    }
+
+    @Test
+    void promptConfigPathSetReportsUnknownSection() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config bogusSection somevalue"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport)
+                    .contains("Error: unknown configuration section: bogusSection"));
+        }
+    }
+
+    @Test
     void initializeAdvertisesMcpCapabilities() {
         var response = agent.initialize();
         var mcp = response.agentCapabilities().mcpCapabilities();
