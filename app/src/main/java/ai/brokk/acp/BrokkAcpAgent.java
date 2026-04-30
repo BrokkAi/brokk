@@ -161,9 +161,11 @@ public class BrokkAcpAgent {
         DENY
     }
 
-    // Persisted defaults (loaded once on construction)
+    // Persisted defaults (loaded once on construction, refreshed by setters)
     private volatile String defaultModelId;
     private volatile String defaultReasoningLevel;
+    private volatile String defaultCodeModelId;
+    private volatile String defaultCodeReasoningLevel;
 
     // Set by BrokkAcpRuntime to enable session updates outside of prompt context
     private volatile @Nullable SessionUpdateSender sessionUpdateSender;
@@ -189,10 +191,14 @@ public class BrokkAcpAgent {
         var defaults = loadAcpDefaults();
         this.defaultModelId = defaults.defaultModel;
         this.defaultReasoningLevel = defaults.defaultReasoning;
+        this.defaultCodeModelId = defaults.defaultCodeModel;
+        this.defaultCodeReasoningLevel = defaults.defaultCodeReasoning;
         logger.info(
-                "ACP defaults loaded: model={}, reasoning={}, defaultRoot={}",
+                "ACP defaults loaded: model={}, reasoning={}, codeModel={}, codeReasoning={}, defaultRoot={}",
                 defaultModelId,
                 defaultReasoningLevel,
+                defaultCodeModelId,
+                defaultCodeReasoningLevel,
                 this.defaultWorkspaceDir);
     }
 
@@ -589,7 +595,7 @@ public class BrokkAcpAgent {
 
             var parentCodeModel = codeModelBySession.getOrDefault(request.sessionId(), "");
             var parentCodeReasoning =
-                    codeReasoningBySession.getOrDefault(request.sessionId(), DEFAULT_REASONING_LEVEL_CODE);
+                    codeReasoningBySession.getOrDefault(request.sessionId(), defaultCodeReasoningLevel);
             var modeState =
                     new AcpSchema.SessionModeState(modeBySession.getOrDefault(forkSessionId, "LUTZ"), AVAILABLE_MODES);
             var startupState = buildStartupSessionState(
@@ -774,10 +780,7 @@ public class BrokkAcpAgent {
                 setMode(new AcpSchema.SetSessionModeRequest(sessionId, value));
             }
             case "model_selection" -> setModel(new AcpSchema.SetSessionModelRequest(sessionId, value));
-            case "code_model_selection" -> {
-                var parsed = parseModelSelection(value);
-                normalizeCodeModelSelection(sessionId, parsed.baseModel(), parsed.reasoning(), true);
-            }
+            case "code_model_selection" -> setCodeModel(sessionId, value);
             default ->
                 throw new IllegalArgumentException("Unknown configId '" + configId
                         + "'. Supported: permission_mode, behavior_mode, model_selection, code_model_selection");
@@ -891,7 +894,7 @@ public class BrokkAcpAgent {
         var baseModel = resolveCodeBaseModel(availableModels, requestedBaseModel, plannerBaseModel);
         var sourceReasoning = requestedReasoning != null
                 ? requestedReasoning
-                : codeReasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL_CODE);
+                : codeReasoningBySession.getOrDefault(sessionId, defaultCodeReasoningLevel);
         var reasoning = sanitizeReasoningLevelForModel(baseModel, sourceReasoning, service);
         if (persistResolvedState) {
             codeModelBySession.put(sessionId, baseModel);
@@ -921,6 +924,9 @@ public class BrokkAcpAgent {
     private String preferredCodeBaseModel(String sessionId) {
         var preferred = codeModelBySession.getOrDefault(sessionId, "");
         if (preferred.isEmpty()) {
+            preferred = defaultCodeModelId;
+        }
+        if (preferred.isEmpty()) {
             preferred = modelBySession.getOrDefault(sessionId, defaultModelId);
         }
         return preferred;
@@ -939,7 +945,7 @@ public class BrokkAcpAgent {
         if (!plannerModel.isEmpty() && availableModels.containsKey(plannerModel)) {
             return plannerModel;
         }
-        return availableModels.keySet().stream().sorted().findFirst().orElse("default");
+        return firstSortedModel(availableModels).orElse("default");
     }
 
     private static AcpProtocol.SessionConfigOption behaviorConfigOption(String currentValue) {
@@ -1000,12 +1006,33 @@ public class BrokkAcpAgent {
                 normalized.baseModel(),
                 normalizedReasoning);
 
-        // Persist updated defaults
-        saveAcpDefaults(normalized.baseModel(), normalizedReasoning);
+        // Promote the resolved selection to the catalog-wide defaults so subsequent new/loaded
+        // sessions pick up the user's choice — both in this JVM and after restart via persistence.
+        defaultModelId = normalized.baseModel();
+        defaultReasoningLevel = normalizedReasoning;
+        persistAllDefaults();
 
         refreshCatalogIfFallback(sessionId);
 
         return new AcpSchema.SetSessionModelResponse();
+    }
+
+    /**
+     * Code-model counterpart of {@link #setModel}. Normalises the raw {@code "model"} or
+     * {@code "model/variant"} string against the live catalog and the model's reasoning
+     * capabilities, then promotes the resolved selection to the catalog-wide defaults so
+     * subsequent new/loaded sessions — including after a server restart via persistence —
+     * pick up the user's choice instead of falling back to the planner model.
+     */
+    private void setCodeModel(String sessionId, String value) {
+        var parsed = parseModelSelection(value);
+        var normalized = normalizeCodeModelSelection(sessionId, parsed.baseModel(), parsed.reasoning(), true);
+        defaultCodeModelId = normalized.baseModel();
+        var normalizedReasoning = normalized.reasoning();
+        if (normalizedReasoning != null) {
+            defaultCodeReasoningLevel = normalizedReasoning;
+        }
+        persistAllDefaults();
     }
 
     /**
@@ -1287,8 +1314,7 @@ public class BrokkAcpAgent {
 
         var modelChanged = false;
         if (!defaultModelId.isEmpty() && !availableModels.containsKey(defaultModelId)) {
-            var fallback =
-                    availableModels.keySet().stream().sorted().findFirst().orElse(null);
+            var fallback = firstSortedModel(availableModels).orElse(null);
             if (fallback != null && !fallback.equals(defaultModelId)) {
                 logger.info(
                         "Persisted ACP default model {} not in current catalog; falling back to {}",
@@ -1310,8 +1336,40 @@ public class BrokkAcpAgent {
             defaultReasoningLevel = sanitized;
         }
 
-        if (modelChanged || reasoningChanged) {
-            saveAcpDefaults(defaultModelId, defaultReasoningLevel);
+        // An empty defaultCodeModelId is a sentinel meaning "fall back to the planner default" --
+        // leave it empty in that case rather than synthesising a value here, since the live
+        // resolution path in preferredCodeBaseModel handles the fallback per session.
+        var codeModelChanged = false;
+        if (!defaultCodeModelId.isEmpty() && !availableModels.containsKey(defaultCodeModelId)) {
+            var fallback = firstSortedModel(availableModels).orElse(null);
+            if (fallback != null && !fallback.equals(defaultCodeModelId)) {
+                logger.info(
+                        "Persisted ACP default code model {} not in current catalog; falling back to {}",
+                        defaultCodeModelId,
+                        fallback);
+                defaultCodeModelId = fallback;
+                codeModelChanged = true;
+            }
+        }
+
+        // Sanitise code reasoning against the *resolved* code model: if defaultCodeModelId is
+        // empty (meaning "use the planner default"), validate against defaultModelId instead so
+        // the persisted code reasoning stays compatible with whatever the code-model fallback
+        // resolves to in practice.
+        var codeReasoningTarget = defaultCodeModelId.isEmpty() ? defaultModelId : defaultCodeModelId;
+        var sanitizedCode = sanitizeReasoningLevelForModel(codeReasoningTarget, defaultCodeReasoningLevel, service);
+        var codeReasoningChanged = !sanitizedCode.equals(defaultCodeReasoningLevel);
+        if (codeReasoningChanged) {
+            logger.info(
+                    "Persisted ACP code reasoning {} invalid for model {}; falling back to {}",
+                    defaultCodeReasoningLevel,
+                    codeReasoningTarget,
+                    sanitizedCode);
+            defaultCodeReasoningLevel = sanitizedCode;
+        }
+
+        if (modelChanged || reasoningChanged || codeModelChanged || codeReasoningChanged) {
+            persistAllDefaults();
         }
     }
 
@@ -1339,6 +1397,16 @@ public class BrokkAcpAgent {
             }
         }
         return latest;
+    }
+
+    /**
+     * Returns the first model id from {@code availableModels} in alphabetical order, or empty
+     * when the catalog has no entries. Centralises the "pick a deterministic fallback model from
+     * the live catalog" pattern used by {@code resolveCodeBaseModel} and
+     * {@code revalidatePersistedDefaults} for both planner and code defaults.
+     */
+    private static Optional<String> firstSortedModel(Map<String, String> availableModels) {
+        return availableModels.keySet().stream().sorted().findFirst();
     }
 
     private Map<String, Object> buildVariantMeta(String sessionId) {
@@ -2011,7 +2079,7 @@ public class BrokkAcpAgent {
                         "codeModel",
                         codeModelBySession.getOrDefault(sessionId, preferredCodeBaseModel(sessionId)),
                         "codeReasoning",
-                        codeReasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL_CODE)));
+                        codeReasoningBySession.getOrDefault(sessionId, defaultCodeReasoningLevel)));
         map.put(
                 "availableModels",
                 service.getAvailableModels().keySet().stream().sorted().toList());
@@ -2350,6 +2418,7 @@ public class BrokkAcpAgent {
         }
         if (global.has("sessionDefaults")) {
             var sessionDefaults = requireObject(global, "sessionDefaults");
+            var defaultsTouched = false;
             if (sessionDefaults.has("plannerModel") || sessionDefaults.has("plannerReasoning")) {
                 var plannerModel = sessionDefaults.has("plannerModel")
                         ? textOrEmpty(sessionDefaults.get("plannerModel"))
@@ -2367,7 +2436,9 @@ public class BrokkAcpAgent {
                         normalized.baseModel(), plannerReasoning, bundle.cm().getService());
                 modelBySession.put(sessionId, normalized.baseModel());
                 reasoningBySession.put(sessionId, sanitizedReasoning);
-                saveAcpDefaults(normalized.baseModel(), sanitizedReasoning);
+                defaultModelId = normalized.baseModel();
+                defaultReasoningLevel = sanitizedReasoning;
+                defaultsTouched = true;
             }
             if (sessionDefaults.has("codeModel") || sessionDefaults.has("codeReasoning")) {
                 var codeModel = sessionDefaults.has("codeModel")
@@ -2375,8 +2446,17 @@ public class BrokkAcpAgent {
                         : preferredCodeBaseModel(sessionId);
                 var codeReasoning = sessionDefaults.has("codeReasoning")
                         ? textOrEmpty(sessionDefaults.get("codeReasoning"))
-                        : codeReasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL_CODE);
-                normalizeCodeModelSelection(sessionId, codeModel, codeReasoning, true);
+                        : codeReasoningBySession.getOrDefault(sessionId, defaultCodeReasoningLevel);
+                var normalizedCode = normalizeCodeModelSelection(sessionId, codeModel, codeReasoning, true);
+                defaultCodeModelId = normalizedCode.baseModel();
+                var normalizedCodeReasoning = normalizedCode.reasoning();
+                if (normalizedCodeReasoning != null) {
+                    defaultCodeReasoningLevel = normalizedCodeReasoning;
+                }
+                defaultsTouched = true;
+            }
+            if (defaultsTouched) {
+                persistAllDefaults();
             }
         }
     }
@@ -2485,7 +2565,8 @@ public class BrokkAcpAgent {
 
     // ---- ACP defaults persistence ----
 
-    private record AcpDefaults(String defaultModel, String defaultReasoning) {}
+    private record AcpDefaults(
+            String defaultModel, String defaultReasoning, String defaultCodeModel, String defaultCodeReasoning) {}
 
     private static Path acpSettingsPath() {
         var override = System.getProperty(ACP_SETTINGS_PATH_PROPERTY);
@@ -2499,7 +2580,7 @@ public class BrokkAcpAgent {
         try {
             var settingsPath = acpSettingsPath();
             if (!Files.exists(settingsPath)) {
-                return new AcpDefaults("", DEFAULT_REASONING_LEVEL);
+                return new AcpDefaults("", DEFAULT_REASONING_LEVEL, "", DEFAULT_REASONING_LEVEL_CODE);
             }
             var mapper = new ObjectMapper();
             var tree = mapper.readTree(settingsPath.toFile());
@@ -2513,14 +2594,39 @@ public class BrokkAcpAgent {
                         "Persisted ACP reasoning {} invalid; falling back to {}", reasoning, DEFAULT_REASONING_LEVEL);
                 reasoning = DEFAULT_REASONING_LEVEL;
             }
-            return new AcpDefaults(model.strip(), reasoning);
+            var codeModel = tree.has("default_code_model")
+                    ? tree.get("default_code_model").asText("")
+                    : "";
+            var codeReasoning = (tree.has("default_code_reasoning")
+                            ? tree.get("default_code_reasoning").asText(DEFAULT_REASONING_LEVEL_CODE)
+                            : DEFAULT_REASONING_LEVEL_CODE)
+                    .strip();
+            if (!REASONING_LEVEL_IDS.contains(codeReasoning)) {
+                logger.warn(
+                        "Persisted ACP code reasoning {} invalid; falling back to {}",
+                        codeReasoning,
+                        DEFAULT_REASONING_LEVEL_CODE);
+                codeReasoning = DEFAULT_REASONING_LEVEL_CODE;
+            }
+            return new AcpDefaults(model.strip(), reasoning, codeModel.strip(), codeReasoning);
         } catch (Exception e) {
             logger.warn("Failed to load ACP defaults, using built-in defaults", e);
-            return new AcpDefaults("", DEFAULT_REASONING_LEVEL);
+            return new AcpDefaults("", DEFAULT_REASONING_LEVEL, "", DEFAULT_REASONING_LEVEL_CODE);
         }
     }
 
-    private static void saveAcpDefaults(String model, String reasoning) {
+    /**
+     * Persists the current values of all four global default fields to {@code ~/.brokk/acp_settings.json}.
+     * Callers should update the in-memory {@code defaultModelId} / {@code defaultReasoningLevel} /
+     * {@code defaultCodeModelId} / {@code defaultCodeReasoningLevel} fields before invoking this so
+     * the on-disk snapshot matches the live state. Used after planner-model and code-model selection
+     * changes to keep the next session startup aligned.
+     */
+    private void persistAllDefaults() {
+        saveAcpDefaults(defaultModelId, defaultReasoningLevel, defaultCodeModelId, defaultCodeReasoningLevel);
+    }
+
+    private static void saveAcpDefaults(String model, String reasoning, String codeModel, String codeReasoning) {
         try {
             var settingsPath = acpSettingsPath();
             var dir = settingsPath.getParent();
@@ -2529,9 +2635,22 @@ public class BrokkAcpAgent {
                 Files.createDirectories(dir);
             }
             var mapper = new ObjectMapper();
-            var json = mapper.writeValueAsString(Map.of("default_model", model, "default_reasoning", reasoning));
+            var json = mapper.writeValueAsString(Map.of(
+                    "default_model",
+                    model,
+                    "default_reasoning",
+                    reasoning,
+                    "default_code_model",
+                    codeModel,
+                    "default_code_reasoning",
+                    codeReasoning));
             AtomicWrites.save(settingsPath, json);
-            logger.debug("Saved ACP defaults: model={}, reasoning={}", model, reasoning);
+            logger.debug(
+                    "Saved ACP defaults: model={}, reasoning={}, codeModel={}, codeReasoning={}",
+                    model,
+                    reasoning,
+                    codeModel,
+                    codeReasoning);
         } catch (IOException e) {
             logger.warn("Failed to save ACP defaults", e);
         }

@@ -24,6 +24,7 @@ import com.agentclientprotocol.sdk.spec.AcpSchema;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.TypeRef;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -1668,6 +1669,55 @@ class BrokkAcpAgentTest {
             assertTrue(ctx.askPermission("Allow shell?", "shell"));
             assertEquals(1, calls.get(), "ACCEPT_EDITS must still prompt for shell");
         }
+    }
+
+    @Test
+    void codeModelSelectionPersistsDefaultsAcrossAgentRestart() throws Exception {
+        seedModelCapabilities(Map.of(
+                "effort-model", TestService.modelInfo(true, false),
+                "plain-model", TestService.modelInfo(false, false)));
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setSessionConfigOption(new AcpProtocol.SetSessionConfigOptionRequest(
+                created.sessionId(), "code_model_selection", "effort-model/high", null));
+
+        // Simulate a JVM restart by constructing a fresh agent against the same
+        // acp_settings.json (its path is redirected to tempDir in setUp).
+        var revivedJobStore = new JobStore(projectRoot.resolve(".brokk-test-jobs-revived"));
+        var revivedAgent = new BrokkAcpAgent(contextManager, jobRunner, revivedJobStore);
+        var revived = revivedAgent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertEquals("effort-model/high", codeModelSelectionOption(revived).currentValue());
+    }
+
+    @Test
+    void setModelPromotesDefaultsForSubsequentSessionsInSameJvm() {
+        seedModelCapabilities(Map.of(
+                "effort-model", TestService.modelInfo(true, false),
+                "plain-model", TestService.modelInfo(false, false)));
+        var firstSession = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        agent.setModel(new AcpSchema.SetSessionModelRequest(firstSession.sessionId(), "plain-model"));
+
+        var secondSession = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertEquals("plain-model", modelSelectionOption(secondSession).currentValue());
+    }
+
+    @Test
+    void loadAcpDefaultsReadsCodeModelKeysFromPersistedFile() throws Exception {
+        seedModelCapabilities(Map.of(
+                "effort-model", TestService.modelInfo(true, false),
+                "plain-model", TestService.modelInfo(false, false)));
+        var settingsPath = Path.of(System.getProperty("brokk.acp.settings.path"));
+        var json = "{\"default_model\":\"plain-model\",\"default_reasoning\":\"medium\","
+                + "\"default_code_model\":\"effort-model\",\"default_code_reasoning\":\"high\"}";
+        Files.writeString(settingsPath, json);
+
+        var freshJobStore = new JobStore(projectRoot.resolve(".brokk-test-jobs-fresh"));
+        var freshAgent = new BrokkAcpAgent(contextManager, jobRunner, freshJobStore);
+        var session = freshAgent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        assertEquals("plain-model", modelSelectionOption(session).currentValue());
+        assertEquals("effort-model/high", codeModelSelectionOption(session).currentValue());
     }
 
     private void seedModelCapabilities(Map<String, Map<String, Object>> modelInfoByName) {
