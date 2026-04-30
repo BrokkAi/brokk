@@ -1364,7 +1364,7 @@ public class LutzAgent {
         }
 
         @Tool(
-                "Delegate a shell command task to the Shell Agent. Use this when the user needs to run commands like package installation, environment setup, build tools, or any CLI operation. The Shell Agent has full shell access and the user will approve each command interactively. Provide a clear description of what needs to be done.")
+                "Delegate a shell command task to the Shell Agent. Use this when the user needs to run commands like git operations (push, pull, commit, status, log, worktrees), package installation (npm/pip/cargo/etc.), environment setup, build tools (gradle, make), or any CLI operation. The Shell Agent has full shell access and the user will approve each command interactively. Provide a clear description of what needs to be done. Prefer this tool directly over callSearchAgent for any pure shell request; there is no Workspace context to gather for shell operations.")
         @Destructive
         @SuppressWarnings("UnusedMethod")
         public String callShellAgent(

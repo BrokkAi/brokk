@@ -63,7 +63,7 @@ public class SearchPrompts {
                 "one of: answer, shell delegation, task list, or Code Agent invocation",
                 """
                 - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
-                - When the request is a shell/CLI operation (installing tools, managing git worktrees, running scripts, environment setup, or any other "run this command" task), call callShellAgent(String task) to delegate to the Shell Agent, then summarize the result with answer(String). Delegating to the Shell Agent is NOT writing code; it is operating the user's system on their behalf, with their per-command approval. Do NOT respond with instructions for the user to run the command themselves, and do NOT propose adding a new tool to this codebase to perform the operation.
+                - When the request is a shell/CLI operation (running git commands such as `git push`, `git pull`, `git commit`, `git status`, `git log`; managing git worktrees; installing tools; running scripts; environment setup; build/test invocations; or any other "run this command" task), call callShellAgent(String task) to delegate to the Shell Agent, then summarize the result with answer(String). Delegating to the Shell Agent is NOT writing code; it is operating the user's system on their behalf, with their per-command approval. For pure shell/CLI requests, do NOT call callSearchAgent or add files to the Workspace first; the Workspace is irrelevant to shell operations. Do NOT respond with instructions for the user to run the command themselves, and do NOT propose adding a new tool to this codebase to perform the operation.
                 - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
                 - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks); do not attempt to write code yet.
                 """,
@@ -425,8 +425,11 @@ public class SearchPrompts {
                 {{~/if}}
 
                 {{#unless specialTooling~}}
-                Invariant: Before any final action, make reasonable efforts to first add the minimum sufficient, decision-relevant context
-                to the Workspace. If you cannot find relevant context, say so instead of guessing.
+                Invariant: Before any final action that depends on code knowledge (callCodeAgent, createOrReplaceTaskList, describeIssue,
+                or an answer that requires citing code), make reasonable efforts to first add the minimum sufficient, decision-relevant
+                context to the Workspace. If you cannot find relevant context, say so instead of guessing.
+                This invariant does NOT apply to callShellAgent: shell/CLI tasks operate on the user's system, not on the codebase, so
+                no Workspace context is needed first. Call callShellAgent directly when the request is a shell operation.
 
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
