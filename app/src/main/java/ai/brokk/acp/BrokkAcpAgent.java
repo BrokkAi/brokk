@@ -100,6 +100,7 @@ public class BrokkAcpAgent {
     // Per-session state
     private final Map<String, String> modeBySession = new ConcurrentHashMap<>();
     private final Map<String, String> modelBySession = new ConcurrentHashMap<>();
+    private final Map<String, String> codeModelBySession = new ConcurrentHashMap<>();
     private final Set<String> sessionsOnFallbackCatalog = ConcurrentHashMap.newKeySet();
     private final Map<String, String> reasoningBySession = new ConcurrentHashMap<>();
     private final Map<String, String> activeJobBySession = new ConcurrentHashMap<>();
@@ -255,6 +256,7 @@ public class BrokkAcpAgent {
     public void clearAllSessions() {
         modeBySession.clear();
         modelBySession.clear();
+        codeModelBySession.clear();
         reasoningBySession.clear();
         activeJobBySession.clear();
         stickyPermissionsBySession.clear();
@@ -383,6 +385,7 @@ public class BrokkAcpAgent {
 
         modeBySession.put(sessionId, "LUTZ");
         reasoningBySession.put(sessionId, defaultReasoningLevel);
+        codeModelBySession.put(sessionId, resolveInitialCodeModelSelection(sessionId));
         permissionModeBySession.put(sessionId, PermissionMode.DEFAULT);
         applySessionMcpServers(sessionId, request.mcpServers());
 
@@ -412,6 +415,11 @@ public class BrokkAcpAgent {
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
         reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
+        codeModelBySession.compute(
+                sessionId,
+                (ignored, existing) -> existing == null
+                        ? resolveInitialCodeModelSelection(sessionId)
+                        : sanitizeCodeModelSelection(sessionId, existing));
         permissionModeBySession.putIfAbsent(sessionId, PermissionMode.DEFAULT);
         applySessionMcpServers(sessionId, request.mcpServers());
 
@@ -436,6 +444,11 @@ public class BrokkAcpAgent {
 
         modeBySession.putIfAbsent(sessionId, "LUTZ");
         reasoningBySession.putIfAbsent(sessionId, defaultReasoningLevel);
+        codeModelBySession.compute(
+                sessionId,
+                (ignored, existing) -> existing == null
+                        ? resolveInitialCodeModelSelection(sessionId)
+                        : sanitizeCodeModelSelection(sessionId, existing));
         permissionModeBySession.putIfAbsent(sessionId, PermissionMode.DEFAULT);
         applySessionMcpServers(sessionId, request.mcpServers());
 
@@ -491,6 +504,7 @@ public class BrokkAcpAgent {
         }
         modeBySession.remove(sessionId);
         modelBySession.remove(sessionId);
+        codeModelBySession.remove(sessionId);
         reasoningBySession.remove(sessionId);
         stickyPermissionsBySession.remove(sessionId);
         sessionsOnFallbackCatalog.remove(sessionId);
@@ -526,6 +540,12 @@ public class BrokkAcpAgent {
             if (model != null) {
                 modelBySession.put(forkSessionId, model);
             }
+            codeModelBySession.put(
+                    forkSessionId,
+                    sanitizeCodeModelSelection(
+                            forkSessionId,
+                            codeModelBySession.getOrDefault(
+                                    request.sessionId(), resolveInitialCodeModelSelection(forkSessionId))));
             reasoningBySession.put(
                     forkSessionId, reasoningBySession.getOrDefault(request.sessionId(), defaultReasoningLevel));
             permissionModeBySession.put(
@@ -614,9 +634,7 @@ public class BrokkAcpAgent {
         var tags = new HashMap<String, String>();
         tags.put("mode", mode);
 
-        // Fall back to planner model if default code model is not available
-        var availableModels = bundle.cm().getService().getAvailableModels();
-        var codeModel = availableModels.containsKey(DEFAULT_CODE_MODEL) ? DEFAULT_CODE_MODEL : model;
+        var codeModel = resolveCurrentCodeModelSelection(sessionId);
 
         var spec = new JobSpec(
                 text, // taskInput
@@ -713,29 +731,32 @@ public class BrokkAcpAgent {
                 setMode(new AcpSchema.SetSessionModeRequest(sessionId, value));
             }
             case "model_selection" -> setModel(new AcpSchema.SetSessionModelRequest(sessionId, value));
+            case "code_model_selection" ->
+                codeModelBySession.put(sessionId, sanitizeCodeModelSelection(sessionId, value));
             default ->
                 throw new IllegalArgumentException("Unknown configId '" + configId
-                        + "'. Supported: permission_mode, behavior_mode, model_selection");
+                        + "'. Supported: permission_mode, behavior_mode, model_selection, code_model_selection");
         }
         return new AcpProtocol.SetSessionConfigOptionResponse(buildConfigOptions(sessionId), null);
     }
 
     /**
-     * Builds the dropdown advertisement for one session. Behavior, permission, and a flat
-     * model+reasoning dropdown are emitted via {@code configOptions} — IntelliJ hides the legacy
+     * Builds the dropdown advertisement for one session. Behavior, permission, planner-model, and
+     * code-model selectors are emitted via {@code configOptions} — IntelliJ hides the legacy
      * {@code modes} / {@code models} channels once anything appears here, so every selector must
      * come through this channel or it vanishes from the UI.
      *
-     * <p>Model and reasoning are presented as a single flat list of {@code name/variant} entries
-     * because IntelliJ doesn't render the spec'd {@code thought_level} category yet. When it does,
-     * we should split this into two adjacent dropdowns to match the legacy two-picker UX.
+     * <p>The planner-model selector remains a flat {@code name/variant} list because IntelliJ
+     * doesn't render the spec'd {@code thought_level} category yet. When it does, we should split
+     * planner model and reasoning into adjacent dropdowns to match the legacy two-picker UX.
      */
     private List<AcpProtocol.SessionConfigOption> buildConfigOptions(String sessionId) {
         var currentBehavior = modeBySession.getOrDefault(sessionId, "LUTZ");
         return List.of(
                 behaviorConfigOption(currentBehavior),
                 permissionConfigOption(permissionModeFor(sessionId)),
-                modelConfigOption(sessionId));
+                modelConfigOption(sessionId),
+                codeModelConfigOption(sessionId));
     }
 
     private AcpProtocol.SessionConfigOption modelConfigOption(String sessionId) {
@@ -772,6 +793,57 @@ public class BrokkAcpAgent {
                 "model",
                 currentValue,
                 List.copyOf(options));
+    }
+
+    private AcpProtocol.SessionConfigOption codeModelConfigOption(String sessionId) {
+        var availableModels = bundleForSession(sessionId).cm().getService().getAvailableModels();
+        var options = availableModels.keySet().stream()
+                .sorted()
+                .map(name -> new AcpProtocol.SessionConfigSelectOption(name, name, null))
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (options.isEmpty()) {
+            options.add(new AcpProtocol.SessionConfigSelectOption("default", "Default Code Model", null));
+        }
+
+        var currentValue = resolveCurrentCodeModelSelection(sessionId);
+        if (currentValue.isBlank()) {
+            currentValue = options.getFirst().value();
+        }
+
+        return AcpProtocol.SessionConfigOption.select(
+                "code_model_selection",
+                "Code Model",
+                "Selects the code model for this session.",
+                "model",
+                currentValue,
+                List.copyOf(options));
+    }
+
+    private String resolveInitialCodeModelSelection(String sessionId) {
+        return sanitizeCodeModelSelection(sessionId, modelBySession.getOrDefault(sessionId, defaultModelId));
+    }
+
+    private String resolveCurrentCodeModelSelection(String sessionId) {
+        var resolved = sanitizeCodeModelSelection(sessionId, codeModelBySession.getOrDefault(sessionId, ""));
+        codeModelBySession.put(sessionId, resolved);
+        return resolved;
+    }
+
+    private String sanitizeCodeModelSelection(String sessionId, String requestedModel) {
+        var availableModels = bundleForSession(sessionId).cm().getService().getAvailableModels();
+        var stripped = requestedModel.strip();
+        if (!stripped.isEmpty() && availableModels.containsKey(stripped)) {
+            return stripped;
+        }
+        if (availableModels.containsKey(DEFAULT_CODE_MODEL)) {
+            return DEFAULT_CODE_MODEL;
+        }
+        var plannerModel =
+                modelBySession.getOrDefault(sessionId, defaultModelId).strip();
+        if (!plannerModel.isEmpty() && availableModels.containsKey(plannerModel)) {
+            return plannerModel;
+        }
+        return availableModels.keySet().stream().sorted().findFirst().orElse("default");
     }
 
     private static AcpProtocol.SessionConfigOption behaviorConfigOption(String currentValue) {
