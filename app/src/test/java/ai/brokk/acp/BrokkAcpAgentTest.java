@@ -1035,32 +1035,35 @@ class BrokkAcpAgentTest {
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
                 PermissionGate.decide(
-                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EDIT, "editFile", false, null));
+                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EDIT, "editFile", false, null, false));
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
                 PermissionGate.decide(
-                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EXECUTE, "shell", false, null));
+                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.EXECUTE, "shell", false, null, false));
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
                 PermissionGate.decide(
-                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.OTHER, "weird", false, null));
+                        PermissionMode.BYPASS_PERMISSIONS, AcpSchema.ToolKind.OTHER, "weird", false, null, false));
     }
 
     @Test
     void gateReadOnlyRejectsEditExecuteAndOther() {
         assertEquals(
                 PermissionGate.Outcome.REJECT,
-                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", false, null));
+                PermissionGate.decide(
+                        PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", false, null, false));
         assertEquals(
                 PermissionGate.Outcome.REJECT,
-                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EXECUTE, "shell", false, null));
+                PermissionGate.decide(
+                        PermissionMode.READ_ONLY, AcpSchema.ToolKind.EXECUTE, "shell", false, null, false));
         assertEquals(
                 PermissionGate.Outcome.REJECT,
-                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.OTHER, "weird", false, null));
+                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.OTHER, "weird", false, null, false));
         // Always-allow does not lift the read-only brake.
         assertEquals(
                 PermissionGate.Outcome.REJECT,
-                PermissionGate.decide(PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", true, null));
+                PermissionGate.decide(
+                        PermissionMode.READ_ONLY, AcpSchema.ToolKind.EDIT, "editFile", true, null, false));
     }
 
     @Test
@@ -1072,7 +1075,7 @@ class BrokkAcpAgentTest {
                 AcpSchema.ToolKind.FETCH)) {
             assertEquals(
                     PermissionGate.Outcome.ALLOW,
-                    PermissionGate.decide(PermissionMode.READ_ONLY, k, "anything", false, null),
+                    PermissionGate.decide(PermissionMode.READ_ONLY, k, "anything", false, null, false),
                     "READ_ONLY must allow " + k);
         }
     }
@@ -1081,26 +1084,29 @@ class BrokkAcpAgentTest {
     void gateAcceptEditsAllowsEditButPromptsExecute() {
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
-                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EDIT, "editFile", false, null));
+                PermissionGate.decide(
+                        PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EDIT, "editFile", false, null, false));
         assertEquals(
                 PermissionGate.Outcome.PROMPT,
-                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EXECUTE, "shell", false, null));
+                PermissionGate.decide(
+                        PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.EXECUTE, "shell", false, null, false));
         assertEquals(
                 PermissionGate.Outcome.PROMPT,
-                PermissionGate.decide(PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.OTHER, "weird", false, null));
+                PermissionGate.decide(
+                        PermissionMode.ACCEPT_EDITS, AcpSchema.ToolKind.OTHER, "weird", false, null, false));
     }
 
     @Test
     void gateDefaultPromptsExceptForReadOnlyKinds() {
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
-                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.READ, "readFile", false, null));
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.READ, "readFile", false, null, false));
         assertEquals(
                 PermissionGate.Outcome.PROMPT,
-                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", false, null));
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", false, null, false));
         assertEquals(
                 PermissionGate.Outcome.PROMPT,
-                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", false, null));
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", false, null, false));
     }
 
     @Test
@@ -1108,11 +1114,80 @@ class BrokkAcpAgentTest {
         // Always-allow short-circuits the prompt for cacheable tools…
         assertEquals(
                 PermissionGate.Outcome.ALLOW,
-                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", true, null));
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EDIT, "editFile", true, null, false));
         // …but never for shell, where one approval would blanket-allow every future shell command.
         assertEquals(
                 PermissionGate.Outcome.PROMPT,
-                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", true, null));
+                PermissionGate.decide(PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", true, null, false));
+    }
+
+    @Test
+    void gateSandboxActiveSkipsPromptForNonDangerousShellCommands() {
+        // Phase 3: with sandbox active, mvn test should auto-allow.
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT, AcpSchema.ToolKind.OTHER, "runShellCommand", false, "mvn test", true));
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT,
+                        AcpSchema.ToolKind.OTHER,
+                        "runShellCommand",
+                        false,
+                        "./gradlew build",
+                        true));
+    }
+
+    @Test
+    void gateSandboxActiveStillPromptsForDangerousShellCommands() {
+        // Phase 3: dangerous commands keep prompting even with sandbox on.
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT, AcpSchema.ToolKind.OTHER, "runShellCommand", false, "git push", true));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT,
+                        AcpSchema.ToolKind.OTHER,
+                        "runShellCommand",
+                        false,
+                        "rm -rf foo",
+                        true));
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT,
+                        AcpSchema.ToolKind.OTHER,
+                        "runShellCommand",
+                        false,
+                        "curl https://evil.com",
+                        true));
+    }
+
+    @Test
+    void gateSandboxInactiveStillPromptsForNonDangerousShellCommands() {
+        // Sandbox unavailable / opted-out → must keep prompting non-safe-list commands.
+        assertEquals(
+                PermissionGate.Outcome.PROMPT,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT, AcpSchema.ToolKind.OTHER, "runShellCommand", false, "mvn test", false));
+    }
+
+    @Test
+    void gateReadOnlyStillBlocksShellEvenWithSandbox() {
+        // READ_ONLY rejection runs before the sandbox-aware branch, so /sandbox on doesn't
+        // weaken read-only mode.
+        assertEquals(
+                PermissionGate.Outcome.REJECT,
+                PermissionGate.decide(
+                        PermissionMode.READ_ONLY,
+                        AcpSchema.ToolKind.EXECUTE,
+                        "runShellCommand",
+                        false,
+                        "mvn test",
+                        true));
     }
 
     @Test

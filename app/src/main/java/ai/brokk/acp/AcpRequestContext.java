@@ -2,6 +2,7 @@ package ai.brokk.acp;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.util.Environment;
 import com.agentclientprotocol.sdk.agent.Command;
 import com.agentclientprotocol.sdk.agent.CommandResult;
 import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
@@ -264,7 +265,12 @@ final class AcpRequestContext implements AcpPromptContext {
             var kind = PermissionGate.classify(toolName);
             boolean alwaysAllowed = sticky.filter(v -> v != BrokkAcpAgent.PermissionVerdict.DENY)
                     .isPresent();
-            switch (PermissionGate.decide(mode, kind, toolName, alwaysAllowed, rawCommand)) {
+            // Phase 3: kernel sandbox lets us skip the prompt for non-dangerous commands. The
+            // sandbox is "active" when the platform supports it AND the user hasn't run
+            // /sandbox off. The downstream applySandboxOverride still upgrades ALLOW to
+            // ALLOW_NO_SANDBOX when /sandbox off is set, so the two paths stay consistent.
+            boolean sandboxActive = Environment.isSandboxAvailable() && !agent.isSandboxDisabledFor(sessionId);
+            switch (PermissionGate.decide(mode, kind, toolName, alwaysAllowed, rawCommand, sandboxActive)) {
                 case ALLOW -> {
                     var base = sticky.filter(v -> v == BrokkAcpAgent.PermissionVerdict.ALLOW_NO_SANDBOX)
                                     .isPresent()
