@@ -138,6 +138,10 @@ public class BrokkAcpAgent {
     // Set by BrokkAcpRuntime to enable session updates outside of prompt context
     private volatile @Nullable SessionUpdateSender sessionUpdateSender;
 
+    // Set by BrokkAcpRuntime at initialize when the client is below MIN_CLIENT_VERSIONS. When
+    // non-null, prompt() short-circuits with this message instead of invoking the LLM.
+    private volatile @Nullable String compatibilityWarning;
+
     @FunctionalInterface
     interface SessionUpdateSender {
         void sendSessionUpdate(String sessionId, AcpSchema.SessionUpdate update);
@@ -178,6 +182,10 @@ public class BrokkAcpAgent {
 
     public void setSessionUpdateSender(SessionUpdateSender sessionUpdateSender) {
         this.sessionUpdateSender = sessionUpdateSender;
+    }
+
+    public void setCompatibilityWarning(@Nullable String warning) {
+        this.compatibilityWarning = warning;
     }
 
     /**
@@ -588,6 +596,16 @@ public class BrokkAcpAgent {
             return AcpSchema.PromptResponse.endTurn();
         }
         var bundle = bundleOpt.get();
+
+        // If the connecting client is too old, short-circuit before invoking any LLM: the user's
+        // prompt will not be honored, but they'll see why. We have to do this in prompt() rather
+        // than newSession() because JetBrains AI Assistant silently drops agent_message_chunk
+        // events that arrive outside of an active turn.
+        var warning = compatibilityWarning;
+        if (warning != null) {
+            promptContext.sendMessage("**[Brokk]** " + warning);
+            return AcpSchema.PromptResponse.endTurn();
+        }
 
         // Handle slash commands
         var firstWord = text.strip().split("\\s+", 2)[0].toLowerCase(Locale.ROOT);

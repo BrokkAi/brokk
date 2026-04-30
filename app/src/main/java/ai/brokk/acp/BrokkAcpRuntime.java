@@ -6,15 +6,28 @@ import com.agentclientprotocol.sdk.spec.AcpAgentTransport;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
 import io.modelcontextprotocol.json.TypeRef;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /** Explicit ACP method router for Brokk's native Java ACP server. */
 final class BrokkAcpRuntime implements AutoCloseable {
+    private static final Logger logger = LogManager.getLogger(BrokkAcpRuntime.class);
+
+    /**
+     * Minimum version per known-buggy client, keyed on the exact {@code clientInfo.name} sent in
+     * {@code initialize}. Below the threshold, the agent runs in degraded mode: every prompt is
+     * short-circuited with a warning instead of invoking the LLM. Clients not in this map run at
+     * full feature regardless of version.
+     */
+    private static final Map<String, String> MIN_CLIENT_VERSIONS = Map.of("JetBrains.IntelliJ IDEA", "2026.1.1");
+
     private final AcpAgentTransport transport;
     private final BrokkAcpAgent agent;
     private final AtomicReference<NegotiatedCapabilities> clientCapabilities = new AtomicReference<>();
@@ -38,6 +51,30 @@ final class BrokkAcpRuntime implements AutoCloseable {
         var handlers = new HashMap<String, AcpAgentSession.RequestHandler<?>>();
         handlers.put(AcpSchema.METHOD_INITIALIZE, params -> {
             var request = unmarshal(params, new TypeRef<AcpSchema.InitializeRequest>() {});
+            // Log the client identity. clientInfo carries (name, version, title); _meta sometimes
+            // carries host-specific extras (e.g. proxy config). Useful for diagnosing "the IDE
+            // version is too old" reports from users.
+            logger.info(
+                    "ACP initialize: protocolVersion={}, clientInfo={}, clientCapabilities={}, meta={}",
+                    request.protocolVersion(),
+                    request.clientInfo(),
+                    request.clientCapabilities(),
+                    request.meta());
+            // We can't reject initialize: JetBrains AI Assistant silently marks the agent broken
+            // without surfacing the JSON-RPC error to the user. Stash a warning instead; prompt()
+            // will surface it inside an active turn (the only place AI Assistant renders chunks).
+            var info = request.clientInfo();
+            if (info != null && info.version() != null) {
+                var min = MIN_CLIENT_VERSIONS.get(info.name());
+                if (min != null && isOlderThan(info.version(), min)) {
+                    agent.setCompatibilityWarning("Brokk requires " + info.name() + " >= " + min + " (got "
+                            + info.version() + "). Brokk cannot process prompts on this IDE version. Please update.");
+                } else {
+                    agent.setCompatibilityWarning(null);
+                }
+            } else {
+                agent.setCompatibilityWarning(null);
+            }
             clientCapabilities.set(NegotiatedCapabilities.fromClient(request.clientCapabilities()));
             return Mono.fromCallable(() -> agent.initialize());
         });
@@ -109,6 +146,35 @@ final class BrokkAcpRuntime implements AutoCloseable {
 
     private <T> T unmarshal(Object params, TypeRef<T> typeRef) {
         return transport.unmarshalFrom(params, typeRef);
+    }
+
+    /**
+     * Returns true if {@code observed} is strictly older than {@code required}. Versions are
+     * compared as dot-separated numeric components, with missing components treated as 0
+     * ({@code "2026.1"} is older than {@code "2026.1.1"}). Non-digit suffixes on a component are
+     * stripped, so {@code "2026.1-EAP"} compares equal to {@code "2026.1"}.
+     */
+    static boolean isOlderThan(String observed, String required) {
+        int[] o = parseVersion(observed);
+        int[] r = parseVersion(required);
+        int len = Math.max(o.length, r.length);
+        for (int i = 0; i < len; i++) {
+            int a = i < o.length ? o[i] : 0;
+            int b = i < r.length ? r[i] : 0;
+            if (a != b) {
+                return a < b;
+            }
+        }
+        return false;
+    }
+
+    private static int[] parseVersion(String v) {
+        return Arrays.stream(v.split("\\."))
+                .mapToInt(s -> {
+                    var digits = s.replaceAll("[^0-9].*", "");
+                    return digits.isEmpty() ? 0 : Integer.parseInt(digits);
+                })
+                .toArray();
     }
 
     @Override
