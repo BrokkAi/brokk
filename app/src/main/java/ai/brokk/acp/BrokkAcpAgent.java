@@ -4,7 +4,13 @@ import ai.brokk.AbstractService;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.IAppContextManager;
+import ai.brokk.IssueProvider;
+import ai.brokk.Service;
 import ai.brokk.SessionManager.SessionInfo;
+import ai.brokk.agents.BuildAgent.BuildDetails;
+import ai.brokk.agents.BuildAgent.ModuleBuildEntry;
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.concurrent.LoggingFuture;
@@ -12,14 +18,23 @@ import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.issues.IssueProviderType;
+import ai.brokk.issues.IssuesProviderConfig.GithubConfig;
+import ai.brokk.issues.IssuesProviderConfig.JiraConfig;
 import ai.brokk.mcpclient.HttpMcpServer;
 import ai.brokk.mcpclient.McpServer;
 import ai.brokk.mcpclient.McpUtils;
 import ai.brokk.mcpclient.StdioMcpServer;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
+import ai.brokk.util.ShellConfig;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
@@ -28,6 +43,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -51,6 +67,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class BrokkAcpAgent {
     private static final Logger logger = LogManager.getLogger(BrokkAcpAgent.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private static final String DEFAULT_CODE_MODEL = "gemini-3-flash-preview";
     private static final String DEFAULT_REASONING_LEVEL = "medium";
@@ -607,10 +624,8 @@ public class BrokkAcpAgent {
             return AcpSchema.PromptResponse.endTurn();
         }
 
-        // Handle slash commands
-        var firstWord = text.strip().split("\\s+", 2)[0].toLowerCase(Locale.ROOT);
-        if (firstWord.equals("/context")) {
-            handleContextCommand(bundle, promptContext);
+        var slashHandled = handleSlashCommand(sessionId, text, bundle, promptContext);
+        if (slashHandled) {
             return AcpSchema.PromptResponse.endTurn();
         }
 
@@ -1536,6 +1551,28 @@ public class BrokkAcpAgent {
 
     // ---- Slash commands ----
 
+    private boolean handleSlashCommand(
+            String sessionId, String text, WorkspaceBundle bundle, AcpPromptContext promptContext) {
+        var stripped = text.strip();
+        if (!stripped.startsWith("/")) {
+            return false;
+        }
+
+        var parts = stripped.split("\\s+", 2);
+        var command = parts[0].toLowerCase(Locale.ROOT);
+        return switch (command) {
+            case "/context" -> {
+                handleContextCommand(bundle, promptContext);
+                yield true;
+            }
+            case "/config" -> {
+                handleConfigCommand(sessionId, parts.length > 1 ? parts[1] : "", bundle, promptContext);
+                yield true;
+            }
+            default -> false;
+        };
+    }
+
     private void handleContextCommand(WorkspaceBundle bundle, AcpPromptContext promptContext) {
         logger.info("ACP /context command for bundle {}", bundle.root());
         var live = bundle.cm().liveContext();
@@ -1584,6 +1621,692 @@ public class BrokkAcpAgent {
         promptContext.sendMessage(sb.toString());
     }
 
+    private void handleConfigCommand(
+            String sessionId, String payload, WorkspaceBundle bundle, AcpPromptContext promptContext) {
+        var trimmedPayload = payload.trim();
+        if (trimmedPayload.isEmpty()) {
+            promptContext.sendMessage(renderConfigSnapshot(sessionId, bundle));
+            return;
+        }
+
+        try {
+            var update = OBJECT_MAPPER.readTree(trimmedPayload);
+            if (!update.isObject()) {
+                promptContext.sendMessage(
+                        "Error: /config update payload must be a JSON object. Example: /config {\"projectSettings\":{\"commitMessageFormat\":\"feat: {{description}}\"}}");
+                return;
+            }
+
+            applyConfigUpdate(sessionId, bundle, update);
+            promptContext.sendMessage(
+                    "Updated configuration successfully.\n\n" + renderConfigSnapshot(sessionId, bundle));
+        } catch (JsonProcessingException e) {
+            promptContext.sendMessage(
+                    "Error: invalid JSON payload for /config. Example: /config {\"global\":{\"theme\":\"dark\"}}\n\n"
+                            + e.getOriginalMessage());
+        } catch (IllegalArgumentException e) {
+            promptContext.sendMessage("Error updating configuration: " + e.getMessage());
+        } catch (Exception e) {
+            logger.error("Failed to handle /config for bundle {}", bundle.root(), e);
+            promptContext.sendMessage("Error updating configuration: " + e.getMessage());
+        }
+    }
+
+    private String renderConfigSnapshot(String sessionId, WorkspaceBundle bundle) {
+        var snapshot = buildConfigSnapshot(sessionId, bundle);
+        try {
+            return """
+                    Current editable Brokk configuration.
+
+                    Update it by sending:
+                    /config {"projectSettings": {...}, "global": {...}}
+
+                    Editable sections:
+                    - buildDetails
+                    - projectSettings
+                    - shellConfig
+                    - issueProvider
+                    - dataRetentionPolicy
+                    - analyzerLanguages
+                    - global
+
+                    ```json
+                    %s
+                    ```
+                    """
+                    .formatted(OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(snapshot));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to render configuration snapshot", e);
+        }
+    }
+
+    private Map<String, Object> buildConfigSnapshot(String sessionId, WorkspaceBundle bundle) {
+        var project = bundle.cm().getProject();
+        var snapshot = new LinkedHashMap<String, Object>();
+        snapshot.put("buildDetails", buildBuildDetailsMap(project.awaitBuildDetails()));
+        snapshot.put("projectSettings", buildProjectSettingsMap(project));
+        snapshot.put("shellConfig", buildShellConfigMap(project.getShellConfig()));
+        snapshot.put("issueProvider", buildIssueProviderMap(project.getIssuesProvider()));
+        snapshot.put("dataRetentionPolicy", project.getDataRetentionPolicy().name());
+        snapshot.put("analyzerLanguages", buildAnalyzerLanguagesMap(project));
+        snapshot.put("global", buildGlobalSettingsMap(sessionId, bundle));
+        return snapshot;
+    }
+
+    private Map<String, Object> buildBuildDetailsMap(BuildDetails details) {
+        var map = new LinkedHashMap<String, Object>();
+        map.put("buildLintCommand", details.buildLintCommand());
+        map.put("buildLintEnabled", details.buildLintEnabled());
+        map.put("testAllCommand", details.testAllCommand());
+        map.put("testAllEnabled", details.testAllEnabled());
+        map.put("testSomeCommand", details.testSomeCommand());
+        map.put("testSomeEnabled", details.testSomeEnabled());
+        map.put("exclusionPatterns", new ArrayList<>(details.exclusionPatterns()));
+        map.put("environmentVariables", new LinkedHashMap<>(details.environmentVariables()));
+        map.put("maxBuildAttempts", details.maxBuildAttempts());
+        map.put("afterTaskListCommand", details.afterTaskListCommand());
+        var modules = details.modules().stream()
+                .map(module -> {
+                    var moduleMap = new LinkedHashMap<String, Object>();
+                    moduleMap.put("alias", module.alias());
+                    moduleMap.put("relativePath", module.relativePath());
+                    moduleMap.put("buildLintCommand", module.buildLintCommand());
+                    moduleMap.put("testAllCommand", module.testAllCommand());
+                    moduleMap.put("testSomeCommand", module.testSomeCommand());
+                    moduleMap.put("language", module.language());
+                    return moduleMap;
+                })
+                .toList();
+        map.put("modules", modules);
+        return map;
+    }
+
+    private Map<String, Object> buildProjectSettingsMap(IProject project) {
+        var map = new LinkedHashMap<String, Object>();
+        map.put("commitMessageFormat", project.getCommitMessageFormat());
+        map.put("codeAgentTestScope", project.getCodeAgentTestScope().name());
+        map.put("runCommandTimeoutSeconds", project.getRunCommandTimeoutSeconds());
+        map.put("testCommandTimeoutSeconds", project.getTestCommandTimeoutSeconds());
+        map.put("autoUpdateLocalDependencies", project.getAutoUpdateLocalDependencies());
+        map.put("autoUpdateGitDependencies", project.getAutoUpdateGitDependencies());
+        return map;
+    }
+
+    private Map<String, Object> buildShellConfigMap(ShellConfig config) {
+        var map = new LinkedHashMap<String, Object>();
+        map.put("executable", config.executable());
+        map.put("args", new ArrayList<>(config.args()));
+        return map;
+    }
+
+    private Map<String, Object> buildIssueProviderMap(IssueProvider provider) {
+        var map = new LinkedHashMap<String, Object>();
+        map.put("type", provider.type().name());
+
+        Object config = null;
+        if (provider.config() instanceof GithubConfig github) {
+            config = Map.of("owner", github.owner(), "repo", github.repo(), "host", github.host());
+        } else if (provider.config() instanceof JiraConfig jira) {
+            config = Map.of("baseUrl", jira.baseUrl(), "apiToken", jira.apiToken(), "projectKey", jira.projectKey());
+        }
+        map.put("config", config);
+        return map;
+    }
+
+    private Map<String, Object> buildAnalyzerLanguagesMap(IProject project) {
+        var map = new LinkedHashMap<String, Object>();
+        map.put(
+                "configured",
+                project.getAnalyzerLanguages().stream()
+                        .filter(lang -> lang != Languages.NONE)
+                        .map(Language::internalName)
+                        .toList());
+        map.put(
+                "detected",
+                Languages.findLanguagesInProject(project).stream()
+                        .filter(lang -> lang != Languages.NONE)
+                        .map(Language::internalName)
+                        .toList());
+        map.put(
+                "available",
+                Languages.ALL_LANGUAGES.stream()
+                        .filter(lang -> lang != Languages.NONE)
+                        .map(lang -> Map.of("name", lang.name(), "internalName", lang.internalName()))
+                        .toList());
+        return map;
+    }
+
+    private Map<String, Object> buildGlobalSettingsMap(String sessionId, WorkspaceBundle bundle) {
+        var service = bundle.cm().getService();
+        var map = new LinkedHashMap<String, Object>();
+
+        map.put("brokkKey", MainProject.getBrokkKey());
+        map.put("proxySetting", MainProject.getProxySetting().name());
+        map.put(
+                "customEndpoint",
+                Map.of(
+                        "url",
+                        MainProject.getCustomEndpointUrl(),
+                        "apiKey",
+                        MainProject.getCustomEndpointApiKey(),
+                        "model",
+                        MainProject.getCustomEndpointModel()));
+        map.put("theme", MainProject.getTheme());
+        map.put("codeBlockWrapMode", MainProject.getCodeBlockWrapMode());
+        map.put("startupOpenMode", MainProject.getStartupOpenMode().name());
+        map.put("watchServiceImplPreference", MainProject.getWatchServiceImplPreference());
+        map.put("otherModelsVendorPreference", MainProject.getOtherModelsVendorPreference());
+        map.put(
+                "jvmMemorySettings",
+                Map.of(
+                        "automatic", MainProject.getJvmMemorySettings().automatic(),
+                        "manualMb", MainProject.getJvmMemorySettings().manualMb()));
+        map.put(
+                "github",
+                Map.of(
+                        "token",
+                        MainProject.getGitHubToken(),
+                        "cloneProtocol",
+                        MainProject.getGitHubCloneProtocol(),
+                        "shallowCloneEnabled",
+                        MainProject.getGitHubShallowCloneEnabled(),
+                        "shallowCloneDepth",
+                        MainProject.getGitHubShallowCloneDepth()));
+        map.put("exceptionReportingEnabled", MainProject.getExceptionReportingEnabled());
+        map.put("openAiCodexOauthConnected", MainProject.isOpenAiCodexOauthConnected());
+        map.put(
+                "favoriteModels",
+                MainProject.loadFavoriteModels().stream()
+                        .map(favorite -> Map.of(
+                                "alias",
+                                favorite.alias(),
+                                "config",
+                                Map.of(
+                                        "name",
+                                        favorite.config().name(),
+                                        "reasoning",
+                                        favorite.config().reasoning().toString().toLowerCase(Locale.ROOT),
+                                        "tier",
+                                        favorite.config().tier().toString().toLowerCase(Locale.ROOT))))
+                        .toList());
+        map.put("advancedMode", GlobalUiSettings.isAdvancedMode());
+        map.put("diffUnifiedView", GlobalUiSettings.isDiffUnifiedView());
+        map.put("persistPerProjectBounds", GlobalUiSettings.isPersistPerProjectBounds());
+        map.put("instructionsTabInsertIndentation", GlobalUiSettings.isInstructionsTabInsertIndentation());
+        map.put("verticalActivityLayout", GlobalUiSettings.isVerticalActivityLayout());
+        map.put(
+                "notifications",
+                Map.of(
+                        "showCost",
+                        GlobalUiSettings.isShowCostNotifications(),
+                        "showFreeInternalLLMCost",
+                        GlobalUiSettings.isShowFreeInternalLLMCostNotifications(),
+                        "showError",
+                        GlobalUiSettings.isShowErrorNotifications(),
+                        "showConfirm",
+                        GlobalUiSettings.isShowConfirmNotifications(),
+                        "showInfo",
+                        GlobalUiSettings.isShowInfoNotifications()));
+        map.put(
+                "sessionDefaults",
+                Map.of(
+                        "plannerModel",
+                        modelBySession.getOrDefault(sessionId, defaultModelId),
+                        "plannerReasoning",
+                        reasoningBySession.getOrDefault(sessionId, defaultReasoningLevel),
+                        "codeModel",
+                        codeModelBySession.getOrDefault(sessionId, preferredCodeBaseModel(sessionId)),
+                        "codeReasoning",
+                        codeReasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL_CODE)));
+        map.put(
+                "availableModels",
+                service.getAvailableModels().keySet().stream().sorted().toList());
+
+        return map;
+    }
+
+    private void applyConfigUpdate(String sessionId, WorkspaceBundle bundle, JsonNode update) {
+        var project = bundle.cm().getProject();
+        if (update.has("buildDetails")) {
+            applyBuildSettings(project, requireObject(update, "buildDetails"));
+        }
+        if (update.has("projectSettings")) {
+            applyProjectSettings(project, requireObject(update, "projectSettings"));
+        }
+        if (update.has("shellConfig")) {
+            applyShellConfig(project, requireObject(update, "shellConfig"));
+        }
+        if (update.has("issueProvider")) {
+            applyIssueProvider(project, update.get("issueProvider"));
+        }
+        if (update.has("dataRetentionPolicy")) {
+            applyDataRetention(project, requireText(update, "dataRetentionPolicy"));
+        }
+        if (update.has("analyzerLanguages")) {
+            applyAnalyzerLanguages(project, requireObject(update, "analyzerLanguages"));
+        }
+        if (update.has("global")) {
+            applyGlobalSettings(sessionId, bundle, requireObject(update, "global"));
+        }
+    }
+
+    private void applyBuildSettings(IProject project, JsonNode request) {
+        var current = project.awaitBuildDetails();
+
+        String buildLintCommand = request.has("buildLintCommand")
+                ? textOrEmpty(request.get("buildLintCommand"))
+                : current.buildLintCommand();
+        boolean buildLintEnabled = request.has("buildLintEnabled")
+                ? request.get("buildLintEnabled").asBoolean()
+                : current.buildLintEnabled();
+        String testAllCommand =
+                request.has("testAllCommand") ? textOrEmpty(request.get("testAllCommand")) : current.testAllCommand();
+        boolean testAllEnabled =
+                request.has("testAllEnabled") ? request.get("testAllEnabled").asBoolean() : current.testAllEnabled();
+        String testSomeCommand = request.has("testSomeCommand")
+                ? textOrEmpty(request.get("testSomeCommand"))
+                : current.testSomeCommand();
+        boolean testSomeEnabled =
+                request.has("testSomeEnabled") ? request.get("testSomeEnabled").asBoolean() : current.testSomeEnabled();
+        Set<String> exclusionPatterns = request.has("exclusionPatterns")
+                ? stringSet(request.get("exclusionPatterns"))
+                : current.exclusionPatterns();
+        Map<String, String> environmentVariables = request.has("environmentVariables")
+                ? stringMap(request.get("environmentVariables"))
+                : current.environmentVariables();
+        Integer maxBuildAttempts;
+        if (request.has("maxBuildAttempts")) {
+            var maxBuildAttemptsNode = request.get("maxBuildAttempts");
+            maxBuildAttempts = maxBuildAttemptsNode != null && !maxBuildAttemptsNode.isNull()
+                    ? maxBuildAttemptsNode.asInt()
+                    : null;
+        } else {
+            maxBuildAttempts = current.maxBuildAttempts();
+        }
+        String afterTaskListCommand = request.has("afterTaskListCommand")
+                ? textOrEmpty(request.get("afterTaskListCommand"))
+                : current.afterTaskListCommand();
+
+        List<ModuleBuildEntry> modules;
+        if (request.has("modules")) {
+            modules = new ArrayList<>();
+            for (var moduleNode : iterable(requireArray(request, "modules"))) {
+                modules.add(new ModuleBuildEntry(
+                        textOrEmpty(moduleNode.get("alias")),
+                        textOrEmpty(moduleNode.get("relativePath")),
+                        textOrEmpty(moduleNode.get("buildLintCommand")),
+                        textOrEmpty(moduleNode.get("testAllCommand")),
+                        textOrEmpty(moduleNode.get("testSomeCommand")),
+                        textOrEmpty(moduleNode.get("language"))));
+            }
+        } else {
+            modules = current.modules();
+        }
+
+        project.saveBuildDetails(new BuildDetails(
+                buildLintCommand,
+                buildLintEnabled,
+                testAllCommand,
+                testAllEnabled,
+                testSomeCommand,
+                testSomeEnabled,
+                exclusionPatterns,
+                environmentVariables,
+                maxBuildAttempts,
+                afterTaskListCommand,
+                modules));
+    }
+
+    private void applyProjectSettings(IProject project, JsonNode request) {
+        var mainProject = project.getMainProject();
+        if (request.has("commitMessageFormat")) {
+            project.setCommitMessageFormat(textOrEmpty(request.get("commitMessageFormat")));
+        }
+        if (request.has("codeAgentTestScope")) {
+            project.setCodeAgentTestScope(IProject.CodeAgentTestScope.fromString(
+                    textOrEmpty(request.get("codeAgentTestScope")), project.getCodeAgentTestScope()));
+        }
+        if (request.has("runCommandTimeoutSeconds")) {
+            mainProject.setRunCommandTimeoutSeconds(
+                    request.get("runCommandTimeoutSeconds").asLong());
+        }
+        if (request.has("testCommandTimeoutSeconds")) {
+            mainProject.setTestCommandTimeoutSeconds(
+                    request.get("testCommandTimeoutSeconds").asLong());
+        }
+        if (request.has("autoUpdateLocalDependencies")) {
+            project.setAutoUpdateLocalDependencies(
+                    request.get("autoUpdateLocalDependencies").asBoolean());
+        }
+        if (request.has("autoUpdateGitDependencies")) {
+            project.setAutoUpdateGitDependencies(
+                    request.get("autoUpdateGitDependencies").asBoolean());
+        }
+    }
+
+    private void applyShellConfig(IProject project, JsonNode request) {
+        var executable = requireText(request, "executable");
+        if (executable.isBlank()) {
+            throw new IllegalArgumentException("shellConfig.executable is required");
+        }
+        var args = request.has("args") ? stringList(request.get("args")) : List.<String>of();
+        project.setShellConfig(new ShellConfig(executable, args));
+    }
+
+    private void applyIssueProvider(IProject project, JsonNode requestNode) {
+        var typeStr = requireText(requestNode, "type");
+        IssueProviderType type;
+        try {
+            type = IssueProviderType.valueOf(typeStr.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid issueProvider.type: " + typeStr);
+        }
+
+        IssueProvider provider =
+                switch (type) {
+                    case NONE -> IssueProvider.none();
+                    case GITHUB -> {
+                        var configNode = requestNode.get("config");
+                        if (configNode == null || configNode.isNull()) {
+                            yield IssueProvider.github();
+                        }
+                        yield IssueProvider.github(
+                                configNode.has("owner") ? textOrEmpty(configNode.get("owner")) : "",
+                                configNode.has("repo") ? textOrEmpty(configNode.get("repo")) : "",
+                                configNode.has("host") ? textOrEmpty(configNode.get("host")) : "");
+                    }
+                    case JIRA -> {
+                        var configNode = requireObject(requestNode, "config");
+                        yield IssueProvider.jira(
+                                configNode.has("baseUrl") ? textOrEmpty(configNode.get("baseUrl")) : "",
+                                configNode.has("apiToken") ? textOrEmpty(configNode.get("apiToken")) : "",
+                                configNode.has("projectKey") ? textOrEmpty(configNode.get("projectKey")) : "");
+                    }
+                };
+        project.setIssuesProvider(provider);
+    }
+
+    private void applyDataRetention(IProject project, String policyStr) {
+        MainProject.DataRetentionPolicy policy;
+        try {
+            policy = MainProject.DataRetentionPolicy.valueOf(policyStr.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                    "Invalid dataRetentionPolicy: " + policyStr + ". Must be IMPROVE_BROKK or MINIMAL");
+        }
+        if (policy == MainProject.DataRetentionPolicy.UNSET) {
+            throw new IllegalArgumentException("Cannot set dataRetentionPolicy to UNSET");
+        }
+        project.setDataRetentionPolicy(policy);
+    }
+
+    private void applyAnalyzerLanguages(IProject project, JsonNode request) {
+        var languagesNode = request.has("languages") ? request.get("languages") : request;
+        var languages = new LinkedHashSet<Language>();
+        for (var value : iterable(requireArrayValue(languagesNode, "analyzerLanguages.languages"))) {
+            try {
+                var language = Languages.valueOf(value.asText());
+                if (language != Languages.NONE) {
+                    languages.add(language);
+                }
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid analyzer language: " + value.asText());
+            }
+        }
+        project.setAnalyzerLanguages(languages);
+    }
+
+    private void applyGlobalSettings(String sessionId, WorkspaceBundle bundle, JsonNode global) {
+        if (global.has("brokkKey")) {
+            MainProject.setBrokkKey(textOrEmpty(global.get("brokkKey")));
+        }
+        if (global.has("proxySetting")) {
+            try {
+                MainProject.setLlmProxySetting(MainProject.LlmProxySetting.valueOf(
+                        requireText(global, "proxySetting").toUpperCase(Locale.ROOT)));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Invalid global.proxySetting: " + requireText(global, "proxySetting"));
+            }
+        }
+        if (global.has("customEndpoint")) {
+            var customEndpoint = requireObject(global, "customEndpoint");
+            if (customEndpoint.has("url")) {
+                var url = textOrEmpty(customEndpoint.get("url")).trim();
+                if (url.isBlank()) {
+                    throw new IllegalArgumentException("global.customEndpoint.url must not be blank");
+                }
+                try {
+                    var uri = URI.create(url);
+                    if (uri.getScheme() == null || !uri.getScheme().matches("https?")) {
+                        throw new IllegalArgumentException("scheme must be http or https");
+                    }
+                    if (uri.getHost() == null || uri.getHost().isBlank()) {
+                        throw new IllegalArgumentException("host must not be blank");
+                    }
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Invalid global.customEndpoint.url: " + url);
+                }
+                MainProject.setCustomEndpointUrl(url);
+            }
+            if (customEndpoint.has("apiKey")) {
+                MainProject.setCustomEndpointApiKey(textOrEmpty(customEndpoint.get("apiKey")));
+            }
+            if (customEndpoint.has("model")) {
+                MainProject.setCustomEndpointModel(textOrEmpty(customEndpoint.get("model")));
+            }
+        }
+        if (global.has("theme")) {
+            MainProject.setTheme(textOrEmpty(global.get("theme")));
+        }
+        if (global.has("codeBlockWrapMode")) {
+            MainProject.setCodeBlockWrapMode(global.get("codeBlockWrapMode").asBoolean());
+        }
+        if (global.has("startupOpenMode")) {
+            try {
+                MainProject.setStartupOpenMode(MainProject.StartupOpenMode.valueOf(
+                        requireText(global, "startupOpenMode").toUpperCase(Locale.ROOT)));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Invalid global.startupOpenMode: " + requireText(global, "startupOpenMode"));
+            }
+        }
+        if (global.has("watchServiceImplPreference")) {
+            MainProject.setWatchServiceImplPreference(textOrEmpty(global.get("watchServiceImplPreference")));
+        }
+        if (global.has("otherModelsVendorPreference")) {
+            MainProject.setOtherModelsVendorPreference(textOrEmpty(global.get("otherModelsVendorPreference")));
+        }
+        if (global.has("jvmMemorySettings")) {
+            var memory = requireObject(global, "jvmMemorySettings");
+            var automatic = memory.has("automatic") ? memory.get("automatic").asBoolean() : true;
+            var manualMb = memory.has("manualMb")
+                    ? memory.get("manualMb").asInt()
+                    : MainProject.getJvmMemorySettings().manualMb();
+            MainProject.setJvmMemorySettings(new MainProject.JvmMemorySettings(automatic, manualMb));
+        }
+        if (global.has("github")) {
+            var github = requireObject(global, "github");
+            if (github.has("token")) {
+                MainProject.setGitHubToken(textOrEmpty(github.get("token")));
+            }
+            if (github.has("cloneProtocol")) {
+                MainProject.setGitHubCloneProtocol(textOrEmpty(github.get("cloneProtocol")));
+            }
+            if (github.has("shallowCloneEnabled")) {
+                MainProject.setGitHubShallowCloneEnabled(
+                        github.get("shallowCloneEnabled").asBoolean());
+            }
+            if (github.has("shallowCloneDepth")) {
+                MainProject.setGitHubShallowCloneDepth(
+                        github.get("shallowCloneDepth").asInt());
+            }
+        }
+        if (global.has("exceptionReportingEnabled")) {
+            MainProject.setExceptionReportingEnabled(
+                    global.get("exceptionReportingEnabled").asBoolean());
+        }
+        if (global.has("openAiCodexOauthConnected")) {
+            MainProject.setOpenAiCodexOauthConnected(
+                    global.get("openAiCodexOauthConnected").asBoolean());
+        }
+        if (global.has("favoriteModels")) {
+            MainProject.saveFavoriteModels(parseFavoriteModels(global.get("favoriteModels")));
+        }
+        if (global.has("advancedMode")) {
+            GlobalUiSettings.saveAdvancedMode(global.get("advancedMode").asBoolean());
+        }
+        if (global.has("diffUnifiedView")) {
+            GlobalUiSettings.saveDiffUnifiedView(global.get("diffUnifiedView").asBoolean());
+        }
+        if (global.has("persistPerProjectBounds")) {
+            GlobalUiSettings.savePersistPerProjectBounds(
+                    global.get("persistPerProjectBounds").asBoolean());
+        }
+        if (global.has("instructionsTabInsertIndentation")) {
+            GlobalUiSettings.saveInstructionsTabInsertIndentation(
+                    global.get("instructionsTabInsertIndentation").asBoolean());
+        }
+        if (global.has("verticalActivityLayout")) {
+            GlobalUiSettings.saveVerticalActivityLayout(
+                    global.get("verticalActivityLayout").asBoolean());
+        }
+        if (global.has("notifications")) {
+            var notifications = requireObject(global, "notifications");
+            if (notifications.has("showCost")) {
+                GlobalUiSettings.saveShowCostNotifications(
+                        notifications.get("showCost").asBoolean());
+            }
+            if (notifications.has("showFreeInternalLLMCost")) {
+                GlobalUiSettings.saveShowFreeInternalLLMCostNotifications(
+                        notifications.get("showFreeInternalLLMCost").asBoolean());
+            }
+            if (notifications.has("showError")) {
+                GlobalUiSettings.saveShowErrorNotifications(
+                        notifications.get("showError").asBoolean());
+            }
+            if (notifications.has("showConfirm")) {
+                GlobalUiSettings.saveShowConfirmNotifications(
+                        notifications.get("showConfirm").asBoolean());
+            }
+            if (notifications.has("showInfo")) {
+                GlobalUiSettings.saveShowInfoNotifications(
+                        notifications.get("showInfo").asBoolean());
+            }
+        }
+        if (global.has("sessionDefaults")) {
+            var sessionDefaults = requireObject(global, "sessionDefaults");
+            if (sessionDefaults.has("plannerModel") || sessionDefaults.has("plannerReasoning")) {
+                var plannerModel = sessionDefaults.has("plannerModel")
+                        ? textOrEmpty(sessionDefaults.get("plannerModel"))
+                        : modelBySession.getOrDefault(sessionId, defaultModelId);
+                var plannerReasoning = sessionDefaults.has("plannerReasoning")
+                        ? textOrEmpty(sessionDefaults.get("plannerReasoning"))
+                        : reasoningBySession.getOrDefault(sessionId, defaultReasoningLevel);
+                var normalized = normalizeModelSelection(
+                        sessionId,
+                        bundle.cm().getService().getAvailableModels(),
+                        bundle.cm().getService(),
+                        plannerModel,
+                        true);
+                var sanitizedReasoning = sanitizeReasoningLevelForModel(
+                        normalized.baseModel(), plannerReasoning, bundle.cm().getService());
+                modelBySession.put(sessionId, normalized.baseModel());
+                reasoningBySession.put(sessionId, sanitizedReasoning);
+                saveAcpDefaults(normalized.baseModel(), sanitizedReasoning);
+            }
+            if (sessionDefaults.has("codeModel") || sessionDefaults.has("codeReasoning")) {
+                var codeModel = sessionDefaults.has("codeModel")
+                        ? textOrEmpty(sessionDefaults.get("codeModel"))
+                        : preferredCodeBaseModel(sessionId);
+                var codeReasoning = sessionDefaults.has("codeReasoning")
+                        ? textOrEmpty(sessionDefaults.get("codeReasoning"))
+                        : codeReasoningBySession.getOrDefault(sessionId, DEFAULT_REASONING_LEVEL_CODE);
+                normalizeCodeModelSelection(sessionId, codeModel, codeReasoning, true);
+            }
+        }
+    }
+
+    private List<Service.FavoriteModel> parseFavoriteModels(JsonNode node) {
+        var favorites = new ArrayList<Service.FavoriteModel>();
+        for (var favoriteNode : iterable(requireArrayValue(node, "global.favoriteModels"))) {
+            var alias = requireText(favoriteNode, "alias");
+            var config = requireObject(favoriteNode, "config");
+            var name = requireText(config, "name");
+            var reasoning = AbstractService.ReasoningLevel.fromString(
+                    config.has("reasoning") ? textOrEmpty(config.get("reasoning")) : null,
+                    AbstractService.ReasoningLevel.DEFAULT);
+            var tier = AbstractService.ProcessingTier.fromString(
+                    config.has("tier") ? textOrEmpty(config.get("tier")) : null);
+            favorites.add(new Service.FavoriteModel(alias, new AbstractService.ModelConfig(name, reasoning, tier)));
+        }
+        return favorites;
+    }
+
+    private static JsonNode requireObject(JsonNode parent, String fieldName) {
+        var node = parent.get(fieldName);
+        if (node == null || !node.isObject()) {
+            throw new IllegalArgumentException(fieldName + " must be a JSON object");
+        }
+        return node;
+    }
+
+    private static JsonNode requireArray(JsonNode parent, String fieldName) {
+        var node = parent.get(fieldName);
+        if (node == null || !node.isArray()) {
+            throw new IllegalArgumentException(fieldName + " must be a JSON array");
+        }
+        return node;
+    }
+
+    private static JsonNode requireArrayValue(JsonNode node, String fieldName) {
+        if (!node.isArray()) {
+            throw new IllegalArgumentException(fieldName + " must be a JSON array");
+        }
+        return node;
+    }
+
+    private static String requireText(JsonNode parent, String fieldName) {
+        var node = parent.get(fieldName);
+        if (node == null || node.isNull()) {
+            throw new IllegalArgumentException(fieldName + " is required");
+        }
+        return textOrEmpty(node);
+    }
+
+    private static String textOrEmpty(@Nullable JsonNode node) {
+        return node == null || node.isNull() ? "" : node.asText("");
+    }
+
+    private static List<String> stringList(JsonNode node) {
+        if (!node.isArray()) {
+            throw new IllegalArgumentException("Expected JSON array of strings");
+        }
+        var values = new ArrayList<String>();
+        for (var value : iterable(node)) {
+            values.add(value.asText());
+        }
+        return List.copyOf(values);
+    }
+
+    private static Set<String> stringSet(JsonNode node) {
+        return new LinkedHashSet<>(stringList(node));
+    }
+
+    private static Map<String, String> stringMap(JsonNode node) {
+        if (!node.isObject()) {
+            throw new IllegalArgumentException("Expected JSON object of string values");
+        }
+        var values = new LinkedHashMap<String, String>();
+        node.properties()
+                .forEach(entry -> values.put(entry.getKey(), entry.getValue().asText("")));
+        return Map.copyOf(values);
+    }
+
+    private static Iterable<JsonNode> iterable(JsonNode node) {
+        return node::elements;
+    }
+
     private void scheduleAvailableCommandsUpdate(String sessionId) {
         var sender = this.sessionUpdateSender;
         if (sender == null) {
@@ -1591,8 +2314,9 @@ public class BrokkAcpAgent {
         }
         Thread.startVirtualThread(() -> {
             try {
-                var commands =
-                        List.of(new AcpSchema.AvailableCommand("context", "Show current context snapshot", null));
+                var commands = List.of(
+                        new AcpSchema.AvailableCommand("context", "Show current context snapshot", null),
+                        new AcpSchema.AvailableCommand("config", "Show or update editable Brokk configuration", null));
                 sender.sendSessionUpdate(
                         sessionId, new AcpSchema.AvailableCommandsUpdate("available_commands_update", commands));
             } catch (Exception e) {

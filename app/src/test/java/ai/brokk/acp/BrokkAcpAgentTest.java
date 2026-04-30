@@ -15,6 +15,7 @@ import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.io.ProjectFiles;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
+import ai.brokk.util.GlobalUiSettings;
 import com.agentclientprotocol.sdk.capabilities.NegotiatedCapabilities;
 import com.agentclientprotocol.sdk.spec.AcpAgentSession;
 import com.agentclientprotocol.sdk.spec.AcpAgentTransport;
@@ -33,6 +34,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import reactor.core.publisher.Mono;
@@ -67,6 +69,7 @@ class BrokkAcpAgentTest {
 
     @AfterEach
     void tearDown() {
+        GlobalUiSettings.resetForTests();
         if (jobRunner != null) {
             jobRunner.shutdown();
         }
@@ -496,6 +499,104 @@ class BrokkAcpAgentTest {
                 assertEquals("ON-DISK\n", read.orElse(null));
             }
             assertEquals(0, calls.get());
+        }
+    }
+
+    @Test
+    void promptBareConfigReturnsSnapshotWithoutRunningJob() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            var response = agent.prompt(
+                    promptRequest(created.sessionId(), "/config"), fixture.contextFor(created.sessionId()));
+
+            assertEquals(AcpSchema.PromptResponse.endTurn().stopReason(), response.stopReason());
+            var messages = joinedPromptMessages(fixture.transport);
+            assertTrue(messages.contains("Current editable Brokk configuration."));
+            assertTrue(messages.contains("\"buildDetails\""));
+            assertTrue(messages.contains("\"global\""));
+        }
+    }
+
+    @Test
+    void promptConfigUpdatesProjectScopedSettings() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(
+                            created.sessionId(),
+                            "/config {\"projectSettings\":{\"commitMessageFormat\":\"feat: {{description}}\",\"autoUpdateLocalDependencies\":true},\"shellConfig\":{\"executable\":\"/bin/bash\",\"args\":[\"-lc\"]},\"dataRetentionPolicy\":\"MINIMAL\"}"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals("feat: {{description}}", contextManager.getProject().getCommitMessageFormat());
+            assertTrue(contextManager.getProject().getAutoUpdateLocalDependencies());
+            assertEquals(
+                    "/bin/bash", contextManager.getProject().getShellConfig().executable());
+            assertEquals(
+                    List.of("-lc"), contextManager.getProject().getShellConfig().args());
+            assertEquals(
+                    MainProject.DataRetentionPolicy.MINIMAL,
+                    contextManager.getProject().getDataRetentionPolicy());
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
+        }
+    }
+
+    @Test
+    void promptConfigUpdatesRepresentativeGlobalSettings() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(
+                            created.sessionId(),
+                            "/config {\"global\":{\"theme\":\"dark\",\"codeBlockWrapMode\":false,\"watchServiceImplPreference\":\"native\",\"github\":{\"token\":\"gh-token\",\"cloneProtocol\":\"ssh\",\"shallowCloneEnabled\":true,\"shallowCloneDepth\":7},\"advancedMode\":true,\"diffUnifiedView\":true,\"persistPerProjectBounds\":true,\"instructionsTabInsertIndentation\":true,\"verticalActivityLayout\":true,\"notifications\":{\"showCost\":false,\"showFreeInternalLLMCost\":false,\"showError\":false,\"showConfirm\":false,\"showInfo\":false}}}"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertEquals("dark", MainProject.getTheme());
+            assertFalse(MainProject.getCodeBlockWrapMode());
+            assertEquals("native", MainProject.getWatchServiceImplPreference());
+            assertEquals("gh-token", MainProject.getGitHubToken());
+            assertEquals("ssh", MainProject.getGitHubCloneProtocol());
+            assertTrue(MainProject.getGitHubShallowCloneEnabled());
+            assertEquals(7, MainProject.getGitHubShallowCloneDepth());
+            assertTrue(GlobalUiSettings.isAdvancedMode());
+            assertTrue(GlobalUiSettings.isDiffUnifiedView());
+            assertTrue(GlobalUiSettings.isPersistPerProjectBounds());
+            assertTrue(GlobalUiSettings.isInstructionsTabInsertIndentation());
+            assertTrue(GlobalUiSettings.isVerticalActivityLayout());
+            assertFalse(GlobalUiSettings.isShowCostNotifications());
+            assertFalse(GlobalUiSettings.isShowFreeInternalLLMCostNotifications());
+            assertFalse(GlobalUiSettings.isShowErrorNotifications());
+            assertFalse(GlobalUiSettings.isShowConfirmNotifications());
+            assertFalse(GlobalUiSettings.isShowInfoNotifications());
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Updated configuration successfully."));
+        }
+    }
+
+    @Test
+    void promptConfigReportsInvalidPayloadCleanly() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config {not-json}"), fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Error: invalid JSON payload for /config."));
+        }
+    }
+
+    @Test
+    void promptConfigReportsInvalidValueCleanly() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/config {\"dataRetentionPolicy\":\"INVALID\"}"),
+                    fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport)
+                    .contains("Error updating configuration: Invalid dataRetentionPolicy: INVALID"));
         }
     }
 
@@ -1466,6 +1567,22 @@ class BrokkAcpAgentTest {
                 .orElseThrow();
     }
 
+    private static AcpSchema.PromptRequest promptRequest(String sessionId, String text) {
+        return new AcpSchema.PromptRequest(sessionId, List.of(new AcpSchema.TextContent(text)));
+    }
+
+    private static String joinedPromptMessages(FakeTransport transport) {
+        return transport.sessionUpdates().stream()
+                .map(AcpSchema.SessionNotification::update)
+                .filter(AcpSchema.AgentMessageChunk.class::isInstance)
+                .map(AcpSchema.AgentMessageChunk.class::cast)
+                .map(AcpSchema.AgentMessageChunk::content)
+                .filter(AcpSchema.TextContent.class::isInstance)
+                .map(AcpSchema.TextContent.class::cast)
+                .map(AcpSchema.TextContent::text)
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
     static final class FakeTransport implements AcpAgentTransport {
         private final McpJsonMapper mapper = McpJsonDefaults.getMapper();
         private final List<AcpSchema.JSONRPCMessage> sentMessages = new ArrayList<>();
@@ -1539,7 +1656,7 @@ class BrokkAcpAgentTest {
      * Two {@code session/new} calls with different {@code cwd}s must materialize independent
      * bundles; sessions in one must not appear in {@code listSessions} for the other.
      */
-    @org.junit.jupiter.api.Nested
+    @Nested
     class PerCwdBundles {
 
         private Path rootA;
