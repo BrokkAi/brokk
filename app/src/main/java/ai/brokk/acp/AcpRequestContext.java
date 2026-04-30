@@ -204,7 +204,12 @@ final class AcpRequestContext implements AcpPromptContext {
 
     @Override
     public void sendMessage(String text) {
-        sendUpdate(sessionId, new AcpSchema.AgentMessageChunk("agent_message_chunk", new AcpSchema.TextContent(text)));
+        sendUpdate(sessionId, agentMessageChunk(text));
+    }
+
+    /** Shared constructor for the agent_message_chunk session update; reused by async senders. */
+    static AcpSchema.AgentMessageChunk agentMessageChunk(String text) {
+        return new AcpSchema.AgentMessageChunk("agent_message_chunk", new AcpSchema.TextContent(text));
     }
 
     @Override

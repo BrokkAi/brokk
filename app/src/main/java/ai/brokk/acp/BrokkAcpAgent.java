@@ -7,6 +7,7 @@ import ai.brokk.IAppContextManager;
 import ai.brokk.IssueProvider;
 import ai.brokk.Service;
 import ai.brokk.SessionManager.SessionInfo;
+import ai.brokk.SettingsChangeListener;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.agents.BuildAgent.ModuleBuildEntry;
 import ai.brokk.analyzer.Language;
@@ -15,6 +16,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
@@ -25,6 +27,7 @@ import ai.brokk.mcpclient.HttpMcpServer;
 import ai.brokk.mcpclient.McpServer;
 import ai.brokk.mcpclient.McpUtils;
 import ai.brokk.mcpclient.StdioMcpServer;
+import ai.brokk.openai.OpenAiOAuthService;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
@@ -56,6 +59,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -189,6 +196,24 @@ public class BrokkAcpAgent {
     interface SessionUpdateSender {
         void sendSessionUpdate(String sessionId, AcpSchema.SessionUpdate update);
     }
+
+    /**
+     * In-flight Codex OAuth attempt. {@link OpenAiOAuthService} only supports one OAuth flow per
+     * JVM (static lock, single bound port 1455), so this is held as a single
+     * {@link AtomicReference} rather than per-session. Cleared when the OAuth callback fires, the
+     * timeout expires, or the owning session is closed.
+     */
+    private record LoginPending(String sessionId, SettingsChangeListener listener, ScheduledFuture<?> timeout) {}
+
+    private final AtomicReference<LoginPending> pendingLogin = new AtomicReference<>();
+
+    private static final ScheduledExecutorService LOGIN_TIMEOUT_EXEC = Executors.newSingleThreadScheduledExecutor(r -> {
+        var t = new Thread(r, "acp-codex-login-timeout");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private static final long LOGIN_TIMEOUT_MINUTES = 5;
 
     /**
      * Production constructor. Bundles are created lazily by {@code factory} on the first session
@@ -325,6 +350,11 @@ public class BrokkAcpAgent {
         pendingPlanBySession.clear();
         sessionsOnFallbackCatalog.clear();
         bundleBySession.clear();
+        var pending = pendingLogin.getAndSet(null);
+        if (pending != null) {
+            pending.timeout().cancel(false);
+            MainProject.removeSettingsChangeListener(pending.listener());
+        }
     }
 
     /**
@@ -566,7 +596,20 @@ public class BrokkAcpAgent {
         lastTaskListBySession.remove(sessionId);
         pendingPlanBySession.remove(sessionId);
         bundleBySession.remove(sessionId);
+        cancelPendingLoginIfOwnedBy(sessionId);
         return new AcpProtocol.CloseSessionResponse(null);
+    }
+
+    /**
+     * If a Codex login attempt is in flight and owned by {@code sessionId}, unregister its listener
+     * and cancel its timeout. The OAuth callback server itself is left alone — if a callback still
+     * arrives later it will flip the global flag harmlessly with no listener to notify.
+     */
+    private void cancelPendingLoginIfOwnedBy(String sessionId) {
+        var pending = pendingLogin.get();
+        if (pending != null && pending.sessionId().equals(sessionId)) {
+            cancelPending(pending);
+        }
     }
 
     public AcpProtocol.ForkSessionResponse forkSession(AcpProtocol.ForkSessionRequest request) {
@@ -1661,10 +1704,7 @@ public class BrokkAcpAgent {
                     var rawText = mopMarkdown != null ? mopMarkdown : task.summary();
                     var responseText = rawText == null ? null : Messages.stripLegacyFraming(rawText);
                     if (responseText != null && !responseText.isBlank()) {
-                        sender.sendSessionUpdate(
-                                sessionId,
-                                new AcpSchema.AgentMessageChunk(
-                                        "agent_message_chunk", new AcpSchema.TextContent(responseText)));
+                        sender.sendSessionUpdate(sessionId, AcpRequestContext.agentMessageChunk(responseText));
                     }
                 }
                 logger.info("Conversation replay complete for session {} ({} entries)", sessionId, taskHistory.size());
@@ -1799,6 +1839,10 @@ public class BrokkAcpAgent {
             }
             case "/sandbox" -> {
                 handleSandboxCommand(sessionId, parts.length > 1 ? parts[1] : "", promptContext);
+                yield true;
+            }
+            case "/codex-login" -> {
+                handleCodexLoginCommand(sessionId, parts.length > 1 ? parts[1] : "", promptContext);
                 yield true;
             }
             default -> false;
@@ -1947,6 +1991,218 @@ public class BrokkAcpAgent {
             default ->
                 promptContext.sendMessage("Error: unknown /sandbox argument '" + arg.trim()
                         + "'. Usage: `/sandbox on|off` (or `/sandbox` to show status).");
+        }
+    }
+
+    /**
+     * Handles {@code /codex-login} with optional subcommand.
+     *
+     * <p>Reuses {@link OpenAiOAuthService#startAuthorization(java.awt.Component)} — the same flow
+     * used by the GUI sign-in. The browser opens locally on the user's machine; the OAuth callback
+     * lands on {@code http://localhost:1455/auth/callback}, forwards to the Brokk backend, and
+     * flips {@link MainProject#setOpenAiCodexOauthConnected(boolean)}. We register a one-shot
+     * {@link SettingsChangeListener} so the agent can push an async confirmation message to the
+     * session once the user completes the browser flow, with a 5-minute timeout as the failsafe.
+     */
+    private void handleCodexLoginCommand(String sessionId, String arg, AcpPromptContext promptContext) {
+        var trimmed = arg.trim().toLowerCase(Locale.ROOT);
+        switch (trimmed) {
+            case "" -> startCodexLogin(sessionId, promptContext);
+            case "status" -> showCodexLoginStatus(promptContext);
+            case "disconnect" -> disconnectCodex(sessionId, promptContext);
+            case "open" -> reopenCodexLoginBrowser(promptContext);
+            default ->
+                promptContext.sendMessage("Error: unknown /codex-login argument '" + arg.trim()
+                        + "'. Usage: `/codex-login [status|disconnect|open]`.");
+        }
+    }
+
+    private void startCodexLogin(String sessionId, AcpPromptContext promptContext) {
+        if (MainProject.isOpenAiCodexOauthConnected()) {
+            promptContext.sendMessage(
+                    "Already signed in to Codex. Use `/codex-login disconnect` to sign out, or `/codex-login status` to check.");
+            return;
+        }
+        if (MainProject.getBrokkKey().isBlank()) {
+            promptContext.sendMessage(
+                    "Brokk key is not set. Set it in the Brokk GUI (Settings) or via the `BROKK_KEY` environment variable, then retry `/codex-login`.");
+            return;
+        }
+
+        SettingsChangeListener listener = new SettingsChangeListener() {
+            @Override
+            public void openAiOauthConnectionChanged() {
+                if (!MainProject.isOpenAiCodexOauthConnected()) {
+                    return;
+                }
+                var current = pendingLogin.get();
+                if (current == null || !current.sessionId().equals(sessionId)) {
+                    return;
+                }
+                if (!pendingLogin.compareAndSet(current, null)) {
+                    return;
+                }
+                try {
+                    current.timeout().cancel(false);
+                } finally {
+                    MainProject.removeSettingsChangeListener(this);
+                }
+                pushSessionMessage(sessionId, "Codex sign-in successful.");
+                logger.info("ACP /codex-login completed for session {}", sessionId);
+                // Mirror SettingsGlobalPanel.maybeRunCodexAutoSetup so ACP and GUI converge after
+                // sign-in: install Codex favorites, then reload Service so getAvailableModels
+                // sees the new OAuth-only catalog. Run off the OAuth callback thread.
+                LoggingFuture.runVirtual(() -> {
+                    MainProject.saveFavoriteModels(ModelProperties.CODEX_OAUTH_FAVORITES);
+                    var bundle = bundleBySession.get(sessionId);
+                    if (bundle != null) {
+                        bundle.cm().reloadService();
+                    }
+                });
+            }
+        };
+
+        // Raw ScheduledExecutorService swallows runnable exceptions; wrap so unexpected throws
+        // surface through the project-wide handler instead of disabling future scheduled tasks.
+        ScheduledFuture<?> timeout = LOGIN_TIMEOUT_EXEC.schedule(
+                () -> {
+                    try {
+                        var current = pendingLogin.get();
+                        if (current == null || !current.sessionId().equals(sessionId)) {
+                            return;
+                        }
+                        if (!pendingLogin.compareAndSet(current, null)) {
+                            return;
+                        }
+                        MainProject.removeSettingsChangeListener(current.listener());
+                        OpenAiOAuthService.cancelAuthorization();
+                        pushSessionMessage(
+                                sessionId,
+                                "Codex sign-in timed out after " + LOGIN_TIMEOUT_MINUTES
+                                        + " minutes. Run `/codex-login` again to retry.");
+                        logger.info("ACP /codex-login timed out for session {}", sessionId);
+                    } catch (Throwable t) {
+                        GlobalExceptionHandler.handle(t, st -> {});
+                    }
+                },
+                LOGIN_TIMEOUT_MINUTES,
+                TimeUnit.MINUTES);
+
+        var pending = new LoginPending(sessionId, listener, timeout);
+        if (!pendingLogin.compareAndSet(null, pending)) {
+            timeout.cancel(false);
+            var current = pendingLogin.get();
+            var owner = current == null ? "another" : current.sessionId();
+            promptContext.sendMessage("Another session (" + owner
+                    + ") is already signing in to Codex. Try again in a moment, or run `/codex-login status`.");
+            return;
+        }
+
+        MainProject.addSettingsChangeListener(listener);
+
+        try {
+            OpenAiOAuthService.startAuthorization(null);
+        } catch (IllegalStateException e) {
+            // OpenAiOAuthService re-throws this in headless mode when the callback server cannot
+            // bind port 1455 (typically: another process or a stale Brokk GUI is using it).
+            cancelPending(pending);
+            logger.warn("ACP /codex-login failed to start OAuth server", e);
+            promptContext.sendMessage(
+                    "Failed to start the Codex OAuth callback server on port 1455. Another process may be using it. Close any other Brokk instance and retry.");
+            return;
+        } catch (RuntimeException e) {
+            cancelPending(pending);
+            logger.warn("ACP /codex-login failed", e);
+            promptContext.sendMessage("Failed to start Codex sign-in: " + e.getMessage());
+            return;
+        }
+
+        var url = OpenAiOAuthService.getPendingAuthorizationUrl();
+        var base =
+                """
+                Opened your browser to sign in to Codex.
+
+                Complete the OAuth flow in the browser; this chat will receive a confirmation when done. Times out in %d minutes."""
+                        .formatted(LOGIN_TIMEOUT_MINUTES);
+        var msg = url == null ? base : base + "\n\nIf nothing opened, paste this URL:\n\n" + url;
+        promptContext.sendMessage(msg);
+        logger.info("ACP /codex-login started for session {}", sessionId);
+    }
+
+    private void showCodexLoginStatus(AcpPromptContext promptContext) {
+        var connected = MainProject.isOpenAiCodexOauthConnected();
+        var pending = pendingLogin.get();
+        var status = "Codex OAuth: " + (connected ? "**connected**" : "**not connected**") + ".";
+        var msg = pending == null
+                ? status
+                : status + "\n\nA sign-in attempt is in flight (session " + pending.sessionId() + ").";
+        promptContext.sendMessage(msg);
+    }
+
+    private void disconnectCodex(String sessionId, AcpPromptContext promptContext) {
+        if (!MainProject.isOpenAiCodexOauthConnected()) {
+            promptContext.sendMessage("Codex is not connected; nothing to disconnect.");
+            return;
+        }
+        promptContext.sendMessage("Disconnecting Codex...");
+        // Service.disconnectCodexOauth() is a synchronous HTTP DELETE; off-load it so the slash
+        // response returns immediately and the prompt thread is not blocked on the backend.
+        LoggingFuture.runVirtual(() -> {
+            var error = Service.disconnectCodexOauth();
+            if (error == null) {
+                MainProject.setOpenAiCodexOauthConnected(false);
+                // Drop any in-flight login on this JVM so its listener cannot fire a phantom
+                // "successful" message on a future unrelated reconnection.
+                var pending = pendingLogin.get();
+                if (pending != null) {
+                    cancelPending(pending);
+                }
+                pushSessionMessage(sessionId, "Codex sign-in disconnected.");
+                logger.info("ACP /codex-login disconnect succeeded");
+            } else {
+                pushSessionMessage(sessionId, "Failed to disconnect Codex: " + error);
+                logger.warn("ACP /codex-login disconnect failed: {}", error);
+            }
+        });
+    }
+
+    private void reopenCodexLoginBrowser(AcpPromptContext promptContext) {
+        // Only honor /codex-login open while an attempt is actually in flight. Without this guard
+        // we would re-open a stale URL whose pending state was already torn down by cancelPending,
+        // which would race the still-bound server.
+        if (pendingLogin.get() == null) {
+            promptContext.sendMessage("No pending Codex sign-in. Run `/codex-login` first.");
+            return;
+        }
+        var url = OpenAiOAuthService.getPendingAuthorizationUrl();
+        if (url == null) {
+            promptContext.sendMessage("No pending Codex sign-in. Run `/codex-login` first.");
+            return;
+        }
+        Environment.openInBrowser(url, null);
+        promptContext.sendMessage("Re-opened browser. If nothing opened, paste this URL:\n\n" + url);
+    }
+
+    private void cancelPending(LoginPending pending) {
+        if (!pendingLogin.compareAndSet(pending, null)) {
+            return;
+        }
+        pending.timeout().cancel(false);
+        MainProject.removeSettingsChangeListener(pending.listener());
+        // Tear down the local callback server so port 1455 and the PKCE verifier do not linger.
+        OpenAiOAuthService.cancelAuthorization();
+    }
+
+    private void pushSessionMessage(String sessionId, String text) {
+        var sender = sessionUpdateSender;
+        if (sender == null) {
+            logger.debug("No sessionUpdateSender available; dropping message for session {}", sessionId);
+            return;
+        }
+        try {
+            sender.sendSessionUpdate(sessionId, AcpRequestContext.agentMessageChunk(text));
+        } catch (Exception e) {
+            logger.warn("Failed to push session message to {}", sessionId, e);
         }
     }
 
@@ -2699,7 +2955,11 @@ public class BrokkAcpAgent {
                         new AcpSchema.AvailableCommand(
                                 "sandbox",
                                 "Show or toggle the kernel sandbox for shell commands",
-                                new AcpSchema.AvailableCommandInput("on|off")));
+                                new AcpSchema.AvailableCommandInput("on|off")),
+                        new AcpSchema.AvailableCommand(
+                                "codex-login",
+                                "Sign in to Codex (OpenAI OAuth) or disconnect",
+                                new AcpSchema.AvailableCommandInput("[status|disconnect|open]")));
                 sender.sendSessionUpdate(
                         sessionId, new AcpSchema.AvailableCommandsUpdate("available_commands_update", commands));
             } catch (Exception e) {

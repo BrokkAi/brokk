@@ -13,6 +13,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.io.ProjectFiles;
+import ai.brokk.openai.OpenAiOAuthService;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.testutil.TestService;
@@ -705,6 +706,108 @@ class BrokkAcpAgentTest {
 
             assertTrue(joinedPromptMessages(fixture.transport)
                     .contains("Error: unknown configuration section: bogusSection"));
+        }
+    }
+
+    @Test
+    void promptCodexLoginUnknownArgPrintsUsage() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+
+        try (var fixture = new PermissionFixture()) {
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/codex-login bogus"), fixture.contextFor(created.sessionId()));
+
+            assertTrue(joinedPromptMessages(fixture.transport).contains("unknown /codex-login argument 'bogus'"));
+        }
+    }
+
+    @Test
+    void promptCodexLoginStatusReportsConnectedAndNotConnected() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        boolean previous = MainProject.isOpenAiCodexOauthConnected();
+        try (var fixture = new PermissionFixture()) {
+            MainProject.setOpenAiCodexOauthConnected(true);
+            agent.prompt(
+                    promptRequest(created.sessionId(), "/codex-login status"), fixture.contextFor(created.sessionId()));
+            assertTrue(joinedPromptMessages(fixture.transport).contains("**connected**"));
+
+            try (var fixture2 = new PermissionFixture()) {
+                MainProject.setOpenAiCodexOauthConnected(false);
+                agent.prompt(
+                        promptRequest(created.sessionId(), "/codex-login status"),
+                        fixture2.contextFor(created.sessionId()));
+                assertTrue(joinedPromptMessages(fixture2.transport).contains("**not connected**"));
+            }
+        } finally {
+            MainProject.setOpenAiCodexOauthConnected(previous);
+        }
+    }
+
+    @Test
+    void promptCodexLoginStartRefusesWhenAlreadyConnected() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        boolean previous = MainProject.isOpenAiCodexOauthConnected();
+        try (var fixture = new PermissionFixture()) {
+            MainProject.setOpenAiCodexOauthConnected(true);
+            agent.prompt(promptRequest(created.sessionId(), "/codex-login"), fixture.contextFor(created.sessionId()));
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Already signed in to Codex"));
+        } finally {
+            MainProject.setOpenAiCodexOauthConnected(previous);
+        }
+    }
+
+    @Test
+    void promptCodexLoginStartRefusesWhenBrokkKeyBlank() {
+        var created = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+        boolean previousConnected = MainProject.isOpenAiCodexOauthConnected();
+        String previousKey = MainProject.getBrokkKey();
+        try (var fixture = new PermissionFixture()) {
+            MainProject.setOpenAiCodexOauthConnected(false);
+            MainProject.setHeadlessBrokkApiKeyOverride("");
+            agent.prompt(promptRequest(created.sessionId(), "/codex-login"), fixture.contextFor(created.sessionId()));
+            assertTrue(joinedPromptMessages(fixture.transport).contains("Brokk key is not set"));
+        } finally {
+            MainProject.setOpenAiCodexOauthConnected(previousConnected);
+            MainProject.setHeadlessBrokkApiKeyOverride(previousKey.isBlank() ? null : previousKey);
+        }
+    }
+
+    @Test
+    void promptCodexLoginCloseSessionAllowsRetryFromAnotherSession() throws InterruptedException {
+        boolean previousConnected = MainProject.isOpenAiCodexOauthConnected();
+        Runnable previousHook = OpenAiOAuthService.testAuthorizationHook;
+        try {
+            MainProject.setOpenAiCodexOauthConnected(false);
+            MainProject.setHeadlessBrokkApiKeyOverride("test-brokk-key");
+            // Hook bypasses the real port-1455 callback server while still letting our agent's
+            // CAS/listener bookkeeping run.
+            OpenAiOAuthService.testAuthorizationHook = () -> {};
+
+            var first = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+            try (var fixture = new PermissionFixture()) {
+                agent.prompt(promptRequest(first.sessionId(), "/codex-login"), fixture.contextFor(first.sessionId()));
+                assertTrue(joinedPromptMessages(fixture.transport).contains("Opened your browser to sign in to Codex"));
+            }
+
+            agent.closeSession(new AcpProtocol.CloseSessionRequest(first.sessionId(), null));
+
+            // After the owning session closed, a new session must be able to start its own login
+            // without hitting the "Another session is already signing in" guard.
+            var second = agent.newSession(new AcpSchema.NewSessionRequest(projectRoot.toString(), List.of()));
+            try (var fixture = new PermissionFixture()) {
+                agent.prompt(promptRequest(second.sessionId(), "/codex-login"), fixture.contextFor(second.sessionId()));
+                var messages = joinedPromptMessages(fixture.transport);
+                assertFalse(messages.contains("Another session"), messages);
+                assertTrue(messages.contains("Opened your browser to sign in to Codex"), messages);
+            }
+        } finally {
+            // clearAllSessions drops any pendingLogin and unregisters its MainProject listener so a
+            // later test that flips the OAuth flag does not fire the leaked listener and trigger
+            // saveFavoriteModels(CODEX_OAUTH_FAVORITES) globally.
+            agent.clearAllSessions();
+            OpenAiOAuthService.testAuthorizationHook = previousHook;
+            MainProject.setOpenAiCodexOauthConnected(previousConnected);
+            MainProject.setHeadlessBrokkApiKeyOverride(null);
         }
     }
 
