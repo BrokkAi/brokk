@@ -16,17 +16,6 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.net.httpserver.Headers;
-import com.sun.net.httpserver.HttpContext;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpPrincipal;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -50,7 +39,7 @@ class StaticAnalysisRouterTest {
         var router = new StaticAnalysisRouter(new TestContextManager(
                 new TestProject(root, Languages.JAVA), new TestConsoleIO(), java.util.Set.of(), analyzer));
 
-        var exchange = TestHttpExchange.request(
+        var exchange = TestHttpExchange.jsonRequest(
                 "POST",
                 "/v1/static-analysis/seeds",
                 """
@@ -97,7 +86,7 @@ class StaticAnalysisRouterTest {
         var router = new StaticAnalysisRouter(new TestContextManager(
                 new TestProject(root, Languages.JAVA), new TestConsoleIO(), java.util.Set.of(), analyzer));
 
-        var exchange = TestHttpExchange.request(
+        var exchange = TestHttpExchange.jsonRequest(
                 "POST",
                 "/v1/static-analysis/lead-expansion",
                 """
@@ -124,7 +113,7 @@ class StaticAnalysisRouterTest {
     @Test
     void handlePostSeeds_rejectsInvalidTargetSeedCount() throws Exception {
         var router = emptyRouter();
-        var exchange = TestHttpExchange.request(
+        var exchange = TestHttpExchange.jsonRequest(
                 "POST", "/v1/static-analysis/seeds", "{\"scanId\":\"scan-123\",\"targetSeedCount\":0}");
 
         router.handle(exchange);
@@ -138,7 +127,7 @@ class StaticAnalysisRouterTest {
     @Test
     void handlePostSeeds_rejectsInvalidMaxDuration() throws Exception {
         var router = emptyRouter();
-        var exchange = TestHttpExchange.request(
+        var exchange = TestHttpExchange.jsonRequest(
                 "POST", "/v1/static-analysis/seeds", "{\"scanId\":\"scan-123\",\"maxDurationMs\":120001}");
 
         router.handle(exchange);
@@ -154,110 +143,5 @@ class StaticAnalysisRouterTest {
                 Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
         return new StaticAnalysisRouter(new TestContextManager(
                 new TestProject(root, Languages.JAVA), new TestConsoleIO(), java.util.Set.of(), new TestAnalyzer()));
-    }
-
-    private static final class TestHttpExchange extends HttpExchange {
-        private final Headers requestHeaders = new Headers();
-        private final Headers responseHeaders = new Headers();
-        private final ByteArrayOutputStream responseBody = new ByteArrayOutputStream();
-        private String method = "GET";
-        private URI uri = URI.create("/");
-        private byte[] requestBodyBytes = new byte[0];
-        private int responseCode = -1;
-
-        static TestHttpExchange request(String method, String path, String body) {
-            var ex = new TestHttpExchange();
-            ex.method = method;
-            ex.uri = URI.create(path);
-            ex.requestBodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            return ex;
-        }
-
-        int responseCode() {
-            return responseCode;
-        }
-
-        byte[] responseBodyBytes() {
-            return responseBody.toByteArray();
-        }
-
-        @Override
-        public Headers getRequestHeaders() {
-            return requestHeaders;
-        }
-
-        @Override
-        public Headers getResponseHeaders() {
-            return responseHeaders;
-        }
-
-        @Override
-        public URI getRequestURI() {
-            return uri;
-        }
-
-        @Override
-        public String getRequestMethod() {
-            return method;
-        }
-
-        @Override
-        public HttpContext getHttpContext() {
-            return null;
-        }
-
-        @Override
-        public void close() {}
-
-        @Override
-        public InputStream getRequestBody() {
-            return new ByteArrayInputStream(requestBodyBytes);
-        }
-
-        @Override
-        public OutputStream getResponseBody() {
-            return responseBody;
-        }
-
-        @Override
-        public void sendResponseHeaders(int rCode, long responseLength) {
-            this.responseCode = rCode;
-        }
-
-        @Override
-        public InetSocketAddress getRemoteAddress() {
-            return null;
-        }
-
-        @Override
-        public int getResponseCode() {
-            return responseCode;
-        }
-
-        @Override
-        public InetSocketAddress getLocalAddress() {
-            return null;
-        }
-
-        @Override
-        public String getProtocol() {
-            return "HTTP/1.1";
-        }
-
-        @Override
-        public Object getAttribute(String name) {
-            return null;
-        }
-
-        @Override
-        public void setAttribute(String name, Object value) {}
-
-        @Override
-        public void setStreams(InputStream i, OutputStream o) {}
-
-        @Override
-        public HttpPrincipal getPrincipal() {
-            return null;
-        }
     }
 }

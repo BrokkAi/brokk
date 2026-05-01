@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.jetbrains.annotations.Nullable;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -48,13 +49,13 @@ public final class StaticAnalysisSeedDtos {
                     knownFiles == null
                             ? List.of()
                             : knownFiles.stream()
-                                    .map(String::strip)
+                                    .map(StaticAnalysisPaths::normalizeRequestPath)
                                     .filter(s -> !s.isBlank())
                                     .toList(),
                     frontierFiles == null
                             ? List.of()
                             : frontierFiles.stream()
-                                    .map(String::strip)
+                                    .map(StaticAnalysisPaths::normalizeRequestPath)
                                     .filter(s -> !s.isBlank())
                                     .toList(),
                     maxResults == null ? DEFAULT_MAX_RESULTS : maxResults,
@@ -148,4 +149,29 @@ public final class StaticAnalysisSeedDtos {
             @JsonProperty("message") String message,
             @JsonProperty("findingCount") int findingCount,
             @JsonProperty("findingTypes") List<String> findingTypes) {}
+
+    public static Event event(
+            String scanId,
+            String state,
+            List<String> tools,
+            List<String> files,
+            @Nullable Selection selection,
+            @Nullable TriggeredBy triggeredBy,
+            String code,
+            String message,
+            int findingCount,
+            List<String> findingTypes,
+            List<String> suggestedAgents) {
+        return new Event(
+                UUID.randomUUID().toString(),
+                scanId,
+                PHASE_STATIC_SEED,
+                state,
+                tools,
+                files,
+                selection,
+                triggeredBy,
+                new Outcome(code, message, findingCount, findingTypes),
+                suggestedAgents);
+    }
 }

@@ -31,7 +31,7 @@ class StaticAnalysisSeedServiceTest {
         analyzer.setRanges(method, List.of(new IAnalyzer.Range(0, 200, 0, 90, 0)));
         var service = service(root, analyzer);
 
-        var response = service.fetchSeeds(new StaticAnalysisSeedDtos.NormalizedRequest("scan-1", 5, 15_000, false));
+        var response = service.fetchSeeds(new StaticAnalysisSeedDtos.NormalizedRequest("scan-1", 5, 15_000, true));
 
         assertEquals("completed", response.state());
         assertEquals(1, response.seeds().size());
@@ -53,6 +53,25 @@ class StaticAnalysisSeedServiceTest {
         assertTrue(preview.score() > 0);
         assertTrue(preview.suggestedAgents().contains("code-quality-size-sprawl"));
         assertEquals(1, response.events().getLast().outcome().findingCount());
+    }
+
+    @Test
+    void fetchSeeds_skipsPreviewWhenNotRequested(@TempDir Path root) throws Exception {
+        var file = javaFile(root, "src/main/java/Complex.java", "class Complex { void run() {} }");
+        var method = new CodeUnit(file, CodeUnitType.FUNCTION, "Complex", "run", "()", false);
+        var analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(method);
+        analyzer.setComplexity(method, 22);
+        analyzer.setRanges(method, List.of(new IAnalyzer.Range(0, 200, 0, 90, 0)));
+        var service = service(root, analyzer);
+
+        var response = service.fetchSeeds(new StaticAnalysisSeedDtos.NormalizedRequest("scan-1", 5, 15_000, false));
+
+        assertEquals("completed", response.state());
+        assertEquals(1, response.seeds().size());
+        assertTrue(response.seeds().getFirst().suggestedTools().contains("reportLongMethodAndGodObjectSmells"));
+        assertTrue(response.previews().isEmpty());
+        assertEquals(0, response.events().getLast().outcome().findingCount());
     }
 
     @Test

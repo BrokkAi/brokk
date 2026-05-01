@@ -9,7 +9,6 @@ import ai.brokk.executor.staticanalysis.StaticAnalysisSeedService;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -113,20 +112,17 @@ public final class StaticAnalysisRouter implements SimpleHttpServer.CheckedHttpH
                             "skipped",
                             List.of(),
                             List.of(),
-                            List.of(new StaticAnalysisSeedDtos.Event(
-                                    UUID.randomUUID().toString(),
+                            List.of(StaticAnalysisSeedDtos.event(
                                     normalized.scanId(),
-                                    StaticAnalysisSeedDtos.PHASE_STATIC_SEED,
                                     "skipped",
                                     List.of("usage_analysis"),
                                     List.of(),
                                     null,
                                     null,
-                                    new StaticAnalysisSeedDtos.Outcome(
-                                            "STATIC_SEED_EXPANSION_NO_INPUTS",
-                                            "No known or frontier files were provided for usage expansion.",
-                                            0,
-                                            List.of()),
+                                    "STATIC_SEED_EXPANSION_NO_INPUTS",
+                                    "No known or frontier files were provided for usage expansion.",
+                                    0,
+                                    List.of(),
                                     List.of()))));
             return;
         }
@@ -163,17 +159,17 @@ public final class StaticAnalysisRouter implements SimpleHttpServer.CheckedHttpH
                 "failed",
                 List.of(),
                 List.of(),
-                List.of(new StaticAnalysisSeedDtos.Event(
-                        UUID.randomUUID().toString(),
+                List.of(StaticAnalysisSeedDtos.event(
                         scanId,
-                        StaticAnalysisSeedDtos.PHASE_STATIC_SEED,
                         "failed",
                         List.of("usage_analysis"),
                         List.of(),
                         null,
                         null,
-                        new StaticAnalysisSeedDtos.Outcome(
-                                "STATIC_SEED_EXPANSION_ERROR", "Usage expansion failed: " + reason, 0, List.of()),
+                        "STATIC_SEED_EXPANSION_ERROR",
+                        "Usage expansion failed: " + reason,
+                        0,
+                        List.of(),
                         List.of())));
     }
 }

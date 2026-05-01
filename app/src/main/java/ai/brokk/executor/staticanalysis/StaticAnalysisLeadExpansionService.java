@@ -18,8 +18,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -27,6 +27,7 @@ public final class StaticAnalysisLeadExpansionService {
     private static final int MAX_SYMBOLS_PER_FILE = 8;
     private static final int MAX_USAGE_CANDIDATE_FILES = 250;
     private static final int MAX_USAGES_PER_SYMBOL = 80;
+    private static final long MAX_TEXT_FALLBACK_FILE_BYTES = 512 * 1024;
     private static final String COMMENT_DENSITY_TOOL = "reportCommentDensityForFiles";
     private static final String COGNITIVE_COMPLEXITY_TOOL = "computeCognitiveComplexity";
     private static final String EXCEPTION_HANDLING_TOOL = "reportExceptionHandlingSmells";
@@ -39,12 +40,21 @@ public final class StaticAnalysisLeadExpansionService {
     }
 
     public StaticAnalysisSeedDtos.Response expandLeads(StaticAnalysisSeedDtos.NormalizedLeadExpansionRequest request) {
+        var knownFiles = request.knownFiles().stream()
+                .map(StaticAnalysisPaths::normalizeRequestPath)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        var frontierFiles = request.frontierFiles().stream()
+                .map(StaticAnalysisPaths::normalizeRequestPath)
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (frontierFiles.isEmpty()) {
+            frontierFiles.addAll(knownFiles);
+        }
         var events = new ArrayList<StaticAnalysisSeedDtos.Event>();
         events.add(event(
                 request.scanId(),
                 "started",
                 List.of("usage_analysis"),
-                request.frontierFiles(),
+                frontierFiles,
                 "STATIC_SEED_EXPANSION_STARTED",
                 "Expanding Records Desk leads through deterministic usage analysis.",
                 0,
@@ -52,11 +62,6 @@ public final class StaticAnalysisLeadExpansionService {
 
         var deadline =
                 System.nanoTime() + Duration.ofMillis(request.maxDurationMs()).toNanos();
-        var knownFiles = new LinkedHashSet<>(request.knownFiles());
-        var frontierFiles = new ArrayList<>(request.frontierFiles());
-        if (frontierFiles.isEmpty()) {
-            frontierFiles.addAll(request.knownFiles());
-        }
 
         var candidates = new LinkedHashMap<String, Candidate>();
         var capped = false;
@@ -100,14 +105,15 @@ public final class StaticAnalysisLeadExpansionService {
                         }
                         usageCountByFile = usageCountByFile(query.result());
                     } catch (RuntimeException e) {
-                        usageCountByFile = textUsageCountByFile(analyzer, symbol);
+                        usageCountByFile = textUsageCountByFile(analyzer, symbol, deadline);
                     }
                     for (var entry : usageCountByFile.entrySet()) {
                         var file = entry.getKey();
-                        if (file.equals(sourceFile) || knownFiles.contains(file.toString())) {
+                        if (file.equals(sourceFile) || knownFiles.contains(StaticAnalysisPaths.externalPath(file))) {
                             continue;
                         }
-                        var candidate = candidates.computeIfAbsent(file.toString(), ignored -> new Candidate(file));
+                        var candidate = candidates.computeIfAbsent(
+                                StaticAnalysisPaths.externalPath(file), ignored -> new Candidate(file));
                         candidate.merge(
                                 sourcePath,
                                 sourceRank,
@@ -130,7 +136,7 @@ public final class StaticAnalysisLeadExpansionService {
             for (var candidate : candidates.values().stream()
                     .sorted(Comparator.comparingDouble(Candidate::score)
                             .reversed()
-                            .thenComparing(candidate -> candidate.file.toString()))
+                            .thenComparing(candidate -> StaticAnalysisPaths.externalPath(candidate.file)))
                     .limit(request.maxResults())
                     .toList()) {
                 ranked.add(candidate.toRecord(analyzer, rank++));
@@ -211,10 +217,21 @@ public final class StaticAnalysisLeadExpansionService {
         return counts;
     }
 
-    private Map<ProjectFile, Integer> textUsageCountByFile(IAnalyzer analyzer, CodeUnit symbol) {
+    private Map<ProjectFile, Integer> textUsageCountByFile(IAnalyzer analyzer, CodeUnit symbol, long deadline)
+            throws InterruptedException {
         var counts = new LinkedHashMap<ProjectFile, Integer>();
-        for (var file : sourceFiles(analyzer)) {
+        var files = sourceFiles(analyzer).stream()
+                .sorted(Comparator.comparing(StaticAnalysisPaths::externalPath))
+                .limit(MAX_USAGE_CANDIDATE_FILES)
+                .toList();
+        for (var file : files) {
+            if (timedOut(deadline) || Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("Static analysis lead expansion fallback timed out");
+            }
             if (file.equals(symbol.source()) || !file.exists()) {
+                continue;
+            }
+            if (file.size().orElse(0L) > MAX_TEXT_FALLBACK_FILE_BYTES) {
                 continue;
             }
             try {
@@ -252,17 +269,8 @@ public final class StaticAnalysisLeadExpansionService {
             String message,
             int findingCount,
             List<String> findingTypes) {
-        return new StaticAnalysisSeedDtos.Event(
-                UUID.randomUUID().toString(),
-                scanId,
-                StaticAnalysisSeedDtos.PHASE_STATIC_SEED,
-                state,
-                tools,
-                files,
-                null,
-                null,
-                new StaticAnalysisSeedDtos.Outcome(code, message, findingCount, findingTypes),
-                List.of());
+        return StaticAnalysisSeedDtos.event(
+                scanId, state, tools, files, null, null, code, message, findingCount, findingTypes, List.of());
     }
 
     private static final class Candidate {
@@ -295,7 +303,7 @@ public final class StaticAnalysisLeadExpansionService {
                 suggestedTools.add(TEST_ASSERTION_TOOL);
             }
             return new StaticAnalysisSeedDtos.SeedRecord(
-                    file.toString(),
+                    StaticAnalysisPaths.externalPath(file),
                     rank,
                     new StaticAnalysisSeedDtos.Selection(
                             "usage_expansion",
