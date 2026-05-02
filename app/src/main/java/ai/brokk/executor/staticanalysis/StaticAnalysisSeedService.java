@@ -6,6 +6,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitHotspotAnalyzer;
 import ai.brokk.git.GitRepo;
+import ai.brokk.util.PathNormalizer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -67,14 +68,14 @@ public final class StaticAnalysisSeedService {
             var seeds = candidates.values().stream()
                     .sorted(Comparator.comparingDouble(Candidate::score)
                             .reversed()
-                            .thenComparing(candidate -> StaticAnalysisPaths.externalPath(candidate.file)))
+                            .thenComparing(candidate -> externalPath(candidate.file)))
                     .limit(request.targetSeedCount())
                     .toList();
 
             var records = new ArrayList<StaticAnalysisSeedDtos.SeedRecord>();
             var rank = 1;
             for (var seed : seeds) {
-                records.add(seed.toRecord(rank++));
+                records.add(seed.toRecord(rank++, externalPath(seed.file)));
             }
             var previews = request.includePreview()
                     ? addPreviewFindings(records, deadline)
@@ -194,7 +195,7 @@ public final class StaticAnalysisSeedService {
         if (timedOut(deadline)) return true;
         IAnalyzer analyzer = contextManager.getAnalyzer();
         var files = sourceFiles(analyzer).stream()
-                .sorted(Comparator.comparing(StaticAnalysisPaths::externalPath))
+                .sorted(Comparator.comparing(this::externalPath))
                 .limit(Math.max(request.targetSeedCount() * 4L, request.targetSeedCount()))
                 .toList();
         for (var file : files) {
@@ -204,7 +205,7 @@ public final class StaticAnalysisSeedService {
             if (maxComplexity < COMPLEXITY_SIGNAL_THRESHOLD && sizeBytes < LARGE_FILE_BYTES_THRESHOLD) continue;
 
             var score = Math.min(0.95, 0.45 + (maxComplexity / 50.0) + (sizeBytes / 200_000.0));
-            var candidate = candidate(candidates, StaticAnalysisPaths.externalPath(file), score, "size_complexity");
+            var candidate = candidate(candidates, externalPath(file), score, "size_complexity");
             if (maxComplexity > 0) {
                 candidate.addSignal("complexity", Map.of("maxCyclomaticComplexity", maxComplexity));
             }
@@ -266,7 +267,7 @@ public final class StaticAnalysisSeedService {
         var message = "%s scored %d in %s".formatted(cu.fqName(), finding.score(), cu.source());
         return new StaticAnalysisSeedDtos.Preview(
                 UUID.randomUUID().toString(),
-                StaticAnalysisPaths.externalPath(cu.source()),
+                externalPath(cu.source()),
                 LONG_METHOD_TOOL,
                 finding.score(),
                 title,
@@ -288,8 +289,7 @@ public final class StaticAnalysisSeedService {
         var rank = 1;
         for (var file : related) {
             if (timedOut(deadline)) return true;
-            var candidate = candidate(
-                    candidates, StaticAnalysisPaths.externalPath(file), 0.55 - (rank * 0.01), "usage_expansion");
+            var candidate = candidate(candidates, externalPath(file), 0.55 - (rank * 0.01), "usage_expansion");
             candidate.addSignal("usage_connectivity", Map.of("relatedRank", rank));
             rank++;
         }
@@ -302,13 +302,12 @@ public final class StaticAnalysisSeedService {
         if (needed <= 0) return false;
         var capped = timedOut(deadline);
         var files = sourceFiles(contextManager.getAnalyzer()).stream()
-                .sorted(Comparator.comparing(StaticAnalysisPaths::externalPath))
+                .sorted(Comparator.comparing(this::externalPath))
                 .limit(needed)
                 .toList();
         var rank = 1;
         for (var file : files) {
-            var candidate = candidate(
-                    candidates, StaticAnalysisPaths.externalPath(file), 0.2 - (rank * 0.001), "weighted_sample");
+            var candidate = candidate(candidates, externalPath(file), 0.2 - (rank * 0.001), "weighted_sample");
             candidate.addSignal("size", Map.of("bytes", file.size().orElse(0L)));
             rank++;
         }
@@ -349,7 +348,7 @@ public final class StaticAnalysisSeedService {
     }
 
     private Candidate candidate(Map<String, Candidate> candidates, String path, double score, String selectionKind) {
-        var normalizedPath = StaticAnalysisPaths.normalizeRequestPath(path);
+        var normalizedPath = normalizePath(path);
         return candidates
                 .computeIfAbsent(
                         normalizedPath,
@@ -360,6 +359,16 @@ public final class StaticAnalysisSeedService {
 
     private static boolean timedOut(long deadlineNanos) {
         return System.nanoTime() >= deadlineNanos;
+    }
+
+    private String normalizePath(String path) {
+        return PathNormalizer.canonicalizeForProject(
+                path, contextManager.getProject().getRoot());
+    }
+
+    private String externalPath(ProjectFile file) {
+        return PathNormalizer.canonicalizeForProject(
+                file.toString(), contextManager.getProject().getRoot());
     }
 
     private static StaticAnalysisSeedDtos.Event event(
@@ -416,9 +425,9 @@ public final class StaticAnalysisSeedService {
             }
         }
 
-        private StaticAnalysisSeedDtos.SeedRecord toRecord(int rank) {
+        private StaticAnalysisSeedDtos.SeedRecord toRecord(int rank, String filePath) {
             return new StaticAnalysisSeedDtos.SeedRecord(
-                    StaticAnalysisPaths.externalPath(file),
+                    filePath,
                     rank,
                     new StaticAnalysisSeedDtos.Selection(selectionKind, rank, score, List.copyOf(signals.values())),
                     List.copyOf(suggestedAgents),

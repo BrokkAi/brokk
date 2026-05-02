@@ -8,6 +8,7 @@ import ai.brokk.analyzer.TestFileHeuristics;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.RegexUsageAnalyzer;
 import ai.brokk.analyzer.usages.UsageFinder;
+import ai.brokk.util.PathNormalizer;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -41,10 +42,10 @@ public final class StaticAnalysisLeadExpansionService {
 
     public StaticAnalysisSeedDtos.Response expandLeads(StaticAnalysisSeedDtos.NormalizedLeadExpansionRequest request) {
         var knownFiles = request.knownFiles().stream()
-                .map(StaticAnalysisPaths::normalizeRequestPath)
+                .map(this::normalizePath)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         var frontierFiles = request.frontierFiles().stream()
-                .map(StaticAnalysisPaths::normalizeRequestPath)
+                .map(this::normalizePath)
                 .collect(Collectors.toCollection(ArrayList::new));
         if (frontierFiles.isEmpty()) {
             frontierFiles.addAll(knownFiles);
@@ -109,11 +110,10 @@ public final class StaticAnalysisLeadExpansionService {
                     }
                     for (var entry : usageCountByFile.entrySet()) {
                         var file = entry.getKey();
-                        if (file.equals(sourceFile) || knownFiles.contains(StaticAnalysisPaths.externalPath(file))) {
+                        if (file.equals(sourceFile) || knownFiles.contains(externalPath(file))) {
                             continue;
                         }
-                        var candidate = candidates.computeIfAbsent(
-                                StaticAnalysisPaths.externalPath(file), ignored -> new Candidate(file));
+                        var candidate = candidates.computeIfAbsent(externalPath(file), ignored -> new Candidate(file));
                         candidate.merge(
                                 sourcePath,
                                 sourceRank,
@@ -136,10 +136,10 @@ public final class StaticAnalysisLeadExpansionService {
             for (var candidate : candidates.values().stream()
                     .sorted(Comparator.comparingDouble(Candidate::score)
                             .reversed()
-                            .thenComparing(candidate -> StaticAnalysisPaths.externalPath(candidate.file)))
+                            .thenComparing(candidate -> externalPath(candidate.file)))
                     .limit(request.maxResults())
                     .toList()) {
-                ranked.add(candidate.toRecord(analyzer, rank++));
+                ranked.add(candidate.toRecord(analyzer, rank++, externalPath(candidate.file)));
             }
 
             var state = capped || timedOut(deadline) ? "capped" : ranked.isEmpty() ? "skipped" : "completed";
@@ -221,7 +221,7 @@ public final class StaticAnalysisLeadExpansionService {
             throws InterruptedException {
         var counts = new LinkedHashMap<ProjectFile, Integer>();
         var files = sourceFiles(analyzer).stream()
-                .sorted(Comparator.comparing(StaticAnalysisPaths::externalPath))
+                .sorted(Comparator.comparing(this::externalPath))
                 .limit(MAX_USAGE_CANDIDATE_FILES)
                 .toList();
         for (var file : files) {
@@ -260,6 +260,16 @@ public final class StaticAnalysisLeadExpansionService {
         return System.nanoTime() >= deadlineNanos;
     }
 
+    private String normalizePath(String path) {
+        return PathNormalizer.canonicalizeForProject(
+                path, contextManager.getProject().getRoot());
+    }
+
+    private String externalPath(ProjectFile file) {
+        return PathNormalizer.canonicalizeForProject(
+                file.toString(), contextManager.getProject().getRoot());
+    }
+
     private static StaticAnalysisSeedDtos.Event event(
             String scanId,
             String state,
@@ -294,7 +304,7 @@ public final class StaticAnalysisLeadExpansionService {
             signalValues.merge("usageCount", usageCount, (a, b) -> (Integer) a + (Integer) b);
         }
 
-        private StaticAnalysisSeedDtos.SeedRecord toRecord(IAnalyzer analyzer, int rank) {
+        private StaticAnalysisSeedDtos.SeedRecord toRecord(IAnalyzer analyzer, int rank, String filePath) {
             var suggestedTools = new ArrayList<String>();
             suggestedTools.add(EXCEPTION_HANDLING_TOOL);
             suggestedTools.add(COMMENT_DENSITY_TOOL);
@@ -303,7 +313,7 @@ public final class StaticAnalysisLeadExpansionService {
                 suggestedTools.add(TEST_ASSERTION_TOOL);
             }
             return new StaticAnalysisSeedDtos.SeedRecord(
-                    StaticAnalysisPaths.externalPath(file),
+                    filePath,
                     rank,
                     new StaticAnalysisSeedDtos.Selection(
                             "usage_expansion",

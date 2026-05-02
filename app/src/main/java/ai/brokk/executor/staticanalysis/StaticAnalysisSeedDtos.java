@@ -1,5 +1,6 @@
 package ai.brokk.executor.staticanalysis;
 
+import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -49,13 +50,13 @@ public final class StaticAnalysisSeedDtos {
                     knownFiles == null
                             ? List.of()
                             : knownFiles.stream()
-                                    .map(StaticAnalysisPaths::normalizeRequestPath)
+                                    .map(PathNormalizer::canonicalizeEnvPathValue)
                                     .filter(s -> !s.isBlank())
                                     .toList(),
                     frontierFiles == null
                             ? List.of()
                             : frontierFiles.stream()
-                                    .map(StaticAnalysisPaths::normalizeRequestPath)
+                                    .map(PathNormalizer::canonicalizeEnvPathValue)
                                     .filter(s -> !s.isBlank())
                                     .toList(),
                     maxResults == null ? DEFAULT_MAX_RESULTS : maxResults,
