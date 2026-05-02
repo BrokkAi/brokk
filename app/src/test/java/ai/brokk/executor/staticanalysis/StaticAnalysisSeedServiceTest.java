@@ -97,9 +97,9 @@ class StaticAnalysisSeedServiceTest {
         javaFile(root, "src/main/java/Unindexed.java", "class Unindexed {}");
         var service = service(root, new TestAnalyzer());
 
-        var response = service.fetchSeeds(new StaticAnalysisSeedDtos.NormalizedRequest("scan-1", 5, 1, false));
+        var response = service.fetchSeeds(new StaticAnalysisSeedDtos.NormalizedRequest("scan-1", 5, 15_000, false));
 
-        assertEquals("capped", response.state());
+        assertEquals("completed", response.state());
         assertEquals(1, response.seeds().size());
         assertEquals("src/main/java/Unindexed.java", response.seeds().getFirst().file());
         assertEquals("weighted_sample", response.seeds().getFirst().selection().kind());
