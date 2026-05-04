@@ -740,6 +740,16 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
+    /// Build a `SessionStore` with `SessionLimits::default()`. Test-only:
+    /// production code goes through `with_limits` so CLI flags drive the
+    /// caps. Gated on `cfg(test)` because in a binary crate `dead_code` is
+    /// evaluated separately per build target, and the bin target never
+    /// calls this constructor.
+    #[cfg(test)]
+    pub fn new(default_model: String) -> Self {
+        Self::with_limits(default_model, SessionLimits::default())
+    }
+
     pub fn with_limits(default_model: String, limits: SessionLimits) -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
