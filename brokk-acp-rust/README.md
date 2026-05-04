@@ -36,17 +36,52 @@ The server binary is named `brokk-acp`. It can be configured via CLI flags or en
 
 ## Running Locally
 
-To build and run the server from the repository root:
+### Quickest path: build + wire into your editor in one step
+
+The crate ships with two `cargo xtask` subcommands that build the release
+binary **and** rewrite a `Brokk Code (Rust Local)` entry under `agent_servers`
+in your editor's config. Run from `brokk-acp-rust/`:
+
+```bash
+# Wire into Zed   (~/.config/zed/settings.json)
+cargo xtask build-acp-for-zed
+
+# Wire into JetBrains   (~/.jetbrains/acp.json)
+cargo xtask build-acp-for-jetbrains
+```
+
+Each task runs `cargo build --release --bin brokk-acp`, then writes a
+single agent-server entry pointing at `target/release/brokk-acp`. Other
+entries in the file are preserved verbatim. Re-run any time the binary
+changes — the entry is rewritten in place. After running, restart the
+editor's Brokk panel and pick `Brokk Code (Rust Local)` in the agent
+server selector.
+
+Both subcommands accept:
+- `--config <path>` — override the editor config path (mostly for tests).
+- `--bifrost-binary <name|path>` — value passed via `--bifrost-binary`
+  in the entry's args. Defaults to the literal `bifrost` (assumed to be
+  on the editor's `PATH`); pass an absolute path if Bifrost lives
+  somewhere `PATH` does not reach.
+
+### Manual / advanced
+
+If you prefer to wire things up by hand (or just want to run the binary
+standalone):
 
 ```bash
 # Build the release binary
-cargo build --release -p brokk-acp-rust
+cargo build --release --bin brokk-acp
 
-# Run with a local Ollama instance
+# Run against a local Ollama instance
 ./target/release/brokk-acp --default-model llama3.1
 ```
 
-To use it with an ACP-compatible client like Zed, add the binary path to your `settings.json` under the agent configuration.
+Then add the binary path to your editor's agent server config:
+- Zed: `~/.config/zed/settings.json` under `agent_servers`, with
+  `"type": "custom"` and `"command"` set to the absolute path.
+- JetBrains: `~/.jetbrains/acp.json` under `agent_servers`, same shape
+  minus the `type` field.
 
 ## Tool Calling and Permissions
 
