@@ -32,3 +32,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
+
+[dev-dependencies]
+# `test-util` enables `tokio::time::pause()` and `#[tokio::test(start_paused = true)]`,
+# used by the LLM stream idle-timeout test to avoid waiting wall-clock seconds.
+tokio = { version = "1", features = ["test-util"] }

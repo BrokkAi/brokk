@@ -1,10 +1,36 @@
 use anyhow::{Context, Result};
+use futures::Stream;
 use futures::StreamExt;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+
+/// Maximum gap between two streamed chunks from the LLM before we abort
+/// the request as "stalled". Distinct from the reqwest client's overall
+/// `.timeout()` (wall-clock) -- a server that drips one byte every 599s
+/// would defeat wall-clock but not this idle check. Chosen to stay above
+/// reasoning-model "thinking pauses" (which still emit periodic SSE
+/// pings) and well below the 600s client timeout.
+const IDLE_CHUNK_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Read the next item from a stream, aborting with a clear error if no
+/// item arrives within `idle`. `Ok(None)` means the stream ended cleanly;
+/// the per-item error type is preserved for the caller (network errors,
+/// SSE decode failures, etc. are surfaced verbatim).
+async fn next_with_idle_timeout<S>(stream: &mut S, idle: Duration) -> Result<Option<S::Item>>
+where
+    S: Stream + Unpin,
+{
+    match tokio::time::timeout(idle, stream.next()).await {
+        Ok(opt) => Ok(opt),
+        Err(_elapsed) => anyhow::bail!(
+            "LLM stream idle for {}s; aborting (server-side hang or stuck connection)",
+            idle.as_secs()
+        ),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Tool calling types (OpenAI-compatible)
@@ -373,8 +399,8 @@ impl OpenAiClient {
                     tracing::info!("streaming cancelled by client");
                     break;
                 }
-                chunk = stream.next() => {
-                    let Some(chunk) = chunk else { break; };
+                chunk_result = next_with_idle_timeout(&mut stream, IDLE_CHUNK_TIMEOUT) => {
+                    let Some(chunk) = chunk_result? else { break; };
                     let chunk = chunk.context("stream read error")?;
                     raw_buf.extend_from_slice(&chunk);
 
@@ -442,5 +468,41 @@ impl OpenAiClient {
                 calls: tool_acc.into_tool_calls(),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::stream;
+
+    /// A stream that never yields must trip the idle timeout. Uses tokio's
+    /// paused-time auto-advance (`start_paused = true`) so the test runs in
+    /// milliseconds of wall time rather than waiting `idle` seconds.
+    #[tokio::test(start_paused = true)]
+    async fn next_with_idle_timeout_fires_on_pending_stream() {
+        let mut s = stream::pending::<u32>();
+        let result = next_with_idle_timeout(&mut s, Duration::from_secs(90)).await;
+
+        let err = result.expect_err("idle stream should produce error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("idle") && msg.contains("90"),
+            "error should mention 'idle' and the timeout duration, got: {msg}"
+        );
+    }
+
+    /// A stream that yields immediately must pass through unchanged.
+    #[tokio::test]
+    async fn next_with_idle_timeout_passes_through_immediate_yield() {
+        let mut s = stream::iter(vec![42u32, 43]);
+        let result = next_with_idle_timeout(&mut s, Duration::from_secs(60)).await;
+        assert_eq!(result.unwrap(), Some(42));
+
+        let result = next_with_idle_timeout(&mut s, Duration::from_secs(60)).await;
+        assert_eq!(result.unwrap(), Some(43));
+
+        let result = next_with_idle_timeout(&mut s, Duration::from_secs(60)).await;
+        assert_eq!(result.unwrap(), None);
     }
 }
