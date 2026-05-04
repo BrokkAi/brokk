@@ -72,6 +72,13 @@ Exit criteria:
 
 Goal: produce structured Python facts without resolving usages yet.
 
+Progress:
+
+- 2026-05-04: Added Python extraction methods for `ExportIndex`, `ImportBinder`, and reference candidates on
+  `PythonAnalyzer`, backed by `PythonExportUsageExtractor`.
+- 2026-05-04: Added extractor tests for top-level exports, static `__all__`, aliases, relative imports, namespace
+  imports, wildcard import non-binding, and import-declaration true negatives.
+
 Implementation:
 
 - Extract exports from:

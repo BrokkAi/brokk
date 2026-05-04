@@ -6,6 +6,10 @@ import static org.treesitter.PythonNodeType.*;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.python.CognitiveComplexityAnalysis;
+import ai.brokk.analyzer.python.PythonExportUsageExtractor;
+import ai.brokk.analyzer.usages.ExportIndex;
+import ai.brokk.analyzer.usages.ImportBinder;
+import ai.brokk.analyzer.usages.ReferenceCandidate;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -1992,6 +1996,51 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
         return performImportedCodeUnitsOf(file);
+    }
+
+    public ExportIndex exportIndexOf(ProjectFile file) {
+        ExportIndex cached = cache().exportIndex().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        ExportIndex computed = withSource(
+                file,
+                source -> PythonExportUsageExtractor.computeExportIndex(this, file, source.text()),
+                ExportIndex.empty());
+        cache().exportIndex().put(file, computed);
+        return computed;
+    }
+
+    public ImportBinder importBinderOf(ProjectFile file) {
+        ImportBinder cached = cache().importBinder().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        ImportBinder computed = PythonExportUsageExtractor.computeImportBinder(importInfoOf(file));
+        cache().importBinder().put(file, computed);
+        return computed;
+    }
+
+    public Set<ReferenceCandidate> exportUsageCandidatesOf(ProjectFile file) {
+        Set<ReferenceCandidate> cached = cache().references().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        Set<ReferenceCandidate> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Set.<ReferenceCandidate>of();
+                    }
+                    return withSource(
+                            file,
+                            source -> PythonExportUsageExtractor.computeUsageCandidates(file, root, source.text()),
+                            Set.<ReferenceCandidate>of());
+                },
+                Set.<ReferenceCandidate>of());
+        cache().references().put(file, computed);
+        return computed;
     }
 
     @Override
