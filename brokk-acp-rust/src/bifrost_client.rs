@@ -382,10 +382,13 @@ mod tests {
     }
 
     async fn download_and_extract_bifrost(cache_dir: &Path) {
+        use sha2::{Digest, Sha256};
+
         std::fs::create_dir_all(cache_dir).expect("create test-fixtures cache");
 
         let asset = format!("bifrost-v{TEST_BIFROST_VERSION}-{TRIPLE}.{ARCHIVE_EXT}");
         let url = format!("{TEST_BIFROST_RELEASE_BASE}/v{TEST_BIFROST_VERSION}/{asset}");
+        let sha256_url = format!("{url}.sha256");
 
         eprintln!("downloading bifrost test fixture: {url}");
         let bytes = reqwest::get(&url)
@@ -396,6 +399,35 @@ mod tests {
             .bytes()
             .await
             .expect("read bifrost archive bytes");
+
+        // Integrity check: verify against the publisher's `.sha256` sidecar
+        // before extraction. `bifrost --version` is unreliable as a pin
+        // (the v0.1.3 binary still self-reports `0.1.2` due to an upstream
+        // Cargo.toml miss); the sha256 is content-addressable so a
+        // mislabeled or swapped binary is caught here. Mirrors the check
+        // already done by `brokk-code/brokk_code/rust_acp_install.py` on
+        // the production install path.
+        eprintln!("verifying bifrost archive against {sha256_url}");
+        let sidecar = reqwest::get(&sha256_url)
+            .await
+            .expect("bifrost .sha256 sidecar download failed")
+            .error_for_status()
+            .expect("bifrost .sha256 sidecar returned non-200")
+            .text()
+            .await
+            .expect("read .sha256 sidecar text");
+        let expected_hex = sidecar
+            .split_whitespace()
+            .next()
+            .expect("bifrost .sha256 sidecar is empty")
+            .to_lowercase();
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let actual_hex = format!("{:x}", hasher.finalize());
+        assert_eq!(
+            actual_hex, expected_hex,
+            "bifrost archive sha256 mismatch for {url}: got {actual_hex}, expected {expected_hex} (refuse to extract)"
+        );
 
         let archive_path = cache_dir.join(&asset);
         std::fs::write(&archive_path, &bytes).expect("write archive to cache");
