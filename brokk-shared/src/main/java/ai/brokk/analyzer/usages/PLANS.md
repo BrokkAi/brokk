@@ -122,6 +122,9 @@ Progress:
   `__init__.py`, sibling same-name true negatives, and external frontier/no-hit behavior.
 - 2026-05-04: Tightened exact graph target matching to require source-file equality as well as FQN equality, preventing
   same-name declarations in different files from matching.
+- 2026-05-04: Added hardening tests for nested package-barrel chains, import cycles, and local top-level shadowing of
+  imported names. Imported names can now act as re-exported module attributes, while local declarations shadow imported
+  bindings for usage resolution.
 
 Implementation:
 
@@ -197,6 +200,8 @@ Progress:
 
 - 2026-05-04: Deferred implementation. Stages 2-4 cover exported functions/classes and direct imported-symbol usages.
   Receiver inference should wait for concrete Python member-usage cases and failing tests, as scoped below.
+- 2026-05-04: Added the narrow static class access case (`Foo.bar()`) for imported classes by indexing Python class
+  members and resolving qualified class-member candidates. Broader receiver inference remains deferred.
 
 Implementation:
 

@@ -37,7 +37,8 @@ public final class PythonExportUsageExtractor {
 
     private PythonExportUsageExtractor() {}
 
-    public static ExportIndex computeExportIndex(PythonAnalyzer analyzer, ProjectFile file, String source) {
+    public static ExportIndex computeExportIndex(
+            PythonAnalyzer analyzer, ProjectFile file, String source, List<ImportInfo> imports) {
         var exports = new LinkedHashMap<String, ExportIndex.ExportEntry>();
         for (CodeUnit cu : analyzer.getTopLevelDeclarations(file)) {
             if (cu.kind() == CodeUnitType.CLASS || cu.kind() == CodeUnitType.FUNCTION) {
@@ -45,7 +46,10 @@ public final class PythonExportUsageExtractor {
             }
         }
         staticAllNames(source).forEach(name -> exports.putIfAbsent(name, new ExportIndex.LocalExport(name)));
-        return new ExportIndex(Map.copyOf(exports), List.of(), Set.of(), Set.of());
+        computeImportBinder(imports).bindings().keySet().stream()
+                .filter(name -> !exports.containsKey(name))
+                .forEach(name -> exports.put(name, new ExportIndex.LocalExport(name)));
+        return new ExportIndex(Map.copyOf(exports), List.of(), Set.of(), classMembers(analyzer, file));
     }
 
     public static ImportBinder computeImportBinder(List<ImportInfo> imports) {
@@ -184,6 +188,32 @@ public final class PythonExportUsageExtractor {
             }
         }
         return Set.copyOf(names);
+    }
+
+    private static Set<ExportIndex.ClassMember> classMembers(PythonAnalyzer analyzer, ProjectFile file) {
+        var members = new LinkedHashSet<ExportIndex.ClassMember>();
+        for (CodeUnit cu : analyzer.getAllDeclarations()) {
+            if (!cu.source().equals(file)) {
+                continue;
+            }
+            if (cu.kind() != CodeUnitType.FUNCTION && cu.kind() != CodeUnitType.FIELD) {
+                continue;
+            }
+            String ownerName = ownerNameOf(cu);
+            if (!ownerName.isEmpty()) {
+                members.add(new ExportIndex.ClassMember(ownerName, cu.identifier(), false, cu.kind()));
+            }
+        }
+        return Set.copyOf(members);
+    }
+
+    private static String ownerNameOf(CodeUnit codeUnit) {
+        String shortName = codeUnit.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return "";
+        }
+        return shortName.substring(0, lastDot);
     }
 
     private static boolean isIdentifier(TSNode node) {

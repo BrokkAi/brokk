@@ -2005,7 +2005,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         }
         ExportIndex computed = withSource(
                 file,
-                source -> PythonExportUsageExtractor.computeExportIndex(this, file, source.text()),
+                source -> PythonExportUsageExtractor.computeExportIndex(this, file, source.text(), importInfoOf(file)),
                 ExportIndex.empty());
         cache().exportIndex().put(file, computed);
         return computed;
@@ -2017,6 +2017,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             return cached;
         }
         ImportBinder computed = PythonExportUsageExtractor.computeImportBinder(importInfoOf(file));
+        var localNames = getTopLevelDeclarations(file).stream()
+                .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
+                .map(CodeUnit::identifier)
+                .collect(Collectors.toSet());
+        if (!localNames.isEmpty()) {
+            computed = new ImportBinder(computed.bindings().entrySet().stream()
+                    .filter(entry -> !localNames.contains(entry.getKey()))
+                    .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue)));
+        }
         cache().importBinder().put(file, computed);
         return computed;
     }

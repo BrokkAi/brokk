@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLanguageAdapter {
     private final PythonAnalyzer analyzer;
@@ -52,6 +53,17 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return analyzer.referencingFilesOf(file);
+    }
+
+    @Override
+    public @Nullable CodeUnit exactMember(
+            ProjectFile sourceFile, String ownerClassName, String memberName, boolean instanceReceiver) {
+        return analyzer.getAllDeclarations().stream()
+                .filter(cu -> cu.source().equals(sourceFile))
+                .filter(cu -> ownerClassName.equals(ownerNameOf(cu)))
+                .filter(cu -> memberName.equals(cu.identifier()))
+                .findFirst()
+                .orElse(null);
     }
 
     private Optional<ProjectFile> resolvePythonModule(ProjectFile importingFile, String moduleSpecifier) {
@@ -102,5 +114,14 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
             dots++;
         }
         return dots;
+    }
+
+    private static String ownerNameOf(CodeUnit codeUnit) {
+        String shortName = codeUnit.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return "";
+        }
+        return shortName.substring(0, lastDot);
     }
 }
