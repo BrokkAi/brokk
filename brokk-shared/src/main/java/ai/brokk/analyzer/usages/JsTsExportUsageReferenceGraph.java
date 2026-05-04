@@ -574,10 +574,31 @@ public final class JsTsExportUsageReferenceGraph {
 
     private static @Nullable CodeUnit resolveClassMember(
             CodeUnit ownerClass, String memberName, boolean instanceReceiver, ExportUsageGraphLanguageAdapter adapter) {
-        return resolveClassMember(ownerClass.source(), ownerClass.identifier(), memberName, instanceReceiver, adapter);
+        CodeUnit declared = resolveDeclaredClassMember(
+                ownerClass.source(), ownerClass.identifier(), memberName, instanceReceiver, adapter);
+        if (declared != null) {
+            return declared;
+        }
+        for (CodeUnit ancestor : adapter.ancestorsOf(ownerClass)) {
+            CodeUnit inherited = resolveDeclaredClassMember(
+                    ancestor.source(), ancestor.identifier(), memberName, instanceReceiver, adapter);
+            if (inherited != null) {
+                return inherited;
+            }
+        }
+        return null;
     }
 
     private static @Nullable CodeUnit resolveClassMember(
+            ProjectFile sourceFile,
+            String ownerClassName,
+            String memberName,
+            boolean instanceReceiver,
+            ExportUsageGraphLanguageAdapter adapter) {
+        return resolveDeclaredClassMember(sourceFile, ownerClassName, memberName, instanceReceiver, adapter);
+    }
+
+    private static @Nullable CodeUnit resolveDeclaredClassMember(
             ProjectFile sourceFile,
             String ownerClassName,
             String memberName,

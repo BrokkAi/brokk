@@ -1,8 +1,7 @@
 # Python Receiver And Type Usage Plan
 
-This document tracks the active Python receiver/type inference work for this PR. The import/export rollout is now
-baseline context: it proves the reference graph can be reused for Python without copying traversal logic, but the next
-useful maturity step is member usage precision.
+This document tracks the Python receiver/type and member hierarchy work for this PR. The import/export rollout is now
+baseline context: it proves the reference graph can be reused for Python without copying traversal logic.
 
 The v1 scope is deliberately pragmatic: seed receiver facts from explicit Python syntax, reuse `LocalUsageInference`,
 and keep false positives low. This is not a broad Python type checker and should not drift into JS/TS parity work that
@@ -20,9 +19,9 @@ This PR already has:
 
 Keep the existing import/export graph tests as regression coverage. They are no longer the active roadmap.
 
-## Active Scope
+## Completed Receiver/Type Scope
 
-Implement Python receiver/type inference v1 for:
+Python receiver/type inference v1 covers:
 
 - simple annotations: `x: Foo`, `def f(x: Foo)`, and `self.x: Foo` where the type resolves through imports or same-file
   declarations;
@@ -34,6 +33,23 @@ Implement Python receiver/type inference v1 for:
 
 Do not implement broad flow inference, runtime type inference, dynamic imports, monkeypatching, return-type propagation,
 interprocedural calls, wildcard provenance beyond static imports, or JS/TS parity work that is not needed for Python.
+
+## Active Member Hierarchy Scope
+
+Use existing Python type hierarchy capabilities to make member usage matching inheritance-aware:
+
+- build Python heritage edges from `TypeHierarchyProvider` as child class keys to parent class keys;
+- resolve receiver members against the receiver class first, then walk ancestors for inherited members;
+- count subclass overrides for base-member queries through the graph's existing owner-hierarchy matcher;
+- keep hierarchy work active only for member queries with explicit receiver provenance.
+
+Progress:
+
+- 2026-05-04: Added Python heritage edges through `PythonAnalyzer.heritageIndex()` and
+  `PythonExportUsageGraphAdapter.heritageIndex()`.
+- 2026-05-04: Extended shared member resolution to check adapter-provided ancestors after the receiver class itself.
+- 2026-05-04: Added Python graph tests for inherited base members, overrides, multilevel inheritance, cross-file
+  inheritance, multiple inheritance, unrelated members, unresolved supertypes, and existing ambiguity caps.
 
 ## Stage 1: Python Local Usage Events
 
@@ -143,6 +159,7 @@ Regression tests:
 Acceptance criteria:
 
 - targeted Python receiver/type tests pass;
+- targeted Python member hierarchy tests pass;
 - existing Python import/export tests pass;
 - existing JS/TS usage graph tests pass;
 - `./gradlew fix tidy` and final `./gradlew analyze` pass before commit.

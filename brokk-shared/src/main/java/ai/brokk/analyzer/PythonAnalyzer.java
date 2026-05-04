@@ -12,6 +12,7 @@ import ai.brokk.analyzer.usages.ImportBinder;
 import ai.brokk.analyzer.usages.ReferenceCandidate;
 import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import ai.brokk.project.ICoreProject;
+import ai.brokk.util.PathNormalizer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -2074,6 +2075,36 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                 Set.<ResolvedReceiverCandidate>of());
         cache().receiverCandidates().put(file, computed);
         return computed;
+    }
+
+    public Map<String, Set<String>> heritageIndex() {
+        Map<String, Set<String>> cached = cache().heritageIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = getAllDeclarations().stream()
+                .filter(CodeUnit::isClass)
+                .collect(Collectors.toUnmodifiableMap(
+                        PythonAnalyzer::qualifiedClassKey,
+                        cu -> getDirectAncestors(cu).stream()
+                                .filter(CodeUnit::isClass)
+                                .map(PythonAnalyzer::qualifiedClassKey)
+                                .collect(Collectors.toUnmodifiableSet()),
+                        (left, right) -> {
+                            var merged = new LinkedHashSet<String>(left);
+                            merged.addAll(right);
+                            return Set.copyOf(merged);
+                        }));
+        cache().heritageIndex(computed);
+        return computed;
+    }
+
+    private static String qualifiedClassKey(CodeUnit codeUnit) {
+        return PathNormalizer.canonicalizeForProject(
+                        codeUnit.source().getRelPath().toString(),
+                        codeUnit.source().getRoot())
+                + ":"
+                + codeUnit.identifier();
     }
 
     @Override

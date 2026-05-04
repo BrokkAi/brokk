@@ -5,6 +5,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
@@ -58,6 +60,16 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return analyzer.referencingFilesOf(file);
+    }
+
+    @Override
+    public Map<String, Set<String>> heritageIndex() {
+        return analyzer.heritageIndex();
+    }
+
+    @Override
+    public List<CodeUnit> ancestorsOf(CodeUnit ownerClass) {
+        return analyzer.getAncestors(ownerClass);
     }
 
     @Override

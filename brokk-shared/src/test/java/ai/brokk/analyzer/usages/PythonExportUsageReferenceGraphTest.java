@@ -3,6 +3,7 @@ package ai.brokk.analyzer.usages;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -597,6 +598,190 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
     }
 
     @Test
+    void inheritedBaseMemberCountsForSubclassReceiver() throws Exception {
+        String service =
+                """
+                class Base:
+                    def bar(self):
+                        pass
+
+                class Child(Base):
+                    pass
+                """;
+        String consumer =
+                """
+                from service import Child
+
+                def run(x: Child):
+                    x.bar()
+                """;
+
+        assertSinglePythonMemberHit(service, consumer, "Base", "bar");
+    }
+
+    @Test
+    void overridingSubclassMemberCountsForBaseMemberQuery() throws Exception {
+        String service =
+                """
+                class Base:
+                    def bar(self):
+                        pass
+
+                class Child(Base):
+                    def bar(self):
+                        pass
+                """;
+        String consumer =
+                """
+                from service import Child
+
+                def run(x: Child):
+                    x.bar()
+                """;
+
+        assertSinglePythonMemberHit(service, consumer, "Base", "bar");
+    }
+
+    @Test
+    void multiLevelInheritedMemberCountsForGrandchildReceiver() throws Exception {
+        String service =
+                """
+                class Base:
+                    def bar(self):
+                        pass
+
+                class Child(Base):
+                    pass
+
+                class GrandChild(Child):
+                    pass
+                """;
+        String consumer =
+                """
+                from service import GrandChild
+
+                def run(x: GrandChild):
+                    x.bar()
+                """;
+
+        assertSinglePythonMemberHit(service, consumer, "Base", "bar");
+    }
+
+    @Test
+    void crossFileInheritedMemberCountsForSubclassReceiver() throws Exception {
+        String base =
+                """
+                class Base:
+                    def bar(self):
+                        pass
+                """;
+        String child =
+                """
+                from base import Base
+
+                class Child(Base):
+                    pass
+                """;
+        String consumer =
+                """
+                from child import Child
+
+                def run(x: Child):
+                    x.bar()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(base, "base.py")
+                .addFileContents(child, "child.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile baseFile = projectFile(project.getAllFiles(), "base.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+            var member = memberDeclaration(analyzer, baseFile, "bar");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    baseFile,
+                    "Base",
+                    member,
+                    adapter,
+                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void multipleInheritanceMemberCountsWhenOneParentProvidesMember() throws Exception {
+        String service =
+                """
+                class Left:
+                    pass
+
+                class Right:
+                    def bar(self):
+                        pass
+
+                class Child(Left, Right):
+                    pass
+                """;
+        String consumer =
+                """
+                from service import Child
+
+                def run(x: Child):
+                    x.bar()
+                """;
+
+        assertSinglePythonMemberHit(service, consumer, "Right", "bar");
+    }
+
+    @Test
+    void subclassReceiverDoesNotCountForDifferentBaseMemberName() throws Exception {
+        String service =
+                """
+                class Base:
+                    def baz(self):
+                        pass
+
+                class Child(Base):
+                    pass
+                """;
+        String consumer =
+                """
+                from service import Child
+
+                def run(x: Child):
+                    x.bar()
+                """;
+
+        assertNoPythonMemberHit(service, consumer, "Base", "baz");
+    }
+
+    @Test
+    void unresolvedSuperclassDoesNotCreateMemberHierarchyHit() throws Exception {
+        String service =
+                """
+                class Base:
+                    def bar(self):
+                        pass
+
+                class Child(UnknownBase):
+                    pass
+                """;
+        String consumer =
+                """
+                from service import Child
+
+                def run(x: Child):
+                    x.bar()
+                """;
+
+        assertNoPythonMemberHit(service, consumer, "Base", "bar");
+    }
+
+    @Test
     void sameNameFromSiblingModuleDoesNotMatchTarget() throws Exception {
         String service = """
                 class Service:
@@ -671,6 +856,11 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
     }
 
     private static void assertSinglePythonMemberHit(String service, String consumer) throws Exception {
+        assertSinglePythonMemberHit(service, consumer, "Foo", "bar");
+    }
+
+    private static void assertSinglePythonMemberHit(
+            String service, String consumer, String exportName, String memberName) throws Exception {
         try (var project = InlineTestProjectCreator.code(service, "service.py")
                 .addFileContents(consumer, "consumer.py")
                 .build()) {
@@ -678,15 +868,11 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             var adapter = new PythonExportUsageGraphAdapter(analyzer);
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
-            var member = analyzer.getAllDeclarations().stream()
-                    .filter(cu -> cu.source().equals(serviceFile))
-                    .filter(cu -> cu.identifier().equals("bar"))
-                    .findFirst()
-                    .orElseThrow();
+            var member = memberDeclaration(analyzer, serviceFile, memberName);
 
             var result = JsTsExportUsageReferenceGraph.findExportUsages(
                     serviceFile,
-                    "Foo",
+                    exportName,
                     member,
                     adapter,
                     JsTsExportUsageReferenceGraph.Limits.defaults(),
@@ -697,6 +883,11 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
     }
 
     private static void assertNoPythonMemberHit(String service, String consumer) throws Exception {
+        assertNoPythonMemberHit(service, consumer, "Foo", "bar");
+    }
+
+    private static void assertNoPythonMemberHit(String service, String consumer, String exportName, String memberName)
+            throws Exception {
         try (var project = InlineTestProjectCreator.code(service, "service.py")
                 .addFileContents(consumer, "consumer.py")
                 .build()) {
@@ -704,15 +895,11 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             var adapter = new PythonExportUsageGraphAdapter(analyzer);
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
-            var member = analyzer.getAllDeclarations().stream()
-                    .filter(cu -> cu.source().equals(serviceFile))
-                    .filter(cu -> cu.identifier().equals("bar"))
-                    .findFirst()
-                    .orElseThrow();
+            var member = memberDeclaration(analyzer, serviceFile, memberName);
 
             var result = JsTsExportUsageReferenceGraph.findExportUsages(
                     serviceFile,
-                    "Foo",
+                    exportName,
                     member,
                     adapter,
                     JsTsExportUsageReferenceGraph.Limits.defaults(),
@@ -720,5 +907,13 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
 
             assertTrue(result.hits().isEmpty());
         }
+    }
+
+    private static CodeUnit memberDeclaration(PythonAnalyzer analyzer, ProjectFile file, String memberName) {
+        return analyzer.getAllDeclarations().stream()
+                .filter(cu -> cu.source().equals(file))
+                .filter(cu -> cu.identifier().equals(memberName))
+                .findFirst()
+                .orElseThrow();
     }
 }

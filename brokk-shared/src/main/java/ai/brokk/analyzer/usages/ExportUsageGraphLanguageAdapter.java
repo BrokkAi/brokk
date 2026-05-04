@@ -2,6 +2,7 @@ package ai.brokk.analyzer.usages;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -41,6 +42,10 @@ public interface ExportUsageGraphLanguageAdapter {
 
     default Map<String, Set<String>> heritageIndex() {
         return Map.of();
+    }
+
+    default List<CodeUnit> ancestorsOf(CodeUnit ownerClass) {
+        return List.of();
     }
 
     default @Nullable CodeUnit exactMember(
