@@ -6,6 +6,7 @@ import static org.treesitter.GoNodeType.*;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.GoAnalyzerCache;
 import ai.brokk.analyzer.go.CognitiveComplexityAnalysis;
+import ai.brokk.analyzer.go.GoSourceLookupAliases;
 import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import java.nio.file.Path;
@@ -155,6 +156,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return GO_SYNTAX_PROFILE;
+    }
+
+    @Override
+    public Collection<SourceLookupAlias> sourceLookupAliases(String requestedName) {
+        return GoSourceLookupAliases.create(getTSParser(), requestedName);
     }
 
     @Override

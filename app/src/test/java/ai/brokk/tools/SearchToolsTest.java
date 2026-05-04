@@ -6,6 +6,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.IAnalyzer.Range;
+import ai.brokk.analyzer.IAnalyzer.SourceLookupAlias;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -381,6 +382,41 @@ public class SearchToolsTest {
             assertTrue(
                     result.contains("int inc(int x) { return x + 1; }"),
                     "Should resolve a unique simple method name. Result: " + result);
+        } finally {
+            deleteRecursively(customRoot);
+        }
+    }
+
+    @Test
+    void getMethodSources_resolvesGoPathAndReceiverQualifiedName() throws Exception {
+        Path customRoot = Files.createTempDirectory("brokk-app-search-go-method-");
+        try {
+            var project = new TestProject(customRoot, Languages.GO);
+            ProjectFile dbFile = new ProjectFile(customRoot, "lib/auth/db.go");
+            CodeUnit serverClass = CodeUnit.cls(dbFile, "auth", "Server");
+            CodeUnit generateCert = CodeUnit.fn(dbFile, "auth", "Server.GenerateDatabaseCert");
+            TestAnalyzer analyzer = new TestAnalyzer(List.of(serverClass), Map.of(), project) {
+                @Override
+                public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+                    return classUnit.equals(serverClass) ? List.of(generateCert) : List.of();
+                }
+
+                @Override
+                public Collection<SourceLookupAlias> sourceLookupAliases(String requestedName) {
+                    return List.of(
+                            SourceLookupAlias.anySource(requestedName),
+                            SourceLookupAlias.sourceFile("auth.Server.GenerateDatabaseCert", "lib/auth/db.go"));
+                }
+            };
+            analyzer.setSource(
+                    generateCert, "func (s *Server) GenerateDatabaseCert() (*proto.DatabaseCertResponse, error) {}");
+            SearchTools tools =
+                    new SearchTools(new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer));
+
+            String result = tools.getMethodSources(List.of("lib/auth.db.(*Server).GenerateDatabaseCert"));
+
+            assertTrue(result.contains("GenerateDatabaseCert"), result);
+            assertFalse(result.contains("No sources found"), result);
         } finally {
             deleteRecursively(customRoot);
         }

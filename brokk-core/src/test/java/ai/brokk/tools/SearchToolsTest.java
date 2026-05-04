@@ -9,6 +9,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.IAnalyzer.Range;
+import ai.brokk.analyzer.IAnalyzer.SourceLookupAlias;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -571,6 +572,46 @@ class SearchToolsTest {
         assertTrue(
                 result.contains("int inc(int x) { return x + 1; }"),
                 "Should resolve a unique simple method name. Result: " + result);
+    }
+
+    @Test
+    void getMethodSources_resolvesGoPathAndReceiverQualifiedName() throws Exception {
+        Path projectRoot = initRepo();
+        project = new CoreProject(projectRoot);
+        ProjectFile dbFile = new ProjectFile(projectRoot, "lib/auth/db.go");
+        CodeUnit serverClass = CodeUnit.cls(dbFile, "auth", "Server");
+        CodeUnit generateCert = CodeUnit.fn(dbFile, "auth", "Server.GenerateDatabaseCert");
+        IAnalyzer analyzer = new DisabledAnalyzer(project) {
+            @Override
+            public List<CodeUnit> getAllDeclarations() {
+                return List.of(serverClass);
+            }
+
+            @Override
+            public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+                return classUnit.equals(serverClass) ? List.of(generateCert) : List.of();
+            }
+
+            @Override
+            public Collection<SourceLookupAlias> sourceLookupAliases(String requestedName) {
+                return List.of(
+                        SourceLookupAlias.anySource(requestedName),
+                        SourceLookupAlias.sourceFile("auth.Server.GenerateDatabaseCert", "lib/auth/db.go"));
+            }
+
+            @Override
+            public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+                return codeUnit.equals(generateCert)
+                        ? Set.of("func (s *Server) GenerateDatabaseCert() (*proto.DatabaseCertResponse, error) {}")
+                        : Set.of();
+            }
+        };
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, analyzer));
+
+        String result = tools.getMethodSources(List.of("lib/auth.db.(*Server).GenerateDatabaseCert"));
+
+        assertTrue(result.contains("GenerateDatabaseCert"), result);
+        assertFalse(result.contains("No sources found"), result);
     }
 
     @Test

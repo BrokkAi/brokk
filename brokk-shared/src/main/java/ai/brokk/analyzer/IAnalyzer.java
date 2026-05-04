@@ -45,6 +45,59 @@ public interface IAnalyzer {
         }
     }
 
+    enum SourcePathKind {
+        FILE,
+        DIRECTORY
+    }
+
+    record SourceLookupAlias(String lookupName, String sourcePathSuffix, SourcePathKind sourcePathKind) {
+        public SourceLookupAlias {
+            sourcePathSuffix = normalizePath(sourcePathSuffix);
+        }
+
+        public static SourceLookupAlias anySource(String lookupName) {
+            return new SourceLookupAlias(lookupName, "", SourcePathKind.FILE);
+        }
+
+        public static SourceLookupAlias sourceFile(String lookupName, String sourcePathSuffix) {
+            return new SourceLookupAlias(lookupName, sourcePathSuffix, SourcePathKind.FILE);
+        }
+
+        public static SourceLookupAlias sourceDirectory(String lookupName, String sourcePathSuffix) {
+            return new SourceLookupAlias(lookupName, sourcePathSuffix, SourcePathKind.DIRECTORY);
+        }
+
+        public SourceLookupAlias withLookupName(String newLookupName) {
+            return new SourceLookupAlias(newLookupName, sourcePathSuffix, sourcePathKind);
+        }
+
+        public boolean matchesSource(CodeUnit candidate) {
+            if (sourcePathSuffix.isBlank()) {
+                return true;
+            }
+
+            String candidatePath =
+                    switch (sourcePathKind) {
+                        case FILE ->
+                            normalizePath(candidate.source().getRelPath().toString());
+                        case DIRECTORY ->
+                            normalizePath(candidate.source().getParent().toString());
+                    };
+            return candidatePath.equals(sourcePathSuffix) || candidatePath.endsWith("/" + sourcePathSuffix);
+        }
+
+        private static String normalizePath(String path) {
+            var normalized = path.replace('\\', '/');
+            while (normalized.startsWith("/")) {
+                normalized = normalized.substring(1);
+            }
+            while (normalized.endsWith("/")) {
+                normalized = normalized.substring(0, normalized.length() - 1);
+            }
+            return normalized;
+        }
+    }
+
     /**
      * Listener for progress updates during analyzer construction or update operations.
      * Implementations should be thread-safe as callbacks may come from worker threads.
@@ -159,6 +212,10 @@ public interface IAnalyzer {
      * @return SequencedSet of all matching CodeUnits in priority order (may be empty)
      */
     SequencedSet<CodeUnit> getDefinitions(String fqName);
+
+    default Collection<SourceLookupAlias> sourceLookupAliases(String requestedName) {
+        return List.of(SourceLookupAlias.anySource(requestedName));
+    }
 
     /**
      * Returns the enclosing class or module for the given CodeUnit.
