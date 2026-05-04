@@ -22,6 +22,113 @@ pub enum ToolStatus {
     InternalError,
 }
 
+/// Single source of truth for per-tool metadata (`ToolKind` for the
+/// permission gate, `display_name` for the UI fallback). Adding a new
+/// tool means adding one row here; the dispatcher in `execute` derives
+/// builtin routing from the inline `match`, and bifrost-loaded tools we
+/// don't recognize fall through to `ToolKind::Other` / "Executing tool".
+struct ToolMeta {
+    name: &'static str,
+    kind: ToolKind,
+    display_name: &'static str,
+}
+
+const TOOLS: &[ToolMeta] = &[
+    // --- Built-in tools (executed inline in `ToolRegistry::execute`) -------
+    ToolMeta {
+        name: "think",
+        kind: ToolKind::Think,
+        display_name: "Thinking",
+    },
+    ToolMeta {
+        name: "readFile",
+        kind: ToolKind::Read,
+        display_name: "Reading file",
+    },
+    ToolMeta {
+        name: "writeFile",
+        kind: ToolKind::Edit,
+        display_name: "Writing file",
+    },
+    ToolMeta {
+        name: "listDirectory",
+        kind: ToolKind::Read,
+        display_name: "Listing directory",
+    },
+    ToolMeta {
+        name: "searchFileContents",
+        kind: ToolKind::Search,
+        display_name: "Searching file contents",
+    },
+    ToolMeta {
+        name: "runShellCommand",
+        kind: ToolKind::Execute,
+        display_name: "Running shell command",
+    },
+    // --- Bifrost-loaded tools (dispatched via `execute_bifrost`) -----------
+    // Listed here so the permission gate can classify them; their actual
+    // execution is delegated to the bifrost subprocess.
+    ToolMeta {
+        name: "get_file_summaries",
+        kind: ToolKind::Read,
+        display_name: "Getting file summaries",
+    },
+    ToolMeta {
+        name: "search_symbols",
+        kind: ToolKind::Search,
+        display_name: "Searching for symbols",
+    },
+    ToolMeta {
+        name: "get_symbol_locations",
+        kind: ToolKind::Search,
+        display_name: "Finding symbol locations",
+    },
+    ToolMeta {
+        name: "get_symbol_summaries",
+        kind: ToolKind::Search,
+        display_name: "Getting symbol summaries",
+    },
+    ToolMeta {
+        name: "get_symbol_sources",
+        kind: ToolKind::Search,
+        display_name: "Fetching symbol source",
+    },
+    ToolMeta {
+        name: "list_symbols",
+        kind: ToolKind::Search,
+        display_name: "Listing symbols",
+    },
+    ToolMeta {
+        name: "most_relevant_files",
+        kind: ToolKind::Search,
+        display_name: "Finding related files",
+    },
+    // `refresh` mutates analyzer state, so it stays `Other` rather than
+    // `Read`: prompted in `default`, refused in `readOnly`.
+    ToolMeta {
+        name: "refresh",
+        kind: ToolKind::Other,
+        display_name: "Refreshing analyzer index",
+    },
+];
+
+fn tool_meta(name: &str) -> Option<&'static ToolMeta> {
+    TOOLS.iter().find(|t| t.name == name)
+}
+
+/// Built-in tool names handled by the inline `match` in
+/// `ToolRegistry::execute`. Used by tests to keep the metadata table
+/// in sync with the actual builtin dispatch.
+#[cfg(test)]
+const BUILTIN_TOOL_NAMES: &[&str] = &[
+    "think",
+    "readFile",
+    "writeFile",
+    "listDirectory",
+    "searchFileContents",
+    "runShellCommand",
+];
+
 /// Unified tool registry: filesystem tools + shell + think + (optionally) bifrost.
 pub struct ToolRegistry {
     cwd: PathBuf,
@@ -232,18 +339,13 @@ impl ToolRegistry {
                     .unwrap_or(60);
                 shell::run_shell_command(&self.cwd, command, timeout, policy).await
             }
-            "search_symbols"
-            | "get_symbol_locations"
-            | "get_symbol_summaries"
-            | "get_symbol_sources"
-            | "get_file_summaries"
-            | "list_symbols"
-            | "most_relevant_files"
-            | "refresh" => self.execute_bifrost(name, args).await,
-            _ => ToolResult {
-                status: ToolStatus::RequestError,
-                output: format!("Unknown tool: {name}"),
-            },
+            // Any name not handled above is delegated to the bifrost
+            // subprocess. This avoids a hardcoded list of bifrost tool
+            // names drifting out of sync with what bifrost actually
+            // exposes (`tool_definitions` already iterates bifrost tools
+            // dynamically via `client.tools()`). If bifrost is not
+            // running, `execute_bifrost` returns a clear error.
+            _ => self.execute_bifrost(name, args).await,
         }
     }
 
@@ -277,29 +379,15 @@ impl ToolRegistry {
     }
 
     /// ACP `ToolKind` for a tool, used by the permission gate to classify calls.
-    /// Built-in tools have hardcoded kinds; Bifrost-loaded tools fall through
-    /// to `Other` until Bifrost exposes kind metadata in its descriptors.
-    ///
-    /// Must stay in lockstep with `execute` and `headline` above. `refresh`
-    /// is intentionally `Other` rather than `Read` -- it mutates analyzer
-    /// state, so we want the user prompted in `default` and refused in
-    /// `readOnly`.
+    /// Looked up from the `TOOLS` table; tools we don't recognize fall
+    /// through to `Other`. Bifrost-loaded tools added without an entry in
+    /// `TOOLS` will hit this fallback (and a debug log).
     pub fn tool_kind(tool_name: &str) -> ToolKind {
-        match tool_name {
-            "think" => ToolKind::Think,
-            "readFile" | "listDirectory" | "get_file_summaries" => ToolKind::Read,
-            "searchFileContents"
-            | "search_symbols"
-            | "get_symbol_locations"
-            | "get_symbol_summaries"
-            | "get_symbol_sources"
-            | "list_symbols"
-            | "most_relevant_files" => ToolKind::Search,
-            "writeFile" => ToolKind::Edit,
-            "runShellCommand" => ToolKind::Execute,
-            other => {
+        match tool_meta(tool_name) {
+            Some(t) => t.kind,
+            None => {
                 tracing::debug!(
-                    tool_name = other,
+                    tool_name,
                     "tool_kind: unrecognized tool, classifying as Other"
                 );
                 ToolKind::Other
@@ -311,23 +399,9 @@ impl ToolRegistry {
     /// title can't be derived from the call's input args (notably for
     /// Bifrost-loaded tools we don't introspect by name in `announce`).
     pub fn display_name(tool_name: &str) -> &'static str {
-        match tool_name {
-            "think" => "Thinking",
-            "readFile" => "Reading file",
-            "writeFile" => "Writing file",
-            "listDirectory" => "Listing directory",
-            "searchFileContents" => "Searching file contents",
-            "runShellCommand" => "Running shell command",
-            "search_symbols" => "Searching for symbols",
-            "get_symbol_locations" => "Finding symbol locations",
-            "get_symbol_summaries" => "Getting symbol summaries",
-            "get_symbol_sources" => "Fetching symbol source",
-            "get_file_summaries" => "Getting file summaries",
-            "list_symbols" => "Listing symbols",
-            "most_relevant_files" => "Finding related files",
-            "refresh" => "Refreshing analyzer index",
-            _ => "Executing tool",
-        }
+        tool_meta(tool_name)
+            .map(|t| t.display_name)
+            .unwrap_or("Executing tool")
     }
 }
 
@@ -528,5 +602,44 @@ mod tests {
         assert!(resolved.ends_with("subdir/new.txt"));
 
         std::fs::remove_dir_all(&cwd).ok();
+    }
+
+    /// Anti-drift: every built-in tool name must (1) have a `ToolMeta` row in
+    /// the `TOOLS` table (otherwise the permission gate falls through to
+    /// `Other` and the UI to a generic label), and (2) be advertised by
+    /// `tool_definitions()` (otherwise the LLM never sees it). If you add a
+    /// new built-in dispatch arm in `execute`, also add the name to
+    /// `BUILTIN_TOOL_NAMES`, the `TOOLS` table, and `tool_definitions()`.
+    #[tokio::test]
+    async fn builtin_tools_have_metadata_and_are_advertised() {
+        let registry = ToolRegistry {
+            cwd: PathBuf::from("/tmp"),
+            bifrost: None,
+        };
+        let advertised: Vec<String> = registry
+            .tool_definitions()
+            .into_iter()
+            .map(|d| d.function.name)
+            .collect();
+
+        for name in BUILTIN_TOOL_NAMES {
+            assert!(
+                TOOLS.iter().any(|t| t.name == *name),
+                "built-in tool '{name}' is missing from the TOOLS metadata table"
+            );
+            assert!(
+                advertised.iter().any(|a| a == name),
+                "built-in tool '{name}' is missing from tool_definitions(); LLM will not see it"
+            );
+        }
+
+        // The inverse: with bifrost disabled, advertised tools should be a
+        // subset of the metadata table (no UI fallback for built-ins).
+        for advertised_name in &advertised {
+            assert!(
+                TOOLS.iter().any(|t| t.name == advertised_name.as_str()),
+                "tool_definitions() advertises '{advertised_name}' but it is missing from the TOOLS metadata table"
+            );
+        }
     }
 }
