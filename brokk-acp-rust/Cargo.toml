@@ -37,3 +37,8 @@ walkdir = "2"
 # `test-util` enables `tokio::time::pause()` and `#[tokio::test(start_paused = true)]`,
 # used by the LLM stream idle-timeout test to avoid waiting wall-clock seconds.
 tokio = { version = "1", features = ["test-util"] }
+# Used by the bifrost test fixture (`bifrost_client::tests`) to verify
+# the downloaded release archive against its `.sha256` sidecar before
+# extraction, mirroring what `brokk-code/brokk_code/rust_acp_install.py`
+# already does for the production install path.
+sha2 = "0.10"

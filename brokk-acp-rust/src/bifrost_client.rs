@@ -292,42 +292,197 @@ fn parse_tool_list(result: Value) -> Result<Vec<BifrostToolDef>, BifrostError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
-    fn locate_bifrost() -> Option<PathBuf> {
-        if let Ok(env) = std::env::var("BROKK_BIFROST_BINARY") {
-            let p = PathBuf::from(env);
-            if p.exists() {
-                return Some(p);
-            }
+    /// Bifrost release the handshake test pins. Bumping bifrost is a deliberate
+    /// edit here, not whatever happens to be on a contributor's `$PATH`.
+    /// Must stay in sync with `BUNDLED_BIFROST_VERSION` in
+    /// `brokk-code/brokk_code/rust_acp_install.py`.
+    const TEST_BIFROST_VERSION: &str = "0.1.3";
+
+    const TEST_BIFROST_RELEASE_BASE: &str = "https://github.com/BrokkAi/bifrost/releases/download";
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    const TRIPLE: &str = "aarch64-apple-darwin";
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    const TRIPLE: &str = "x86_64-unknown-linux-gnu";
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    const TRIPLE: &str = "aarch64-unknown-linux-gnu";
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    const TRIPLE: &str = "x86_64-pc-windows-msvc";
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    const TRIPLE: &str = "aarch64-pc-windows-msvc";
+
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "linux", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "aarch64"),
+    )))]
+    compile_error!(
+        "bifrost releases only ship binaries for arm64 macOS, x86_64/aarch64 Linux, \
+         and x86_64/aarch64 Windows; this test cannot run on other targets"
+    );
+
+    #[cfg(target_os = "windows")]
+    const ARCHIVE_EXT: &str = "zip";
+    #[cfg(not(target_os = "windows"))]
+    const ARCHIVE_EXT: &str = "tar.gz";
+
+    #[cfg(target_os = "windows")]
+    const BINARY_NAME: &str = "bifrost.exe";
+    #[cfg(not(target_os = "windows"))]
+    const BINARY_NAME: &str = "bifrost";
+
+    /// Resolve the bifrost binary used by the handshake test.
+    ///
+    /// Resolution order:
+    /// 1. `BROKK_BIFROST_BINARY` env var (override for testing against an
+    ///    in-tree bifrost build).
+    /// 2. The cached pinned-version binary under
+    ///    `target/test-fixtures/bifrost/<version>/<triple>/`.
+    /// 3. Download the pinned release into the cache, then return its path.
+    ///
+    /// We deliberately do NOT consult `which bifrost`: that coupled the test
+    /// to whatever happened to be installed locally, which dragged the test
+    /// behavior into "depends on which version of bifrost the contributor
+    /// happens to have on PATH" -- the bug this helper exists to remove.
+    async fn ensure_test_bifrost_binary() -> PathBuf {
+        if let Ok(override_path) = std::env::var("BROKK_BIFROST_BINARY") {
+            let p = PathBuf::from(&override_path);
+            assert!(
+                p.is_file(),
+                "BROKK_BIFROST_BINARY={override_path} is not a regular file"
+            );
+            return p;
         }
-        let output = std::process::Command::new("which")
-            .arg("bifrost")
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
+
+        let cache_dir = test_fixture_cache_dir();
+        let binary = cache_dir.join(BINARY_NAME);
+        if binary.is_file() {
+            return binary;
         }
-        let trimmed = String::from_utf8(output.stdout).ok()?.trim().to_string();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(trimmed))
+
+        download_and_extract_bifrost(&cache_dir).await;
+        assert!(
+            binary.is_file(),
+            "expected bifrost at {binary:?} after download+extract"
+        );
+        binary
+    }
+
+    fn test_fixture_cache_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-fixtures")
+            .join("bifrost")
+            .join(TEST_BIFROST_VERSION)
+            .join(TRIPLE)
+    }
+
+    async fn download_and_extract_bifrost(cache_dir: &Path) {
+        use sha2::{Digest, Sha256};
+
+        std::fs::create_dir_all(cache_dir).expect("create test-fixtures cache");
+
+        let asset = format!("bifrost-v{TEST_BIFROST_VERSION}-{TRIPLE}.{ARCHIVE_EXT}");
+        let url = format!("{TEST_BIFROST_RELEASE_BASE}/v{TEST_BIFROST_VERSION}/{asset}");
+        let sha256_url = format!("{url}.sha256");
+
+        eprintln!("downloading bifrost test fixture: {url}");
+        let bytes = reqwest::get(&url)
+            .await
+            .expect("bifrost release download failed (network/proxy?)")
+            .error_for_status()
+            .expect("bifrost release returned non-200")
+            .bytes()
+            .await
+            .expect("read bifrost archive bytes");
+
+        // Integrity check: verify against the publisher's `.sha256` sidecar
+        // before extraction. `bifrost --version` is unreliable as a pin
+        // (the v0.1.3 binary still self-reports `0.1.2` due to an upstream
+        // Cargo.toml miss); the sha256 is content-addressable so a
+        // mislabeled or swapped binary is caught here. Mirrors the check
+        // already done by `brokk-code/brokk_code/rust_acp_install.py` on
+        // the production install path.
+        eprintln!("verifying bifrost archive against {sha256_url}");
+        let sidecar = reqwest::get(&sha256_url)
+            .await
+            .expect("bifrost .sha256 sidecar download failed")
+            .error_for_status()
+            .expect("bifrost .sha256 sidecar returned non-200")
+            .text()
+            .await
+            .expect("read .sha256 sidecar text");
+        let expected_hex = sidecar
+            .split_whitespace()
+            .next()
+            .expect("bifrost .sha256 sidecar is empty")
+            .to_lowercase();
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let actual_hex = format!("{:x}", hasher.finalize());
+        assert_eq!(
+            actual_hex, expected_hex,
+            "bifrost archive sha256 mismatch for {url}: got {actual_hex}, expected {expected_hex} (refuse to extract)"
+        );
+
+        let archive_path = cache_dir.join(&asset);
+        std::fs::write(&archive_path, &bytes).expect("write archive to cache");
+
+        // `tar -xf` auto-detects the format and handles both .tar.gz and .zip
+        // on modern macOS, Linux, and Windows 10+ runners.
+        let status = std::process::Command::new("tar")
+            .arg("-xf")
+            .arg(&archive_path)
+            .arg("-C")
+            .arg(cache_dir)
+            .status()
+            .expect("invoke tar to extract bifrost archive");
+        assert!(
+            status.success(),
+            "tar extraction of {archive_path:?} failed"
+        );
+
+        // Archive extracts to `bifrost-v<ver>-<triple>/bifrost(.exe)`.
+        let inner_dir = cache_dir.join(format!("bifrost-v{TEST_BIFROST_VERSION}-{TRIPLE}"));
+        let inner_binary = inner_dir.join(BINARY_NAME);
+        assert!(
+            inner_binary.is_file(),
+            "expected extracted binary at {inner_binary:?}"
+        );
+
+        let target = cache_dir.join(BINARY_NAME);
+        std::fs::rename(&inner_binary, &target)
+            .or_else(|_| std::fs::copy(&inner_binary, &target).map(|_| ()))
+            .expect("place bifrost binary at cache root");
+
+        let _ = std::fs::remove_file(&archive_path);
+        let _ = std::fs::remove_dir_all(&inner_dir);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&target)
+                .expect("stat extracted binary")
+                .permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&target, perms).expect("chmod 755 on extracted binary");
         }
     }
 
-    /// Smoke test: spawn the real bifrost subprocess, run the MCP handshake,
-    /// confirm a stable subset of search-tools is exposed, and round-trip one
-    /// tool call. We deliberately do NOT pin the exact tool count or full
-    /// tool list -- bifrost adds tools faster than this test gets updated, and
-    /// the handshake's job is to verify the protocol path works, not to
-    /// enumerate the surface. Skipped when the binary isn't installed.
+    /// Smoke test: spawn the real bifrost subprocess (pinned release,
+    /// downloaded into `target/test-fixtures/`), run the MCP handshake,
+    /// confirm a stable subset of search tools is exposed, and round-trip
+    /// two distinct tool calls. We deliberately do NOT pin the exact tool
+    /// count or full tool list -- bifrost adds tools faster than this test
+    /// gets updated, and the handshake's job is to verify the protocol
+    /// path works, not to enumerate the surface.
     #[tokio::test]
     async fn handshake_and_call_search_tools() {
-        let Some(binary) = locate_bifrost() else {
-            eprintln!("skipping: bifrost binary not on PATH and BROKK_BIFROST_BINARY unset");
-            return;
-        };
+        let binary = ensure_test_bifrost_binary().await;
         let cwd = std::env::current_dir()
             .expect("cwd")
             .canonicalize()
