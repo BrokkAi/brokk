@@ -1841,6 +1841,48 @@ public class BrokkAcpAgent {
 
     // ---- Slash commands ----
 
+    /**
+     * Single source of truth for ACP slash commands. Both {@link #handleSlashCommand} (dispatch)
+     * and {@link #scheduleAvailableCommandsUpdate} (advertise to client) iterate this list, so a
+     * new command needs to be registered exactly once. Instance field rather than {@code static}
+     * because handlers close over {@code this}.
+     *
+     * <p>The {@code name} is stored without the leading slash to match {@link
+     * AcpSchema.AvailableCommand}'s wire format; dispatch strips the slash before lookup.
+     */
+    @FunctionalInterface
+    private interface SlashCommandHandler {
+        void run(String sessionId, String arg, WorkspaceBundle bundle, AcpPromptContext promptContext);
+    }
+
+    private record SlashCommand(
+            String name, String description, @Nullable String inputHint, SlashCommandHandler handler) {}
+
+    private final List<SlashCommand> slashCommands = List.of(
+            new SlashCommand(
+                    "context",
+                    "Show current context snapshot",
+                    null,
+                    (sessionId, arg, bundle, ctx) -> handleContextCommand(bundle, ctx)),
+            new SlashCommand(
+                    "config",
+                    "Show or update editable Brokk configuration",
+                    "[<path> [value] | {section:{...}}] e.g. global.exceptionReportingEnabled false",
+                    (sessionId, arg, bundle, ctx) -> handleConfigCommand(sessionId, arg, bundle, ctx)),
+            new SlashCommand(
+                    "sandbox",
+                    "Show or toggle the kernel sandbox for shell commands",
+                    "on|off",
+                    (sessionId, arg, bundle, ctx) -> handleSandboxCommand(sessionId, arg, ctx)),
+            new SlashCommand(
+                    "codex-login",
+                    "Sign in to Codex (OpenAI OAuth) or disconnect",
+                    "[status|disconnect|open]",
+                    (sessionId, arg, bundle, ctx) -> handleCodexLoginCommand(sessionId, arg, ctx)));
+
+    private final Map<String, SlashCommand> slashCommandsByName =
+            slashCommands.stream().collect(Collectors.toUnmodifiableMap(SlashCommand::name, c -> c));
+
     private boolean handleSlashCommand(
             String sessionId, String text, WorkspaceBundle bundle, AcpPromptContext promptContext) {
         var stripped = text.strip();
@@ -1849,26 +1891,14 @@ public class BrokkAcpAgent {
         }
 
         var parts = stripped.split("\\s+", 2);
-        var command = parts[0].toLowerCase(Locale.ROOT);
-        return switch (command) {
-            case "/context" -> {
-                handleContextCommand(bundle, promptContext);
-                yield true;
-            }
-            case "/config" -> {
-                handleConfigCommand(sessionId, parts.length > 1 ? parts[1] : "", bundle, promptContext);
-                yield true;
-            }
-            case "/sandbox" -> {
-                handleSandboxCommand(sessionId, parts.length > 1 ? parts[1] : "", promptContext);
-                yield true;
-            }
-            case "/codex-login" -> {
-                handleCodexLoginCommand(sessionId, parts.length > 1 ? parts[1] : "", promptContext);
-                yield true;
-            }
-            default -> false;
-        };
+        var name = parts[0].substring(1).toLowerCase(Locale.ROOT);
+        var command = slashCommandsByName.get(name);
+        if (command == null) {
+            return false;
+        }
+        var arg = parts.length > 1 ? parts[1] : "";
+        command.handler().run(sessionId, arg, bundle, promptContext);
+        return true;
     }
 
     private void handleContextCommand(WorkspaceBundle bundle, AcpPromptContext promptContext) {
@@ -2887,21 +2917,12 @@ public class BrokkAcpAgent {
         }
         Thread.startVirtualThread(() -> {
             try {
-                var commands = List.of(
-                        new AcpSchema.AvailableCommand("context", "Show current context snapshot", null),
-                        new AcpSchema.AvailableCommand(
-                                "config",
-                                "Show or update editable Brokk configuration",
-                                new AcpSchema.AvailableCommandInput(
-                                        "[<path> [value] | {section:{...}}] e.g. global.exceptionReportingEnabled false")),
-                        new AcpSchema.AvailableCommand(
-                                "sandbox",
-                                "Show or toggle the kernel sandbox for shell commands",
-                                new AcpSchema.AvailableCommandInput("on|off")),
-                        new AcpSchema.AvailableCommand(
-                                "codex-login",
-                                "Sign in to Codex (OpenAI OAuth) or disconnect",
-                                new AcpSchema.AvailableCommandInput("[status|disconnect|open]")));
+                var commands = slashCommands.stream()
+                        .map(c -> new AcpSchema.AvailableCommand(
+                                c.name(),
+                                c.description(),
+                                c.inputHint() == null ? null : new AcpSchema.AvailableCommandInput(c.inputHint())))
+                        .toList();
                 sender.sendSessionUpdate(
                         sessionId, new AcpSchema.AvailableCommandsUpdate("available_commands_update", commands));
             } catch (Exception e) {
