@@ -31,7 +31,7 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
     }
 
     public boolean canHandle(CodeUnit target) {
-        Set<String> exportNames = inferExportNames(target.source(), target.identifier());
+        Set<String> exportNames = inferExportNames(target);
         log.debug("Python graph canHandle {} -> export names {}", target.fqName(), exportNames);
         return !exportNames.isEmpty();
     }
@@ -44,7 +44,7 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
         }
 
         CodeUnit target = overloads.getFirst();
-        Set<String> exportNames = inferExportNames(target.source(), target.identifier());
+        Set<String> exportNames = inferExportNames(target);
         if (exportNames.isEmpty()) {
             return new FuzzyResult.Success(Map.of(target, Set.of()));
         }
@@ -70,6 +70,19 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
 
         hits = hits.stream().limit(maxUsages).collect(Collectors.toCollection(LinkedHashSet::new));
         return new FuzzyResult.Success(Map.of(target, Set.copyOf(hits)));
+    }
+
+    private Set<String> inferExportNames(CodeUnit target) {
+        return inferExportNames(target.source(), exportSeedName(target));
+    }
+
+    private static String exportSeedName(CodeUnit target) {
+        String shortName = target.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot > 0 && (target.isFunction() || target.isField())) {
+            return shortName.substring(0, lastDot);
+        }
+        return target.identifier();
     }
 
     private Set<String> inferExportNames(ProjectFile definingFile, String localName) {

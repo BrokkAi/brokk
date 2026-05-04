@@ -46,7 +46,8 @@ public final class UsageAnalyzerSelector {
     }
 
     public static boolean shouldFallbackToRegex(FuzzyResult result, UsageAnalyzer usageAnalyzer) {
-        if (!(usageAnalyzer instanceof JsTsExportUsageGraphStrategy)) {
+        if (!(usageAnalyzer instanceof JsTsExportUsageGraphStrategy)
+                && !(usageAnalyzer instanceof PythonExportUsageGraphStrategy)) {
             return false;
         }
         return switch (result) {

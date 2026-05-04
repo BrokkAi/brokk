@@ -60,6 +60,7 @@ class PythonExportUsageExtractorTest extends AbstractUsageReferenceGraphTest {
             assertTrue(binder.bindings().containsKey("RenamedService"));
             assertTrue(binder.bindings().containsKey("helper"));
             assertTrue(binder.bindings().containsKey("tools"));
+            assertTrue(binder.bindings().containsKey("pkg.tools"));
             assertTrue(binder.bindings().containsKey("os"));
             assertFalse(binder.bindings().containsKey("*"));
 
@@ -98,6 +99,34 @@ class PythonExportUsageExtractorTest extends AbstractUsageReferenceGraphTest {
             assertFalse(candidates.stream()
                     .anyMatch(candidate -> candidate.identifier().equals("pkg")
                             || candidate.identifier().equals("service")));
+        }
+    }
+
+    @Test
+    void usageCandidatesFilterUnrelatedIdentifiersAndLocalShadows() throws Exception {
+        String source =
+                """
+                from pkg.service import Service
+
+                def run():
+                    unrelated = 1
+                    Service = object
+                    local = Service()
+                    return unrelated + local
+                """;
+
+        try (var project = InlineTestProjectCreator.code(source, "consumer.py").build()) {
+            var analyzer = new PythonAnalyzer(project);
+            ProjectFile file = projectFile(project.getAllFiles(), "consumer.py");
+
+            var candidates = analyzer.exportUsageCandidatesOf(file);
+
+            assertFalse(candidates.stream()
+                    .anyMatch(candidate -> candidate.identifier().equals("unrelated")));
+            assertFalse(candidates.stream()
+                    .anyMatch(candidate -> candidate.identifier().equals("local")));
+            assertFalse(candidates.stream()
+                    .anyMatch(candidate -> candidate.identifier().equals("Service")));
         }
     }
 }

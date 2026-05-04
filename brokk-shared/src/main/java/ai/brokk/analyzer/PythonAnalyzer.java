@@ -2046,7 +2046,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                     }
                     return withSource(
                             file,
-                            source -> PythonExportUsageExtractor.computeUsageCandidates(file, root, source.text()),
+                            source -> PythonExportUsageExtractor.computeUsageCandidates(
+                                    file, root, source.text(), importBinderOf(file)),
                             Set.<ReferenceCandidate>of());
                 },
                 Set.<ReferenceCandidate>of());

@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.usages;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -66,6 +67,75 @@ class PythonExportUsageGraphStrategyTest extends AbstractUsageReferenceGraphTest
             UsageAnalyzer usageAnalyzer = UsageAnalyzerSelector.forTarget(target, analyzer, project);
 
             assertInstanceOf(RegexUsageAnalyzer.class, usageAnalyzer);
+        }
+    }
+
+    @Test
+    void selectorUsesPythonGraphForMemberTarget() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String consumer =
+                """
+                from service import Foo
+
+                def run(x: Foo):
+                    x.bar()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(serviceFile))
+                    .filter(cu -> cu.identifier().equals("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            UsageAnalyzer usageAnalyzer = UsageAnalyzerSelector.forTarget(target, analyzer, project);
+            assertInstanceOf(PythonExportUsageGraphStrategy.class, usageAnalyzer);
+
+            FuzzyResult result =
+                    UsageAnalyzerSelector.findUsages(usageAnalyzer, analyzer, List.of(target), project.getAllFiles());
+            assertTrue(result instanceof FuzzyResult.Success);
+            var success = (FuzzyResult.Success) result;
+            assertEquals(1, success.hitsByOverload().get(target).size());
+        }
+    }
+
+    @Test
+    void pythonGraphMissFallsBackToRegexForSameFileFunction() throws Exception {
+        String source =
+                """
+                def helper():
+                    pass
+
+                def run():
+                    return helper()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(source, "service.py").build()) {
+            var analyzer = new PythonAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(serviceFile))
+                    .filter(cu -> cu.identifier().equals("helper"))
+                    .findFirst()
+                    .orElseThrow();
+
+            UsageAnalyzer usageAnalyzer = UsageAnalyzerSelector.forTarget(target, analyzer, project);
+            assertInstanceOf(PythonExportUsageGraphStrategy.class, usageAnalyzer);
+
+            FuzzyResult result =
+                    UsageAnalyzerSelector.findUsages(usageAnalyzer, analyzer, List.of(target), project.getAllFiles());
+            assertTrue(result instanceof FuzzyResult.Success);
+            var success = (FuzzyResult.Success) result;
+            assertFalse(success.hitsByOverload().get(target).isEmpty());
         }
     }
 }

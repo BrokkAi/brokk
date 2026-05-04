@@ -4,6 +4,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -13,9 +14,14 @@ import org.jetbrains.annotations.Nullable;
 
 public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLanguageAdapter {
     private final PythonAnalyzer analyzer;
+    private final Map<Path, ProjectFile> filesByPath;
+    private final Map<ModuleResolutionKey, Optional<ProjectFile>> moduleResolutionCache = new HashMap<>();
 
     public PythonExportUsageGraphAdapter(PythonAnalyzer analyzer) {
         this.analyzer = analyzer;
+        this.filesByPath = analyzer.getProject().getAllFiles().stream()
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        file -> file.getRelPath().normalize(), file -> file, (left, right) -> left));
     }
 
     @Override
@@ -84,16 +90,27 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
     }
 
     private Optional<ProjectFile> resolvePythonModule(ProjectFile importingFile, String moduleSpecifier) {
+        var key = new ModuleResolutionKey(importingFile, moduleSpecifier);
+        Optional<ProjectFile> cached = moduleResolutionCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
         Path modulePath = modulePath(importingFile, moduleSpecifier);
+        Optional<ProjectFile> resolved;
         if (modulePath.toString().isBlank()) {
-            return findProjectFile(importingFile.getParent().resolve("__init__.py"));
+            resolved = findProjectFile(importingFile.getParent().resolve("__init__.py"));
+            moduleResolutionCache.put(key, resolved);
+            return resolved;
         }
 
         Optional<ProjectFile> moduleFile = findProjectFile(modulePath.resolveSibling(modulePath.getFileName() + ".py"));
         if (moduleFile.isPresent()) {
+            moduleResolutionCache.put(key, moduleFile);
             return moduleFile;
         }
-        return findProjectFile(modulePath.resolve("__init__.py"));
+        resolved = findProjectFile(modulePath.resolve("__init__.py"));
+        moduleResolutionCache.put(key, resolved);
+        return resolved;
     }
 
     private Path modulePath(ProjectFile importingFile, String moduleSpecifier) {
@@ -115,10 +132,7 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
     }
 
     private Optional<ProjectFile> findProjectFile(Path relPath) {
-        Path normalized = relPath.normalize();
-        return analyzer.getProject().getAllFiles().stream()
-                .filter(file -> file.getRelPath().equals(normalized))
-                .findFirst();
+        return Optional.ofNullable(filesByPath.get(relPath.normalize()));
     }
 
     private static boolean isRelative(String moduleSpecifier) {
@@ -141,4 +155,6 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
         }
         return shortName.substring(0, lastDot);
     }
+
+    private record ModuleResolutionKey(ProjectFile importingFile, String moduleSpecifier) {}
 }

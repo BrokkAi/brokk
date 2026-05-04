@@ -598,6 +598,194 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
     }
 
     @Test
+    void functionLocalShadowDoesNotCountAsImportedUsage() throws Exception {
+        String service = """
+                class Service:
+                    pass
+                """;
+        String consumer =
+                """
+                from service import Service
+
+                def run():
+                    Service = object
+                    return Service()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    serviceFile,
+                    "Service",
+                    null,
+                    adapter,
+                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertTrue(result.hits().isEmpty());
+        }
+    }
+
+    @Test
+    void receiverTypeFactsDoNotLeakAcrossFunctions() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String consumer =
+                """
+                from service import Foo
+
+                def typed(x: Foo):
+                    pass
+
+                def run(x):
+                    x.bar()
+                """;
+
+        assertNoPythonMemberHit(service, consumer);
+    }
+
+    @Test
+    void shadowingInOneFunctionDoesNotBlockSiblingReceiverInference() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String consumer =
+                """
+                from service import Foo
+
+                def shadow():
+                    Foo = object
+
+                def run(x: Foo):
+                    x.bar()
+                """;
+
+        assertSinglePythonMemberHit(service, consumer);
+    }
+
+    @Test
+    void dottedNamespaceImportResolvesExportUsage() throws Exception {
+        String service = """
+                class Service:
+                    pass
+                """;
+        String consumer =
+                """
+                import pkg.service
+
+                def run():
+                    return pkg.service.Service()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "pkg/service.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    serviceFile,
+                    "Service",
+                    null,
+                    adapter,
+                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void dottedNamespaceAliasResolvesExportUsage() throws Exception {
+        String service = """
+                class Service:
+                    pass
+                """;
+        String consumer =
+                """
+                import pkg.service as svc
+
+                def run():
+                    return svc.Service()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "pkg/service.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    serviceFile,
+                    "Service",
+                    null,
+                    adapter,
+                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void staticWildcardBarrelResolvesThroughAll() throws Exception {
+        String service =
+                """
+                __all__ = ["Service"]
+
+                class Service:
+                    pass
+                """;
+        String init = """
+                from .service import *
+                """;
+        String consumer =
+                """
+                from pkg import Service
+
+                def run():
+                    return Service()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "pkg/service.py")
+                .addFileContents(init, "pkg/__init__.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+
+            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+                    serviceFile,
+                    "Service",
+                    null,
+                    adapter,
+                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
     void inheritedBaseMemberCountsForSubclassReceiver() throws Exception {
         String service =
                 """

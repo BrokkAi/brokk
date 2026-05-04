@@ -25,11 +25,14 @@ import ai.brokk.analyzer.usages.ReferenceCandidate;
 import ai.brokk.analyzer.usages.ReferenceKind;
 import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import com.google.common.base.Splitter;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -60,7 +63,7 @@ public final class PythonExportUsageExtractor {
         computeImportBinder(imports).bindings().keySet().stream()
                 .filter(name -> !exports.containsKey(name))
                 .forEach(name -> exports.put(name, new ExportIndex.LocalExport(name)));
-        return new ExportIndex(Map.copyOf(exports), List.of(), Set.of(), classMembers(analyzer, file));
+        return new ExportIndex(Map.copyOf(exports), reexportStars(imports), Set.of(), classMembers(analyzer, file));
     }
 
     public static ImportBinder computeImportBinder(List<ImportInfo> imports) {
@@ -72,33 +75,13 @@ public final class PythonExportUsageExtractor {
         return new ImportBinder(Map.copyOf(bindings));
     }
 
-    public static Set<ReferenceCandidate> computeUsageCandidates(ProjectFile file, TSNode root, String source) {
+    public static Set<ReferenceCandidate> computeUsageCandidates(
+            ProjectFile file, TSNode root, String source, ImportBinder binder) {
         var candidates = new LinkedHashSet<ReferenceCandidate>();
         CodeUnit enclosing = CodeUnit.module(file, "", "_module_");
-        walk(root, node -> {
-            if (isIdentifier(node) && !insideImport(node)) {
-                String identifier = text(node, source);
-                if (!identifier.isBlank()) {
-                    candidates.add(new ReferenceCandidate(
-                            identifier, null, null, false, ReferenceKind.STATIC_REFERENCE, rangeOf(node), enclosing));
-                }
-            }
-
-            if (nodeType(ATTRIBUTE).equals(node.getType())) {
-                TSNode object = node.getChildByFieldName(nodeField(PythonNodeField.OBJECT));
-                TSNode attribute = node.getChildByFieldName(nodeField(PythonNodeField.ATTRIBUTE));
-                if (object != null && attribute != null && isIdentifier(object) && isIdentifier(attribute)) {
-                    candidates.add(new ReferenceCandidate(
-                            text(attribute, source),
-                            text(object, source),
-                            null,
-                            false,
-                            ReferenceKind.STATIC_REFERENCE,
-                            rangeOf(attribute),
-                            enclosing));
-                }
-            }
-        });
+        var scopes = new ArrayDeque<Set<String>>();
+        scopes.addLast(new LinkedHashSet<>());
+        collectUsageCandidates(root, source, binder, enclosing, scopes, candidates);
         return Set.copyOf(candidates);
     }
 
@@ -106,7 +89,10 @@ public final class PythonExportUsageExtractor {
             PythonAnalyzer analyzer, ProjectFile file, TSNode root, String source, ImportBinder binder) {
         CodeUnit enclosing = CodeUnit.module(file, "", "_module_");
         var events = new ArrayList<LocalUsageEvent>();
-        collectLocalUsageEvents(analyzer, file, root, source, binder, enclosing, new LinkedHashSet<>(), events);
+        var shadows = new ArrayDeque<Set<String>>();
+        shadows.addLast(new LinkedHashSet<>());
+        seedInstanceAttributeAnnotations(analyzer, file, root, source, binder, shadows, events);
+        collectLocalUsageEvents(analyzer, file, root, source, binder, enclosing, shadows, events);
         return LocalUsageInference.infer(events);
     }
 
@@ -138,6 +124,9 @@ public final class PythonExportUsageExtractor {
                 Binding binding = moduleBinding(part);
                 if (binding != null) {
                     bindings.add(binding);
+                    if (!binding.localName().equals(binding.importBinding().moduleSpecifier())) {
+                        bindings.add(new Binding(binding.importBinding().moduleSpecifier(), binding.importBinding()));
+                    }
                 }
             }
             return List.copyOf(bindings);
@@ -188,7 +177,7 @@ public final class PythonExportUsageExtractor {
             String source,
             ImportBinder binder,
             CodeUnit enclosing,
-            Set<String> locallyShadowedNames,
+            Deque<Set<String>> locallyShadowedNames,
             List<LocalUsageEvent> events) {
         String type = node.getType();
 
@@ -199,10 +188,29 @@ public final class PythonExportUsageExtractor {
         } else if (nodeType(CLASS_DEFINITION).equals(type)
                 || nodeType(FUNCTION_DEFINITION).equals(type)) {
             handleLocalDeclaration(node, source, locallyShadowedNames, events);
+            events.add(new LocalUsageEvent.EnterScope());
+            locallyShadowedNames.addLast(new LinkedHashSet<>());
+            declareParameters(node, source, events);
+            traverseChildren(analyzer, file, node, source, binder, enclosing, locallyShadowedNames, events);
+            locallyShadowedNames.removeLast();
+            events.add(new LocalUsageEvent.ExitScope());
+            return;
         } else if (nodeType(ATTRIBUTE).equals(type)) {
             handleReceiverAccess(node, source, enclosing, events);
         }
 
+        traverseChildren(analyzer, file, node, source, binder, enclosing, locallyShadowedNames, events);
+    }
+
+    private static void traverseChildren(
+            PythonAnalyzer analyzer,
+            ProjectFile file,
+            TSNode node,
+            String source,
+            ImportBinder binder,
+            CodeUnit enclosing,
+            Deque<Set<String>> locallyShadowedNames,
+            List<LocalUsageEvent> events) {
         for (int i = 0; i < node.getNamedChildCount(); i++) {
             TSNode child = node.getNamedChild(i);
             if (child != null) {
@@ -217,7 +225,7 @@ public final class PythonExportUsageExtractor {
             TSNode node,
             String source,
             ImportBinder binder,
-            Set<String> locallyShadowedNames,
+            Deque<Set<String>> locallyShadowedNames,
             List<LocalUsageEvent> events) {
         TSNode nameNode = node.getChildByFieldName(nodeField(PythonNodeField.NAME));
         if (nameNode == null) {
@@ -245,7 +253,7 @@ public final class PythonExportUsageExtractor {
             TSNode node,
             String source,
             ImportBinder binder,
-            Set<String> locallyShadowedNames,
+            Deque<Set<String>> locallyShadowedNames,
             List<LocalUsageEvent> events) {
         TSNode left = node.getChildByFieldName(nodeField(PythonNodeField.LEFT));
         if (left == null) {
@@ -264,7 +272,7 @@ public final class PythonExportUsageExtractor {
                     receiverTargetsFromType(analyzer, file, typeNode, source, binder, locallyShadowedNames);
             if (!targets.isEmpty() && !localName.equals(text(typeNode, source).strip())) {
                 events.add(new LocalUsageEvent.SeedSymbol(localName, targets));
-                locallyShadowedNames.add(localName);
+                currentScope(locallyShadowedNames).add(localName);
                 return;
             }
         }
@@ -279,7 +287,7 @@ public final class PythonExportUsageExtractor {
 
         if (isIdentifier(value)) {
             events.add(new LocalUsageEvent.AliasSymbol(localName, text(value, source)));
-            locallyShadowedNames.add(localName);
+            currentScope(locallyShadowedNames).add(localName);
             return;
         }
 
@@ -296,7 +304,7 @@ public final class PythonExportUsageExtractor {
                 }
             }
         }
-        locallyShadowedNames.add(localName);
+        currentScope(locallyShadowedNames).add(localName);
     }
 
     private static void handleReceiverAccess(
@@ -319,14 +327,14 @@ public final class PythonExportUsageExtractor {
     }
 
     private static void handleLocalDeclaration(
-            TSNode node, String source, Set<String> locallyShadowedNames, List<LocalUsageEvent> events) {
+            TSNode node, String source, Deque<Set<String>> locallyShadowedNames, List<LocalUsageEvent> events) {
         TSNode name = node.getChildByFieldName(nodeField(PythonNodeField.NAME));
         if (name == null || !isIdentifier(name)) {
             return;
         }
         String localName = text(name, source);
         events.add(new LocalUsageEvent.DeclareSymbol(localName));
-        locallyShadowedNames.add(localName);
+        currentScope(locallyShadowedNames).add(localName);
     }
 
     private static Set<ReceiverTargetRef> receiverTargetsFromType(
@@ -335,7 +343,7 @@ public final class PythonExportUsageExtractor {
             TSNode typeNode,
             String source,
             ImportBinder binder,
-            Set<String> locallyShadowedNames) {
+            Deque<Set<String>> locallyShadowedNames) {
         var targets = new LinkedHashSet<ReceiverTargetRef>();
         var matcher = SIMPLE_TYPE_TOKEN_PATTERN.matcher(text(typeNode, source));
         while (matcher.find()) {
@@ -351,7 +359,7 @@ public final class PythonExportUsageExtractor {
             TSNode typeNode,
             String source,
             ImportBinder binder,
-            Set<String> locallyShadowedNames,
+            Deque<Set<String>> locallyShadowedNames,
             boolean instanceReceiver) {
         return receiverTargetFromTypeName(
                 analyzer, file, text(typeNode, source), binder, locallyShadowedNames, instanceReceiver);
@@ -362,7 +370,7 @@ public final class PythonExportUsageExtractor {
             ProjectFile file,
             String typeName,
             ImportBinder binder,
-            Set<String> locallyShadowedNames,
+            Deque<Set<String>> locallyShadowedNames,
             boolean instanceReceiver) {
         String stripped = typeName.strip();
         if (stripped.isBlank()) {
@@ -371,8 +379,8 @@ public final class PythonExportUsageExtractor {
 
         int dot = stripped.indexOf('.');
         if (dot > 0) {
-            String qualifier = stripped.substring(0, dot);
-            String exportedName = stripped.substring(dot + 1);
+            String qualifier = longestNamespaceQualifier(stripped, binder).orElse(stripped.substring(0, dot));
+            String exportedName = stripped.substring(qualifier.length() + 1);
             ImportBinder.ImportBinding binding = binder.bindings().get(qualifier);
             if (binding == null || binding.kind() != ImportBinder.ImportKind.NAMESPACE || exportedName.isBlank()) {
                 return Optional.empty();
@@ -381,7 +389,7 @@ public final class PythonExportUsageExtractor {
                     binding.moduleSpecifier(), exportedName, instanceReceiver, instanceReceiver ? 0.9 : 1.0, null));
         }
 
-        if (locallyShadowedNames.contains(stripped)) {
+        if (isShadowed(locallyShadowedNames, stripped)) {
             return Optional.empty();
         }
 
@@ -411,6 +419,264 @@ public final class PythonExportUsageExtractor {
                 instanceReceiver,
                 instanceReceiver ? 0.95 : 1.0,
                 null));
+    }
+
+    private static void collectUsageCandidates(
+            TSNode node,
+            String source,
+            ImportBinder binder,
+            CodeUnit enclosing,
+            Deque<Set<String>> scopes,
+            Set<ReferenceCandidate> candidates) {
+        if (insideImport(node)) {
+            return;
+        }
+
+        String type = node.getType();
+        if (nodeType(FUNCTION_DEFINITION).equals(type)
+                || nodeType(CLASS_DEFINITION).equals(type)) {
+            TSNode name = node.getChildByFieldName(nodeField(PythonNodeField.NAME));
+            if (name != null && isIdentifier(name)) {
+                currentScope(scopes).add(text(name, source));
+            }
+            scopes.addLast(new LinkedHashSet<>());
+            declareParameterNames(node, source, scopes);
+            collectUsageCandidateChildren(node, source, binder, enclosing, scopes, candidates);
+            scopes.removeLast();
+            return;
+        }
+
+        if (nodeType(ASSIGNMENT).equals(type)) {
+            TSNode typeNode = node.getChildByFieldName("type");
+            if (typeNode != null) {
+                collectUsageCandidates(typeNode, source, binder, enclosing, scopes, candidates);
+            }
+            TSNode value = node.getChildByFieldName(nodeField(PythonNodeField.RIGHT));
+            if (value == null) {
+                value = node.getChildByFieldName(nodeField(PythonNodeField.VALUE));
+            }
+            if (value != null) {
+                collectUsageCandidates(value, source, binder, enclosing, scopes, candidates);
+            }
+            TSNode left = node.getChildByFieldName(nodeField(PythonNodeField.LEFT));
+            if (left == null) {
+                left = node.getChildByFieldName(nodeField(PythonNodeField.NAME));
+            }
+            String localName = localSymbolName(left, source);
+            if (!localName.isBlank()) {
+                currentScope(scopes).add(localName);
+            }
+            return;
+        }
+
+        if (nodeType(ATTRIBUTE).equals(type)) {
+            emitAttributeCandidates(node, source, binder, enclosing, scopes, candidates);
+            return;
+        }
+
+        if (isIdentifier(node)) {
+            String identifier = text(node, source);
+            if (binder.bindings().containsKey(identifier) && !isShadowed(scopes, identifier)) {
+                candidates.add(new ReferenceCandidate(
+                        identifier, null, null, false, ReferenceKind.STATIC_REFERENCE, rangeOf(node), enclosing));
+            }
+            return;
+        }
+
+        collectUsageCandidateChildren(node, source, binder, enclosing, scopes, candidates);
+    }
+
+    private static void collectUsageCandidateChildren(
+            TSNode node,
+            String source,
+            ImportBinder binder,
+            CodeUnit enclosing,
+            Deque<Set<String>> scopes,
+            Set<ReferenceCandidate> candidates) {
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child != null) {
+                collectUsageCandidates(child, source, binder, enclosing, scopes, candidates);
+            }
+        }
+    }
+
+    private static void emitAttributeCandidates(
+            TSNode node,
+            String source,
+            ImportBinder binder,
+            CodeUnit enclosing,
+            Deque<Set<String>> scopes,
+            Set<ReferenceCandidate> candidates) {
+        List<String> chain = attributeChain(node, source);
+        if (chain.size() < 2) {
+            return;
+        }
+        String first = chain.getFirst();
+        if (isShadowed(scopes, first)) {
+            return;
+        }
+        if (chain.size() == 2) {
+            ImportBinder.ImportBinding binding = binder.bindings().get(first);
+            candidates.add(new ReferenceCandidate(
+                    chain.get(1),
+                    binding != null ? first : null,
+                    binding != null ? null : first,
+                    false,
+                    ReferenceKind.STATIC_REFERENCE,
+                    rangeOf(node),
+                    enclosing));
+            return;
+        }
+        for (int prefixLength = chain.size() - 1; prefixLength >= 1; prefixLength--) {
+            String qualifier = String.join(".", chain.subList(0, prefixLength));
+            ImportBinder.ImportBinding binding = binder.bindings().get(qualifier);
+            if (binding != null && binding.kind() == ImportBinder.ImportKind.NAMESPACE) {
+                List<String> remainder = chain.subList(prefixLength, chain.size());
+                candidates.add(new ReferenceCandidate(
+                        remainder.getLast(),
+                        qualifier,
+                        remainder.size() == 2 ? remainder.getFirst() : null,
+                        false,
+                        ReferenceKind.STATIC_REFERENCE,
+                        rangeOf(node),
+                        enclosing));
+                return;
+            }
+        }
+    }
+
+    private static void seedInstanceAttributeAnnotations(
+            PythonAnalyzer analyzer,
+            ProjectFile file,
+            TSNode root,
+            String source,
+            ImportBinder binder,
+            Deque<Set<String>> locallyShadowedNames,
+            List<LocalUsageEvent> events) {
+        walk(root, node -> {
+            if (!nodeType(ASSIGNMENT).equals(node.getType())) {
+                return;
+            }
+            TSNode left = node.getChildByFieldName(nodeField(PythonNodeField.LEFT));
+            if (left == null) {
+                left = node.getChildByFieldName(nodeField(PythonNodeField.NAME));
+            }
+            String localName = localSymbolName(left, source);
+            if (!localName.startsWith("self.")) {
+                return;
+            }
+            TSNode typeNode = node.getChildByFieldName("type");
+            if (typeNode == null) {
+                return;
+            }
+            Set<ReceiverTargetRef> targets =
+                    receiverTargetsFromType(analyzer, file, typeNode, source, binder, locallyShadowedNames);
+            if (!targets.isEmpty()) {
+                events.add(new LocalUsageEvent.SeedSymbol(localName, targets));
+            }
+        });
+    }
+
+    private static void declareParameters(TSNode node, String source, List<LocalUsageEvent> events) {
+        TSNode parameters = node.getChildByFieldName(nodeField(PythonNodeField.PARAMETERS));
+        if (parameters == null) {
+            return;
+        }
+        collectParameterNames(parameters, source).forEach(name -> events.add(new LocalUsageEvent.DeclareSymbol(name)));
+    }
+
+    private static void declareParameterNames(TSNode node, String source, Deque<Set<String>> scopes) {
+        TSNode parameters = node.getChildByFieldName(nodeField(PythonNodeField.PARAMETERS));
+        if (parameters == null) {
+            return;
+        }
+        currentScope(scopes).addAll(collectParameterNames(parameters, source));
+    }
+
+    private static Set<String> collectParameterNames(TSNode parameters, String source) {
+        var names = new LinkedHashSet<String>();
+        walk(parameters, node -> {
+            if (isIdentifier(node) && !insideTypeAnnotation(node, parameters)) {
+                names.add(text(node, source));
+            }
+        });
+        return Set.copyOf(names);
+    }
+
+    private static boolean insideTypeAnnotation(TSNode node, TSNode boundary) {
+        TSNode current = node;
+        while (current.getParent() != null && !Objects.equals(current.getParent(), boundary)) {
+            current = current.getParent();
+            if (nodeType(TYPED_PARAMETER).equals(current.getType())) {
+                TSNode name = current.getChildByFieldName(nodeField(PythonNodeField.NAME));
+                return name == null || node.getStartByte() > name.getEndByte();
+            }
+        }
+        return false;
+    }
+
+    private static List<String> attributeChain(TSNode node, String source) {
+        if (isIdentifier(node)) {
+            return List.of(text(node, source));
+        }
+        if (!nodeType(ATTRIBUTE).equals(node.getType())) {
+            return List.of();
+        }
+        TSNode object = node.getChildByFieldName(nodeField(PythonNodeField.OBJECT));
+        TSNode attribute = node.getChildByFieldName(nodeField(PythonNodeField.ATTRIBUTE));
+        if (object == null || attribute == null || !isIdentifier(attribute)) {
+            return List.of();
+        }
+        var chain = new ArrayList<>(attributeChain(object, source));
+        if (chain.isEmpty()) {
+            return List.of();
+        }
+        chain.add(text(attribute, source));
+        return List.copyOf(chain);
+    }
+
+    private static Optional<String> longestNamespaceQualifier(String typeName, ImportBinder binder) {
+        int dot = typeName.lastIndexOf('.');
+        while (dot > 0) {
+            String qualifier = typeName.substring(0, dot);
+            ImportBinder.ImportBinding binding = binder.bindings().get(qualifier);
+            if (binding != null && binding.kind() == ImportBinder.ImportKind.NAMESPACE) {
+                return Optional.of(qualifier);
+            }
+            dot = typeName.lastIndexOf('.', dot - 1);
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isShadowed(Deque<Set<String>> scopes, String name) {
+        var descending = scopes.descendingIterator();
+        while (descending.hasNext()) {
+            if (descending.next().contains(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Set<String> currentScope(Deque<Set<String>> scopes) {
+        return scopes.getLast();
+    }
+
+    private static List<ExportIndex.ReexportStar> reexportStars(List<ImportInfo> imports) {
+        var stars = new ArrayList<ExportIndex.ReexportStar>();
+        for (ImportInfo info : imports) {
+            bindWildcardImport(info.rawSnippet()).ifPresent(module -> stars.add(new ExportIndex.ReexportStar(module)));
+        }
+        return List.copyOf(stars);
+    }
+
+    private static Optional<String> bindWildcardImport(String rawSnippet) {
+        var matcher = FROM_IMPORT_PATTERN.matcher(rawSnippet.strip());
+        if (matcher.matches() && "*".equals(stripParenthesized(matcher.group(2)).strip())) {
+            return Optional.of(matcher.group(1));
+        }
+        return Optional.empty();
     }
 
     private static boolean isMethodCallAttribute(TSNode attributeNode) {
