@@ -33,6 +33,19 @@ struct Args {
     #[arg(long, default_value_t = 25)]
     max_turns: usize,
 
+    /// Maximum number of sessions to keep resident in memory before the
+    /// least-recently-used session is evicted (the on-disk zip is unaffected
+    /// and can be reloaded). Set to `0` to disable the cap.
+    #[arg(long, default_value_t = 50)]
+    max_sessions: usize,
+
+    /// Maximum number of conversation turns retained per session in memory
+    /// (sliding window). Older turns are dropped from memory once the cap is
+    /// exceeded; the persisted zip retains the full history. Set to `0` to
+    /// disable the cap.
+    #[arg(long, default_value_t = 50)]
+    max_history_turns: usize,
+
     /// Path to the bifrost binary (or just "bifrost" to look it up on $PATH).
     /// When unset, code-intelligence tools (search_symbols, etc.) are disabled.
     #[arg(long, env = "BROKK_BIFROST_BINARY")]
@@ -47,6 +60,8 @@ impl std::fmt::Debug for Args {
             .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
             .field("default_model", &self.default_model)
             .field("max_turns", &self.max_turns)
+            .field("max_sessions", &self.max_sessions)
+            .field("max_history_turns", &self.max_history_turns)
             .field("bifrost_binary", &self.bifrost_binary)
             .finish()
     }
@@ -71,7 +86,11 @@ async fn main() -> Result<()> {
         args.api_key,
     ));
     // SessionStore uses internal Arc -- no outer Arc needed
-    let sessions = session::SessionStore::new(args.default_model);
+    let limits = session::SessionLimits {
+        max_sessions: args.max_sessions,
+        max_history_turns: args.max_history_turns,
+    };
+    let sessions = session::SessionStore::with_limits(args.default_model, limits);
 
     let max_turns = args.max_turns.max(1);
     agent::run_agent(llm, sessions, max_turns, args.bifrost_binary)
