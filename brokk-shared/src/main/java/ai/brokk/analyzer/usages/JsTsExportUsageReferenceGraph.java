@@ -189,7 +189,8 @@ public final class JsTsExportUsageReferenceGraph {
 
     private static boolean matchesTarget(
             CodeUnit queryTarget, CodeUnit resolvedTarget, Map<String, Set<String>> heritageEdges) {
-        if (queryTarget.fqName().equals(resolvedTarget.fqName())) {
+        if (queryTarget.source().equals(resolvedTarget.source())
+                && queryTarget.fqName().equals(resolvedTarget.fqName())) {
             return true;
         }
 

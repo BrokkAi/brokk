@@ -114,6 +114,15 @@ Exit criteria:
 Goal: make Python import resolution good enough for in-project usage analysis, including relative imports and package
 re-exports.
 
+Progress:
+
+- 2026-05-04: Added `PythonExportUsageGraphAdapter` with in-project absolute module resolution, relative import
+  resolution, package `__init__.py` resolution, external frontier reporting, and analyzer-backed referencing files.
+- 2026-05-04: Added Python graph tests for absolute imports, relative imports, package-barrel imports through
+  `__init__.py`, sibling same-name true negatives, and external frontier/no-hit behavior.
+- 2026-05-04: Tightened exact graph target matching to require source-file equality as well as FQN equality, preventing
+  same-name declarations in different files from matching.
+
 Implementation:
 
 - Resolve only in-project Python modules to `ProjectFile`.
