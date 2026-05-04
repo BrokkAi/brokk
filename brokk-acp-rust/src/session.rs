@@ -179,6 +179,13 @@ impl Session {
     /// `claude-agent-acp`. Going through this constructor guarantees a stale
     /// or tampered manifest cannot silently auto-allow tool calls on launch,
     /// and that any future "reset on reload" field is added in one place.
+    ///
+    /// Also rejects a mismatch between `id` (the caller's requested id, used
+    /// to locate the zip and to key the in-memory map) and `manifest.id`
+    /// (read from inside the zip). A mismatch indicates either a stale or
+    /// tampered zip, or a logic error mapping ids to zip paths -- continuing
+    /// silently would route subsequent writes against a different zip than
+    /// the one we resumed from.
     pub fn from_persisted(
         id: String,
         cwd: PathBuf,
@@ -186,8 +193,14 @@ impl Session {
         model: String,
         history: Vec<ConversationTurn>,
         manifest: SessionManifest,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, SessionIdMismatch> {
+        if manifest.id != id {
+            return Err(SessionIdMismatch {
+                requested: id,
+                loaded: manifest.id,
+            });
+        }
+        Ok(Self {
             id,
             cwd,
             mode,
@@ -196,9 +209,29 @@ impl Session {
             manifest,
             permission_mode: PermissionMode::Default,
             always_allow_tools: HashSet::new(),
-        }
+        })
     }
 }
+
+/// Returned by `Session::from_persisted` when the requested session id
+/// doesn't match the id stored in the manifest read from disk.
+#[derive(Debug)]
+pub struct SessionIdMismatch {
+    pub requested: String,
+    pub loaded: String,
+}
+
+impl std::fmt::Display for SessionIdMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "session id mismatch: caller requested '{}' but manifest in zip says '{}'",
+            self.requested, self.loaded
+        )
+    }
+}
+
+impl std::error::Error for SessionIdMismatch {}
 
 /// Snapshot of the per-session data needed to start a prompt turn. The
 /// conversation history is cloned exactly once under the read lock; callers
@@ -816,14 +849,20 @@ impl SessionStore {
             _ => self.default_model.read().await.clone(),
         };
 
-        let session = Session::from_persisted(
-            manifest.id.clone(),
+        let session = match Session::from_persisted(
+            id.to_string(),
             cwd.to_path_buf(),
             mode,
             model,
             history,
             manifest,
-        );
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "rejecting persisted session");
+                return false;
+            }
+        };
         let mut sessions = self.sessions.write().await;
         // Race window: another task may have inserted under the same id while
         // we read from disk. `or_insert` keeps the existing in-memory entry
@@ -1098,7 +1137,7 @@ mod tests {
     /// fields (`permission_mode`, `always_allow_tools`), even when the
     /// caller's data was reconstructed from a manifest that may be stale or
     /// tampered. Persisted-side fields (id/cwd/mode/model/history/manifest)
-    /// must round-trip unchanged.
+    /// must round-trip unchanged when ids match.
     #[test]
     fn from_persisted_resets_transient_security_fields() {
         let manifest = SessionManifest {
@@ -1122,7 +1161,8 @@ mod tests {
             "m".into(),
             history.clone(),
             manifest.clone(),
-        );
+        )
+        .expect("matching ids should succeed");
 
         assert_eq!(session.permission_mode, PermissionMode::Default);
         assert!(session.always_allow_tools.is_empty());
@@ -1133,5 +1173,35 @@ mod tests {
         assert_eq!(session.model, "m");
         assert_eq!(session.history.len(), 1);
         assert_eq!(session.manifest.id, manifest.id);
+    }
+
+    /// A zip whose manifest reports a different id than the one the caller
+    /// asked for must be rejected: continuing would let the in-memory map
+    /// key drift away from `Session.id`, so subsequent writes would target
+    /// a different zip than the one we resumed from.
+    #[test]
+    fn from_persisted_rejects_id_mismatch() {
+        let manifest = SessionManifest {
+            id: "loaded-id".into(),
+            name: "n".into(),
+            created: 1,
+            modified: 2,
+            version: "4.0".into(),
+            mode: None,
+            model: None,
+        };
+
+        let err = Session::from_persisted(
+            "requested-id".into(),
+            PathBuf::from("/tmp/x"),
+            SessionMode::Lutz,
+            "m".into(),
+            Vec::new(),
+            manifest,
+        )
+        .expect_err("mismatched ids must be rejected");
+
+        assert_eq!(err.requested, "requested-id");
+        assert_eq!(err.loaded, "loaded-id");
     }
 }
