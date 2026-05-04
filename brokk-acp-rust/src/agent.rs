@@ -473,16 +473,22 @@ pub async fn run_agent(
                     );
                 };
 
-                if !sessions_mode.set_mode(&session_id, mode).await {
-                    return responder.respond_with_error(
-                        agent_client_protocol::Error::invalid_params()
-                            .data(serde_json::json!({
+                match sessions_mode.set_mode(&session_id, mode).await {
+                    Ok(true) => responder.respond(SetSessionModeResponse::new()),
+                    Ok(false) => responder.respond_with_error(
+                        agent_client_protocol::Error::invalid_params().data(
+                            serde_json::json!({
                                 "reason": format!("unknown session '{session_id}'"),
-                            })),
-                    );
+                            }),
+                        ),
+                    ),
+                    Err(e) => responder.respond_with_error(
+                        agent_client_protocol::Error::internal_error().data(serde_json::json!({
+                            "reason": "failed to persist session mode",
+                            "details": format!("{e:#}"),
+                        })),
+                    ),
                 }
-
-                responder.respond(SetSessionModeResponse::new())
             },
             on_receive_request!(),
         )
@@ -539,14 +545,27 @@ pub async fn run_agent(
                                 ),
                             );
                         };
-                        if !sessions_perm.set_mode(&session_id, behavior_mode).await {
-                            return responder.respond_with_error(
-                                agent_client_protocol::Error::invalid_params().data(
-                                    serde_json::json!({
-                                        "reason": format!("unknown session '{session_id}'"),
-                                    }),
-                                ),
-                            );
+                        match sessions_perm.set_mode(&session_id, behavior_mode).await {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                return responder.respond_with_error(
+                                    agent_client_protocol::Error::invalid_params().data(
+                                        serde_json::json!({
+                                            "reason": format!("unknown session '{session_id}'"),
+                                        }),
+                                    ),
+                                );
+                            }
+                            Err(e) => {
+                                return responder.respond_with_error(
+                                    agent_client_protocol::Error::internal_error().data(
+                                        serde_json::json!({
+                                            "reason": "failed to persist session mode",
+                                            "details": format!("{e:#}"),
+                                        }),
+                                    ),
+                                );
+                            }
                         }
                     }
                     other => {
