@@ -2,15 +2,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use agent_client_protocol::schema::{
-    AgentCapabilities, CancelNotification, ConfigOptionUpdate, ContentBlock, ContentChunk,
-    InitializeRequest, InitializeResponse, ListSessionsRequest, ListSessionsResponse,
-    LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse,
-    PromptCapabilities, PromptRequest, PromptResponse, ResumeSessionRequest, ResumeSessionResponse,
-    SessionCapabilities, SessionConfigOption, SessionConfigOptionCategory,
-    SessionConfigSelectOption, SessionInfo, SessionListCapabilities, SessionMode as AcpSessionMode,
-    SessionModeState, SessionNotification, SessionResumeCapabilities, SessionUpdate,
-    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-    SetSessionModeResponse, StopReason, TextContent,
+    AgentCapabilities, AvailableCommand, AvailableCommandsUpdate, CancelNotification,
+    ConfigOptionUpdate, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
+    ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
+    NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest, PromptResponse,
+    ResumeSessionRequest, ResumeSessionResponse, SessionCapabilities, SessionConfigOption,
+    SessionConfigOptionCategory, SessionConfigSelectOption, SessionInfo, SessionListCapabilities,
+    SessionMode as AcpSessionMode, SessionModeState, SessionNotification,
+    SessionResumeCapabilities, SessionUpdate, SetSessionConfigOptionRequest,
+    SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
+    TextContent,
 };
 use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo, Dispatch, Handled, Responder, on_receive_dispatch,
@@ -27,6 +28,9 @@ use crate::session::{ConversationTurn, PermissionMode, SessionMode, SessionStore
 /// does), so once we expose any configOption we have to expose all of them.
 const PERMISSION_CONFIG_ID: &str = "permission_mode";
 const BEHAVIOR_CONFIG_ID: &str = "behavior_mode";
+/// Mirrors the Java executor's wire id so cross-implementation clients
+/// (Zed, brokk-code) can drive model selection through one canonical name.
+const MODEL_CONFIG_ID: &str = "model_selection";
 
 /// Available session modes exposed to ACP clients.
 fn available_modes() -> Vec<AcpSessionMode> {
@@ -79,15 +83,74 @@ fn behavior_config_option(current: SessionMode) -> SessionConfigOption {
         .category(SessionConfigOptionCategory::Mode)
 }
 
-/// All configOption selectors we expose, in display order.
+/// Build the model `SessionConfigOption` reflecting `current` against the
+/// cached `available_models` catalog. Returns `None` when the catalog is
+/// empty, in which case the dropdown is omitted entirely (per ACP, a select
+/// with zero options is not useful and some clients reject it).
+fn model_config_option(current: &str, available_models: &[String]) -> Option<SessionConfigOption> {
+    if available_models.is_empty() {
+        return None;
+    }
+    // `SessionConfigSelectOption::new` stores its arguments owned, so the
+    // closure must hand it owned Strings -- borrowing from `available_models`
+    // would tie the option's lifetime to the slice and fail E0521.
+    let options: Vec<SessionConfigSelectOption> = available_models
+        .iter()
+        .map(|m| SessionConfigSelectOption::new(m.clone(), m.clone()))
+        .collect();
+    // Fall back to the first catalog entry when `current` is empty or has
+    // drifted out of the catalog -- otherwise some clients refuse to render
+    // a select whose value is not in `options`.
+    let current_value = if !current.is_empty() && available_models.iter().any(|m| m == current) {
+        current.to_string()
+    } else {
+        available_models[0].clone()
+    };
+    Some(
+        SessionConfigOption::select(MODEL_CONFIG_ID, "Model", current_value, options)
+            .description("Selects the LLM model used for this session.")
+            .category(SessionConfigOptionCategory::Model),
+    )
+}
+
+/// All configOption selectors we expose, in display order. The model
+/// selector is appended only when the LLM catalog is known; clients that
+/// drive model selection through the meta extension still see the current
+/// model via `meta.brokk.modelId`.
 fn all_config_options(
     behavior: SessionMode,
     permission: PermissionMode,
+    current_model: &str,
+    available_models: &[String],
 ) -> Vec<SessionConfigOption> {
-    vec![
+    let mut opts = vec![
         behavior_config_option(behavior),
         permission_config_option(permission),
-    ]
+    ];
+    if let Some(model_opt) = model_config_option(current_model, available_models) {
+        opts.push(model_opt);
+    }
+    opts
+}
+
+/// Slash commands advertised to clients via `available_commands_update`.
+/// Mirrors the Java executor's `/context` command (other Java commands are
+/// intentionally omitted -- they depend on the live workspace context that
+/// the Rust agent does not yet model).
+fn available_commands() -> Vec<AvailableCommand> {
+    vec![AvailableCommand::new(
+        "context",
+        "Show current session context snapshot",
+    )]
+}
+
+fn send_available_commands_update(cx: &ConnectionTo<Client>, session_id: &str) {
+    let update =
+        SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(available_commands()));
+    let notification = SessionNotification::new(session_id.to_string(), update);
+    if let Err(e) = cx.send_notification(notification) {
+        tracing::warn!("failed to send available_commands_update: {e}");
+    }
 }
 
 /// Build and run the ACP agent over stdio.
@@ -157,7 +220,7 @@ pub async fn run_agent(
         .on_receive_request(
             async move |req: NewSessionRequest,
                         responder: Responder<NewSessionResponse>,
-                        _cx: ConnectionTo<Client>| {
+                        cx: ConnectionTo<Client>| {
                 let cwd = req.cwd.clone();
                 tracing::info!("ACP session/new, cwd={}", cwd.display());
                 let session = sessions_new.create_session(cwd).await;
@@ -181,8 +244,15 @@ pub async fn run_agent(
 
                 let response = NewSessionResponse::new(session.id.clone())
                     .modes(mode_state(session.mode.as_str()))
-                    .config_options(all_config_options(session.mode, session.permission_mode))
+                    .config_options(all_config_options(
+                        session.mode,
+                        session.permission_mode,
+                        &session.model,
+                        &models,
+                    ))
                     .meta(meta_map);
+
+                send_available_commands_update(&cx, &session.id);
 
                 responder.respond(response)
             },
@@ -220,10 +290,18 @@ pub async fn run_agent(
                     }
                 }
 
+                let models = sessions_load.available_models().await;
+                send_available_commands_update(&cx, &session_id);
+
                 responder.respond(
                     LoadSessionResponse::new()
                         .modes(mode_state(session.mode.as_str()))
-                        .config_options(all_config_options(session.mode, session.permission_mode)),
+                        .config_options(all_config_options(
+                            session.mode,
+                            session.permission_mode,
+                            &session.model,
+                            &models,
+                        )),
                 )
             },
             on_receive_request!(),
@@ -240,12 +318,16 @@ pub async fn run_agent(
                 match sessions_resume.get_session(&session_id, &cwd).await {
                     Some(session) => {
                         sessions_resume.update_cwd(&session_id, cwd).await;
+                        let models = sessions_resume.available_models().await;
+                        send_available_commands_update(&cx, &session_id);
                         responder.respond(
                             ResumeSessionResponse::new()
                                 .modes(mode_state(session.mode.as_str()))
                                 .config_options(all_config_options(
                                     session.mode,
                                     session.permission_mode,
+                                    &session.model,
+                                    &models,
                                 )),
                         )
                     }
@@ -310,6 +392,22 @@ pub async fn run_agent(
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
                     }
                 };
+
+                // Slash commands run locally and short-circuit the LLM round-trip.
+                // They are not persisted as conversation turns -- the response is
+                // purely informational and replaying it on the next session load
+                // would mislead the model about prior dialog. Mirrors the Java
+                // executor's `handleSlashCommand` path.
+                if is_slash_command(&prompt_text, "context") {
+                    let permission_mode = sessions_prompt
+                        .permission_mode(&session_id)
+                        .await
+                        .unwrap_or(PermissionMode::Default);
+                    let available_models = sessions_prompt.available_models().await;
+                    let report = render_context_report(&snap, permission_mode, &available_models);
+                    send_message(&cx, &session_id, &report);
+                    return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                }
 
                 // Validate model is configured
                 if snap.model.is_empty() {
@@ -568,12 +666,51 @@ pub async fn run_agent(
                             }
                         }
                     }
+                    MODEL_CONFIG_ID => {
+                        if value.is_empty() {
+                            return responder.respond_with_error(
+                                agent_client_protocol::Error::invalid_params().data(
+                                    serde_json::json!({
+                                        "reason": "model id must be a non-empty string",
+                                    }),
+                                ),
+                            );
+                        }
+                        // Reject ids that drift out of the catalog when one is known.
+                        // An empty catalog means model discovery never succeeded;
+                        // accept anything in that case so the user can still drive
+                        // the agent against a manually-configured backend.
+                        let known = sessions_perm.available_models().await;
+                        if !known.is_empty() && !known.iter().any(|m| m == &value) {
+                            return responder.respond_with_error(
+                                agent_client_protocol::Error::invalid_params().data(
+                                    serde_json::json!({
+                                        "reason": format!("unknown model '{value}'"),
+                                        "supported": known,
+                                    }),
+                                ),
+                            );
+                        }
+                        if !sessions_perm.set_model(&session_id, value.clone()).await {
+                            return responder.respond_with_error(
+                                agent_client_protocol::Error::invalid_params().data(
+                                    serde_json::json!({
+                                        "reason": format!("unknown session '{session_id}'"),
+                                    }),
+                                ),
+                            );
+                        }
+                    }
                     other => {
                         return responder.respond_with_error(
                             agent_client_protocol::Error::invalid_params().data(
                                 serde_json::json!({
                                     "reason": format!("unknown configOption '{other}'"),
-                                    "supported": [BEHAVIOR_CONFIG_ID, PERMISSION_CONFIG_ID],
+                                    "supported": [
+                                        BEHAVIOR_CONFIG_ID,
+                                        PERMISSION_CONFIG_ID,
+                                        MODEL_CONFIG_ID,
+                                    ],
                                 }),
                             ),
                         );
@@ -581,7 +718,7 @@ pub async fn run_agent(
                 }
 
                 // Re-fetch the session so the returned options reflect the
-                // latest values for *both* selectors (the spec says the
+                // latest values for *all* selectors (the spec says the
                 // response carries the full updated set, not just the one we
                 // changed).
                 let fallback_cwd = std::env::current_dir().unwrap_or_default();
@@ -593,7 +730,13 @@ pub async fn run_agent(
                         })),
                     );
                 };
-                let updated_options = all_config_options(session.mode, session.permission_mode);
+                let models = sessions_perm.available_models().await;
+                let updated_options = all_config_options(
+                    session.mode,
+                    session.permission_mode,
+                    &session.model,
+                    &models,
+                );
 
                 let notification = SessionNotification::new(
                     session_id.clone(),
@@ -688,4 +831,117 @@ fn build_system_prompt(mode: &SessionMode, cwd: &Path) -> String {
     };
 
     format!("{cwd_context}{mode_prompt}")
+}
+
+/// Returns true when `prompt_text` invokes the slash command `name`,
+/// matching `/name` exactly or `/name <args>`. Whitespace and case are
+/// normalized so clients that uppercase auto-complete entries still hit.
+fn is_slash_command(prompt_text: &str, name: &str) -> bool {
+    let stripped = prompt_text.trim();
+    let Some(rest) = stripped.strip_prefix('/') else {
+        return false;
+    };
+    let head = rest
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    head == name
+}
+
+/// Render the `/context` snapshot. Mirrors the Java executor's report at a
+/// coarser granularity -- the Rust agent does not yet model
+/// editable/readonly/virtual fragments, so the table reports the
+/// conversation history instead, which is what actually drives token
+/// pressure on the LLM today.
+fn render_context_report(
+    snap: &crate::session::SessionSnapshot,
+    permission_mode: PermissionMode,
+    available_models: &[String],
+) -> String {
+    // Char/4 is the same back-of-the-envelope estimate the Java side uses
+    // for non-tokenizer-aware approximations. Good enough for a snapshot
+    // dump; not load-bearing.
+    let approx_tokens = |s: &str| s.chars().count() / 4;
+    let mut user_tokens = 0usize;
+    let mut agent_tokens = 0usize;
+    for turn in &snap.history {
+        user_tokens += approx_tokens(&turn.user_prompt);
+        agent_tokens += approx_tokens(&turn.agent_response);
+    }
+    let total_tokens = user_tokens + agent_tokens;
+    let model_display = if snap.model.is_empty() {
+        "(none)".to_string()
+    } else {
+        snap.model.clone()
+    };
+    let catalog_size = available_models.len();
+
+    let mut out = String::new();
+    out.push_str("**Session context**\n\n");
+    out.push_str(&format!("- Working directory: `{}`\n", snap.cwd.display()));
+    out.push_str(&format!("- Mode: `{}`\n", snap.mode.as_str()));
+    out.push_str(&format!(
+        "- Permission mode: `{}`\n",
+        permission_mode.as_str()
+    ));
+    out.push_str(&format!(
+        "- Model: `{model_display}` ({catalog_size} known in catalog)\n"
+    ));
+    out.push_str(&format!(
+        "- Conversation turns: {} (~{} tokens user / ~{} tokens agent / ~{} total)\n",
+        snap.history.len(),
+        user_tokens,
+        agent_tokens,
+        total_tokens
+    ));
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_slash_command_matches_bare_and_with_args() {
+        assert!(is_slash_command("/context", "context"));
+        assert!(is_slash_command("  /context  ", "context"));
+        assert!(is_slash_command("/context with extra args", "context"));
+        // Case-insensitive: clients sometimes uppercase auto-complete entries.
+        assert!(is_slash_command("/Context", "context"));
+        assert!(is_slash_command("/CONTEXT", "context"));
+    }
+
+    #[test]
+    fn is_slash_command_rejects_non_matches() {
+        // Plain text is never a command, even if the word "context" appears.
+        assert!(!is_slash_command("context please", "context"));
+        // Missing leading slash.
+        assert!(!is_slash_command("context", "context"));
+        // Different command sharing a prefix must not match.
+        assert!(!is_slash_command("/contextual", "context"));
+        // Empty input.
+        assert!(!is_slash_command("", "context"));
+        assert!(!is_slash_command("/", "context"));
+    }
+
+    #[test]
+    fn model_config_option_omitted_when_catalog_empty() {
+        // No discovery results means we can't offer a meaningful dropdown.
+        assert!(model_config_option("anything", &[]).is_none());
+    }
+
+    #[test]
+    fn model_config_option_present_when_catalog_known() {
+        let models = vec!["model-a".to_string(), "model-b".to_string()];
+        // Spot-check that the option is actually built. Field shapes are
+        // covered by the `agent-client-protocol` crate; we just need to know
+        // the helper produced *something*.
+        assert!(model_config_option("model-a", &models).is_some());
+        // Out-of-catalog current value still produces an option (we fall
+        // back to the first catalog entry); tested implicitly via the
+        // is_some assertion plus the no-panic contract.
+        assert!(model_config_option("model-zzz", &models).is_some());
+        assert!(model_config_option("", &models).is_some());
+    }
 }
