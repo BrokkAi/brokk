@@ -963,6 +963,38 @@ impl SessionStore {
         }
     }
 
+    /// Update the per-session LLM model. Returns false if the session is
+    /// unknown. Persists the new model into the session manifest so it
+    /// survives a reload, mirroring `set_mode`.
+    pub async fn set_model(&self, id: &str, model: String) -> bool {
+        let snapshot = {
+            let mut sessions = self.sessions.write().await;
+            match sessions.get_mut(id) {
+                Some(session) => {
+                    session.model = model.clone();
+                    session.manifest.model = if model.is_empty() {
+                        None
+                    } else {
+                        Some(model)
+                    };
+                    Some((session.cwd.clone(), session.manifest.clone()))
+                }
+                None => None,
+            }
+        };
+        match snapshot {
+            Some((cwd, manifest)) => {
+                let zip_path = session_zip_path(&cwd, id);
+                let _ = tokio::task::spawn_blocking(move || {
+                    rewrite_manifest_in_zip(&zip_path, &manifest)
+                })
+                .await;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub async fn set_default_model(&self, model: String) {
         *self.default_model.write().await = model;
     }
@@ -1203,5 +1235,34 @@ mod tests {
 
         assert_eq!(err.requested, "requested-id");
         assert_eq!(err.loaded, "loaded-id");
+    }
+
+    /// `set_model` should update the in-memory `Session.model` and
+    /// `manifest.model` so a subsequent reload from disk picks up the new
+    /// value. Persistence itself is exercised by `rewrite_manifest_in_zip`
+    /// (shared with `set_mode`); this test verifies wiring only.
+    #[tokio::test]
+    async fn set_model_updates_session_and_manifest() {
+        let store = SessionStore::new("initial-model".to_string());
+
+        // Use a unique tmp cwd so concurrent test runs don't clobber.
+        let cwd = std::env::temp_dir().join(format!(
+            "brokk-acp-rust-set-model-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let session = store.create_session(cwd).await;
+        let id = session.id.clone();
+
+        assert!(store.set_model(&id, "next-model".to_string()).await);
+        let sessions = store.sessions.read().await;
+        let s = sessions.get(&id).expect("session still in memory");
+        assert_eq!(s.model, "next-model");
+        assert_eq!(s.manifest.model.as_deref(), Some("next-model"));
+    }
+
+    #[tokio::test]
+    async fn set_model_returns_false_for_unknown_session() {
+        let store = SessionStore::new("initial-model".to_string());
+        assert!(!store.set_model("no-such-session", "next-model".into()).await);
     }
 }
