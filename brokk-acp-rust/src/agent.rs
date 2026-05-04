@@ -87,10 +87,7 @@ fn behavior_config_option(current: SessionMode) -> SessionConfigOption {
 /// cached `available_models` catalog. Returns `None` when the catalog is
 /// empty, in which case the dropdown is omitted entirely (per ACP, a select
 /// with zero options is not useful and some clients reject it).
-fn model_config_option(
-    current: &str,
-    available_models: &[String],
-) -> Option<SessionConfigOption> {
+fn model_config_option(current: &str, available_models: &[String]) -> Option<SessionConfigOption> {
     if available_models.is_empty() {
         return None;
     }
@@ -145,9 +142,8 @@ fn available_commands() -> Vec<AvailableCommand> {
 }
 
 fn send_available_commands_update(cx: &ConnectionTo<Client>, session_id: &str) {
-    let update = SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(
-        available_commands(),
-    ));
+    let update =
+        SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(available_commands()));
     let notification = SessionNotification::new(session_id.to_string(), update);
     if let Err(e) = cx.send_notification(notification) {
         tracing::warn!("failed to send available_commands_update: {e}");

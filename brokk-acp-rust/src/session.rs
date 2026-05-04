@@ -972,11 +972,7 @@ impl SessionStore {
             match sessions.get_mut(id) {
                 Some(session) => {
                     session.model = model.clone();
-                    session.manifest.model = if model.is_empty() {
-                        None
-                    } else {
-                        Some(model)
-                    };
+                    session.manifest.model = if model.is_empty() { None } else { Some(model) };
                     Some((session.cwd.clone(), session.manifest.clone()))
                 }
                 None => None,
@@ -1246,10 +1242,8 @@ mod tests {
         let store = SessionStore::new("initial-model".to_string());
 
         // Use a unique tmp cwd so concurrent test runs don't clobber.
-        let cwd = std::env::temp_dir().join(format!(
-            "brokk-acp-rust-set-model-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let cwd =
+            std::env::temp_dir().join(format!("brokk-acp-rust-set-model-{}", uuid::Uuid::new_v4()));
         let session = store.create_session(cwd).await;
         let id = session.id.clone();
 
@@ -1263,6 +1257,10 @@ mod tests {
     #[tokio::test]
     async fn set_model_returns_false_for_unknown_session() {
         let store = SessionStore::new("initial-model".to_string());
-        assert!(!store.set_model("no-such-session", "next-model".into()).await);
+        assert!(
+            !store
+                .set_model("no-such-session", "next-model".into())
+                .await
+        );
     }
 }
