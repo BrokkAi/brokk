@@ -959,7 +959,9 @@ tasks.shadowJar {
     enabled = project.hasProperty("enableShadowJar") ||
               System.getenv("CI") == "true" ||
               gradle.startParameter.taskNames.any {
-                  it.contains("shadowJar") || it.contains("deployMcpShadowJar")
+                  it.contains("shadowJar") ||
+                          it.contains("deployMcpShadowJar") ||
+                          it.contains("buildAcpServerJarFor")
               }
 }
 

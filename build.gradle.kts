@@ -143,6 +143,90 @@ tasks.register("deployMcpShadowJar") {
     }
 }
 
+// Resolves an executable on PATH so the JetBrains/Zed-spawned subprocess (which doesn't inherit
+// the user's shell PATH on macOS) gets an absolute command. Cross-platform: tries .exe/.cmd/.bat
+// extensions on Windows.
+fun findExecutableOnPath(name: String): String? {
+    val pathEnv = System.getenv("PATH") ?: return null
+    val isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows
+    val sep = if (isWindows) ";" else ":"
+    val exts = if (isWindows) listOf("", ".exe", ".cmd", ".bat") else listOf("")
+    for (dir in pathEnv.split(sep)) {
+        if (dir.isBlank()) continue
+        for (ext in exts) {
+            val candidate = File(dir, name + ext)
+            if (candidate.canExecute()) return candidate.absolutePath
+        }
+    }
+    return null
+}
+
+// Writes the given JSON model to the config file, replacing any existing
+// agent_servers["Brokk Code (Local Jar)"] entry while leaving every other key intact.
+@Suppress("UNCHECKED_CAST")
+fun writeLocalJarAcpEntry(configFile: File, jar: File, uvxPath: String, includeZedTypeField: Boolean) {
+    val parsed: MutableMap<String, Any> = if (configFile.exists() && configFile.length() > 0L) {
+        JsonSlurper().parseText(configFile.readText()) as? MutableMap<String, Any>
+            ?: throw GradleException("Existing config at ${configFile.absolutePath} is not a JSON object.")
+    } else {
+        mutableMapOf()
+    }
+    val agentServers = (parsed["agent_servers"] as? MutableMap<String, Any>) ?: mutableMapOf<String, Any>().also {
+        parsed["agent_servers"] = it
+    }
+    val entry = linkedMapOf<String, Any>()
+    if (includeZedTypeField) entry["type"] = "custom"
+    entry["command"] = uvxPath
+    entry["args"] = listOf("brokk", "acp", "--jar", jar.absolutePath)
+    entry["env"] = emptyMap<String, String>()
+    agentServers["Brokk Code (Local Jar)"] = entry
+
+    configFile.parentFile.mkdirs()
+    configFile.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(parsed)) + "\n")
+}
+
+tasks.register("buildAcpServerJarForJetbrains") {
+    description = "Builds :app:shadowJar and rewrites the 'Brokk Code (Local Jar)' entry in ~/.jetbrains/acp.json to point at the just-built jar."
+    group = "distribution"
+
+    dependsOn(":app:shadowJar")
+
+    doLast {
+        val jar = rootDir.resolve("app/build/libs/brokk-${project.version}.jar")
+        if (!jar.exists()) {
+            throw GradleException("Expected shadow jar not found: ${jar.absolutePath}")
+        }
+        val uvxPath = findExecutableOnPath("uvx")
+            ?: throw GradleException("uvx not found on PATH. Install via 'pipx install brokk' or 'pip install --user brokk' and retry.")
+
+        val configFile = (findProperty("acpJetbrainsConfig") as String?)?.let(::File)
+            ?: File(System.getProperty("user.home"), ".jetbrains/acp.json")
+        writeLocalJarAcpEntry(configFile, jar, uvxPath, includeZedTypeField = false)
+        println("Updated 'Brokk Code (Local Jar)' in ${configFile.absolutePath} -> ${jar.absolutePath}")
+    }
+}
+
+tasks.register("buildAcpServerJarForZed") {
+    description = "Builds :app:shadowJar and rewrites the 'Brokk Code (Local Jar)' entry in ~/.config/zed/settings.json to point at the just-built jar."
+    group = "distribution"
+
+    dependsOn(":app:shadowJar")
+
+    doLast {
+        val jar = rootDir.resolve("app/build/libs/brokk-${project.version}.jar")
+        if (!jar.exists()) {
+            throw GradleException("Expected shadow jar not found: ${jar.absolutePath}")
+        }
+        val uvxPath = findExecutableOnPath("uvx")
+            ?: throw GradleException("uvx not found on PATH. Install via 'pipx install brokk' or 'pip install --user brokk' and retry.")
+
+        val configFile = (findProperty("acpZedConfig") as String?)?.let(::File)
+            ?: File(System.getProperty("user.home"), ".config/zed/settings.json")
+        writeLocalJarAcpEntry(configFile, jar, uvxPath, includeZedTypeField = true)
+        println("Updated 'Brokk Code (Local Jar)' in ${configFile.absolutePath} -> ${jar.absolutePath}")
+    }
+}
+
 tasks.register("deployCoreMcpShadowJar") {
     description = "Builds :brokk-core:shadowJar and copies it to a stable MCP jar path."
     group = "distribution"
