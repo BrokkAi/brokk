@@ -38,7 +38,7 @@ from brokk_code.settings import get_global_cache_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_BIFROST_VERSION = "0.1.2"
+BUNDLED_BIFROST_VERSION = "0.1.3"
 
 _BIFROST_RELEASE_URL = "https://github.com/BrokkAi/bifrost/releases/download"
 _BIFROST_DOWNLOAD_TIMEOUT_SECONDS = 300.0
