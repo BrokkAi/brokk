@@ -157,6 +157,14 @@ Exit criteria:
 
 Goal: make Python exported-symbol usages available through the same app-layer surfaces as JS/TS.
 
+Progress:
+
+- 2026-05-04: Added `PythonExportUsageGraphStrategy` and routed seeded Python targets through
+  `UsageAnalyzerSelector`, with regex fallback preserved for unseeded Python targets.
+- 2026-05-04: Added selector/strategy tests proving Python graph routing, app-layer usage results, and unseeded fallback.
+- 2026-05-04: Made Python adapter definition lookup include declaration identifiers so graph-resolved targets match the
+  app-layer query `CodeUnit`.
+
 Implementation:
 
 - Add a Python graph strategy that seeds from Python declarations and delegates traversal to the reusable graph.

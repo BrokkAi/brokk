@@ -4,6 +4,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.project.ICoreProject;
 import java.util.List;
 import java.util.Set;
@@ -21,6 +22,12 @@ public final class UsageAnalyzerSelector {
         }
         if (language.contains(Languages.JAVASCRIPT) || language.contains(Languages.TYPESCRIPT)) {
             var graph = new JsTsExportUsageGraphStrategy(analyzer);
+            if (graph.canHandle(target)) {
+                return graph;
+            }
+        }
+        if (language.contains(Languages.PYTHON) && analyzer instanceof PythonAnalyzer python) {
+            var graph = new PythonExportUsageGraphStrategy(python);
             if (graph.canHandle(target)) {
                 return graph;
             }

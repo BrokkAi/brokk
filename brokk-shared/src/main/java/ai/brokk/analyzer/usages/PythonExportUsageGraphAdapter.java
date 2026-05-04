@@ -4,6 +4,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -31,7 +32,12 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
 
     @Override
     public Set<CodeUnit> definitionsOf(String localName) {
-        return analyzer.getDefinitions(localName);
+        var definitions = new LinkedHashSet<CodeUnit>();
+        definitions.addAll(analyzer.getDefinitions(localName));
+        analyzer.getAllDeclarations().stream()
+                .filter(cu -> cu.identifier().equals(localName))
+                .forEach(definitions::add);
+        return Set.copyOf(definitions);
     }
 
     @Override
