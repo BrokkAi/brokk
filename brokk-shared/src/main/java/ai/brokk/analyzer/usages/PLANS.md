@@ -193,6 +193,11 @@ Exit criteria:
 
 Goal: avoid premature member-analysis work, but leave a clear path if Python method/member usages become the next target.
 
+Progress:
+
+- 2026-05-04: Deferred implementation. Stages 2-4 cover exported functions/classes and direct imported-symbol usages.
+  Receiver inference should wait for concrete Python member-usage cases and failing tests, as scoped below.
+
 Implementation:
 
 - Start with exported functions/classes and direct imported-symbol usages.
