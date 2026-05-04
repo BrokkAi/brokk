@@ -32,6 +32,11 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
     }
 
     @Override
+    public Set<ResolvedReceiverCandidate> resolvedReceiverCandidatesOf(ProjectFile file, ImportBinder binder) {
+        return analyzer.resolvedReceiverCandidatesOf(file, binder);
+    }
+
+    @Override
     public Set<CodeUnit> definitionsOf(String localName) {
         var definitions = new LinkedHashSet<CodeUnit>();
         definitions.addAll(analyzer.getDefinitions(localName));

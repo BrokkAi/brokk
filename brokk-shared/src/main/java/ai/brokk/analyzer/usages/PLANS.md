@@ -1,236 +1,148 @@
-# Python Exported-Symbol Usage Plan
+# Python Receiver And Type Usage Plan
 
-This plan tracks a scoped extension of the existing exported-symbol reference graph to Python. JS/TS already proves the
-shape of the approach: flow-insensitive, declaration-first usage analysis over structured import/export facts. The next
-work should reuse that machinery where it helps Python, without turning this into a broad graph rewrite.
+This document tracks the active Python receiver/type inference work for this PR. The import/export rollout is now
+baseline context: it proves the reference graph can be reused for Python without copying traversal logic, but the next
+useful maturity step is member usage precision.
 
-## Scope
+The v1 scope is deliberately pragmatic: seed receiver facts from explicit Python syntax, reuse `LocalUsageInference`,
+and keep false positives low. This is not a broad Python type checker and should not drift into JS/TS parity work that
+is unrelated to Python member usages.
 
-- Add Python exported-symbol usages for in-project code.
-- Extract reusable graph pieces only when Python needs them.
-- Preserve the existing JS/TS behavior as the compatibility baseline.
-- Keep language-specific code focused on extraction and module resolution.
-- Use tests as the proof of maturity, especially for Python import and re-export behavior.
+## Completed Baseline
 
-## Non-goals
+This PR already has:
 
-- Reworking JS/TS behavior beyond what is needed to preserve compatibility during extraction.
-- Full Python type inference, runtime import execution, import hooks, or virtualenv/package inspection.
-- CFG, branch-sensitive narrowing, SSA, or speculative widening to all matching names.
-- CommonJS or broader JS/TS feature expansion as part of the Python work.
-- UI redesign. App-layer work should only route and preserve usage results/frontier metadata.
+- adapter-based graph traversal through `ExportUsageGraphLanguageAdapter`;
+- Python export/import extraction through `PythonExportUsageExtractor`;
+- Python module and package-barrel resolution, including package `__init__.py` re-exports;
+- app routing through `UsageAnalyzerSelector` with regex fallback preserved;
+- hardening for nested barrels, import cycles, local import shadowing, and explicit `Foo.bar()` static class access.
 
-## Existing Baseline
+Keep the existing import/export graph tests as regression coverage. They are no longer the active roadmap.
 
-The current JS/TS implementation already provides the important precedent:
+## Active Scope
 
-- language-neutral records such as `ReferenceCandidate`, `ReferenceHit`, `ExportIndex`, `ImportBinder`, and
-  `ReferenceGraphResult`;
-- fixed-point traversal over `ProjectFile`s with candidate-file limits and frontier tracking;
-- structured import/export handling, including barrel re-exports;
-- graph-backed routing through `UsageAnalyzerSelector` when an exported-symbol seed is available;
-- regex fallback when graph analysis cannot prove a target.
+Implement Python receiver/type inference v1 for:
 
-Treat this as working behavior to protect. Do not add new JS/TS capability unless it is required to extract a reusable
-component or prove Python parity.
+- simple annotations: `x: Foo`, `def f(x: Foo)`, and `self.x: Foo` where the type resolves through imports or same-file
+  declarations;
+- qualified annotations such as `x: p.Foo` only when `p` is a namespace import with resolvable in-project provenance;
+- constructor-created locals such as `x = Foo()` and `x = imported_alias()`;
+- same-scope aliases such as `y = x`;
+- local shadowing, where `Foo = ...` or `x = ...` blocks stale imported/type facts;
+- explicit receiver access such as `obj.foo` and `obj.foo()`.
 
-## Stage 1: Define The Minimal Python Adapter Boundary
+Do not implement broad flow inference, runtime type inference, dynamic imports, monkeypatching, return-type propagation,
+interprocedural calls, wildcard provenance beyond static imports, or JS/TS parity work that is not needed for Python.
 
-Goal: identify the smallest reusable seam needed to let Python plug into the existing reference graph.
+## Stage 1: Python Local Usage Events
 
-Progress:
-
-- 2026-05-04: Added `ExportUsageGraphLanguageAdapter`, `ExportResolutionData`, and a JS/TS adapter. The graph now owns
-  traversal through the adapter seam while existing JS/TS public entrypoints remain unchanged.
-- 2026-05-04: Added fake-adapter tests for proven import hits, candidate-file restriction, and external frontier
-  propagation, plus reran JS/TS graph and strategy regression tests.
+Goal: emit the Python facts needed by the existing local inference engine.
 
 Implementation:
 
-- Introduce an adapter interface only if it removes concrete duplication for Python. A minimal shape is:
-  - `ExportIndex exportIndexOf(ProjectFile file)`;
-  - `ImportBinder importBinderOf(ProjectFile file)`;
-  - `Set<ReferenceCandidate> usageCandidatesOf(ProjectFile file, ImportBinder binder)`;
-  - `ResolutionOutcome resolveModule(ProjectFile importingFile, String moduleSpecifier)`.
-- Keep JS/TS as the first adapter or wrapper around current behavior, but avoid churn outside the methods Python needs.
-- Reuse existing graph limits, candidate-file restriction, cycle detection, and frontier behavior.
-- Keep member/receiver hooks optional and default-empty. Python can start with exported functions/classes before member
-  receiver inference.
-
-Tests:
-
-- Add adapter-neutral tests only for behavior Python needs immediately: re-export traversal, cycles, candidate-file
-  restriction, unresolved modules, and external frontier propagation.
-- Re-run existing JS/TS usage tests unchanged to prove the extraction did not change current behavior.
-
-Exit criteria:
-
-- JS/TS behavior is unchanged.
-- Python can implement the adapter without copying fixed-point traversal logic.
-
-## Stage 2: Build Python Import And Export Extraction
-
-Goal: produce structured Python facts without resolving usages yet.
+- Add Python extraction of `LocalUsageEvent` facts.
+- Use `ImportBinder` as a resolver for imported class/function names, but do not globally seed imported symbols as
+  receivers. Imports should seed locals only through annotations or constructor assignments.
+- Emit `DeclareSymbol` for local assignments, function parameters, class/function declarations, and local declarations
+  that shadow imports.
+- Emit `ReceiverAccess` for `obj.foo` and `obj.foo()`.
 
 Progress:
 
-- 2026-05-04: Added Python extraction methods for `ExportIndex`, `ImportBinder`, and reference candidates on
-  `PythonAnalyzer`, backed by `PythonExportUsageExtractor`.
-- 2026-05-04: Added extractor tests for top-level exports, static `__all__`, aliases, relative imports, namespace
-  imports, wildcard import non-binding, and import-declaration true negatives.
+- 2026-05-04: Added Python receiver event extraction for assignments, typed parameters, constructor calls, aliases, and
+  attribute access.
+- 2026-05-04: Kept static `Foo.bar()` on the existing qualified-member path by avoiding global receiver seeds for
+  imported names.
+
+## Stage 2: Type Annotation Seeds
+
+Goal: use explicit annotations as high-confidence local receiver seeds without parsing Python's full type system.
 
 Implementation:
 
-- Extract exports from:
-  - top-level `def`;
-  - top-level `class`;
-  - statically visible `__all__` entries;
-  - package `__init__.py` re-exports where imports are statically visible.
-- Extract imports from:
-  - `from mod import x`;
-  - `from mod import x as y`;
-  - `import mod`;
-  - `import mod as m`;
-  - relative forms such as `from .mod import x` and `from ..pkg import x`.
-- Represent Python package barrels with the same `ExportIndex` and `ImportBinder` concepts rather than adding a
-  Python-only graph model.
-- Treat wildcard imports conservatively. Only produce provenance-backed bindings when `__all__` or another static source
-  makes the exported names clear.
-
-Tests:
-
-- Add extractor tests for top-level exports, `__all__`, aliases, absolute imports, relative imports, and
-  package `__init__.py` re-exports.
-- Add true-negative extractor tests for nested functions/classes, dynamic `__all__`, wildcard imports without static
-  provenance, and local assignments that merely share an exported name.
-
-Exit criteria:
-
-- Python files produce structured export/import facts.
-- Ambiguous or dynamic Python constructs do not create false bindings.
-
-## Stage 3: Resolve Python Modules And Barrels
-
-Goal: make Python import resolution good enough for in-project usage analysis, including relative imports and package
-re-exports.
+- Seed locals and parameters from simple annotations such as `x: Foo` and `def f(x: Foo)` only when `Foo` resolves
+  through imports or same-file declarations.
+- Support qualified annotations like `pkg.Foo` only when `pkg` is a namespace import with a resolvable module.
+- For union or generic-looking annotations, only extract explicit simple or qualified type identifiers. Do not interpret
+  union/generic semantics beyond those identifiers.
 
 Progress:
 
-- 2026-05-04: Added `PythonExportUsageGraphAdapter` with in-project absolute module resolution, relative import
-  resolution, package `__init__.py` resolution, external frontier reporting, and analyzer-backed referencing files.
-- 2026-05-04: Added Python graph tests for absolute imports, relative imports, package-barrel imports through
-  `__init__.py`, sibling same-name true negatives, and external frontier/no-hit behavior.
-- 2026-05-04: Tightened exact graph target matching to require source-file equality as well as FQN equality, preventing
-  same-name declarations in different files from matching.
-- 2026-05-04: Added hardening tests for nested package-barrel chains, import cycles, and local top-level shadowing of
-  imported names. Imported names can now act as re-exported module attributes, while local declarations shadow imported
-  bindings for usage resolution.
+- 2026-05-04: Added annotation-backed receiver seeds for local variables, function parameters, annotated instance
+  attributes, same-file declarations, named imports, and namespace-qualified imports.
+- 2026-05-04: Ambiguous annotations rely on `LocalUsageInference` target caps instead of adding Python-specific
+  widening behavior.
+
+## Stage 3: Constructor And Alias Propagation
+
+Goal: cover the common explicit cases where Python code constructs or copies a typed local.
 
 Implementation:
 
-- Resolve only in-project Python modules to `ProjectFile`.
-- Support module paths such as `pkg.mod`, package files such as `pkg/__init__.py`, and sibling modules.
-- Support relative import levels from the importing file's package context.
-- Resolve package barrels through `__init__.py` without executing Python code.
-- Send external modules and unresolved package roots to the external frontier.
-- Keep unresolved in-project-looking imports from becoming hits unless resolution proves the target file.
-
-Tests:
-
-- Add true-positive graph tests for:
-  - direct absolute import;
-  - direct relative import;
-  - alias import;
-  - package barrel import through `__init__.py`;
-  - nested package barrel import.
-- Add true-negative graph tests for:
-  - same exported name in a sibling module;
-  - unresolved relative import;
-  - external package import;
-  - import cycle with no proven path to the target;
-  - local shadowing of an imported name.
-- Assert frontier behavior for external and unresolved imports separately from usage hits.
-
-Exit criteria:
-
-- Python can resolve common in-project imports and package barrels.
-- The test suite distinguishes proven usages from lookalike names and unresolved imports.
-
-## Stage 4: Add Python Graph Strategy And App Routing
-
-Goal: make Python exported-symbol usages available through the same app-layer surfaces as JS/TS.
+- Seed `x = Foo()` and `x = imported_alias()` when the callee resolves to an exported class.
+- Add simple same-scope alias propagation such as `y = x`.
+- Respect local shadowing so `Foo = ...` or `x = ...` blocks stale imported/type facts.
 
 Progress:
 
-- 2026-05-04: Added `PythonExportUsageGraphStrategy` and routed seeded Python targets through
-  `UsageAnalyzerSelector`, with regex fallback preserved for unseeded Python targets.
-- 2026-05-04: Added selector/strategy tests proving Python graph routing, app-layer usage results, and unseeded fallback.
-- 2026-05-04: Made Python adapter definition lookup include declaration identifiers so graph-resolved targets match the
-  app-layer query `CodeUnit`.
+- 2026-05-04: Added constructor-created receiver seeds and simple alias events.
+- 2026-05-04: Added local assignment shadowing so a later `Foo()` does not reuse an imported `Foo` after `Foo = ...`.
+
+## Stage 4: Graph Integration
+
+Goal: make Python receiver facts participate in member usage queries through the reusable graph.
 
 Implementation:
 
-- Add a Python graph strategy that seeds from Python declarations and delegates traversal to the reusable graph.
-- Update `UsageAnalyzerSelector` so Python uses the graph when the target can be seeded from declarations.
-- Preserve regex fallback for unseedable Python targets and unsupported languages.
-- Keep environment flags such as `BRK_FUZZY_USAGES_ONLY` respected if they apply to the selected usage path.
-- Preserve `ReferenceGraphResult` frontier metadata through the app boundary, even if the UI does not surface it yet.
-
-Tests:
-
-- Add selector tests proving:
-  - Java still uses JDT;
-  - JS/TS still uses the existing graph path;
-  - Python uses the graph when seeded;
-  - Python falls back when unseeded;
-  - unsupported languages still use regex.
-- Add app-layer tests for Python empty graph results, frontier-only results, candidate-file restriction, and max-hit
-  limits.
-
-Exit criteria:
-
-- Python exported-symbol usages work through the main usage selection path.
-- Fallback behavior is explicit and tested.
-
-## Stage 5: Extend Python Receiver Inference Only If Needed
-
-Goal: avoid premature member-analysis work, but leave a clear path if Python method/member usages become the next target.
+- Add `PythonAnalyzer.resolvedReceiverCandidatesOf(file, binder)`.
+- Have `PythonExportUsageGraphAdapter` return Python receiver candidates through the existing adapter hook.
+- Keep receiver inference active only for member queries, matching existing graph behavior.
+- Reuse `LocalUsageInference` limits and confidence behavior. Do not add Python-only inference machinery.
 
 Progress:
 
-- 2026-05-04: Deferred implementation. Stages 2-4 cover exported functions/classes and direct imported-symbol usages.
-  Receiver inference should wait for concrete Python member-usage cases and failing tests, as scoped below.
-- 2026-05-04: Added the narrow static class access case (`Foo.bar()`) for imported classes by indexing Python class
-  members and resolving qualified class-member candidates. Broader receiver inference remains deferred.
+- 2026-05-04: Wired Python receiver candidates through `PythonAnalyzer` caching and
+  `PythonExportUsageGraphAdapter.resolvedReceiverCandidatesOf`.
+
+## Stage 5: Guardrails And Non-Goals
+
+Goal: prove the useful positives while explicitly blocking common false positives.
 
 Implementation:
 
-- Start with exported functions/classes and direct imported-symbol usages.
-- Only add Python receiver inference after function/class usage is solid and tests show the missing member cases matter.
-- If added, express Python receiver facts through the existing generic local-inference model:
-  - seed facts from imports, annotations, constructor calls, and declarations;
-  - transfer facts for same-scope aliases and bounded destructuring;
-  - receiver access sites such as `obj.foo` and `obj.foo()`.
-- Keep guardrails: cap targets per local symbol, stop on ambiguity, and prefer explicit provenance over name-only matches.
+- Cap ambiguous receiver targets through existing `LocalUsageInference` limits.
+- Do not fan out by member name alone.
+- Do not infer from runtime assignments, dynamic imports, monkeypatching, return types, or interprocedural calls in this
+  PR.
+- Keep object and dict literals from producing class-member usage hits.
 
-Tests:
+Progress:
 
-- Before implementing receiver inference, add failing tests that describe the exact member usages needed.
-- Add true positives for explicit import or constructor provenance.
-- Add true negatives for unknown receivers, same member name on unrelated classes, object/dict literal collisions, and
-  ambiguous aliases.
+- 2026-05-04: Added true-positive and true-negative Python receiver/type graph tests for annotation, constructor,
+  alias, namespace-qualified annotation, unknown receivers, unknown constructors, local shadowing, unrelated same-name
+  members, ambiguity caps, and dict/object literal collisions.
 
-Exit criteria:
+## Test Plan
 
-- Member support is added only with concrete motivating tests.
-- Precision is proven by true negatives, not just additional hits.
+Receiver/type tests:
 
-## Ongoing Test Standard
+- true positives: `x: Foo; x.bar()`, `def f(x: Foo): x.bar()`, `self.x: Foo; self.x.bar()`,
+  `x = Foo(); x.bar()`, `y = x; y.bar()`, `import pkg as p; x: p.Foo; x.bar()`, and existing `Foo.bar()` static
+  class access;
+- true negatives: `x.bar()` with no seed, `x = Unknown(); x.bar()`, local `Foo = ...` shadowing imported `Foo`,
+  unrelated classes with the same `bar` member, ambiguous receiver target sets beyond the cap, and object/dict literal
+  lookalikes.
 
-Every Python stage should include:
+Regression tests:
 
-- true positives for intended declaration/import/export paths;
-- true negatives for lookalike text, shadowing, unrelated same-name symbols, unresolved modules, and external modules;
-- bounded traversal tests for cycles, frontier, and limits;
-- candidate-file restriction tests where graph APIs accept candidate sets;
-- confidence assertions only at intentional coarse levels.
+- existing Python import/export graph tests;
+- existing Python graph strategy and app-routing tests;
+- existing JS/TS usage graph and strategy tests.
+
+Acceptance criteria:
+
+- targeted Python receiver/type tests pass;
+- existing Python import/export tests pass;
+- existing JS/TS usage graph tests pass;
+- `./gradlew fix tidy` and final `./gradlew analyze` pass before commit.
