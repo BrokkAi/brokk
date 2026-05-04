@@ -171,6 +171,33 @@ impl Session {
             always_allow_tools: HashSet::new(),
         }
     }
+
+    /// Construct a `Session` from data loaded off disk.
+    ///
+    /// SECURITY: transient fields that intentionally do NOT survive a reload
+    /// (`permission_mode`, `always_allow_tools`) are reset here, mirroring
+    /// `claude-agent-acp`. Going through this constructor guarantees a stale
+    /// or tampered manifest cannot silently auto-allow tool calls on launch,
+    /// and that any future "reset on reload" field is added in one place.
+    pub fn from_persisted(
+        id: String,
+        cwd: PathBuf,
+        mode: SessionMode,
+        model: String,
+        history: Vec<ConversationTurn>,
+        manifest: SessionManifest,
+    ) -> Self {
+        Self {
+            id,
+            cwd,
+            mode,
+            model,
+            history,
+            manifest,
+            permission_mode: PermissionMode::Default,
+            always_allow_tools: HashSet::new(),
+        }
+    }
 }
 
 /// Snapshot of the per-session data needed to start a prompt turn. The
@@ -789,20 +816,14 @@ impl SessionStore {
             _ => self.default_model.read().await.clone(),
         };
 
-        // Permission mode is intentionally NOT persisted across sessions: a
-        // resumed session always restarts at `Default`. This mirrors
-        // `claude-agent-acp` and prevents a stale or tampered manifest from
-        // silently auto-allowing every tool call on launch.
-        let session = Session {
-            id: manifest.id.clone(),
-            cwd: cwd.to_path_buf(),
+        let session = Session::from_persisted(
+            manifest.id.clone(),
+            cwd.to_path_buf(),
             mode,
             model,
             history,
             manifest,
-            permission_mode: PermissionMode::Default,
-            always_allow_tools: HashSet::new(),
-        };
+        );
         let mut sessions = self.sessions.write().await;
         // Race window: another task may have inserted under the same id while
         // we read from disk. `or_insert` keeps the existing in-memory entry
@@ -1071,5 +1092,46 @@ mod tests {
             )
             .await;
         assert!(result.is_ok());
+    }
+
+    /// `Session::from_persisted` must always reset the transient security
+    /// fields (`permission_mode`, `always_allow_tools`), even when the
+    /// caller's data was reconstructed from a manifest that may be stale or
+    /// tampered. Persisted-side fields (id/cwd/mode/model/history/manifest)
+    /// must round-trip unchanged.
+    #[test]
+    fn from_persisted_resets_transient_security_fields() {
+        let manifest = SessionManifest {
+            id: "abc".into(),
+            name: "n".into(),
+            created: 1,
+            modified: 2,
+            version: "4.0".into(),
+            mode: Some("CODE".into()),
+            model: Some("m".into()),
+        };
+        let history = vec![ConversationTurn {
+            user_prompt: "u".into(),
+            agent_response: "a".into(),
+        }];
+
+        let session = Session::from_persisted(
+            "abc".into(),
+            PathBuf::from("/tmp/x"),
+            SessionMode::Code,
+            "m".into(),
+            history.clone(),
+            manifest.clone(),
+        );
+
+        assert_eq!(session.permission_mode, PermissionMode::Default);
+        assert!(session.always_allow_tools.is_empty());
+
+        assert_eq!(session.id, "abc");
+        assert_eq!(session.cwd, PathBuf::from("/tmp/x"));
+        assert_eq!(session.mode, SessionMode::Code);
+        assert_eq!(session.model, "m");
+        assert_eq!(session.history.len(), 1);
+        assert_eq!(session.manifest.id, manifest.id);
     }
 }
