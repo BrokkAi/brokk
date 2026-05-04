@@ -749,7 +749,9 @@ impl SessionStore {
         match tokio::task::spawn_blocking(move || write_new_session_zip(&zip_path, &manifest)).await
         {
             Ok(Ok(())) => {}
-            Ok(Err(e)) => tracing::warn!(session_id = %id, "failed to write new session zip: {e:#}"),
+            Ok(Err(e)) => {
+                tracing::warn!(session_id = %id, "failed to write new session zip: {e:#}")
+            }
             Err(e) => tracing::warn!(session_id = %id, "session zip writer task panicked: {e}"),
         }
 
