@@ -12,6 +12,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 
 final class TestHttpExchange extends HttpExchange {
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -35,6 +36,13 @@ final class TestHttpExchange extends HttpExchange {
         var ex = new TestHttpExchange();
         ex.method = method;
         ex.uri = URI.create(path);
+        return ex;
+    }
+
+    static TestHttpExchange jsonRequest(String method, String path, String body) {
+        var ex = request(method, path);
+        ex.requestHeaders.set("Content-Type", "application/json");
+        ex.requestBodyBytes = body.getBytes(StandardCharsets.UTF_8);
         return ex;
     }
 
