@@ -142,4 +142,39 @@ class MessagesLegacyFramingTest {
         assertEquals(ChatMessageType.CUSTOM, segments.get(0).type());
         assertEquals(malformed, segments.get(0).content());
     }
+
+    @Test
+    void emitsBothOuterAndInnerWhenOuterHasOwnContent() {
+        // Locks in the actual emission contract: a nested wrap whose outer frame carries text
+        // outside the inner block emits two segments (inner first, then outer with the surrounding
+        // text). The Javadoc previously claimed only the inner was emitted, which was misleading.
+        var input =
+                """
+                <message type=custom>
+                  prefix
+                  <message type=user>
+                    question
+                  </message>
+                  suffix
+                </message>
+                """;
+        var segments = Messages.parseLegacyFraming(input);
+        assertEquals(2, segments.size());
+        assertEquals(ChatMessageType.USER, segments.get(0).type());
+        assertEquals("question", segments.get(0).content());
+        assertEquals(ChatMessageType.CUSTOM, segments.get(1).type());
+        assertEquals("prefix\nsuffix", segments.get(1).content());
+    }
+
+    @Test
+    void exceedsMaxDepthFallsBackToSingleCustomSegment() {
+        // 33 unterminated opens trip the MAX_FRAMING_DEPTH=32 cap on the 33rd push attempt and
+        // bail out to a single CUSTOM segment containing the full markdown, preventing unbounded
+        // StringBuilder allocation on adversarial input.
+        var input = "<message type=user>\n".repeat(33) + "content\n";
+        var segments = Messages.parseLegacyFraming(input);
+        assertEquals(1, segments.size());
+        assertEquals(ChatMessageType.CUSTOM, segments.get(0).type());
+        assertEquals(input, segments.get(0).content());
+    }
 }
