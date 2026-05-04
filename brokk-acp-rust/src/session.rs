@@ -408,93 +408,136 @@ fn read_history_from_zip(zip_path: &Path) -> Vec<ConversationTurn> {
     turns
 }
 
-/// Write a new empty session zip compatible with the executor.
-fn write_new_session_zip(zip_path: &Path, manifest: &SessionManifest) {
-    let dir = zip_path.parent().unwrap();
-    if let Err(e) = std::fs::create_dir_all(dir) {
-        tracing::warn!("failed to create sessions dir {}: {e}", dir.display());
-        return;
-    }
+/// Run `populate` against a fresh `<zip_path>.tmp`, finalize the writer, and atomically
+/// rename it over `zip_path`. On any failure the temp file is cleaned up and the original
+/// zip (if any) is left untouched, so callers get all-or-nothing semantics.
+fn with_temp_zip_writer<F>(zip_path: &Path, populate: F) -> anyhow::Result<()>
+where
+    F: FnOnce(
+        &mut zip::ZipWriter<std::fs::File>,
+        zip::write::SimpleFileOptions,
+    ) -> anyhow::Result<()>,
+{
+    use anyhow::Context;
+
+    let dir = zip_path.parent().with_context(|| {
+        format!(
+            "session zip path has no parent directory: {}",
+            zip_path.display()
+        )
+    })?;
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("creating sessions dir {}", dir.display()))?;
 
     let tmp = zip_path.with_extension("tmp");
-    let file = match std::fs::File::create(&tmp) {
-        Ok(f) => f,
-        Err(e) => {
-            tracing::warn!("failed to create session zip {}: {e}", tmp.display());
-            return;
-        }
-    };
+    let file = std::fs::File::create(&tmp)
+        .with_context(|| format!("creating temp zip {}", tmp.display()))?;
 
-    let mut zip = zip::ZipWriter::new(file);
+    let mut writer = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
-    // manifest.json
-    let manifest_json = serde_json::to_string_pretty(manifest).unwrap_or_default();
-    if zip.start_file("manifest.json", options).is_ok() {
-        let _ = zip.write_all(manifest_json.as_bytes());
+    if let Err(e) = populate(&mut writer, options) {
+        // Drop the writer (closes its file handle) before unlinking the temp.
+        drop(writer);
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
 
-    // Empty context (one initial context entry)
-    let ctx_id = uuid::Uuid::new_v4().to_string();
-    let context_line = serde_json::json!({
-        "id": ctx_id,
-        "editable": [],
-        "readonly": [],
-        "virtuals": [],
-        "pinned": [],
-        "tasks": [],
-        "parsedOutputId": null
-    });
-    if zip.start_file("contexts.jsonl", options).is_ok() {
-        let line = serde_json::to_string(&context_line).unwrap_or_default();
-        let _ = zip.write_all(line.as_bytes());
-        let _ = zip.write_all(b"\n");
-    }
+    writer
+        .finish()
+        .with_context(|| format!("finalizing temp zip {}", tmp.display()))?;
+    std::fs::rename(&tmp, zip_path)
+        .with_context(|| format!("renaming {} to {}", tmp.display(), zip_path.display()))?;
+    Ok(())
+}
 
-    // Empty fragments
-    let fragments = serde_json::json!({
-        "version": 4,
-        "referenced": {},
-        "virtual": {},
-        "task": {}
-    });
-    if zip.start_file("fragments-v4.json", options).is_ok() {
-        let _ = zip.write_all(
-            serde_json::to_string(&fragments)
-                .unwrap_or_default()
-                .as_bytes(),
-        );
+/// Copy every entry from `archive` into `writer` whose name does not match `skip`.
+/// Per-entry I/O failures bubble up; callers in `with_temp_zip_writer` will discard
+/// the half-written temp zip.
+fn copy_zip_entries_except<F>(
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    writer: &mut zip::ZipWriter<std::fs::File>,
+    options: zip::write::SimpleFileOptions,
+    skip: F,
+) -> anyhow::Result<()>
+where
+    F: Fn(&str) -> bool,
+{
+    use anyhow::Context;
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .with_context(|| format!("reading zip entry at index {i}"))?;
+        let name = entry.name().to_string();
+        if skip(&name) {
+            continue;
+        }
+        let mut buf = Vec::new();
+        entry
+            .read_to_end(&mut buf)
+            .with_context(|| format!("reading zip entry {name}"))?;
+        writer
+            .start_file(&name, options)
+            .with_context(|| format!("starting zip entry {name}"))?;
+        writer
+            .write_all(&buf)
+            .with_context(|| format!("writing zip entry {name}"))?;
     }
+    Ok(())
+}
 
-    // Empty content metadata
-    if zip.start_file("content_metadata.json", options).is_ok() {
-        let _ = zip.write_all(b"{}");
-    }
+/// Write a new empty session zip compatible with the executor.
+fn write_new_session_zip(zip_path: &Path, manifest: &SessionManifest) -> anyhow::Result<()> {
+    use anyhow::Context;
 
-    // Empty group info
-    let group_info = serde_json::json!({"contextToGroupId": {}, "groupLabels": {}});
-    if zip.start_file("group_info.json", options).is_ok() {
-        let _ = zip.write_all(
-            serde_json::to_string(&group_info)
-                .unwrap_or_default()
-                .as_bytes(),
-        );
-    }
+    with_temp_zip_writer(zip_path, |zip, options| {
+        // manifest.json
+        let manifest_json =
+            serde_json::to_string_pretty(manifest).context("serializing session manifest")?;
+        zip.start_file("manifest.json", options)?;
+        zip.write_all(manifest_json.as_bytes())?;
 
-    let _ = zip.finish();
-    if let Err(e) = std::fs::rename(&tmp, zip_path) {
-        tracing::warn!("failed to rename session zip: {e}");
-    }
+        // Empty context (one initial context entry)
+        let ctx_id = uuid::Uuid::new_v4().to_string();
+        let context_line = serde_json::json!({
+            "id": ctx_id,
+            "editable": [],
+            "readonly": [],
+            "virtuals": [],
+            "pinned": [],
+            "tasks": [],
+            "parsedOutputId": null
+        });
+        zip.start_file("contexts.jsonl", options)?;
+        zip.write_all(serde_json::to_string(&context_line)?.as_bytes())?;
+        zip.write_all(b"\n")?;
+
+        // Empty fragments
+        let fragments =
+            serde_json::json!({"version": 4, "referenced": {}, "virtual": {}, "task": {}});
+        zip.start_file("fragments-v4.json", options)?;
+        zip.write_all(serde_json::to_string(&fragments)?.as_bytes())?;
+
+        // Empty content metadata
+        zip.start_file("content_metadata.json", options)?;
+        zip.write_all(b"{}")?;
+
+        // Empty group info
+        let group_info = serde_json::json!({"contextToGroupId": {}, "groupLabels": {}});
+        zip.start_file("group_info.json", options)?;
+        zip.write_all(serde_json::to_string(&group_info)?.as_bytes())?;
+
+        Ok(())
+    })
 }
 
 /// Update manifest.json and add a conversation turn to an existing session zip.
 ///
-/// Failures of the framing operations (open, archive read, finalize, rename) are
-/// surfaced to the caller so the in-memory `add_turn` can roll back and keep
-/// `memory == disk`. Per-entry write failures inside the zip are still logged
-/// only; if any of those occur the temp zip is incomplete and the rename step
-/// will fail downstream, so callers still see the error.
+/// All framing failures (open, archive read, per-entry copy, finalize, rename) propagate
+/// to the caller so `add_turn` can roll back and keep `memory == disk`. The atomic
+/// temp-then-rename in `with_temp_zip_writer` guarantees the on-disk zip is unchanged
+/// on any failure path.
 fn append_turn_to_zip(
     zip_path: &Path,
     manifest: &SessionManifest,
@@ -502,90 +545,53 @@ fn append_turn_to_zip(
 ) -> anyhow::Result<()> {
     use anyhow::Context;
 
-    // Read the existing zip, rebuild with new content
     let file = std::fs::File::open(zip_path)
         .with_context(|| format!("opening session zip {} for update", zip_path.display()))?;
     let mut archive = zip::ZipArchive::new(file)
         .with_context(|| format!("reading session zip {}", zip_path.display()))?;
 
-    let tmp = zip_path.with_extension("tmp");
-    let out_file = std::fs::File::create(&tmp)
-        .with_context(|| format!("creating temp zip {}", tmp.display()))?;
+    // Pre-read the entries we plan to rewrite. A missing or unparseable entry falls back
+    // to a known-empty default, matching prior behavior; a stale corruption shouldn't
+    // abort persistence of the new turn.
+    let mut existing_fragments: serde_json::Value =
+        serde_json::json!({"version": 4, "referenced": {}, "virtual": {}, "task": {}});
+    if let Ok(mut e) = archive.by_name("fragments-v4.json") {
+        let mut buf = String::new();
+        if e.read_to_string(&mut buf).is_ok()
+            && let Ok(v) = serde_json::from_str(&buf)
+        {
+            existing_fragments = v;
+        }
+    }
+    let mut existing_contexts = String::new();
+    if let Ok(mut e) = archive.by_name("contexts.jsonl") {
+        let _ = e.read_to_string(&mut existing_contexts);
+    }
+    let mut existing_content_metadata: serde_json::Value = serde_json::json!({});
+    if let Ok(mut e) = archive.by_name("content_metadata.json") {
+        let mut buf = String::new();
+        if e.read_to_string(&mut buf).is_ok()
+            && let Ok(v) = serde_json::from_str(&buf)
+        {
+            existing_content_metadata = v;
+        }
+    }
+    let mut existing_group_info: serde_json::Value =
+        serde_json::json!({"contextToGroupId": {}, "groupLabels": {}});
+    if let Ok(mut e) = archive.by_name("group_info.json") {
+        let mut buf = String::new();
+        if e.read_to_string(&mut buf).is_ok()
+            && let Ok(v) = serde_json::from_str(&buf)
+        {
+            existing_group_info = v;
+        }
+    }
 
-    let mut zip_writer = zip::ZipWriter::new(out_file);
-    let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
-
-    // Generate content IDs for this turn
     let user_content_id = uuid::Uuid::new_v4().to_string();
     let response_content_id = uuid::Uuid::new_v4().to_string();
     let task_fragment_id = uuid::Uuid::new_v4().to_string();
     let new_context_id = uuid::Uuid::new_v4().to_string();
 
-    // Read existing fragments and contexts
-    let mut existing_fragments: serde_json::Value = serde_json::json!({
-        "version": 4, "referenced": {}, "virtual": {}, "task": {}
-    });
-    let mut existing_contexts = String::new();
-    let mut existing_content_metadata: serde_json::Value = serde_json::json!({});
-    let mut existing_group_info: serde_json::Value =
-        serde_json::json!({"contextToGroupId": {}, "groupLabels": {}});
-
-    // Copy existing entries (except ones we'll rewrite), and read their content
-    for i in 0..archive.len() {
-        let mut entry = match archive.by_index(i) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        let name = entry.name().to_string();
-
-        match name.as_str() {
-            "manifest.json" => { /* we'll rewrite this */ }
-            "fragments-v4.json" => {
-                let mut buf = String::new();
-                if entry.read_to_string(&mut buf).is_ok()
-                    && let Ok(v) = serde_json::from_str(&buf)
-                {
-                    existing_fragments = v;
-                }
-            }
-            "contexts.jsonl" => {
-                let _ = entry.read_to_string(&mut existing_contexts);
-            }
-            "content_metadata.json" => {
-                let mut buf = String::new();
-                if entry.read_to_string(&mut buf).is_ok()
-                    && let Ok(v) = serde_json::from_str(&buf)
-                {
-                    existing_content_metadata = v;
-                }
-            }
-            "group_info.json" => {
-                let mut buf = String::new();
-                if entry.read_to_string(&mut buf).is_ok()
-                    && let Ok(v) = serde_json::from_str(&buf)
-                {
-                    existing_group_info = v;
-                }
-            }
-            _ => {
-                // Copy other entries as-is (content/*.txt, images, etc.)
-                let mut buf = Vec::new();
-                let _ = entry.read_to_end(&mut buf);
-                if zip_writer.start_file(&name, options).is_ok() {
-                    let _ = zip_writer.write_all(&buf);
-                }
-            }
-        }
-    }
-
-    // Write updated manifest.json
-    let manifest_json = serde_json::to_string_pretty(manifest).unwrap_or_default();
-    if zip_writer.start_file("manifest.json", options).is_ok() {
-        let _ = zip_writer.write_all(manifest_json.as_bytes());
-    }
-
-    // Add the new task fragment referencing the response content
     if let Some(tasks) = existing_fragments
         .get_mut("task")
         .and_then(|t| t.as_object_mut())
@@ -605,16 +611,6 @@ fn append_turn_to_zip(
         );
     }
 
-    // Write updated fragments
-    if zip_writer.start_file("fragments-v4.json", options).is_ok() {
-        let _ = zip_writer.write_all(
-            serde_json::to_string(&existing_fragments)
-                .unwrap_or_default()
-                .as_bytes(),
-        );
-    }
-
-    // Add new context entry referencing the task fragment
     let new_context = serde_json::json!({
         "id": new_context_id,
         "editable": [],
@@ -633,120 +629,72 @@ fn append_turn_to_zip(
         }],
         "parsedOutputId": null
     });
-
     let mut contexts = existing_contexts;
     contexts.push_str(&serde_json::to_string(&new_context).unwrap_or_default());
     contexts.push('\n');
-    if zip_writer.start_file("contexts.jsonl", options).is_ok() {
-        let _ = zip_writer.write_all(contexts.as_bytes());
-    }
 
-    // Write content metadata
-    if zip_writer
-        .start_file("content_metadata.json", options)
-        .is_ok()
-    {
-        let _ = zip_writer.write_all(
-            serde_json::to_string(&existing_content_metadata)
-                .unwrap_or_default()
-                .as_bytes(),
-        );
-    }
+    const REWRITTEN: &[&str] = &[
+        "manifest.json",
+        "fragments-v4.json",
+        "contexts.jsonl",
+        "content_metadata.json",
+        "group_info.json",
+    ];
 
-    // Write group info
-    if zip_writer.start_file("group_info.json", options).is_ok() {
-        let _ = zip_writer.write_all(
-            serde_json::to_string(&existing_group_info)
-                .unwrap_or_default()
-                .as_bytes(),
-        );
-    }
+    with_temp_zip_writer(zip_path, |writer, options| {
+        copy_zip_entries_except(&mut archive, writer, options, |n| REWRITTEN.contains(&n))?;
 
-    // Write new content files
-    let user_content_path = format!("content/{user_content_id}.txt");
-    if zip_writer.start_file(&user_content_path, options).is_ok() {
-        let _ = zip_writer.write_all(turn.user_prompt.as_bytes());
-    }
-    let response_content_path = format!("content/{response_content_id}.txt");
-    if zip_writer
-        .start_file(&response_content_path, options)
-        .is_ok()
-    {
-        let _ = zip_writer.write_all(turn.agent_response.as_bytes());
-    }
+        let manifest_json =
+            serde_json::to_string_pretty(manifest).context("serializing session manifest")?;
+        writer.start_file("manifest.json", options)?;
+        writer.write_all(manifest_json.as_bytes())?;
 
-    zip_writer
-        .finish()
-        .with_context(|| format!("finalizing temp zip {}", tmp.display()))?;
-    std::fs::rename(&tmp, zip_path)
-        .with_context(|| format!("renaming {} to {}", tmp.display(), zip_path.display()))?;
-    Ok(())
+        writer.start_file("fragments-v4.json", options)?;
+        writer.write_all(serde_json::to_string(&existing_fragments)?.as_bytes())?;
+
+        writer.start_file("contexts.jsonl", options)?;
+        writer.write_all(contexts.as_bytes())?;
+
+        writer.start_file("content_metadata.json", options)?;
+        writer.write_all(serde_json::to_string(&existing_content_metadata)?.as_bytes())?;
+
+        writer.start_file("group_info.json", options)?;
+        writer.write_all(serde_json::to_string(&existing_group_info)?.as_bytes())?;
+
+        writer.start_file(format!("content/{user_content_id}.txt"), options)?;
+        writer.write_all(turn.user_prompt.as_bytes())?;
+
+        writer.start_file(format!("content/{response_content_id}.txt"), options)?;
+        writer.write_all(turn.agent_response.as_bytes())?;
+
+        Ok(())
+    })
 }
 
 /// Replace manifest.json in an existing session zip, copying all other entries as-is.
-/// Returns true on success.
-fn rewrite_manifest_in_zip(zip_path: &Path, manifest: &SessionManifest) -> bool {
-    let file = match std::fs::File::open(zip_path) {
-        Ok(f) => f,
-        Err(e) => {
-            tracing::warn!("failed to open session zip for manifest rewrite: {e}");
-            return false;
-        }
-    };
-    let mut archive = match zip::ZipArchive::new(file) {
-        Ok(a) => a,
-        Err(e) => {
-            tracing::warn!("failed to read session zip for manifest rewrite: {e}");
-            return false;
-        }
-    };
+///
+/// Atomic: any failure leaves the on-disk zip untouched, so callers can roll back
+/// in-memory mutations and keep `memory == disk`.
+fn rewrite_manifest_in_zip(zip_path: &Path, manifest: &SessionManifest) -> anyhow::Result<()> {
+    use anyhow::Context;
 
-    let tmp = zip_path.with_extension("tmp");
-    let out_file = match std::fs::File::create(&tmp) {
-        Ok(f) => f,
-        Err(e) => {
-            tracing::warn!("failed to create temp zip for manifest rewrite: {e}");
-            return false;
-        }
-    };
+    let file = std::fs::File::open(zip_path).with_context(|| {
+        format!(
+            "opening session zip {} for manifest rewrite",
+            zip_path.display()
+        )
+    })?;
+    let mut archive = zip::ZipArchive::new(file)
+        .with_context(|| format!("reading session zip {}", zip_path.display()))?;
 
-    let mut zip_writer = zip::ZipWriter::new(out_file);
-    let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
-
-    for i in 0..archive.len() {
-        let mut entry = match archive.by_index(i) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        let name = entry.name().to_string();
-        if name == "manifest.json" {
-            continue;
-        }
-        let mut buf = Vec::new();
-        if entry.read_to_end(&mut buf).is_err() {
-            continue;
-        }
-        if zip_writer.start_file(&name, options).is_ok() {
-            let _ = zip_writer.write_all(&buf);
-        }
-    }
-
-    let manifest_json = serde_json::to_string_pretty(manifest).unwrap_or_default();
-    if zip_writer.start_file("manifest.json", options).is_ok() {
-        let _ = zip_writer.write_all(manifest_json.as_bytes());
-    }
-
-    if zip_writer.finish().is_err() {
-        return false;
-    }
-    match std::fs::rename(&tmp, zip_path) {
-        Ok(()) => true,
-        Err(e) => {
-            tracing::warn!("failed to rename rewritten session zip: {e}");
-            false
-        }
-    }
+    with_temp_zip_writer(zip_path, |writer, options| {
+        copy_zip_entries_except(&mut archive, writer, options, |n| n == "manifest.json")?;
+        let manifest_json =
+            serde_json::to_string_pretty(manifest).context("serializing session manifest")?;
+        writer.start_file("manifest.json", options)?;
+        writer.write_all(manifest_json.as_bytes())?;
+        Ok(())
+    })
 }
 
 /// List all session manifests from the executor's sessions directory.
@@ -908,10 +856,20 @@ impl SessionStore {
         let session = Session::new(id.clone(), cwd.clone(), model, "New Session".to_string());
 
         // Write to disk on a blocking worker so we don't stall the tokio runtime.
+        // Persistence failures are logged but not surfaced: `create_session` returns
+        // an in-memory session today, and changing the API to `Result` would ripple
+        // through every `session/new` caller. Reload after a write failure simply
+        // returns no manifest from disk.
         let zip_path = session_zip_path(&cwd, &id);
         let manifest = session.manifest.clone();
-        let _ =
-            tokio::task::spawn_blocking(move || write_new_session_zip(&zip_path, &manifest)).await;
+        match tokio::task::spawn_blocking(move || write_new_session_zip(&zip_path, &manifest)).await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                tracing::warn!(session_id = %id, "failed to write new session zip: {e:#}")
+            }
+            Err(e) => tracing::warn!(session_id = %id, "session zip writer task panicked: {e}"),
+        }
 
         self.sessions
             .write()
@@ -1079,14 +1037,72 @@ impl SessionStore {
         }
     }
 
-    pub async fn set_mode(&self, id: &str, mode: SessionMode) -> bool {
+    /// Update the session's behavior mode and persist the new manifest.
+    ///
+    /// Returns `Ok(true)` on success, `Ok(false)` if the session is unknown
+    /// (no-op), or `Err` if persistence failed -- in that case the in-memory
+    /// mutation is rolled back so `memory == disk`, mirroring `add_turn`.
+    pub async fn set_mode(&self, id: &str, mode: SessionMode) -> anyhow::Result<bool> {
         // Update in-memory state and snapshot what we need for persistence.
+        // Capture the pre-mutation mode so we can reverse it on failure.
         let snapshot = {
             let mut sessions = self.sessions.write().await;
             match sessions.get_mut(id) {
                 Some(session) => {
+                    let prev_mode = session.mode;
+                    let prev_manifest_mode = session.manifest.mode.clone();
                     session.mode = mode;
                     session.manifest.mode = Some(mode.as_str().to_string());
+                    Some((
+                        session.cwd.clone(),
+                        session.manifest.clone(),
+                        prev_mode,
+                        prev_manifest_mode,
+                    ))
+                }
+                None => None,
+            }
+        };
+        let Some((cwd, manifest, prev_mode, prev_manifest_mode)) = snapshot else {
+            return Ok(false);
+        };
+
+        let zip_path = session_zip_path(&cwd, id);
+        let join_result =
+            tokio::task::spawn_blocking(move || rewrite_manifest_in_zip(&zip_path, &manifest))
+                .await;
+
+        let persist_result = match join_result {
+            Ok(r) => r,
+            Err(join_err) => Err(anyhow::anyhow!(
+                "session persistence task panicked: {join_err}"
+            )),
+        };
+
+        if let Err(e) = persist_result {
+            tracing::error!(
+                session_id = %id,
+                "failed to persist session mode; rolling back in-memory state: {e:#}"
+            );
+            if let Some(session) = self.sessions.write().await.get_mut(id) {
+                session.mode = prev_mode;
+                session.manifest.mode = prev_manifest_mode;
+            }
+            return Err(e);
+        }
+        Ok(true)
+    }
+
+    /// Update the per-session LLM model. Returns false if the session is
+    /// unknown. Persists the new model into the session manifest so it
+    /// survives a reload, mirroring `set_mode`.
+    pub async fn set_model(&self, id: &str, model: String) -> bool {
+        let snapshot = {
+            let mut sessions = self.sessions.write().await;
+            match sessions.get_mut(id) {
+                Some(session) => {
+                    session.model = model.clone();
+                    session.manifest.model = if model.is_empty() { None } else { Some(model) };
                     Some((session.cwd.clone(), session.manifest.clone()))
                 }
                 None => None,
@@ -1271,6 +1287,47 @@ mod tests {
             s.manifest.modified, pre_modified,
             "rollback should restore the pre-call manifest.modified timestamp"
         );
+    }
+
+    /// `set_mode` must roll back the in-memory mode change when the zip rewrite
+    /// fails, mirroring `add_turn`. Otherwise memory drifts away from disk and
+    /// the next reload silently downgrades the user's selection.
+    #[tokio::test]
+    async fn set_mode_rolls_back_on_persistence_failure() {
+        let store = SessionStore::new("test-model".to_string());
+
+        let id = "set-mode-rollback".to_string();
+        let cwd = std::env::temp_dir().join(format!("brokk-acp-rust-set-mode-{}", id));
+        let session = Session::new(id.clone(), cwd, "test-model".to_string(), "test".into());
+        let pre_mode = session.mode;
+        let pre_manifest_mode = session.manifest.mode.clone();
+        store.sessions.write().await.insert(id.clone(), session);
+
+        let result = store.set_mode(&id, SessionMode::Plan).await;
+        assert!(
+            result.is_err(),
+            "set_mode should fail when the session zip doesn't exist on disk"
+        );
+
+        let sessions = store.sessions.read().await;
+        let s = sessions.get(&id).expect("session still in memory");
+        assert_eq!(
+            s.mode, pre_mode,
+            "rollback should restore the previous in-memory mode"
+        );
+        assert_eq!(
+            s.manifest.mode, pre_manifest_mode,
+            "rollback should restore the previous manifest.mode"
+        );
+    }
+
+    /// `set_mode` on an unknown session id is `Ok(false)` (no-op), distinct
+    /// from `Err`, so callers can return a precise "unknown session" error.
+    #[tokio::test]
+    async fn set_mode_unknown_session_returns_ok_false() {
+        let store = SessionStore::new("test-model".to_string());
+        let result = store.set_mode("no-such-session", SessionMode::Code).await;
+        assert!(matches!(result, Ok(false)));
     }
 
     /// Sanity check that `add_turn` on an unknown session id is a no-op
@@ -1540,5 +1597,36 @@ mod tests {
 
         assert_eq!(err.requested, "requested-id");
         assert_eq!(err.loaded, "loaded-id");
+    }
+
+    /// `set_model` should update the in-memory `Session.model` and
+    /// `manifest.model` so a subsequent reload from disk picks up the new
+    /// value. Persistence itself is exercised by `rewrite_manifest_in_zip`
+    /// (shared with `set_mode`); this test verifies wiring only.
+    #[tokio::test]
+    async fn set_model_updates_session_and_manifest() {
+        let store = SessionStore::new("initial-model".to_string());
+
+        // Use a unique tmp cwd so concurrent test runs don't clobber.
+        let cwd =
+            std::env::temp_dir().join(format!("brokk-acp-rust-set-model-{}", uuid::Uuid::new_v4()));
+        let session = store.create_session(cwd).await;
+        let id = session.id.clone();
+
+        assert!(store.set_model(&id, "next-model".to_string()).await);
+        let sessions = store.sessions.read().await;
+        let s = sessions.get(&id).expect("session still in memory");
+        assert_eq!(s.model, "next-model");
+        assert_eq!(s.manifest.model.as_deref(), Some("next-model"));
+    }
+
+    #[tokio::test]
+    async fn set_model_returns_false_for_unknown_session() {
+        let store = SessionStore::new("initial-model".to_string());
+        assert!(
+            !store
+                .set_model("no-such-session", "next-model".into())
+                .await
+        );
     }
 }

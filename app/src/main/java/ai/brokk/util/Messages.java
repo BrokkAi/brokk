@@ -287,6 +287,8 @@ public class Messages {
 
     private static final Pattern LEGACY_SECTION_LABEL = Pattern.compile("(?m)^(?:Reasoning|Text|Tool calls):\\s*$");
 
+    private static final int MAX_FRAMING_DEPTH = 32;
+
     /**
      * Parses task markdown that may contain legacy {@code <message type=X>...</message>} framing
      * (produced by {@link #format(List)}) into a list of structured segments.
@@ -296,9 +298,13 @@ public class Messages {
      * messages are no longer available on the fragment but the persisted markdown still carries them.
      *
      * <p>Uses a line-based stack scanner so it correctly handles empty bodies and arbitrarily nested
-     * framing (e.g. {@code <message type=custom>} wrapping a full {@code <message type=user>...</message>}).
-     * When framing is nested only the inner segment is emitted, since the outer wrap carries no
-     * meaningful content of its own.
+     * framing. Each closing tag emits a segment if its accumulated content is non-empty after cleaning;
+     * nested wrappers contribute additional segments only when they carry their own content outside the
+     * inner blocks. Emission order follows close-tag order (inner blocks emit before their parent).
+     *
+     * <p>If the open-tag depth exceeds {@value #MAX_FRAMING_DEPTH}, the parser falls back to a single
+     * CUSTOM segment containing the original markdown to prevent unbounded allocation on adversarial
+     * input.
      */
     public static List<FramedSegment> parseLegacyFraming(String markdown) {
         if (markdown.isEmpty()) {
@@ -313,6 +319,12 @@ public class Messages {
         for (var line : markdown.split("\n", -1)) {
             var openMatcher = LEGACY_OPEN_TAG.matcher(line);
             if (openMatcher.matches()) {
+                if (typeStack.size() >= MAX_FRAMING_DEPTH) {
+                    logger.warn(
+                            "parseLegacyFraming: depth limit {} exceeded; falling back to CUSTOM segment",
+                            MAX_FRAMING_DEPTH);
+                    return List.of(new FramedSegment(ChatMessageType.CUSTOM, markdown));
+                }
                 ChatMessageType type;
                 try {
                     type = ChatMessageType.valueOf(openMatcher.group(1).toUpperCase(Locale.ROOT));
