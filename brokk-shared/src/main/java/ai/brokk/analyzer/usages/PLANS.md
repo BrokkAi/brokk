@@ -38,6 +38,13 @@ component or prove Python parity.
 
 Goal: identify the smallest reusable seam needed to let Python plug into the existing reference graph.
 
+Progress:
+
+- 2026-05-04: Added `ExportUsageGraphLanguageAdapter`, `ExportResolutionData`, and a JS/TS adapter. The graph now owns
+  traversal through the adapter seam while existing JS/TS public entrypoints remain unchanged.
+- 2026-05-04: Added fake-adapter tests for proven import hits, candidate-file restriction, and external frontier
+  propagation, plus reran JS/TS graph and strategy regression tests.
+
 Implementation:
 
 - Introduce an adapter interface only if it removes concrete duplication for Python. A minimal shape is:

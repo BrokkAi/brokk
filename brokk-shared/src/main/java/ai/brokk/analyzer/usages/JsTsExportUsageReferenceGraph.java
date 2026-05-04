@@ -5,7 +5,6 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.JsTsAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.PathNormalizer;
@@ -80,9 +79,20 @@ public final class JsTsExportUsageReferenceGraph {
             throw new IllegalArgumentException(
                     "Analyzer is not a JS/TS analyzer: " + analyzer.getClass().getName());
         }
+        var adapter = new JsTsExportUsageGraphAdapter(jsTs);
+        return findExportUsages(definingFile, exportName, queryTarget, adapter, limits, candidateFiles);
+    }
 
+    static ReferenceGraphResult findExportUsages(
+            ProjectFile definingFile,
+            String exportName,
+            @Nullable CodeUnit queryTarget,
+            ExportUsageGraphLanguageAdapter adapter,
+            Limits limits,
+            @Nullable Set<ProjectFile> candidateFiles)
+            throws InterruptedException {
         Set<String> externalFrontier = new LinkedHashSet<>();
-        var resolution = resolveExport(definingFile, exportName, jsTs, limits, externalFrontier);
+        var resolution = resolveExport(definingFile, exportName, adapter, limits, externalFrontier);
         Set<CodeUnit> targets = queryTarget != null ? Set.of(queryTarget) : resolution.targets();
         Set<ProjectFile> frontier = new LinkedHashSet<>(resolution.frontier());
 
@@ -99,10 +109,10 @@ public final class JsTsExportUsageReferenceGraph {
             return new ReferenceGraphResult(Set.of(), Set.copyOf(frontier), Set.copyOf(externalFrontier));
         }
 
-        Map<ProjectFile, Set<ProjectFile>> reverseReexports = jsTs.reverseReexportIndex();
+        Map<ProjectFile, Set<ProjectFile>> reverseReexports = adapter.reverseReexportIndex();
         Set<ProjectFile> filesToAnalyze = candidateFiles != null && !candidateFiles.isEmpty()
                 ? Set.copyOf(candidateFiles)
-                : collectReferencingFiles(definingFile, jsTs, reverseReexports, limits.maxFiles());
+                : collectReferencingFiles(definingFile, adapter, reverseReexports, limits.maxFiles());
         var expandedFilesToAnalyze = new LinkedHashSet<>(filesToAnalyze);
         expandedFilesToAnalyze.add(definingFile);
         filesToAnalyze = Set.copyOf(expandedFilesToAnalyze);
@@ -119,7 +129,7 @@ public final class JsTsExportUsageReferenceGraph {
         Map<String, Set<String>> heritageEdges =
                 targets.stream().allMatch(target -> target.kind() != CodeUnitType.CLASS && !isMemberTarget(target))
                         ? Map.of()
-                        : jsTs.heritageIndex();
+                        : adapter.heritageIndex();
 
         Set<ReferenceHit> hits = new LinkedHashSet<>();
         int filesProcessed = 0;
@@ -128,17 +138,17 @@ public final class JsTsExportUsageReferenceGraph {
             if (filesProcessed >= limits.maxFiles()) break;
             filesProcessed++;
 
-            ImportBinder binder = jsTs.importBinderOf(file);
-            Set<ReferenceCandidate> candidates = jsTs.exportUsageCandidatesOf(file, binder);
+            ImportBinder binder = adapter.importBinderOf(file);
+            Set<ReferenceCandidate> candidates = adapter.usageCandidatesOf(file, binder);
             Set<ResolvedReceiverCandidate> receiverCandidates =
-                    shouldResolveReceiverCandidates ? jsTs.resolvedReceiverCandidatesOf(file, binder) : Set.of();
+                    shouldResolveReceiverCandidates ? adapter.resolvedReceiverCandidatesOf(file, binder) : Set.of();
             if (candidates.isEmpty() && receiverCandidates.isEmpty()) continue;
 
             for (ReferenceCandidate cand : candidates) {
                 if (hits.size() >= limits.maxHits()) break;
 
                 Optional<ResolvedExport> resolved =
-                        resolveCandidate(cand, file, binder, jsTs, limits, frontier, externalFrontier);
+                        resolveCandidate(cand, file, binder, adapter, limits, frontier, externalFrontier);
                 if (resolved.isEmpty()) continue;
 
                 CodeUnit resolvedTarget = resolved.get().target();
@@ -157,7 +167,7 @@ public final class JsTsExportUsageReferenceGraph {
                 if (hits.size() >= limits.maxHits()) break;
 
                 Optional<ResolvedExport> resolved =
-                        resolveReceiverCandidate(cand, file, jsTs, limits, frontier, externalFrontier);
+                        resolveReceiverCandidate(cand, file, adapter, limits, frontier, externalFrontier);
                 if (resolved.isEmpty()) continue;
 
                 CodeUnit resolvedTarget = resolved.get().target();
@@ -226,32 +236,33 @@ public final class JsTsExportUsageReferenceGraph {
             ReferenceCandidate cand,
             ProjectFile file,
             ImportBinder binder,
-            JsTsAnalyzer jsTs,
+            ExportUsageGraphLanguageAdapter adapter,
             Limits limits,
             Set<ProjectFile> frontier,
             Set<String> externalFrontier) {
         if (cand.ownerIdentifier() != null) {
             if (cand.qualifier() == null) {
-                return resolveLocalOwnerMemberCandidate(cand, file, jsTs);
+                return resolveLocalOwnerMemberCandidate(cand, file, adapter);
             }
-            return resolveNamespaceMemberCandidate(cand, file, binder, jsTs, limits, frontier, externalFrontier);
+            return resolveNamespaceMemberCandidate(cand, file, binder, adapter, limits, frontier, externalFrontier);
         }
 
         if (cand.qualifier() == null) {
             ImportBinder.ImportBinding binding = binder.bindings().get(cand.identifier());
             if (binding == null) return Optional.empty();
 
-            JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
+            ExportUsageGraphLanguageAdapter.ResolutionOutcome imported =
+                    adapter.resolveModule(file, binding.moduleSpecifier());
             if (imported.resolved().isEmpty()) {
                 imported.externalFrontier().ifPresent(externalFrontier::add);
-                return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, jsTs);
+                return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, adapter);
             }
 
             String importedName = binding.importedName();
             if (importedName == null) return Optional.empty();
 
             var resolution =
-                    resolveExport(imported.resolved().orElseThrow(), importedName, jsTs, limits, externalFrontier);
+                    resolveExport(imported.resolved().orElseThrow(), importedName, adapter, limits, externalFrontier);
             frontier.addAll(resolution.frontier());
             CodeUnit target = resolution.targets().stream().findFirst().orElse(null);
             if (target == null) return Optional.empty();
@@ -266,17 +277,18 @@ public final class JsTsExportUsageReferenceGraph {
         }
 
         if (binding.kind() != ImportBinder.ImportKind.NAMESPACE) {
-            return resolveClassMemberCandidate(cand, file, binding, jsTs, limits, frontier, externalFrontier);
+            return resolveClassMemberCandidate(cand, file, binding, adapter, limits, frontier, externalFrontier);
         }
 
-        JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
+        ExportUsageGraphLanguageAdapter.ResolutionOutcome imported =
+                adapter.resolveModule(file, binding.moduleSpecifier());
         if (imported.resolved().isEmpty()) {
             imported.externalFrontier().ifPresent(externalFrontier::add);
-            return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, jsTs);
+            return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, adapter);
         }
 
         var resolution =
-                resolveExport(imported.resolved().orElseThrow(), cand.identifier(), jsTs, limits, externalFrontier);
+                resolveExport(imported.resolved().orElseThrow(), cand.identifier(), adapter, limits, externalFrontier);
         frontier.addAll(resolution.frontier());
         CodeUnit target = resolution.targets().stream().findFirst().orElse(null);
         if (target == null) return Optional.empty();
@@ -287,14 +299,15 @@ public final class JsTsExportUsageReferenceGraph {
             ReferenceCandidate cand,
             ProjectFile file,
             ImportBinder.ImportBinding binding,
-            JsTsAnalyzer jsTs,
+            ExportUsageGraphLanguageAdapter adapter,
             Limits limits,
             Set<ProjectFile> frontier,
             Set<String> externalFrontier) {
-        JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
+        ExportUsageGraphLanguageAdapter.ResolutionOutcome imported =
+                adapter.resolveModule(file, binding.moduleSpecifier());
         if (imported.resolved().isEmpty()) {
             imported.externalFrontier().ifPresent(externalFrontier::add);
-            return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, jsTs);
+            return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, adapter);
         }
 
         String importedName = binding.importedName();
@@ -303,7 +316,7 @@ public final class JsTsExportUsageReferenceGraph {
         }
 
         var ownerResolution =
-                resolveExport(imported.resolved().orElseThrow(), importedName, jsTs, limits, externalFrontier);
+                resolveExport(imported.resolved().orElseThrow(), importedName, adapter, limits, externalFrontier);
         frontier.addAll(ownerResolution.frontier());
         CodeUnit ownerClass = ownerResolution.targets().stream()
                 .filter(cu -> cu.kind() == CodeUnitType.CLASS)
@@ -313,7 +326,7 @@ public final class JsTsExportUsageReferenceGraph {
             return Optional.empty();
         }
 
-        CodeUnit member = resolveClassMember(ownerClass, cand.identifier(), cand.instanceReceiver(), jsTs);
+        CodeUnit member = resolveClassMember(ownerClass, cand.identifier(), cand.instanceReceiver(), adapter);
         if (member == null) {
             return Optional.empty();
         }
@@ -324,7 +337,7 @@ public final class JsTsExportUsageReferenceGraph {
             ReferenceCandidate cand,
             ProjectFile file,
             ImportBinder binder,
-            JsTsAnalyzer jsTs,
+            ExportUsageGraphLanguageAdapter adapter,
             Limits limits,
             Set<ProjectFile> frontier,
             Set<String> externalFrontier) {
@@ -334,14 +347,15 @@ public final class JsTsExportUsageReferenceGraph {
         }
         String ownerIdentifier = requireNonNull(cand.ownerIdentifier());
 
-        JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, binding.moduleSpecifier());
+        ExportUsageGraphLanguageAdapter.ResolutionOutcome imported =
+                adapter.resolveModule(file, binding.moduleSpecifier());
         if (imported.resolved().isEmpty()) {
             imported.externalFrontier().ifPresent(externalFrontier::add);
-            return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, jsTs);
+            return addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), file, adapter);
         }
 
         var ownerResolution =
-                resolveExport(imported.resolved().orElseThrow(), ownerIdentifier, jsTs, limits, externalFrontier);
+                resolveExport(imported.resolved().orElseThrow(), ownerIdentifier, adapter, limits, externalFrontier);
         frontier.addAll(ownerResolution.frontier());
         CodeUnit ownerClass = ownerResolution.targets().stream()
                 .filter(cu -> cu.kind() == CodeUnitType.CLASS)
@@ -351,7 +365,7 @@ public final class JsTsExportUsageReferenceGraph {
             return Optional.empty();
         }
 
-        CodeUnit member = resolveClassMember(ownerClass, cand.identifier(), false, jsTs);
+        CodeUnit member = resolveClassMember(ownerClass, cand.identifier(), false, adapter);
         if (member == null) {
             return Optional.empty();
         }
@@ -359,9 +373,10 @@ public final class JsTsExportUsageReferenceGraph {
     }
 
     private static Optional<ResolvedExport> resolveLocalOwnerMemberCandidate(
-            ReferenceCandidate cand, ProjectFile file, JsTsAnalyzer jsTs) {
+            ReferenceCandidate cand, ProjectFile file, ExportUsageGraphLanguageAdapter adapter) {
         String ownerIdentifier = requireNonNull(cand.ownerIdentifier());
-        CodeUnit member = resolveClassMember(file, ownerIdentifier, cand.identifier(), cand.instanceReceiver(), jsTs);
+        CodeUnit member =
+                resolveClassMember(file, ownerIdentifier, cand.identifier(), cand.instanceReceiver(), adapter);
         if (member == null) {
             return Optional.empty();
         }
@@ -373,8 +388,9 @@ public final class JsTsExportUsageReferenceGraph {
             Set<String> externalFrontier,
             String moduleSpecifier,
             ProjectFile importingFile,
-            JsTsAnalyzer jsTs) {
-        JsTsAnalyzer.ResolutionOutcome outcome = jsTs.resolveEsmModuleOutcome(importingFile, moduleSpecifier);
+            ExportUsageGraphLanguageAdapter adapter) {
+        ExportUsageGraphLanguageAdapter.ResolutionOutcome outcome =
+                adapter.resolveModule(importingFile, moduleSpecifier);
         outcome.resolved().ifPresent(frontier::add);
         outcome.externalFrontier().ifPresent(externalFrontier::add);
         return Optional.empty();
@@ -383,23 +399,23 @@ public final class JsTsExportUsageReferenceGraph {
     private static Optional<ResolvedExport> resolveReceiverCandidate(
             ResolvedReceiverCandidate cand,
             ProjectFile file,
-            JsTsAnalyzer jsTs,
+            ExportUsageGraphLanguageAdapter adapter,
             Limits limits,
             Set<ProjectFile> frontier,
             Set<String> externalFrontier) {
         ProjectFile ownerFile = cand.receiverTarget().localFile();
         if (ownerFile == null) {
             String moduleSpecifier = requireNonNull(cand.receiverTarget().moduleSpecifier());
-            JsTsAnalyzer.ResolutionOutcome imported = jsTs.resolveEsmModuleOutcome(file, moduleSpecifier);
+            ExportUsageGraphLanguageAdapter.ResolutionOutcome imported = adapter.resolveModule(file, moduleSpecifier);
             if (imported.resolved().isEmpty()) {
                 imported.externalFrontier().ifPresent(externalFrontier::add);
-                return addFrontier(frontier, externalFrontier, moduleSpecifier, file, jsTs);
+                return addFrontier(frontier, externalFrontier, moduleSpecifier, file, adapter);
             }
             ownerFile = imported.resolved().orElseThrow();
         }
 
         var ownerResolution =
-                resolveExport(ownerFile, cand.receiverTarget().exportedName(), jsTs, limits, externalFrontier);
+                resolveExport(ownerFile, cand.receiverTarget().exportedName(), adapter, limits, externalFrontier);
         frontier.addAll(ownerResolution.frontier());
         CodeUnit ownerClass = ownerResolution.targets().stream()
                 .filter(cu -> cu.kind() == CodeUnitType.CLASS)
@@ -410,7 +426,7 @@ public final class JsTsExportUsageReferenceGraph {
         }
 
         CodeUnit member = resolveClassMember(
-                ownerClass, cand.identifier(), cand.receiverTarget().instanceReceiver(), jsTs);
+                ownerClass, cand.identifier(), cand.receiverTarget().instanceReceiver(), adapter);
         if (member == null) {
             return Optional.empty();
         }
@@ -421,18 +437,22 @@ public final class JsTsExportUsageReferenceGraph {
     private record ExportResolution(Set<CodeUnit> targets, Set<ProjectFile> frontier) {}
 
     private static ExportResolution resolveExport(
-            ProjectFile file, String exportName, JsTsAnalyzer jsTs, Limits limits, Set<String> externalFrontier) {
-        JsTsAnalyzer.ExportResolutionData cached = jsTs.cachedExportResolution(
+            ProjectFile file,
+            String exportName,
+            ExportUsageGraphLanguageAdapter adapter,
+            Limits limits,
+            Set<String> externalFrontier) {
+        ExportResolutionData cached = adapter.cachedExportResolution(
                 file,
                 exportName,
                 limits.maxReexportDepth(),
-                () -> computeExportResolution(file, exportName, jsTs, limits));
+                () -> computeExportResolution(file, exportName, adapter, limits));
         externalFrontier.addAll(cached.externalFrontier());
         return new ExportResolution(cached.targets(), cached.frontier());
     }
 
-    private static JsTsAnalyzer.ExportResolutionData computeExportResolution(
-            ProjectFile file, String exportName, JsTsAnalyzer jsTs, Limits limits) {
+    private static ExportResolutionData computeExportResolution(
+            ProjectFile file, String exportName, ExportUsageGraphLanguageAdapter adapter, Limits limits) {
         var frontier = new LinkedHashSet<ProjectFile>();
         var targets = new LinkedHashSet<CodeUnit>();
         var externalFrontier = new LinkedHashSet<String>();
@@ -452,15 +472,15 @@ public final class JsTsExportUsageReferenceGraph {
             String visitKey = currentFile + "::" + name;
             if (!visited.add(visitKey)) continue;
 
-            ExportIndex index = jsTs.exportIndexOf(currentFile);
+            ExportIndex index = adapter.exportIndexOf(currentFile);
             ExportIndex.ExportEntry entry = index.exportsByName().get(name);
 
             if (entry instanceof ExportIndex.LocalExport local) {
                 if (tryQueueImportedLocalExport(
-                        currentFile, local.localName(), jsTs, frontier, externalFrontier, queue)) {
+                        currentFile, local.localName(), adapter, frontier, externalFrontier, queue)) {
                     continue;
                 }
-                targets.addAll(resolveLocalExport(currentFile, local.localName(), jsTs));
+                targets.addAll(resolveLocalExport(currentFile, local.localName(), adapter));
                 continue;
             }
 
@@ -470,16 +490,16 @@ public final class JsTsExportUsageReferenceGraph {
                     targets.add(syntheticModuleField(currentFile, "default"));
                     continue;
                 }
-                if (tryQueueImportedLocalExport(currentFile, localName, jsTs, frontier, externalFrontier, queue)) {
+                if (tryQueueImportedLocalExport(currentFile, localName, adapter, frontier, externalFrontier, queue)) {
                     continue;
                 }
-                targets.addAll(resolveLocalExport(currentFile, localName, jsTs));
+                targets.addAll(resolveLocalExport(currentFile, localName, adapter));
                 continue;
             }
 
             if (entry instanceof ExportIndex.ReexportedNamed reexp) {
-                JsTsAnalyzer.ResolutionOutcome resolved =
-                        jsTs.resolveEsmModuleOutcome(currentFile, reexp.moduleSpecifier());
+                ExportUsageGraphLanguageAdapter.ResolutionOutcome resolved =
+                        adapter.resolveModule(currentFile, reexp.moduleSpecifier());
                 if (resolved.resolved().isEmpty()) {
                     resolved.externalFrontier().ifPresent(externalFrontier::add);
                     continue;
@@ -490,8 +510,8 @@ public final class JsTsExportUsageReferenceGraph {
 
             // Not an explicit export: try star re-exports.
             for (ExportIndex.ReexportStar star : index.reexportStars()) {
-                JsTsAnalyzer.ResolutionOutcome resolved =
-                        jsTs.resolveEsmModuleOutcome(currentFile, star.moduleSpecifier());
+                ExportUsageGraphLanguageAdapter.ResolutionOutcome resolved =
+                        adapter.resolveModule(currentFile, star.moduleSpecifier());
                 if (resolved.resolved().isEmpty()) {
                     resolved.externalFrontier().ifPresent(externalFrontier::add);
                     continue;
@@ -500,27 +520,27 @@ public final class JsTsExportUsageReferenceGraph {
             }
         }
 
-        return new JsTsAnalyzer.ExportResolutionData(
-                Set.copyOf(targets), Set.copyOf(frontier), Set.copyOf(externalFrontier));
+        return new ExportResolutionData(Set.copyOf(targets), Set.copyOf(frontier), Set.copyOf(externalFrontier));
     }
 
     private static boolean tryQueueImportedLocalExport(
             ProjectFile currentFile,
             String localName,
-            JsTsAnalyzer jsTs,
+            ExportUsageGraphLanguageAdapter adapter,
             Set<ProjectFile> frontier,
             Set<String> externalFrontier,
             ArrayDeque<Map.Entry<ProjectFile, String>> queue) {
         ImportBinder.ImportBinding binding =
-                jsTs.importBinderOf(currentFile).bindings().get(localName);
+                adapter.importBinderOf(currentFile).bindings().get(localName);
         if (binding == null || binding.importedName() == null) {
             return false;
         }
 
-        JsTsAnalyzer.ResolutionOutcome resolved = jsTs.resolveEsmModuleOutcome(currentFile, binding.moduleSpecifier());
+        ExportUsageGraphLanguageAdapter.ResolutionOutcome resolved =
+                adapter.resolveModule(currentFile, binding.moduleSpecifier());
         if (resolved.resolved().isEmpty()) {
             resolved.externalFrontier().ifPresent(externalFrontier::add);
-            addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), currentFile, jsTs);
+            addFrontier(frontier, externalFrontier, binding.moduleSpecifier(), currentFile, adapter);
             return true;
         }
 
@@ -528,9 +548,10 @@ public final class JsTsExportUsageReferenceGraph {
         return true;
     }
 
-    private static Set<CodeUnit> resolveLocalExport(ProjectFile file, String localName, IAnalyzer analyzer) {
+    private static Set<CodeUnit> resolveLocalExport(
+            ProjectFile file, String localName, ExportUsageGraphLanguageAdapter adapter) {
         var matches = new LinkedHashSet<CodeUnit>();
-        for (CodeUnit cu : analyzer.getDefinitions(localName)) {
+        for (CodeUnit cu : adapter.definitionsOf(localName)) {
             if (!cu.source().equals(file)) continue;
             if (cu.identifier().equals(localName)
                     || cu.shortName().equals(localName)
@@ -551,8 +572,8 @@ public final class JsTsExportUsageReferenceGraph {
     }
 
     private static @Nullable CodeUnit resolveClassMember(
-            CodeUnit ownerClass, String memberName, boolean instanceReceiver, JsTsAnalyzer jsTs) {
-        return resolveClassMember(ownerClass.source(), ownerClass.identifier(), memberName, instanceReceiver, jsTs);
+            CodeUnit ownerClass, String memberName, boolean instanceReceiver, ExportUsageGraphLanguageAdapter adapter) {
+        return resolveClassMember(ownerClass.source(), ownerClass.identifier(), memberName, instanceReceiver, adapter);
     }
 
     private static @Nullable CodeUnit resolveClassMember(
@@ -560,14 +581,13 @@ public final class JsTsExportUsageReferenceGraph {
             String ownerClassName,
             String memberName,
             boolean instanceReceiver,
-            JsTsAnalyzer jsTs) {
-        CodeUnit exact = jsTs.memberResolutionIndex(sourceFile)
-                .get(new JsTsAnalyzer.MemberLookupKey(ownerClassName, memberName, instanceReceiver));
+            ExportUsageGraphLanguageAdapter adapter) {
+        CodeUnit exact = adapter.exactMember(sourceFile, ownerClassName, memberName, instanceReceiver);
         if (exact != null) {
             return exact;
         }
 
-        ExportIndex.ClassMember declared = jsTs.exportIndexOf(sourceFile).classMembers().stream()
+        ExportIndex.ClassMember declared = adapter.exportIndexOf(sourceFile).classMembers().stream()
                 .filter(member -> member.ownerClassName().equals(ownerClassName))
                 .filter(member -> member.memberName().equals(memberName))
                 .filter(member -> instanceReceiver ? !member.staticMember() : member.staticMember())
@@ -581,18 +601,12 @@ public final class JsTsExportUsageReferenceGraph {
     }
 
     private static Set<ProjectFile> collectReferencingFiles(
-            ProjectFile start, JsTsAnalyzer jsTs, Map<ProjectFile, Set<ProjectFile>> reverseReexports, int maxFiles)
+            ProjectFile start,
+            ExportUsageGraphLanguageAdapter adapter,
+            Map<ProjectFile, Set<ProjectFile>> reverseReexports,
+            int maxFiles)
             throws InterruptedException {
-        var providerOpt = jsTs.as(ImportAnalysisProvider.class);
-        if (providerOpt.isEmpty()) {
-            var fallback = new LinkedHashSet<ProjectFile>();
-            fallback.add(start);
-            fallback.addAll(reverseReexports.getOrDefault(start, Set.of()));
-            return Set.copyOf(fallback);
-        }
-
-        var provider = providerOpt.get();
-        jsTs.ensureImportReverseIndexPopulated();
+        adapter.ensureImportReverseIndexPopulated();
         var seen = new LinkedHashSet<ProjectFile>();
         var queue = new ArrayDeque<ProjectFile>();
         queue.add(start);
@@ -601,7 +615,7 @@ public final class JsTsExportUsageReferenceGraph {
         while (!queue.isEmpty() && seen.size() < maxFiles) {
             ProjectFile current = queue.removeFirst();
             var neighbors = new LinkedHashSet<ProjectFile>();
-            neighbors.addAll(provider.referencingFilesOf(current));
+            neighbors.addAll(adapter.referencingFilesOf(current));
             neighbors.addAll(reverseReexports.getOrDefault(current, Set.of()));
 
             for (ProjectFile ref : neighbors) {
