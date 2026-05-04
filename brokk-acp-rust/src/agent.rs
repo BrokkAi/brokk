@@ -91,9 +91,12 @@ fn model_config_option(current: &str, available_models: &[String]) -> Option<Ses
     if available_models.is_empty() {
         return None;
     }
+    // `SessionConfigSelectOption::new` stores its arguments owned, so the
+    // closure must hand it owned Strings -- borrowing from `available_models`
+    // would tie the option's lifetime to the slice and fail E0521.
     let options: Vec<SessionConfigSelectOption> = available_models
         .iter()
-        .map(|m| SessionConfigSelectOption::new(m.as_str(), m.as_str()))
+        .map(|m| SessionConfigSelectOption::new(m.clone(), m.clone()))
         .collect();
     // Fall back to the first catalog entry when `current` is empty or has
     // drifted out of the catalog -- otherwise some clients refuse to render
