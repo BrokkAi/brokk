@@ -1,3 +1,10 @@
+[workspace]
+members = ["xtask"]
+# Keep `cargo build` / `cargo test` from the workspace root focused on the
+# root crate. The xtask sub-crate is dev-only and is invoked through the
+# `cargo xtask` alias (see .cargo/config.toml), which builds it on demand.
+default-members = ["."]
+
 [package]
 name = "brokk-acp-rust"
 version = "0.1.0"
