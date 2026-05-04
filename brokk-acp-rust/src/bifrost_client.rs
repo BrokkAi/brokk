@@ -355,6 +355,21 @@ mod tests {
             );
         }
 
+        // Anti-drift: every tool bifrost advertises must have a row in
+        // `tools::TOOLS`. Without one, `tool_kind` falls back to
+        // `Other` (refused in `readOnly`, prompts unnecessarily in
+        // `default`) and `display_name` falls back to "Executing
+        // tool" in the UI. If this assertion fires, bifrost likely
+        // added or renamed a tool -- update `TOOLS` in
+        // `tools/mod.rs` to match.
+        for tool_name in &names {
+            assert!(
+                crate::tools::is_known_tool(tool_name),
+                "bifrost advertises '{tool_name}' but it is not in the TOOLS metadata table; \
+                 add a ToolMeta row in tools/mod.rs (current bifrost surface: {names:?})"
+            );
+        }
+
         // Round-trip two distinct tool calls so we exercise back-to-back use
         // of the JSON-RPC reader/writer mutex (id correlation, sequential
         // dispatch, response-shape branching) -- not just one-shot dispatch.

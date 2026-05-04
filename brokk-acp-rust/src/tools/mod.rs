@@ -67,11 +67,18 @@ const TOOLS: &[ToolMeta] = &[
     },
     // --- Bifrost-loaded tools (dispatched via `execute_bifrost`) -----------
     // Listed here so the permission gate can classify them; their actual
-    // execution is delegated to the bifrost subprocess.
+    // execution is delegated to the bifrost subprocess. The cross-check
+    // in `bifrost_client::tests::handshake_and_call_search_tools` keeps
+    // this list in sync with what the running bifrost subprocess exposes.
     ToolMeta {
-        name: "get_file_summaries",
+        name: "get_summaries",
         kind: ToolKind::Read,
-        display_name: "Getting file summaries",
+        display_name: "Getting code summaries",
+    },
+    ToolMeta {
+        name: "get_active_workspace",
+        kind: ToolKind::Read,
+        display_name: "Getting active workspace",
     },
     ToolMeta {
         name: "search_symbols",
@@ -103,8 +110,14 @@ const TOOLS: &[ToolMeta] = &[
         kind: ToolKind::Search,
         display_name: "Finding related files",
     },
-    // `refresh` mutates analyzer state, so it stays `Other` rather than
-    // `Read`: prompted in `default`, refused in `readOnly`.
+    // `activate_workspace` and `refresh` mutate analyzer state, so they
+    // stay `Other` rather than `Read`: prompted in `default`, refused in
+    // `readOnly`.
+    ToolMeta {
+        name: "activate_workspace",
+        kind: ToolKind::Other,
+        display_name: "Activating workspace",
+    },
     ToolMeta {
         name: "refresh",
         kind: ToolKind::Other,
@@ -114,6 +127,16 @@ const TOOLS: &[ToolMeta] = &[
 
 fn tool_meta(name: &str) -> Option<&'static ToolMeta> {
     TOOLS.iter().find(|t| t.name == name)
+}
+
+/// `true` iff `name` has a row in the `TOOLS` metadata table. Used by
+/// the bifrost handshake test to flag drift when bifrost adds or
+/// renames a tool without a matching `TOOLS` entry (which would
+/// otherwise silently fall back to `ToolKind::Other` / "Executing
+/// tool" in the permission gate and UI).
+#[cfg(test)]
+pub(crate) fn is_known_tool(name: &str) -> bool {
+    tool_meta(name).is_some()
 }
 
 /// Built-in tool names handled by the inline `match` in
