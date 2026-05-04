@@ -143,6 +143,33 @@ tasks.register("deployMcpShadowJar") {
     }
 }
 
+tasks.register("shadowJarLatest") {
+    description = "Builds :app:shadowJar and refreshes app/build/libs/brokk-local.jar to point at the just-built versioned jar."
+    group = "distribution"
+
+    dependsOn(":app:shadowJar")
+
+    doLast {
+        val versionedJar = rootDir.resolve("app/build/libs/brokk-${project.version}.jar")
+        if (!versionedJar.exists()) {
+            throw GradleException("Expected shadow jar not found: ${versionedJar.absolutePath}")
+        }
+
+        val linkPath = versionedJar.parentFile.resolve("brokk-local.jar").toPath()
+        java.nio.file.Files.deleteIfExists(linkPath)
+        try {
+            // Relative target so the link survives moving the build/libs directory.
+            java.nio.file.Files.createSymbolicLink(linkPath, java.nio.file.Paths.get(versionedJar.name))
+        } catch (e: java.nio.file.FileSystemException) {
+            // Symbolic links require Developer Mode or admin on Windows; fall back to a copy so
+            // ~/.jetbrains/acp.json --jar paths keep working.
+            versionedJar.copyTo(linkPath.toFile(), overwrite = true)
+            logger.lifecycle("createSymbolicLink failed (${e.message}); copied versioned jar to brokk-local.jar instead.")
+        }
+        println("brokk-local.jar -> ${versionedJar.name}")
+    }
+}
+
 tasks.register("deployCoreMcpShadowJar") {
     description = "Builds :brokk-core:shadowJar and copies it to a stable MCP jar path."
     group = "distribution"
