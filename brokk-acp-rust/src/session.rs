@@ -2,12 +2,50 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use crate::tools::ToolRegistry;
+
+// ---------------------------------------------------------------------------
+// Store limits
+// ---------------------------------------------------------------------------
+
+/// Bounds the in-memory `SessionStore` so a long-running server doesn't
+/// accumulate sessions or per-session conversation history without limit.
+/// Disk persistence is unaffected: evicted sessions can be re-loaded from
+/// their on-disk zip on demand, and history is trimmed only in memory.
+#[derive(Debug, Clone, Copy)]
+pub struct SessionLimits {
+    /// Maximum number of sessions kept resident in memory. When the cap is
+    /// exceeded, the least-recently-used session(s) are dropped from memory
+    /// (but remain on disk). `0` disables the cap.
+    pub max_sessions: usize,
+    /// Maximum number of conversation turns retained per session in memory.
+    /// When the cap is exceeded, the oldest turns are dropped (sliding
+    /// window). `0` disables the cap.
+    pub max_history_turns: usize,
+}
+
+impl Default for SessionLimits {
+    fn default() -> Self {
+        Self {
+            max_sessions: 50,
+            max_history_turns: 50,
+        }
+    }
+}
+
+/// Drop oldest turns until `history.len() <= max`. `max == 0` disables.
+fn trim_history(history: &mut Vec<ConversationTurn>, max: usize) {
+    if max > 0 && history.len() > max {
+        let drain_to = history.len() - max;
+        history.drain(0..drain_to);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Session modes
@@ -693,17 +731,105 @@ pub struct SessionStore {
     /// One ToolRegistry per session, kept warm across turns so any bifrost
     /// subprocess survives. Populated lazily on first prompt.
     registries: Arc<RwLock<HashMap<String, Arc<ToolRegistry>>>>,
+    /// Per-session monotonic access counter used for LRU eviction. Held
+    /// behind a sync `Mutex` because every touch is a fast in-memory bump
+    /// and must not require holding a tokio lock across `.await` points.
+    last_accessed: Arc<std::sync::Mutex<HashMap<String, u64>>>,
+    next_access: Arc<AtomicU64>,
+    limits: SessionLimits,
 }
 
 impl SessionStore {
+    /// Build a `SessionStore` with `SessionLimits::default()`. Test-only:
+    /// production code goes through `with_limits` so CLI flags drive the
+    /// caps. Gated on `cfg(test)` because in a binary crate `dead_code` is
+    /// evaluated separately per build target, and the bin target never
+    /// calls this constructor.
+    #[cfg(test)]
     pub fn new(default_model: String) -> Self {
+        Self::with_limits(default_model, SessionLimits::default())
+    }
+
+    pub fn with_limits(default_model: String, limits: SessionLimits) -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             default_model: Arc::new(RwLock::new(default_model)),
             available_models: Arc::new(RwLock::new(Vec::new())),
             cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
             registries: Arc::new(RwLock::new(HashMap::new())),
+            last_accessed: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            next_access: Arc::new(AtomicU64::new(0)),
+            limits,
         }
+    }
+
+    /// Bump the LRU "last accessed" counter for `id`. Cheap: a single
+    /// `AtomicU64::fetch_add` + a `HashMap::insert` under a sync mutex held
+    /// for one statement.
+    fn touch(&self, id: &str) {
+        let counter = self.next_access.fetch_add(1, Ordering::Relaxed);
+        self.last_accessed
+            .lock()
+            .expect("last_accessed mutex poisoned")
+            .insert(id.to_string(), counter);
+    }
+
+    /// If `sessions.len()` exceeds `limits.max_sessions`, evict the least
+    /// recently used session(s) from memory. Sessions with an in-flight
+    /// prompt (cancel token registered via `start_prompt`) are skipped --
+    /// evicting them would remove the in-memory state the running prompt is
+    /// still mutating.
+    ///
+    /// Eviction is in-memory only. The on-disk zip is untouched, so a
+    /// subsequent `session/load` re-hydrates the session unchanged.
+    async fn enforce_session_cap(&self) {
+        let max = self.limits.max_sessions;
+        if max == 0 {
+            return;
+        }
+        let to_evict: Vec<String> = {
+            let sessions = self.sessions.read().await;
+            if sessions.len() <= max {
+                return;
+            }
+            let in_flight = self.cancel_tokens.read().await;
+            let last_accessed = self
+                .last_accessed
+                .lock()
+                .expect("last_accessed mutex poisoned");
+            let excess = sessions.len() - max;
+            let mut candidates: Vec<(String, u64)> = sessions
+                .keys()
+                .filter(|id| !in_flight.contains_key(id.as_str()))
+                .map(|id| (id.clone(), last_accessed.get(id).copied().unwrap_or(0)))
+                .collect();
+            candidates.sort_by_key(|(_, c)| *c);
+            candidates
+                .into_iter()
+                .take(excess)
+                .map(|(id, _)| id)
+                .collect()
+        };
+        if to_evict.is_empty() {
+            return;
+        }
+        {
+            let mut sessions = self.sessions.write().await;
+            let mut registries = self.registries.write().await;
+            let mut last_accessed = self
+                .last_accessed
+                .lock()
+                .expect("last_accessed mutex poisoned");
+            for id in &to_evict {
+                sessions.remove(id);
+                registries.remove(id);
+                last_accessed.remove(id);
+            }
+        }
+        tracing::info!(
+            evicted = to_evict.len(),
+            "evicted least-recently-used sessions from memory: {to_evict:?}"
+        );
     }
 
     /// Return the cached ToolRegistry for `session_id`, or build one and cache it.
@@ -755,7 +881,12 @@ impl SessionStore {
             Err(e) => tracing::warn!(session_id = %id, "session zip writer task panicked: {e}"),
         }
 
-        self.sessions.write().await.insert(id, session.clone());
+        self.sessions
+            .write()
+            .await
+            .insert(id.clone(), session.clone());
+        self.touch(&id);
+        self.enforce_session_cap().await;
         session
     }
 
@@ -769,7 +900,11 @@ impl SessionStore {
         if !self.load_into_memory_if_cold(id, cwd).await {
             return None;
         }
-        self.sessions.read().await.get(id).cloned()
+        let cloned = self.sessions.read().await.get(id).cloned();
+        if cloned.is_some() {
+            self.touch(id);
+        }
+        cloned
     }
 
     /// Ensure the session is in memory, loading it from disk if needed.
@@ -792,9 +927,14 @@ impl SessionStore {
         .await
         .ok()
         .flatten();
-        let Some((manifest, history)) = loaded else {
+        let Some((manifest, mut history)) = loaded else {
             return false;
         };
+
+        // Apply the in-memory sliding window before constructing the session,
+        // so `Session.history.len()` never exceeds `max_history_turns`.
+        // Disk is unaffected: the persisted zip still contains every turn.
+        trim_history(&mut history, self.limits.max_history_turns);
 
         // Prefer persisted mode/model; fall back to server defaults.
         let mode = manifest
@@ -821,14 +961,22 @@ impl SessionStore {
                 return false;
             }
         };
-        let mut sessions = self.sessions.write().await;
-        // Race window: another task may have inserted under the same id while
-        // we read from disk. `or_insert` keeps the existing in-memory entry
-        // (which may carry mutations not yet persisted, like a newer
-        // `permission_mode` or pushed turn) and silently drops our freshly
-        // loaded copy. The on-disk zip is read-only on this path so no
-        // information is lost.
-        sessions.entry(id.to_string()).or_insert(session);
+        let inserted = {
+            let mut sessions = self.sessions.write().await;
+            // Race window: another task may have inserted under the same id while
+            // we read from disk. `or_insert` keeps the existing in-memory entry
+            // (which may carry mutations not yet persisted, like a newer
+            // `permission_mode` or pushed turn) and silently drops our freshly
+            // loaded copy. The on-disk zip is read-only on this path so no
+            // information is lost.
+            let len_before = sessions.len();
+            sessions.entry(id.to_string()).or_insert(session);
+            sessions.len() > len_before
+        };
+        if inserted {
+            self.touch(id);
+            self.enforce_session_cap().await;
+        }
         true
     }
 
@@ -840,14 +988,18 @@ impl SessionStore {
         if !self.load_into_memory_if_cold(id, fallback_cwd).await {
             return None;
         }
-        let sessions = self.sessions.read().await;
-        let s = sessions.get(id)?;
-        Some(SessionSnapshot {
-            cwd: s.cwd.clone(),
-            mode: s.mode,
-            model: s.model.clone(),
-            history: s.history.clone(),
-        })
+        let snap = {
+            let sessions = self.sessions.read().await;
+            let s = sessions.get(id)?;
+            SessionSnapshot {
+                cwd: s.cwd.clone(),
+                mode: s.mode,
+                model: s.model.clone(),
+                history: s.history.clone(),
+            }
+        };
+        self.touch(id);
+        Some(snap)
     }
 
     pub async fn update_cwd(&self, id: &str, cwd: PathBuf) {
@@ -1052,6 +1204,22 @@ impl SessionStore {
             }
             return Err(e);
         }
+
+        // Persistence succeeded. Apply the in-memory sliding window so
+        // history length stays bounded. Trimming AFTER successful persist
+        // keeps the on-disk zip authoritative -- a future reload re-reads
+        // the full history and trims it again on its way into memory.
+        // The trim has no rollback partner because we've already committed
+        // to disk; if trimming pushed something out of memory, the only
+        // copy now lives in the zip, which is the design intent.
+        let max_history = self.limits.max_history_turns;
+        if max_history > 0
+            && let Some(session) = self.sessions.write().await.get_mut(id)
+        {
+            trim_history(&mut session.history, max_history);
+        }
+
+        self.touch(id);
         Ok(())
     }
 
@@ -1093,7 +1261,7 @@ mod tests {
     /// `history` is empty and `manifest.modified` matches the pre-call value.
     #[tokio::test]
     async fn add_turn_rolls_back_on_persistence_failure() {
-        let store = SessionStore::new("test-model".to_string());
+        let store = SessionStore::with_limits("test-model".to_string(), SessionLimits::default());
 
         // Hand-construct a session and inject it into the in-memory map without
         // ever calling `create_session` (which would write a zip on disk).
@@ -1177,7 +1345,7 @@ mod tests {
     /// removal (none today, but reserved) and turn persistence.
     #[tokio::test]
     async fn add_turn_unknown_session_is_noop_success() {
-        let store = SessionStore::new("test-model".to_string());
+        let store = SessionStore::with_limits("test-model".to_string(), SessionLimits::default());
         let result = store
             .add_turn(
                 "no-such-session",
@@ -1230,6 +1398,185 @@ mod tests {
         assert_eq!(session.model, "m");
         assert_eq!(session.history.len(), 1);
         assert_eq!(session.manifest.id, manifest.id);
+    }
+
+    /// `trim_history` is a sliding window: when the cap is exceeded, the
+    /// oldest entries go and the most-recent `max` are kept. `0` is a
+    /// sentinel for "unbounded".
+    #[test]
+    fn trim_history_keeps_most_recent_when_capped() {
+        let mut h: Vec<ConversationTurn> = (0..5)
+            .map(|i| ConversationTurn {
+                user_prompt: format!("u{i}"),
+                agent_response: format!("a{i}"),
+            })
+            .collect();
+
+        trim_history(&mut h, 0);
+        assert_eq!(h.len(), 5, "max=0 must disable the cap");
+
+        trim_history(&mut h, 3);
+        assert_eq!(h.len(), 3);
+        assert_eq!(h[0].user_prompt, "u2");
+        assert_eq!(h[2].user_prompt, "u4");
+
+        trim_history(&mut h, 10);
+        assert_eq!(h.len(), 3, "below the cap is a no-op");
+    }
+
+    /// `add_turn` must enforce `max_history_turns` in memory after a
+    /// successful persist. We exercise the full path: a real zip on disk
+    /// (so `append_turn_to_zip` succeeds), four sequential `add_turn`
+    /// calls, and a memory cap of 2 -- the in-memory history must be the
+    /// last two turns, while the zip on disk retains everything.
+    #[tokio::test]
+    async fn add_turn_enforces_history_window_in_memory() {
+        let store = SessionStore::with_limits(
+            "test-model".to_string(),
+            SessionLimits {
+                max_sessions: 0,
+                max_history_turns: 2,
+            },
+        );
+        let cwd = std::env::temp_dir().join(format!(
+            "brokk-acp-rust-history-window-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let session = store.create_session(cwd.clone()).await;
+        let id = session.id.clone();
+
+        for i in 0..4 {
+            store
+                .add_turn(
+                    &id,
+                    ConversationTurn {
+                        user_prompt: format!("u{i}"),
+                        agent_response: format!("a{i}"),
+                    },
+                )
+                .await
+                .expect("persist should succeed");
+        }
+
+        let in_mem = store.sessions.read().await.get(&id).cloned().unwrap();
+        assert_eq!(in_mem.history.len(), 2, "memory must respect the cap");
+        assert_eq!(in_mem.history[0].user_prompt, "u2");
+        assert_eq!(in_mem.history[1].user_prompt, "u3");
+
+        // Disk-side: the zip carries every turn we appended, regardless of
+        // what we kept in memory.
+        let on_disk = read_history_from_zip(&session_zip_path(&cwd, &id));
+        assert_eq!(
+            on_disk.len(),
+            4,
+            "disk history must be untouched by the in-memory window"
+        );
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// When `sessions.len()` exceeds `max_sessions`, the LRU sessions are
+    /// evicted from memory. The session whose access counter was bumped most
+    /// recently must survive; the oldest must be dropped.
+    #[tokio::test]
+    async fn lru_eviction_drops_oldest_session() {
+        let store = SessionStore::with_limits(
+            "test-model".to_string(),
+            SessionLimits {
+                max_sessions: 2,
+                max_history_turns: 0,
+            },
+        );
+
+        // Inject three sessions directly into the map without going through
+        // create_session (which would write zips). Touch each one so the
+        // last_accessed counter reflects insertion order: a < b < c.
+        for id in ["a", "b", "c"] {
+            let s = Session::new(
+                id.into(),
+                std::env::temp_dir().join(format!("brokk-acp-rust-lru-{id}")),
+                "test-model".into(),
+                "t".into(),
+            );
+            store.sessions.write().await.insert(id.into(), s);
+            store.touch(id);
+        }
+
+        // Bump "b" so it's now most-recent: order becomes a (oldest), c, b.
+        store.touch("b");
+
+        store.enforce_session_cap().await;
+
+        let sessions = store.sessions.read().await;
+        assert_eq!(sessions.len(), 2);
+        assert!(!sessions.contains_key("a"), "oldest LRU must be evicted");
+        assert!(sessions.contains_key("b"), "recently-touched must survive");
+        assert!(sessions.contains_key("c"));
+    }
+
+    /// In-flight prompts (those holding a cancellation token via
+    /// `start_prompt`) must not be evicted: the running task is mutating the
+    /// in-memory state and dropping it would lose the partially-completed
+    /// turn.
+    #[tokio::test]
+    async fn lru_eviction_skips_in_flight_sessions() {
+        let store = SessionStore::with_limits(
+            "test-model".to_string(),
+            SessionLimits {
+                max_sessions: 1,
+                max_history_turns: 0,
+            },
+        );
+
+        for id in ["old", "fresh"] {
+            let s = Session::new(
+                id.into(),
+                std::env::temp_dir().join(format!("brokk-acp-rust-inflight-{id}")),
+                "test-model".into(),
+                "t".into(),
+            );
+            store.sessions.write().await.insert(id.into(), s);
+            store.touch(id);
+        }
+        // "old" is the LRU candidate, but mark it in-flight so it's pinned.
+        let _token = store.start_prompt("old").await;
+
+        store.enforce_session_cap().await;
+
+        let sessions = store.sessions.read().await;
+        // We can only evict non-in-flight sessions, so "fresh" goes even
+        // though it was the most-recent. "old" stays pinned.
+        assert!(sessions.contains_key("old"), "in-flight session is pinned");
+        assert!(
+            !sessions.contains_key("fresh"),
+            "the only evictable session must be dropped"
+        );
+    }
+
+    /// `max_sessions = 0` must disable the cap entirely: no eviction runs
+    /// even when the in-memory map grows large.
+    #[tokio::test]
+    async fn lru_eviction_disabled_when_max_is_zero() {
+        let store = SessionStore::with_limits(
+            "test-model".to_string(),
+            SessionLimits {
+                max_sessions: 0,
+                max_history_turns: 0,
+            },
+        );
+        for i in 0..5 {
+            let id = format!("s{i}");
+            let s = Session::new(
+                id.clone(),
+                std::env::temp_dir().join("brokk-acp-rust-uncapped"),
+                "test-model".into(),
+                "t".into(),
+            );
+            store.sessions.write().await.insert(id.clone(), s);
+            store.touch(&id);
+        }
+        store.enforce_session_cap().await;
+        assert_eq!(store.sessions.read().await.len(), 5);
     }
 
     /// A zip whose manifest reports a different id than the one the caller
