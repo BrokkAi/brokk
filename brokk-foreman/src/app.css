@@ -1,0 +1,21 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light dark;
+  background: var(--bg);
+  color: var(--fg);
+
+  --bg: #0e1116;
+  --fg: #e6e6e6;
+  --muted: #8b949e;
+  --accent: #4493f8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}

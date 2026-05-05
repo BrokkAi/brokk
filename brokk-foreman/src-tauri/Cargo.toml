@@ -1,0 +1,65 @@
+[package]
+name = "brokk-foreman"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Cross-platform issue manager and ACP client for any Agent Client Protocol agent"
+
+[lib]
+name = "brokk_foreman_lib"
+path = "src/lib.rs"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "brokk-foreman"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+
+agent-client-protocol = { version = "=0.11.1", features = ["unstable_session_resume"] }
+
+# Async + IO
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["compat", "rt"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HTTP (registry CDN, GitHub via octocrab, Jira)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+octocrab = { version = "0.45", default-features = false, features = ["rustls"] }
+
+# Storage
+rusqlite = { version = "0.36", features = ["bundled"] }
+
+# Filesystem helpers
+directories = "6"
+which = "8"
+
+# Archive extraction for binary distributions
+flate2 = "1"
+tar = "0.4"
+zip = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Errors
+thiserror = "2"
+anyhow = "1"
+
+# Misc
+uuid = { version = "1", features = ["v4", "serde"] }
+url = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
