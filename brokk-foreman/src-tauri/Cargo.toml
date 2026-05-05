@@ -35,7 +35,7 @@ serde_json = "1"
 
 # HTTP (registry CDN, GitHub via octocrab, Jira)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
-octocrab = { version = "0.45", default-features = false, features = ["rustls"] }
+octocrab = { version = "0.50", default-features = false, features = ["rustls", "rustls-ring", "jwt-rust-crypto"] }
 
 # Storage
 rusqlite = { version = "0.36", features = ["bundled"] }
