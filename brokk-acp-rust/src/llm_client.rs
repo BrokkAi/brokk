@@ -604,4 +604,242 @@ mod tests {
             other => panic!("expected text response, got {other:?}"),
         }
     }
+
+    /// `[DONE]` after tool-call deltas (no text) returns `ToolCalls`,
+    /// preserving id/name and the concatenated arguments JSON. The SSE
+    /// stream only delivers complete tool calls when `[DONE]` arrives;
+    /// truncating mid-arguments would leave malformed JSON for the LLM.
+    #[tokio::test]
+    async fn drive_sse_stream_returns_tool_calls_on_done() {
+        let chunks: Vec<Result<Vec<u8>>> = vec![
+            Ok(
+                b"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"readFile\",\"arguments\":\"{\\\"pa\"}}]}}]}\n"
+                    .to_vec(),
+            ),
+            Ok(
+                b"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"th\\\":\\\"a.txt\\\"}\"}}]}}]}\n"
+                    .to_vec(),
+            ),
+            Ok(b"data: [DONE]\n".to_vec()),
+        ];
+        let s = stream::iter(chunks);
+
+        let (on_token, _) = collect_tokens();
+        let cancel = CancellationToken::new();
+        let result = drive_sse_stream(s, on_token, cancel, Duration::from_secs(90)).await;
+
+        match result.expect("should complete") {
+            LlmResponse::ToolCalls { text, calls } => {
+                assert!(text.is_empty());
+                assert_eq!(calls.len(), 1);
+                assert_eq!(calls[0].id, "call_1");
+                assert_eq!(calls[0].function.name, "readFile");
+                assert_eq!(calls[0].function.arguments, r#"{"path":"a.txt"}"#);
+            }
+            other => panic!("expected tool calls, got {other:?}"),
+        }
+    }
+
+    /// Unparseable SSE chunks are skipped (logged at debug). They must
+    /// not abort the stream or count as progress -- the deadline keeps
+    /// ticking, but valid downstream chunks still parse normally.
+    #[tokio::test]
+    async fn drive_sse_stream_skips_unparseable_data_chunks() {
+        let chunks: Vec<Result<Vec<u8>>> = vec![
+            Ok(b"data: {not-json}\n".to_vec()),
+            Ok(b"data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n".to_vec()),
+            Ok(b"data: [DONE]\n".to_vec()),
+        ];
+        let s = stream::iter(chunks);
+
+        let (on_token, collected) = collect_tokens();
+        let cancel = CancellationToken::new();
+        let result = drive_sse_stream(s, on_token, cancel, Duration::from_secs(90)).await;
+
+        match result.expect("should complete") {
+            LlmResponse::Text(t) => assert_eq!(t, "ok"),
+            other => panic!("expected text response, got {other:?}"),
+        }
+        assert_eq!(*collected.lock().unwrap(), vec!["ok"]);
+    }
+
+    /// Stream that ends without `[DONE]` returns whatever has been
+    /// accumulated -- some upstream proxies don't forward the terminator.
+    /// Tool-call accumulation flushes on stream end if no text arrived.
+    #[tokio::test]
+    async fn drive_sse_stream_returns_on_eof_without_done() {
+        let chunks: Vec<Result<Vec<u8>>> = vec![Ok(
+            b"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n".to_vec(),
+        )];
+        let s = stream::iter(chunks);
+
+        let (on_token, _) = collect_tokens();
+        let cancel = CancellationToken::new();
+        let result = drive_sse_stream(s, on_token, cancel, Duration::from_secs(90)).await;
+
+        match result.expect("should complete") {
+            LlmResponse::Text(t) => assert_eq!(t, "partial"),
+            other => panic!("expected text response, got {other:?}"),
+        }
+    }
+
+    /// The base URL is normalized to drop a trailing slash, and `/v1` is
+    /// appended only when not already present. This is what lets the
+    /// CLI default `http://localhost:11434/v1` and a bare endpoint URL
+    /// like `https://api.example.com` both work.
+    #[test]
+    fn api_url_appends_v1_when_missing() {
+        let client = OpenAiClient::new("http://localhost:11434".into(), None);
+        assert_eq!(
+            client.api_url("/chat/completions"),
+            "http://localhost:11434/v1/chat/completions"
+        );
+        assert_eq!(
+            client.api_url("/models"),
+            "http://localhost:11434/v1/models"
+        );
+    }
+
+    #[test]
+    fn api_url_does_not_double_v1() {
+        let client = OpenAiClient::new("http://localhost:11434/v1".into(), None);
+        assert_eq!(
+            client.api_url("/chat/completions"),
+            "http://localhost:11434/v1/chat/completions"
+        );
+    }
+
+    /// Trailing slash is trimmed at construction, so the final URL never
+    /// has a `//` between the base and the path.
+    #[test]
+    fn api_url_strips_trailing_slash() {
+        let client = OpenAiClient::new("http://localhost:11434/".into(), None);
+        assert_eq!(
+            client.api_url("/models"),
+            "http://localhost:11434/v1/models"
+        );
+
+        let client = OpenAiClient::new("http://localhost:11434/v1/".into(), None);
+        assert_eq!(
+            client.api_url("/models"),
+            "http://localhost:11434/v1/models"
+        );
+    }
+
+    /// HTTPS endpoints (typical for hosted OpenAI-compatible providers)
+    /// receive the same normalization as plain HTTP.
+    #[test]
+    fn api_url_handles_https_endpoint() {
+        let client = OpenAiClient::new("https://api.example.com".into(), None);
+        assert_eq!(
+            client.api_url("/chat/completions"),
+            "https://api.example.com/v1/chat/completions"
+        );
+    }
+
+    /// `Debug` for `OpenAiClient` must redact the api key so it does not
+    /// leak into log output via `{:?}`.
+    #[test]
+    fn debug_redacts_api_key() {
+        let client = OpenAiClient::new("http://x".into(), Some("sk-secret-123".into()));
+        let dbg = format!("{client:?}");
+        assert!(!dbg.contains("sk-secret-123"));
+        assert!(dbg.contains("REDACTED"));
+    }
+
+    /// `ChatMessage` constructors set the role correctly and serialize
+    /// only the fields they own. The `#[serde(skip_serializing_if = "Option::is_none")]`
+    /// attributes are load-bearing for endpoints that reject extra keys.
+    #[test]
+    fn chat_message_constructors_round_trip_through_json() {
+        let m = ChatMessage::system("you are helpful");
+        let v: serde_json::Value = serde_json::to_value(&m).unwrap();
+        assert_eq!(v["role"], "system");
+        assert_eq!(v["content"], "you are helpful");
+        assert!(v.get("tool_calls").is_none(), "system has no tool_calls");
+        assert!(v.get("tool_call_id").is_none());
+
+        let m = ChatMessage::user("hi");
+        assert_eq!(serde_json::to_value(&m).unwrap()["role"], "user");
+
+        let m = ChatMessage::assistant("ok");
+        assert_eq!(serde_json::to_value(&m).unwrap()["role"], "assistant");
+
+        let m = ChatMessage::tool_result("call_1", "readFile", "contents");
+        let v: serde_json::Value = serde_json::to_value(&m).unwrap();
+        assert_eq!(v["role"], "tool");
+        assert_eq!(v["tool_call_id"], "call_1");
+        assert_eq!(v["name"], "readFile");
+        assert_eq!(v["content"], "contents");
+    }
+
+    /// `assistant_tool_calls` omits `content` entirely (not `null`),
+    /// because some providers reject `content: null` alongside
+    /// `tool_calls`.
+    #[test]
+    fn assistant_tool_calls_omits_content_field() {
+        let calls = vec![ToolCall {
+            id: "id_0".into(),
+            r#type: "function".into(),
+            function: FunctionCall {
+                name: "readFile".into(),
+                arguments: r#"{"path":"x"}"#.into(),
+            },
+        }];
+        let m = ChatMessage::assistant_tool_calls(calls);
+        let v: serde_json::Value = serde_json::to_value(&m).unwrap();
+        assert_eq!(v["role"], "assistant");
+        assert!(
+            v.get("content").is_none(),
+            "content key must be skipped when None, got: {v}"
+        );
+        assert!(v.get("tool_calls").is_some());
+    }
+
+    /// `ToolCallAccumulator` merges fragments by index. The OpenAI API
+    /// streams tool-call arguments across many SSE chunks; we must
+    /// concatenate them in order without duplicating the id or name.
+    #[test]
+    fn tool_call_accumulator_concatenates_fragments_per_index() {
+        let mut acc = ToolCallAccumulator::default();
+        // Index 0: id arrives first, then name, then arguments split into two.
+        acc.push(&ChunkToolCall {
+            index: 0,
+            id: Some("call_0".into()),
+            function: None,
+        });
+        acc.push(&ChunkToolCall {
+            index: 0,
+            id: None,
+            function: Some(ChunkFunctionCall {
+                name: Some("readFile".into()),
+                arguments: Some(r#"{"pa"#.into()),
+            }),
+        });
+        acc.push(&ChunkToolCall {
+            index: 0,
+            id: None,
+            function: Some(ChunkFunctionCall {
+                name: None,
+                arguments: Some(r#"th":"x.txt"}"#.into()),
+            }),
+        });
+        // Index 1 in parallel; sort_by_key in into_tool_calls puts it second.
+        acc.push(&ChunkToolCall {
+            index: 1,
+            id: Some("call_1".into()),
+            function: Some(ChunkFunctionCall {
+                name: Some("writeFile".into()),
+                arguments: Some(r#"{"path":"y.txt","content":""}"#.into()),
+            }),
+        });
+
+        let calls = acc.into_tool_calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id, "call_0");
+        assert_eq!(calls[0].function.name, "readFile");
+        assert_eq!(calls[0].function.arguments, r#"{"path":"x.txt"}"#);
+        assert_eq!(calls[1].id, "call_1");
+        assert_eq!(calls[1].function.name, "writeFile");
+    }
 }
