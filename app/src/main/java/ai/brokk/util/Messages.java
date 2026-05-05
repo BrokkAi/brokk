@@ -363,7 +363,7 @@ public class Messages {
             return "";
         }
         var lines = content.lines().toList();
-        int minIndent = lines.stream()
+        var minIndent = lines.stream()
                 .filter(line -> !line.isBlank())
                 .mapToInt(line -> {
                     int n = 0;
@@ -372,9 +372,8 @@ public class Messages {
                 })
                 .min()
                 .orElse(0);
-        final int strip = minIndent;
         var deindented = lines.stream()
-                .map(line -> line.length() >= strip ? line.substring(strip) : line)
+                .map(line -> line.length() >= minIndent ? line.substring(minIndent) : line)
                 .collect(Collectors.joining("\n"));
         var withoutLabels = LEGACY_SECTION_LABEL.matcher(deindented).replaceAll("");
         return BLANK_RUN.matcher(withoutLabels).replaceAll("\n\n").strip();
