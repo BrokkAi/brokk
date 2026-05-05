@@ -20,7 +20,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; connect-src 'self' http://localhost:5173 ws://localhost:5173 https://api.github.com https://cdn.agentclientprotocol.com https://*.atlassian.net; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; script-src 'self'; connect-src 'self' https://api.github.com https://cdn.agentclientprotocol.com https://*.atlassian.net; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'",
+      "devCsp": "default-src 'self'; script-src 'self'; connect-src 'self' http://localhost:5173 ws://localhost:5173 https://api.github.com https://cdn.agentclientprotocol.com https://*.atlassian.net; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

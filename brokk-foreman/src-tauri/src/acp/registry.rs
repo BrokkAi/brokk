@@ -140,7 +140,8 @@ impl Registry {
 
 impl Distribution {
     pub fn is_empty(&self) -> bool {
-        self.binary.is_none() && self.npx.is_none() && self.uvx.is_none()
+        let binary_empty = self.binary.as_ref().is_none_or(HashMap::is_empty);
+        binary_empty && self.npx.is_none() && self.uvx.is_none()
     }
 }
 
@@ -149,10 +150,17 @@ impl RegistryAgent {
     /// be installed on the running host. Used to filter the registry browser
     /// to "things you could actually install today".
     pub fn supported_on_host(&self) -> bool {
+        self.supported_on(Platform::current())
+    }
+
+    /// Returns `true` if at least one distribution channel of this agent can
+    /// be installed on `host`. Tests inject the host so coverage doesn't
+    /// silently collapse on runners whose target isn't in the registry.
+    pub fn supported_on(&self, host: Option<Platform>) -> bool {
         if self.distribution.npx.is_some() || self.distribution.uvx.is_some() {
             return true;
         }
-        match (Platform::current(), &self.distribution.binary) {
+        match (host, &self.distribution.binary) {
             (Some(p), Some(targets)) => targets.contains_key(&p),
             _ => false,
         }

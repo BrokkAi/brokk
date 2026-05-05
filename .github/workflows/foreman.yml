@@ -60,7 +60,7 @@ jobs:
 
     - name: Run Clippy lints
       working-directory: brokk-foreman
-      run: cargo clippy --workspace --all-targets -- -D warnings
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
     - name: Build foreman workspace
       working-directory: brokk-foreman
@@ -76,7 +76,9 @@ jobs:
         node-version: '22'
 
     - name: Enable corepack
-      run: corepack enable
+      run: |
+        corepack enable
+        corepack prepare pnpm@9.15.0 --activate
 
     - name: Install frontend dependencies
       working-directory: brokk-foreman

@@ -3,8 +3,11 @@
 //! taken at the time this scaffolding landed; refreshing it is intentional
 //! and signals we should re-verify the schema mirror in src/acp/registry.rs.
 
+use std::collections::HashMap;
+
 use brokk_foreman_lib::acp::registry::{
-    Distribution, Platform, Registry, RegistryError, SUPPORTED_FORMAT_VERSION,
+    BinaryTarget, Distribution, Platform, Registry, RegistryAgent, RegistryError,
+    SUPPORTED_FORMAT_VERSION,
 };
 
 const FIXTURE: &str = include_str!("fixtures/registry.json");
@@ -89,8 +92,61 @@ fn npx_only_agent_is_supported_on_any_host() {
     );
 }
 
+/// Build a binary-only agent that publishes exactly `published`. The args/env
+/// payloads are intentionally trivial; the test only cares about platform keys.
+fn binary_only_agent(published: &[Platform]) -> RegistryAgent {
+    let mut targets = HashMap::new();
+    for p in published {
+        targets.insert(
+            *p,
+            BinaryTarget {
+                archive: "https://example.invalid/agent.tar.gz".to_string(),
+                cmd: "agent".to_string(),
+                args: vec![],
+                env: HashMap::new(),
+            },
+        );
+    }
+    RegistryAgent {
+        id: "synthetic-binary-only".to_string(),
+        name: "Synthetic".to_string(),
+        version: "0.0.0".to_string(),
+        description: "binary-only test fixture".to_string(),
+        repository: None,
+        website: None,
+        authors: vec![],
+        license: None,
+        icon: None,
+        distribution: Distribution {
+            binary: Some(targets),
+            npx: None,
+            uvx: None,
+        },
+    }
+}
+
 #[test]
-fn binary_only_agent_supported_only_on_published_targets() {
+fn binary_only_agent_supported_when_host_matches_published_target() {
+    let agent = binary_only_agent(&[Platform::LinuxX86_64, Platform::DarwinAarch64]);
+    assert!(agent.supported_on(Some(Platform::LinuxX86_64)));
+    assert!(agent.supported_on(Some(Platform::DarwinAarch64)));
+}
+
+#[test]
+fn binary_only_agent_unsupported_when_host_does_not_match() {
+    let agent = binary_only_agent(&[Platform::LinuxX86_64]);
+    assert!(!agent.supported_on(Some(Platform::WindowsX86_64)));
+    assert!(!agent.supported_on(Some(Platform::DarwinAarch64)));
+}
+
+#[test]
+fn binary_only_agent_unsupported_when_host_unknown() {
+    let agent = binary_only_agent(&[Platform::LinuxX86_64, Platform::DarwinAarch64]);
+    assert!(!agent.supported_on(None));
+}
+
+#[test]
+fn supported_on_host_matches_supported_on_current_platform() {
     let registry = Registry::parse(FIXTURE).unwrap();
     let binary_only = registry
         .agents
@@ -101,10 +157,11 @@ fn binary_only_agent_supported_only_on_published_targets() {
                 && a.distribution.uvx.is_none()
         })
         .expect("fixture must include at least one binary-only agent");
-    let host = Platform::current();
-    let targets = binary_only.distribution.binary.as_ref().unwrap();
-    let expected = host.is_some_and(|p| targets.contains_key(&p));
-    assert_eq!(binary_only.supported_on_host(), expected);
+    assert_eq!(
+        binary_only.supported_on_host(),
+        binary_only.supported_on(Platform::current()),
+        "the convenience wrapper must agree with the parametrized form"
+    );
 }
 
 #[test]
@@ -131,4 +188,27 @@ fn helper_distribution_is_empty_matches_serde_emptiness() {
 
     let synthetic_npx: Distribution = serde_json::from_str(r#"{"npx":{"package":"foo"}}"#).unwrap();
     assert!(!synthetic_npx.is_empty());
+
+    // Regression: `"binary": {}` parses as `Some(empty HashMap)`, which used to
+    // slip past `is_empty` and let agents with no usable channel survive parse.
+    let synthetic_empty_binary: Distribution = serde_json::from_str(r#"{"binary":{}}"#).unwrap();
+    assert!(synthetic_empty_binary.is_empty());
+}
+
+#[test]
+fn rejects_agent_with_empty_binary_map() {
+    let synthetic = r#"{
+        "version": "1.0.0",
+        "agents": [{
+            "id": "empty-binary",
+            "name": "EmptyBinary",
+            "version": "1.0.0",
+            "description": "binary map present but empty",
+            "distribution": { "binary": {} }
+        }]
+    }"#;
+    match Registry::parse(synthetic) {
+        Err(RegistryError::EmptyDistribution(id)) => assert_eq!(id, "empty-binary"),
+        other => panic!("expected EmptyDistribution, got {other:?}"),
+    }
 }

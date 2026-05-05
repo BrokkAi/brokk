@@ -1,4 +1,8 @@
 -- Baseline schema for brokk-foreman. Applied on first launch.
+-- ON DELETE CASCADE below is silently ignored unless every connection runs
+-- `PRAGMA foreign_keys = ON;` first; SQLite's default is OFF. The migration
+-- runner that consumes this file must enable it on each connection it opens.
+PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS agents (
   id              TEXT PRIMARY KEY,

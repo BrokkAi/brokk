@@ -18,5 +18,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
-        .expect("error while running brokk-foreman");
+        .unwrap_or_else(|e| {
+            tracing::error!(error = ?e, "foreman failed to start");
+            std::process::exit(1);
+        });
 }
