@@ -33,6 +33,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 
+# Unix-only: `setrlimit` via `Command::pre_exec` for per-process resource caps
+# applied to `runShellCommand`. See `tools/shell.rs::apply_rlimits`.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # `test-util` enables `tokio::time::pause()` and `#[tokio::test(start_paused = true)]`,
 # used by the LLM stream idle-timeout test to avoid waiting wall-clock seconds.
