@@ -282,6 +282,12 @@ public class BrokkAcpAgent {
         this.compatibilityWarning = warning;
     }
 
+    /** Test-visible read of the warning surface — production callers consume it via {@link #prompt}. */
+    @Nullable
+    String compatibilityWarning() {
+        return compatibilityWarning;
+    }
+
     /**
      * Returns the bundle for {@code requestedCwd}, creating it on first use. Defaults to the
      * configured {@link #defaultWorkspaceDir} when {@code requestedCwd} is null/blank. Bundles are

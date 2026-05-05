@@ -23,7 +23,10 @@ class InboundActivityTrackerTest {
         sleep(5);
         int b = tracker.read();
         assertEquals(42, b);
-        assertTrue(tracker.lastReadAtMillis() >= before, "tracker timestamp must advance after a successful read");
+        // Strictly greater: the test sleeps before the read, so a tracker that never updates
+        // would still satisfy `>= before`. We need the >`>` to actually catch a regression that
+        // drops the timestamp write inside read().
+        assertTrue(tracker.lastReadAtMillis() > before, "tracker timestamp must advance after a successful read");
     }
 
     @Test
@@ -34,7 +37,7 @@ class InboundActivityTrackerTest {
         var buf = new byte[8];
         int n = tracker.read(buf, 0, buf.length);
         assertEquals(5, n);
-        assertTrue(tracker.lastReadAtMillis() >= before, "tracker timestamp must advance after a bulk read");
+        assertTrue(tracker.lastReadAtMillis() > before, "tracker timestamp must advance after a bulk read");
     }
 
     @Test
@@ -80,7 +83,7 @@ class InboundActivityTrackerTest {
         long before = tracker.lastReadAtMillis();
         sleep(5);
         assertEquals(0, tracker.read());
-        assertTrue(tracker.lastReadAtMillis() >= before);
+        assertTrue(tracker.lastReadAtMillis() > before);
     }
 
     private static void sleep(long ms) {

@@ -137,21 +137,28 @@ class BrokkAcpRuntimeTest {
 
     @Test
     void initializeWithOldIntelliJSetsCompatibilityWarning() {
-        var params = Map.of(
+        var oldVersion = Map.of(
                 "protocolVersion", AcpSchema.LATEST_PROTOCOL_VERSION,
                 "clientCapabilities", Map.of(),
                 "clientInfo", Map.of("name", "JetBrains.IntelliJ IDEA", "version", "2024.3", "title", "IntelliJ"));
-        transport.exchange(AcpSchema.METHOD_INITIALIZE, "1", params);
+        transport.exchange(AcpSchema.METHOD_INITIALIZE, "1", oldVersion);
 
-        // The agent should now refuse prompts with the compatibility warning. We verify the
-        // handler set the warning by re-initializing with a current version and confirming the
-        // warning is cleared (proving it was set in the first place — agent has no public getter).
+        // The agent must hold a non-null warning so prompt() short-circuits before invoking the
+        // LLM on an unsupported IDE. Asserting the surface directly catches a regression where
+        // setCompatibilityWarning(...) is dropped — without this, both branches of the if/else
+        // would pass the test silently.
+        var warning = agent.compatibilityWarning();
+        assertNotNull(warning, "old IntelliJ version must set the compatibility warning");
+        assertTrue(warning.contains("2026.1.1"), "warning must mention the required version, got: " + warning);
+
+        // Re-initializing with a current version must clear the warning so prompts flow again.
         var fresh = Map.of(
                 "protocolVersion", AcpSchema.LATEST_PROTOCOL_VERSION,
                 "clientCapabilities", Map.of(),
                 "clientInfo", Map.of("name", "JetBrains.IntelliJ IDEA", "version", "2026.1.1", "title", "IntelliJ"));
         var second = transport.exchange(AcpSchema.METHOD_INITIALIZE, "2", fresh);
         assertNull(second.error());
+        assertNull(agent.compatibilityWarning(), "current IntelliJ version must clear the warning");
     }
 
     @Test
@@ -178,6 +185,9 @@ class BrokkAcpRuntimeTest {
         // we're guarding against; a flat-bug here is invisible without this test.
         var sessionId = createSession();
         record Routed(String method, Map<String, Object> params) {}
+        // Each method registered in BrokkAcpRuntime.requestHandlers() — drop one here when we
+        // intentionally remove a handler. METHOD_INITIALIZE and METHOD_SESSION_NEW are already
+        // exercised by their dedicated tests above; this list covers the rest.
         var cases = List.of(
                 new Routed(AcpSchema.METHOD_AUTHENTICATE, Map.of("methodId", "default")),
                 new Routed(
@@ -188,10 +198,18 @@ class BrokkAcpRuntimeTest {
                         AcpProtocol.METHOD_SESSION_RESUME,
                         Map.of("sessionId", sessionId, "cwd", projectRoot.toString())),
                 new Routed(AcpProtocol.METHOD_SESSION_CLOSE, Map.of("sessionId", sessionId)),
+                new Routed(
+                        AcpProtocol.METHOD_SESSION_FORK, Map.of("sessionId", sessionId, "cwd", projectRoot.toString())),
                 new Routed(AcpSchema.METHOD_SESSION_SET_MODE, Map.of("sessionId", sessionId, "modeId", "ASK")),
+                new Routed(AcpSchema.METHOD_SESSION_SET_MODEL, Map.of("sessionId", sessionId, "modelId", "any-model")),
                 new Routed(
                         AcpProtocol.METHOD_SESSION_SET_CONFIG_OPTION,
-                        Map.of("sessionId", sessionId, "configId", "behavior_mode", "value", "ASK")));
+                        Map.of("sessionId", sessionId, "configId", "behavior_mode", "value", "ASK")),
+                // session/prompt is dispatched onto the boundedElastic worker; we feed it a
+                // request that won't reach the LLM (no compatibility warning is set, but the
+                // empty prompt + missing capabilities will short-circuit). The point isn't the
+                // outcome — only that the runtime registers the handler.
+                new Routed(AcpSchema.METHOD_SESSION_PROMPT, Map.of("sessionId", sessionId, "prompt", List.of())));
 
         for (var c : cases) {
             var resp = transport.exchange(c.method(), c.method() + "-id", c.params());
