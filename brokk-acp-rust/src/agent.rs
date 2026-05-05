@@ -822,10 +822,19 @@ fn build_prompt_messages(snap: &SessionSnapshot, new_prompt: &str) -> Vec<ChatMe
         // If the prior turn used tools, replay them as a single
         // assistant_tool_calls message followed by one tool_result per call
         // -- enough for the LLM to see the calls it made and what came back,
-        // so it doesn't redo the same searches or writes (#3409). Multi-
-        // round tool sequences within the same turn collapse into one batch
-        // here; `agent_response` carries any text the assistant emitted
-        // between rounds, so no words are lost.
+        // so it doesn't redo the same searches or writes (#3409).
+        //
+        // FIXME(#3409 follow-up): multi-round tool sequences within the same
+        // turn (text₀ + calls₀ → results → text₁ + calls₁ → results → final)
+        // collapse into a single `assistant_tool_calls` batch here, with all
+        // intermediate text concatenated into `agent_response` and replayed
+        // *after* the tool_results. For models that condition heavily on
+        // order-of-reasoning this is a faithfulness loss compared to the
+        // original turn. Acceptable today (the LLM still sees the calls and
+        // their results) but worth revisiting if we observe model-quality
+        // regressions on resumed multi-round turns. A faithful replay would
+        // require persisting `Vec<Vec<ToolExchange>>` plus per-round
+        // assistant text, doubling the on-disk schema cost.
         if !turn.tool_exchanges.is_empty() {
             let calls: Vec<crate::llm_client::ToolCall> = turn
                 .tool_exchanges
@@ -849,7 +858,19 @@ fn build_prompt_messages(snap: &SessionSnapshot, new_prompt: &str) -> Vec<ChatMe
             }
         }
 
-        messages.push(ChatMessage::assistant(turn.agent_response.clone()));
+        // Skip the trailing assistant message when the turn ended without
+        // any final text (e.g. tool_loop exhausted max_turns, or the last
+        // LLM call failed/was cancelled): `agent_response == ""`. Several
+        // OpenAI-compatible providers (Mistral, some local-LLM proxies,
+        // Anthropic's tool-use shape) reject an `assistant` message that
+        // is both empty-content and non-tool_calls; even when accepted it
+        // wastes a slot and may confuse the model on long replays. If the
+        // turn used tools, the tool_results above already terminate it
+        // coherently. If it didn't use tools and produced no text either,
+        // there is nothing to replay -- emitting "" would be misleading.
+        if !turn.agent_response.is_empty() {
+            messages.push(ChatMessage::assistant(turn.agent_response.clone()));
+        }
     }
     messages.push(ChatMessage::user(new_prompt.to_string()));
     messages
@@ -1209,5 +1230,46 @@ mod tests {
         assert_eq!(msgs[0].role, "system");
         assert_eq!(msgs[1].role, "user");
         assert_eq!(msgs[1].content.as_deref(), Some("hi"));
+    }
+
+    /// A turn that ended without final assistant text (e.g. tool_loop hit
+    /// max_turns mid-tools, or the final LLM call was cancelled) must NOT
+    /// emit an empty `assistant("")` message on replay -- several
+    /// providers reject an assistant message that is both empty-content
+    /// and not a tool_calls message, and even when accepted it wastes a
+    /// slot. The tool_results from this turn already terminate it
+    /// coherently for the LLM (#3409 review MED).
+    #[test]
+    fn build_prompt_messages_skips_empty_assistant_after_tools() {
+        use crate::session::{ConversationTurn, SessionSnapshot, ToolExchange};
+        let snap = SessionSnapshot {
+            cwd: std::path::PathBuf::from("/tmp/cwd"),
+            mode: SessionMode::Code,
+            model: "m".into(),
+            history: vec![ConversationTurn {
+                user_prompt: "search".into(),
+                // Empty: turn ended without final assistant text.
+                agent_response: String::new(),
+                tool_exchanges: vec![ToolExchange {
+                    call_id: "c1".into(),
+                    tool_name: "searchFileContents".into(),
+                    arguments: r#"{"pattern":"x"}"#.into(),
+                    result: "no matches".into(),
+                }],
+            }],
+        };
+        let msgs = build_prompt_messages(&snap, "next");
+
+        // Expected: system, user, assistant_tool_calls, tool, user(new).
+        // No trailing `assistant("")`.
+        assert_eq!(msgs.len(), 5);
+        assert_eq!(msgs[0].role, "system");
+        assert_eq!(msgs[1].role, "user");
+        assert_eq!(msgs[2].role, "assistant");
+        assert!(msgs[2].content.is_none());
+        assert!(msgs[2].tool_calls.is_some());
+        assert_eq!(msgs[3].role, "tool");
+        assert_eq!(msgs[4].role, "user");
+        assert_eq!(msgs[4].content.as_deref(), Some("next"));
     }
 }

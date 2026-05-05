@@ -27,6 +27,17 @@ pub struct SessionLimits {
     /// Maximum number of conversation turns retained per session in memory.
     /// When the cap is exceeded, the oldest turns are dropped (sliding
     /// window). `0` disables the cap.
+    ///
+    /// **Disk is not pruned.** The on-disk session zip retains every turn
+    /// ever appended, and `add_turn` rewrites the entire zip per call
+    /// (copying every prior `content/*.txt` entry through, plus 2N new ones
+    /// for an N-tool turn from #3409). Persistence latency therefore scales
+    /// with the *full* on-disk session length, not with `max_history_turns`.
+    /// A long-running session with heavy tool use will see write times grow
+    /// super-linearly until either an explicit on-disk cap or an
+    /// incremental/streaming append path is added. Tracked as follow-up to
+    /// #3409 -- documented here so the next person hitting it doesn't
+    /// attribute it to a leak.
     pub max_history_turns: usize,
 }
 
@@ -389,14 +400,50 @@ fn read_history_from_zip(zip_path: &Path) -> Vec<ConversationTurn> {
         Err(_) => return vec![],
     };
 
-    // 3. Extract conversation from task fragments
-    //    Each task fragment may have:
+    // 2.5. Recover chronological turn order from contexts.jsonl.
+    //      `fragments.task` is a `serde_json::Map` backed by `BTreeMap`
+    //      (the `preserve_order` feature is intentionally not enabled), so
+    //      iterating it yields lexicographic UUID order -- effectively
+    //      shuffled with respect to the order turns were appended. That's
+    //      fine for a one-turn round-trip but actively misleads the LLM on
+    //      replay across multiple turns: the user prompt of turn 0 ends up
+    //      paired with the tool exchanges of turn 2, etc.
+    //
+    //      `contexts.jsonl` is append-only and one line per turn (plus the
+    //      initial empty context), with `virtuals: [task_fragment_id]`
+    //      pointing to the new fragment. Walking it line-by-line and
+    //      collecting `virtuals` in first-seen order gives the chronological
+    //      sequence of task fragments. Works for both newly-written zips and
+    //      older ones that already followed this convention -- no migration.
+    let chronological_ids = read_task_fragment_order(&mut archive);
+
+    // 3. Extract conversation from task fragments, in chronological order
+    //    where recoverable. Each task fragment may have:
     //    - messages: [{role, contentId, ...}] -- includes "tool_call" and
     //      "tool_result" entries when the turn used tools (#3409)
     //    - markdownContentId: points to the rendered final response
     let mut turns = Vec::new();
     if let Some(tasks) = fragments.get("task").and_then(|t| t.as_object()) {
-        for (_id, task) in tasks {
+        // Build the visit order: ids known to contexts.jsonl first (in
+        // chronological order), then any orphan task fragments not
+        // referenced by any context (defensive -- preserves the prior
+        // behavior of not dropping turns just because contexts.jsonl is
+        // missing or malformed).
+        let mut emitted: HashSet<String> = HashSet::new();
+        let mut visit: Vec<&serde_json::Value> = Vec::with_capacity(tasks.len());
+        for id in &chronological_ids {
+            if let Some(task) = tasks.get(id) {
+                emitted.insert(id.clone());
+                visit.push(task);
+            }
+        }
+        for (id, task) in tasks {
+            if !emitted.contains(id) {
+                visit.push(task);
+            }
+        }
+
+        for task in visit {
             // Walk the messages array first to pick up any tool exchanges,
             // even when markdownContentId is the source of agent_response.
             // Tool exchanges are persisted in `messages` regardless of the
@@ -444,7 +491,12 @@ fn read_history_from_zip(zip_path: &Path) -> Vec<ConversationTurn> {
                         _ => {}
                     }
                 }
-                if !assistant_text.is_empty() {
+                // Keep the turn whenever we recovered any AI-side activity --
+                // either rendered text or recorded tool exchanges. Dropping a
+                // turn that produced only tool calls (e.g. a future write
+                // path that omits the trailing `role: "ai"` entry) would
+                // also drop its `tool_exchanges`, defeating the replay.
+                if !assistant_text.is_empty() || !exchanges.is_empty() {
                     turns.push(ConversationTurn {
                         user_prompt: user_text,
                         agent_response: assistant_text,
@@ -456,6 +508,48 @@ fn read_history_from_zip(zip_path: &Path) -> Vec<ConversationTurn> {
     }
 
     turns
+}
+
+/// Read `contexts.jsonl` from `archive` and return the task-fragment ids in
+/// the chronological order they were appended (each turn's context entry
+/// references its new fragment via `virtuals: [task_fragment_id]`).
+///
+/// Returns an empty vec if `contexts.jsonl` is missing or unreadable -- the
+/// caller falls back to the BTreeMap iteration order on the fragments map,
+/// which keeps the prior shuffled-but-best-effort behavior for malformed
+/// zips rather than dropping turns outright.
+fn read_task_fragment_order(archive: &mut zip::ZipArchive<std::fs::File>) -> Vec<String> {
+    let mut buf = String::new();
+    let Ok(mut entry) = archive.by_name("contexts.jsonl") else {
+        return Vec::new();
+    };
+    if entry.read_to_string(&mut buf).is_err() {
+        return Vec::new();
+    }
+    drop(entry);
+
+    let mut ids: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for line in buf.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(ctx) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            continue;
+        };
+        let Some(virtuals) = ctx.get("virtuals").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for v in virtuals {
+            if let Some(id) = v.as_str()
+                && seen.insert(id.to_string())
+            {
+                ids.push(id.to_string());
+            }
+        }
+    }
+    ids
 }
 
 /// Walk a task fragment's `messages` array and pair `tool_call` entries
@@ -484,7 +578,20 @@ fn read_tool_exchanges_from_messages(
         };
         let content_id = msg.get("contentId").and_then(|v| v.as_str()).unwrap_or("");
         let result = content_map.get(content_id).cloned().unwrap_or_default();
-        results.insert(call_id.to_string(), result);
+        if let Some(prev) = results.insert(call_id.to_string(), result) {
+            // Two `tool_result` entries with the same `toolCallId` is not
+            // something our write path produces (call_ids come from the
+            // provider and are unique within a turn), but a corrupted or
+            // third-party-generated zip could carry duplicates. Surface it
+            // as a warning so the operator sees corrupted-zip evidence
+            // rather than chasing model-quality regressions: the second
+            // result silently overwrote the first in this map.
+            tracing::warn!(
+                call_id = %call_id,
+                prev_result_len = prev.len(),
+                "duplicate toolCallId in persisted messages; previous tool_result discarded on read"
+            );
+        }
     }
 
     // Second pass: emit exchanges in the order of the tool_call entries.
@@ -2177,14 +2284,76 @@ mod tests {
         assert_eq!(on_disk.len(), 4);
         // Persisted format uses `markdownContentId` so the user prompt is
         // re-derived from `taskDescription` (null) -- only the agent
-        // response is round-tripped on this path. Iteration order is the
-        // serde_json object's (BTreeMap-keyed by random UUID), so compare
-        // as a set rather than positionally.
-        let actual: std::collections::HashSet<String> =
-            on_disk.iter().map(|t| t.agent_response.clone()).collect();
-        let expected: std::collections::HashSet<String> =
-            (0..4).map(|i| format!("agent-{i}")).collect();
+        // response is round-tripped on this path. Order is recovered from
+        // contexts.jsonl, so the comparison is positional.
+        let actual: Vec<String> = on_disk.iter().map(|t| t.agent_response.clone()).collect();
+        let expected: Vec<String> = (0..4).map(|i| format!("agent-{i}")).collect();
         assert_eq!(actual, expected);
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// Multi-turn replay must reconstruct turns in the order they were
+    /// appended -- not in lexicographic UUID order, which is what falling
+    /// back to `serde_json::Map` (BTreeMap) iteration would produce.
+    ///
+    /// Regression coverage for the failure mode the PR review caught
+    /// (#3409 review HIGH): without ordering recovery from `contexts.jsonl`,
+    /// `session/load` paired turn 0's user prompt with turn 2's
+    /// tool_exchanges and turn 1's text on replay -- silently misleading
+    /// the LLM rather than helping it. We use 6 turns so the probability
+    /// of the BTreeMap ordering accidentally matching insertion order is
+    /// negligible (≈ 1/6! ≈ 0.14%).
+    #[tokio::test]
+    async fn read_history_from_zip_preserves_chronological_turn_order() {
+        let store = SessionStore::with_limits(
+            "m".to_string(),
+            SessionLimits {
+                max_sessions: 0,
+                max_history_turns: 0,
+            },
+        );
+        let cwd = std::env::temp_dir().join(format!(
+            "brokk-acp-rust-history-order-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let s = store.create_session(cwd.clone()).await;
+
+        for i in 0..6 {
+            store
+                .add_turn(
+                    &s.id,
+                    ConversationTurn {
+                        user_prompt: format!("u-{i}"),
+                        agent_response: format!("a-{i}"),
+                        tool_exchanges: vec![ToolExchange {
+                            call_id: format!("call-{i}"),
+                            tool_name: "noop".into(),
+                            arguments: format!(r#"{{"i":{i}}}"#),
+                            result: format!("r-{i}"),
+                        }],
+                    },
+                )
+                .await
+                .expect("persist must succeed");
+        }
+
+        let on_disk = read_history_from_zip(&session_zip_path(&cwd, &s.id));
+        assert_eq!(on_disk.len(), 6);
+
+        // Each turn's tool_exchange's call_id encodes its sequence index.
+        // If ordering were lex-by-UUID, this would almost certainly fail.
+        let order: Vec<String> = on_disk
+            .iter()
+            .map(|t| t.tool_exchanges[0].call_id.clone())
+            .collect();
+        let expected: Vec<String> = (0..6).map(|i| format!("call-{i}")).collect();
+        assert_eq!(order, expected, "turns must replay in append order");
+
+        // And the agent_response side too, for clarity on failure.
+        let agent_order: Vec<String> = on_disk.iter().map(|t| t.agent_response.clone()).collect();
+        let expected_agents: Vec<String> = (0..6).map(|i| format!("a-{i}")).collect();
+        assert_eq!(agent_order, expected_agents);
 
         let _ = std::fs::remove_dir_all(&cwd);
     }
