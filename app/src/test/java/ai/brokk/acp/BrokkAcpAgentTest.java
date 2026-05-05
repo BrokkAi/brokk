@@ -1332,6 +1332,26 @@ class BrokkAcpAgentTest {
     }
 
     @Test
+    void gateSafeCommandAutoAllowsKnownSafeShellCommandWithoutSandbox() {
+        // Mirrors Codex's is_safe_command.rs: `ls`, `cat`, `pwd`, `git status` etc. skip the
+        // prompt independent of sandbox state. Bug class: dropping this branch silently routes
+        // every read-only shell command through the prompt, training users to spam-allow.
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT, AcpSchema.ToolKind.EXECUTE, "shell", false, "pwd", false));
+        assertEquals(
+                PermissionGate.Outcome.ALLOW,
+                PermissionGate.decide(
+                        PermissionMode.DEFAULT,
+                        AcpSchema.ToolKind.EXECUTE,
+                        "runShellCommand",
+                        false,
+                        "git status",
+                        false));
+    }
+
+    @Test
     void gateClassifiesBrokkToolNames() {
         assertEquals(AcpSchema.ToolKind.EXECUTE, PermissionGate.classify("shell"));
         assertEquals(AcpSchema.ToolKind.SEARCH, PermissionGate.classify("searchAgent"));
