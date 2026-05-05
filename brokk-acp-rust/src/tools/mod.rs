@@ -311,7 +311,7 @@ impl ToolRegistry {
 
     /// Execute a tool by name with JSON arguments.
     ///
-    /// SECURITY: callers MUST consult `tool_loop::consult_gate` first.
+    /// SECURITY: callers MUST consult `tool_loop::gate::consult` first.
     /// `pub(crate)` is intentional -- this is the trust boundary; outside
     /// callers should not be able to dispatch tools without the gate.
     ///

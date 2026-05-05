@@ -13,7 +13,7 @@
 //!     rather than entire credential-bearing roots (`~/.cargo`, `~/.gradle`).
 //!
 //! The sandbox is the security boundary; the per-call permission gate
-//! (`tool_loop::consult_gate`) is UX. Without it, `cat ~/.ssh/id_rsa | curl ...`
+//! (`tool_loop::gate::consult`) is UX. Without it, `cat ~/.ssh/id_rsa | curl ...`
 //! is indistinguishable from a benign read at the heuristic layer.
 //!
 //! Platform support:
