@@ -32,6 +32,20 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
+# Codex login. We deliberately avoid single-maintainer credential crates:
+# `oauth2` is the de-facto Rust OAuth2 implementation (~32M downloads,
+# depended on by Servo etc.) and gives us PKCE + refresh. The RFC 8693
+# Token Exchange step that converts the id_token into the OPENAI_API_KEY
+# is one POST written by hand in `codex_auth.rs`. JWT decoding for the
+# account_id is also inline (no `jsonwebtoken` dep) since we trust the
+# issuer over HTTPS and only need the unverified `chatgpt_account_id`
+# claim. `tiny_http` runs the loopback callback for ~30s during login.
+oauth2 = { version = "5", features = ["reqwest"], default-features = false }
+tiny_http = "0.12"
+webbrowser = "1"
+base64 = "0.22"
+dirs = "5"
+chrono = { version = "0.4", features = ["serde"] }
 
 # Unix-only: `setrlimit` via `Command::pre_exec` for per-process resource caps
 # applied to `runShellCommand`. See `tools/shell.rs::apply_rlimits`.

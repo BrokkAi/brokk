@@ -411,6 +411,12 @@ pub async fn run_agent(
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
 
+                if is_slash_command(&prompt_text, "codex-login") {
+                    let report = handle_codex_login(&prompt_text).await;
+                    send_message(&cx, &session_id, &report);
+                    return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                }
+
                 // Validate model is configured
                 if snap.model.is_empty() {
                     send_message(&cx, &session_id, "Error: no model configured. Start the server with --default-model or ensure the LLM endpoint is reachable for model discovery.");
@@ -920,6 +926,64 @@ fn is_slash_command(prompt_text: &str, name: &str) -> bool {
         .unwrap_or("")
         .to_ascii_lowercase();
     head == name
+}
+
+/// Handle the `/codex-login` slash command and its subcommands.
+/// Subcommands: bare = start interactive login, `status` = report what's
+/// stored, `disconnect` = wipe the local credentials.
+async fn handle_codex_login(prompt_text: &str) -> String {
+    let arg = prompt_text
+        .trim()
+        .strip_prefix('/')
+        .unwrap_or("")
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    match arg.as_str() {
+        "status" => match crate::codex_auth::read_auth_dot_json() {
+            Ok(Some(auth)) => {
+                let mode = auth.auth_mode.as_deref().unwrap_or("(unset)");
+                let has_key = auth.openai_api_key.is_some();
+                let acct = auth
+                    .tokens
+                    .as_ref()
+                    .map(|t| t.account_id.as_str())
+                    .unwrap_or("(none)");
+                let last = auth
+                    .last_refresh
+                    .map(|ts| ts.to_rfc3339())
+                    .unwrap_or_else(|| "(unknown)".to_string());
+                format!(
+                    "Codex login status:\n  auth_mode: {mode}\n  api_key: {}\n  account_id: {acct}\n  last_refresh: {last}",
+                    if has_key { "present" } else { "MISSING" }
+                )
+            }
+            Ok(None) => "No Codex credentials found. Run `/codex-login` to authenticate.".to_string(),
+            Err(e) => format!("Failed to read ~/.codex/auth.json: {e:#}"),
+        },
+        "disconnect" => match crate::codex_auth::logout() {
+            Ok(()) => "Codex credentials cleared. Restart the server to drop the cached API key from memory.".to_string(),
+            Err(e) => format!("Failed to remove ~/.codex/auth.json: {e:#}"),
+        },
+        "" => match crate::codex_auth::interactive_login().await {
+            Ok(auth) => {
+                let acct = auth
+                    .tokens
+                    .as_ref()
+                    .map(|t| t.account_id.as_str())
+                    .unwrap_or("(unknown)");
+                format!(
+                    "Codex login complete (account_id: {acct}). Restart the server with --use-codex to route prompts through the issued OPENAI_API_KEY."
+                )
+            }
+            Err(e) => format!("Codex login failed: {e:#}"),
+        },
+        other => format!(
+            "Unknown subcommand `{other}`. Try: /codex-login | /codex-login status | /codex-login disconnect"
+        ),
+    }
 }
 
 /// Render the `/context` snapshot. Mirrors the Java executor's report at a
