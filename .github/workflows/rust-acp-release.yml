@@ -20,7 +20,7 @@ jobs:
             target: aarch64-apple-darwin
             asset_name: brokk-acp-macos-aarch64
             binary_name: brokk-acp
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             asset_name: brokk-acp-macos-x86_64
             binary_name: brokk-acp
