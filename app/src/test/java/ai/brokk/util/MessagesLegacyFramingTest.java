@@ -1,11 +1,15 @@
 package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -176,5 +180,36 @@ class MessagesLegacyFramingTest {
         assertEquals(1, segments.size());
         assertEquals(ChatMessageType.CUSTOM, segments.get(0).type());
         assertEquals(input, segments.get(0).content());
+    }
+
+    @Test
+    void parseFromFixture_yieldsExpectedSegmentSequence() throws IOException {
+        // Locks parser behavior against a realistic pre-#3443 session blob: leading empty custom
+        // wrapper that must NOT swallow the next block, AI body with Reasoning/Text/Tool calls
+        // section labels, and a trailing custom tool-result block. Catches collapse-into-one
+        // regressions on real-shape input rather than only on hand-written minimal cases.
+        var fixture = Files.readString(Path.of("src/test/resources/legacy-framing/sample-session.md"));
+        var segments = Messages.parseLegacyFraming(fixture);
+
+        assertEquals(4, segments.size());
+        assertEquals(ChatMessageType.USER, segments.get(0).type());
+        assertEquals("list the open ACP issues in this repo", segments.get(0).content());
+        assertEquals(ChatMessageType.AI, segments.get(1).type());
+        assertEquals(ChatMessageType.AI, segments.get(2).type());
+        assertEquals("Found 17 open issues with the ACP label.", segments.get(2).content());
+        assertEquals(ChatMessageType.CUSTOM, segments.get(3).type());
+    }
+
+    @Test
+    void stripLegacyFramingFromFixture_dropsAllFramingTags() throws IOException {
+        // Mirrors the BrokkAcpAgent.scheduleConversationReplay path: it feeds the persisted
+        // mopMarkdown through stripLegacyFraming before emitting an AgentMessageChunk.
+        // Tags must never reach the ACP wire.
+        var fixture = Files.readString(Path.of("src/test/resources/legacy-framing/sample-session.md"));
+        var stripped = Messages.stripLegacyFraming(fixture);
+
+        assertFalse(stripped.contains("<message type="), "stripped output still contains an opening framing tag");
+        assertFalse(stripped.contains("</message>"), "stripped output still contains a closing framing tag");
+        assertFalse(stripped.isBlank(), "stripped output should retain the human-readable body");
     }
 }
