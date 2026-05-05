@@ -7,10 +7,12 @@ import static org.treesitter.PythonNodeType.ATTRIBUTE;
 import static org.treesitter.PythonNodeType.CALL;
 import static org.treesitter.PythonNodeType.CLASS_DEFINITION;
 import static org.treesitter.PythonNodeType.FUNCTION_DEFINITION;
+import static org.treesitter.PythonNodeType.GENERIC_TYPE;
 import static org.treesitter.PythonNodeType.IDENTIFIER;
 import static org.treesitter.PythonNodeType.IMPORT_FROM_STATEMENT;
 import static org.treesitter.PythonNodeType.IMPORT_STATEMENT;
 import static org.treesitter.PythonNodeType.STRING_CONTENT;
+import static org.treesitter.PythonNodeType.SUBSCRIPT;
 import static org.treesitter.PythonNodeType.TYPED_PARAMETER;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -33,7 +35,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
@@ -43,6 +44,8 @@ import org.treesitter.TSNode;
 public final class PythonExportUsageExtractor {
     private static final String SELF_NAME = "self";
     private static final String SELF_ATTRIBUTE_PREFIX = SELF_NAME + ".";
+    private static final int MAX_WALK_NODES = 100_000;
+    private static final int MAX_ATTRIBUTE_CHAIN_DEPTH = 512;
 
     private PythonExportUsageExtractor() {}
 
@@ -82,7 +85,6 @@ public final class PythonExportUsageExtractor {
         var events = new ArrayList<LocalUsageEvent>();
         var shadows = new ArrayDeque<Set<String>>();
         shadows.addLast(new LinkedHashSet<>());
-        seedInstanceAttributeAnnotations(analyzer, file, root, source, binder, shadows, events);
         collectLocalUsageEvents(analyzer, file, root, source, binder, enclosing, shadows, events);
         return LocalUsageInference.infer(events);
     }
@@ -108,6 +110,10 @@ public final class PythonExportUsageExtractor {
             events.add(new LocalUsageEvent.EnterScope());
             locallyShadowedNames.addLast(new LinkedHashSet<>());
             declareParameters(node, source, events);
+            if (nodeType(CLASS_DEFINITION).equals(type)) {
+                seedInstanceAttributeAnnotationsInClass(
+                        analyzer, file, node, source, binder, locallyShadowedNames, events);
+            }
             traverseChildren(analyzer, file, node, source, binder, enclosing, locallyShadowedNames, events);
             locallyShadowedNames.removeLast();
             events.add(new LocalUsageEvent.ExitScope());
@@ -287,11 +293,57 @@ public final class PythonExportUsageExtractor {
             }
             return;
         }
+        if (nodeType(SUBSCRIPT).equals(node.getType()) || nodeType(GENERIC_TYPE).equals(node.getType())) {
+            collectReceiverCompatibleSubscriptTypeNames(node, source, names);
+            return;
+        }
         for (TSNode child : node.getNamedChildren()) {
             if (child != null) {
                 collectTypeNames(child, source, names);
             }
         }
+    }
+
+    private static void collectReceiverCompatibleSubscriptTypeNames(
+            TSNode node, SourceContent source, Set<String> names) {
+        List<TSNode> children = node.getNamedChildren();
+        if (children.isEmpty()) {
+            return;
+        }
+        String wrapper = typeExpressionName(children.getFirst(), source);
+        if (isContainerTypeWrapper(wrapper)) {
+            return;
+        }
+        if (!isTransparentTypeWrapper(wrapper)) {
+            names.add(wrapper);
+            return;
+        }
+        children.stream().skip(1).forEach(child -> collectTypeNames(child, source, names));
+    }
+
+    private static String typeExpressionName(TSNode node, SourceContent source) {
+        if (isIdentifier(node)) {
+            return text(node, source);
+        }
+        if (nodeType(ATTRIBUTE).equals(node.getType())) {
+            return String.join(".", attributeChain(node, source));
+        }
+        return "";
+    }
+
+    private static boolean isTransparentTypeWrapper(String typeName) {
+        String shortName = shortTypeName(typeName);
+        return shortName.equals("Optional") || shortName.equals("Union");
+    }
+
+    private static boolean isContainerTypeWrapper(String typeName) {
+        return Set.of("list", "List", "dict", "Dict", "set", "Set", "tuple", "Tuple", "Iterable", "Sequence")
+                .contains(shortTypeName(typeName));
+    }
+
+    private static String shortTypeName(String typeName) {
+        int lastDot = typeName.lastIndexOf('.');
+        return lastDot >= 0 ? typeName.substring(lastDot + 1) : typeName;
     }
 
     private static Optional<ReceiverTargetRef> receiverTargetFromTypeName(
@@ -330,7 +382,7 @@ public final class PythonExportUsageExtractor {
                     binding.moduleSpecifier(), exportedName, instanceReceiver, instanceReceiver ? 0.9 : 1.0, null));
         }
 
-        if (isShadowed(locallyShadowedNames, stripped)) {
+        if (isShadowedByNestedScope(locallyShadowedNames, stripped)) {
             return Optional.empty();
         }
 
@@ -414,6 +466,9 @@ public final class PythonExportUsageExtractor {
         }
 
         if (nodeType(ATTRIBUTE).equals(type)) {
+            if (isNestedAttribute(node)) {
+                return;
+            }
             emitAttributeCandidates(node, source, binder, localExportNames, enclosing, scopes, candidates);
             return;
         }
@@ -423,7 +478,7 @@ public final class PythonExportUsageExtractor {
             if (binder.bindings().containsKey(identifier) && !isShadowed(scopes, identifier)) {
                 candidates.add(new ReferenceCandidate(
                         identifier, null, null, false, ReferenceKind.STATIC_REFERENCE, rangeOf(node), enclosing));
-            } else if (localExportNames.contains(identifier)) {
+            } else if (localExportNames.contains(identifier) && !isShadowedByNestedScope(scopes, identifier)) {
                 candidates.add(new ReferenceCandidate(
                         identifier, null, null, false, ReferenceKind.STATIC_REFERENCE, rangeOf(node), enclosing));
             }
@@ -477,7 +532,8 @@ public final class PythonExportUsageExtractor {
             return;
         }
         String first = chain.getFirst();
-        if (isShadowed(scopes, first) && !localExportNames.contains(first)) {
+        if (isShadowed(scopes, first)
+                && !(localExportNames.contains(first) && !isShadowedByNestedScope(scopes, first))) {
             return;
         }
         if (chain.size() == 2) {
@@ -521,15 +577,15 @@ public final class PythonExportUsageExtractor {
         }
     }
 
-    private static void seedInstanceAttributeAnnotations(
+    private static void seedInstanceAttributeAnnotationsInClass(
             PythonAnalyzer analyzer,
             ProjectFile file,
-            TSNode root,
+            TSNode classNode,
             SourceContent source,
             ImportBinder binder,
             Deque<Set<String>> locallyShadowedNames,
             List<LocalUsageEvent> events) {
-        walk(root, node -> {
+        walk(classNode, node -> {
             if (!nodeType(ASSIGNMENT).equals(node.getType())) {
                 return;
             }
@@ -572,42 +628,48 @@ public final class PythonExportUsageExtractor {
     private static Set<String> collectParameterNames(TSNode parameters, SourceContent source) {
         var names = new LinkedHashSet<String>();
         walk(parameters, node -> {
-            if (isIdentifier(node) && !insideTypeAnnotation(node, parameters)) {
+            TSNode name = node.getChildByFieldName(nodeField(PythonNodeField.NAME));
+            if (name != null && isIdentifier(name)) {
+                names.add(text(name, source));
+                return;
+            }
+            TSNode parent = node.getParent();
+            if (isIdentifier(node) && parent != null && sameNode(parent, parameters)) {
                 names.add(text(node, source));
             }
         });
         return Set.copyOf(names);
     }
 
-    private static boolean insideTypeAnnotation(TSNode node, TSNode boundary) {
-        TSNode current = node;
-        while (current.getParent() != null && !Objects.equals(current.getParent(), boundary)) {
-            current = current.getParent();
-            if (nodeType(TYPED_PARAMETER).equals(current.getType())) {
-                TSNode name = current.getChildByFieldName(nodeField(PythonNodeField.NAME));
-                return name == null || node.getStartByte() > name.getEndByte();
-            }
-        }
-        return false;
-    }
-
     private static List<String> attributeChain(TSNode node, SourceContent source) {
-        if (isIdentifier(node)) {
-            return List.of(text(node, source));
+        var reversed = new ArrayList<String>();
+        TSNode current = node;
+        for (int depth = 0; depth < MAX_ATTRIBUTE_CHAIN_DEPTH; depth++) {
+            if (isIdentifier(current)) {
+                reversed.add(text(current, source));
+                break;
+            }
+            if (!nodeType(ATTRIBUTE).equals(current.getType())) {
+                return List.of();
+            }
+            TSNode attribute = current.getChildByFieldName(nodeField(PythonNodeField.ATTRIBUTE));
+            if (attribute == null || !isIdentifier(attribute)) {
+                return List.of();
+            }
+            reversed.add(text(attribute, source));
+            TSNode object = current.getChildByFieldName(nodeField(PythonNodeField.OBJECT));
+            if (object == null) {
+                return List.of();
+            }
+            current = object;
         }
-        if (!nodeType(ATTRIBUTE).equals(node.getType())) {
+        if (reversed.isEmpty() || !isIdentifier(current)) {
             return List.of();
         }
-        TSNode object = node.getChildByFieldName(nodeField(PythonNodeField.OBJECT));
-        TSNode attribute = node.getChildByFieldName(nodeField(PythonNodeField.ATTRIBUTE));
-        if (object == null || attribute == null || !isIdentifier(attribute)) {
-            return List.of();
+        var chain = new ArrayList<String>(reversed.size());
+        for (int i = reversed.size() - 1; i >= 0; i--) {
+            chain.add(reversed.get(i));
         }
-        var chain = new ArrayList<>(attributeChain(object, source));
-        if (chain.isEmpty()) {
-            return List.of();
-        }
-        chain.add(text(attribute, source));
         return List.copyOf(chain);
     }
 
@@ -634,6 +696,19 @@ public final class PythonExportUsageExtractor {
         return false;
     }
 
+    private static boolean isShadowedByNestedScope(Deque<Set<String>> scopes, String name) {
+        var descending = scopes.descendingIterator();
+        int remaining = scopes.size();
+        while (descending.hasNext()) {
+            Set<String> scope = descending.next();
+            if (remaining > 1 && scope.contains(name)) {
+                return true;
+            }
+            remaining--;
+        }
+        return false;
+    }
+
     private static Set<String> currentScope(Deque<Set<String>> scopes) {
         return scopes.getLast();
     }
@@ -641,6 +716,11 @@ public final class PythonExportUsageExtractor {
     private static boolean isMethodCallAttribute(TSNode attributeNode) {
         TSNode parent = attributeNode.getParent();
         return parent != null && nodeType(CALL).equals(parent.getType());
+    }
+
+    private static boolean isNestedAttribute(TSNode attributeNode) {
+        TSNode parent = attributeNode.getParent();
+        return parent != null && nodeType(ATTRIBUTE).equals(parent.getType());
     }
 
     private static Set<String> staticAllNames(TSNode root, SourceContent source) {
@@ -731,19 +811,7 @@ public final class PythonExportUsageExtractor {
         if (node == null) {
             return "";
         }
-        if (isIdentifier(node)) {
-            return text(node, source);
-        }
-        if (!nodeType(ATTRIBUTE).equals(node.getType())) {
-            return "";
-        }
-        TSNode object = node.getChildByFieldName(nodeField(PythonNodeField.OBJECT));
-        TSNode attribute = node.getChildByFieldName(nodeField(PythonNodeField.ATTRIBUTE));
-        if (attribute == null || !isIdentifier(attribute)) {
-            return "";
-        }
-        String receiverName = localSymbolName(object, source);
-        return receiverName.isBlank() ? "" : receiverName + "." + text(attribute, source);
+        return String.join(".", attributeChain(node, source));
     }
 
     private static @Nullable TSNode firstNamedIdentifier(TSNode node) {
@@ -786,10 +854,16 @@ public final class PythonExportUsageExtractor {
     }
 
     private static void walk(TSNode node, java.util.function.Consumer<TSNode> consumer) {
-        consumer.accept(node);
-        for (TSNode child : node.getNamedChildren()) {
-            if (child != null) {
-                walk(child, consumer);
+        var stack = new ArrayDeque<TSNode>();
+        stack.addLast(node);
+        int visited = 0;
+        while (!stack.isEmpty() && visited < MAX_WALK_NODES) {
+            TSNode current = stack.removeLast();
+            visited++;
+            consumer.accept(current);
+            List<TSNode> children = current.getNamedChildren();
+            for (int i = children.size() - 1; i >= 0; i--) {
+                stack.addLast(children.get(i));
             }
         }
     }

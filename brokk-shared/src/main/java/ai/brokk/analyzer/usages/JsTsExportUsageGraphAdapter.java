@@ -32,8 +32,10 @@ public final class JsTsExportUsageGraphAdapter implements ExportUsageGraphLangua
     }
 
     @Override
-    public Set<CodeUnit> definitionsOf(String localName) {
-        return analyzer.getDefinitions(localName);
+    public Set<CodeUnit> definitionsOf(ProjectFile file, String localName) {
+        return analyzer.getDefinitions(localName).stream()
+                .filter(cu -> cu.source().equals(file))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     @Override

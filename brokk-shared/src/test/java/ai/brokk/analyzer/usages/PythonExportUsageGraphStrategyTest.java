@@ -135,6 +135,49 @@ class PythonExportUsageGraphStrategyTest extends AbstractUsageReferenceGraphTest
     }
 
     @Test
+    void pythonGraphReturnsTooManyCallsitesWhenHitsExceedLimit() throws Exception {
+        String service = """
+                class Service:
+                    pass
+                """;
+        String first =
+                """
+                from service import Service
+
+                def first():
+                    return Service()
+                """;
+        String second =
+                """
+                from service import Service
+
+                def second():
+                    return Service()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py")
+                .addFileContents(first, "first.py")
+                .addFileContents(second, "second.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(serviceFile))
+                    .filter(cu -> cu.identifier().equals("Service"))
+                    .findFirst()
+                    .orElseThrow();
+
+            FuzzyResult result =
+                    new PythonExportUsageGraphStrategy(analyzer).findUsages(List.of(target), project.getAllFiles(), 1);
+
+            assertInstanceOf(FuzzyResult.TooManyCallsites.class, result);
+            var tooMany = (FuzzyResult.TooManyCallsites) result;
+            assertEquals(1, tooMany.limit());
+            assertTrue(tooMany.totalCallsites() > tooMany.limit());
+        }
+    }
+
+    @Test
     void selectorUsesPythonGraphForPythonTargetWithMultiAnalyzer() throws Exception {
         String service = """
                 class Service:

@@ -16,7 +16,6 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(PythonExportUsageGraphStrategy.class);
 
     private final PythonAnalyzer analyzer;
-    private final PythonExportUsageGraphAdapter adapter;
     private final ExportUsageReferenceGraphEngine.Limits limits;
 
     public PythonExportUsageGraphStrategy(PythonAnalyzer analyzer) {
@@ -26,7 +25,6 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
     public PythonExportUsageGraphStrategy(
             PythonAnalyzer analyzer, @Nullable ExportUsageReferenceGraphEngine.Limits limits) {
         this.analyzer = analyzer;
-        this.adapter = new PythonExportUsageGraphAdapter(analyzer);
         this.limits = limits != null ? limits : ExportUsageReferenceGraphEngine.Limits.defaults();
     }
 
@@ -49,10 +47,14 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
             return new FuzzyResult.Success(Map.of(target, Set.of()));
         }
 
+        int graphHitLimit = maxUsages == Integer.MAX_VALUE ? maxUsages : maxUsages + 1;
+        var adapter = new PythonExportUsageGraphAdapter(analyzer);
+        var effectiveLimits = new ExportUsageReferenceGraphEngine.Limits(
+                limits.maxFiles(), Math.max(1, Math.min(limits.maxHits(), graphHitLimit)), limits.maxReexportDepth());
         Set<UsageHit> hits = new LinkedHashSet<>();
         for (String exportName : exportNames) {
             ReferenceGraphResult graphResult = ExportUsageReferenceGraphEngine.findExportUsages(
-                    target.source(), exportName, target, adapter, limits, candidateFiles);
+                    target.source(), exportName, target, adapter, effectiveLimits, candidateFiles);
             hits.addAll(graphResult.hits().stream()
                     .map(hit -> new UsageHit(
                             hit.file(),
@@ -63,11 +65,14 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
                             hit.confidence(),
                             ""))
                     .collect(Collectors.toCollection(LinkedHashSet::new)));
-            if (hits.size() >= maxUsages) {
+            if (hits.size() > maxUsages) {
                 break;
             }
         }
 
+        if (hits.size() > maxUsages) {
+            return new FuzzyResult.TooManyCallsites(target.shortName(), hits.size(), maxUsages);
+        }
         hits = hits.stream().limit(maxUsages).collect(Collectors.toCollection(LinkedHashSet::new));
         return new FuzzyResult.Success(Map.of(target, Set.copyOf(hits)));
     }

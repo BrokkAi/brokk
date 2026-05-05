@@ -3,6 +3,7 @@ package ai.brokk.analyzer.cache;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
+import ai.brokk.analyzer.usages.ExportResolutionData;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.Map;
@@ -17,6 +18,7 @@ import java.util.Set;
 public final class PythonAnalyzerCache extends AnalyzerCache {
     private final Cache<ProjectFile, Map<PythonAnalyzer.MemberKey, CodeUnit>> exactMembersByFileCache;
     private final Cache<ProjectFile, Map<String, CodeUnit>> topLevelImportablesByFileCache;
+    private final Cache<PythonAnalyzer.ExportResolutionKey, ExportResolutionData> exportResolutionCache;
     private final Cache<CodeUnit, String> classKeyByCodeUnitCache;
     private @org.jetbrains.annotations.Nullable Map<String, Set<CodeUnit>> definitionsByIdentifierIndex;
 
@@ -25,6 +27,7 @@ public final class PythonAnalyzerCache extends AnalyzerCache {
         this.exactMembersByFileCache = Caffeine.newBuilder().maximumSize(10_000).build();
         this.topLevelImportablesByFileCache =
                 Caffeine.newBuilder().maximumSize(10_000).build();
+        this.exportResolutionCache = Caffeine.newBuilder().maximumSize(20_000).build();
         this.classKeyByCodeUnitCache = Caffeine.newBuilder().maximumSize(20_000).build();
     }
 
@@ -33,6 +36,7 @@ public final class PythonAnalyzerCache extends AnalyzerCache {
         this.exactMembersByFileCache = Caffeine.newBuilder().maximumSize(10_000).build();
         this.topLevelImportablesByFileCache =
                 Caffeine.newBuilder().maximumSize(10_000).build();
+        this.exportResolutionCache = Caffeine.newBuilder().maximumSize(20_000).build();
         this.classKeyByCodeUnitCache = Caffeine.newBuilder().maximumSize(20_000).build();
 
         if (changedFiles.isEmpty()) {
@@ -48,6 +52,9 @@ public final class PythonAnalyzerCache extends AnalyzerCache {
                 this.topLevelImportablesByFileCache.put(file, Map.copyOf(index));
             }
         });
+        if (changedFiles.isEmpty()) {
+            previous.exportResolutionCache.asMap().forEach(this.exportResolutionCache::put);
+        }
         previous.classKeyByCodeUnitCache.asMap().forEach((codeUnit, classKey) -> {
             if (!changedFiles.contains(codeUnit.source())) {
                 this.classKeyByCodeUnitCache.put(codeUnit, classKey);
@@ -69,6 +76,10 @@ public final class PythonAnalyzerCache extends AnalyzerCache {
 
     public Cache<ProjectFile, Map<String, CodeUnit>> topLevelImportablesByFileCache() {
         return topLevelImportablesByFileCache;
+    }
+
+    public Cache<PythonAnalyzer.ExportResolutionKey, ExportResolutionData> exportResolutionCache() {
+        return exportResolutionCache;
     }
 
     public Cache<CodeUnit, String> classKeyByCodeUnitCache() {

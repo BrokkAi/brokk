@@ -22,13 +22,17 @@ public interface ExportUsageGraphLanguageAdapter {
 
     Set<ReferenceCandidate> usageCandidatesOf(ProjectFile file, ImportBinder binder);
 
-    Set<CodeUnit> definitionsOf(String localName);
+    Set<CodeUnit> definitionsOf(ProjectFile file, String localName);
 
     default Set<ResolvedReceiverCandidate> resolvedReceiverCandidatesOf(ProjectFile file, ImportBinder binder) {
         return Set.of();
     }
 
     ResolutionOutcome resolveModule(ProjectFile importingFile, String moduleSpecifier);
+
+    default ResolutionOutcome resolveImportedSubmodule(ProjectFile importingFile, ImportBinder.ImportBinding binding) {
+        return ResolutionOutcome.empty();
+    }
 
     default Map<ProjectFile, Set<ProjectFile>> reverseReexportIndex() {
         return Map.of();

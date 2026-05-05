@@ -11,6 +11,7 @@ import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Set;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest {
@@ -288,7 +289,7 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Foo",
-                    member,
+                    null,
                     adapter,
                     ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
@@ -433,6 +434,218 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
                     .filter(cu -> cu.identifier().equals("bar"))
                     .findFirst()
                     .orElseThrow();
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Foo",
+                    member,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void optionalTypeArgumentResolvesReceiverMemberUsage() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String consumer =
+                """
+                from typing import Optional
+                from service import Foo
+
+                def run(x: Optional[Foo]):
+                    x.bar()
+                """;
+
+        assertSinglePythonMemberHit(service, consumer);
+    }
+
+    @Test
+    void qualifiedOptionalTypeArgumentResolvesReceiverMemberUsage() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String init = """
+                from .service import Foo
+                """;
+        String consumer =
+                """
+                import typing
+                import pkg as p
+
+                def run(x: typing.Optional[p.Foo]):
+                    x.bar()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "pkg/service.py")
+                .addFileContents(init, "pkg/__init__.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+            var member = memberDeclaration(analyzer, serviceFile, "bar");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Foo",
+                    member,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void listTypeArgumentDoesNotSeedContainerReceiver() throws Exception {
+        assertContainerTypeArgumentCountsAsStaticUsageButDoesNotSeedReceiver("def run(xs: list[Foo]):\n    xs.bar()\n");
+    }
+
+    @Test
+    void typingListTypeArgumentDoesNotSeedContainerReceiver() throws Exception {
+        assertContainerTypeArgumentCountsAsStaticUsageButDoesNotSeedReceiver(
+                """
+                from typing import List
+
+                def run(xs: List[Foo]):
+                    xs.bar()
+                """);
+    }
+
+    @Test
+    void dictValueTypeArgumentDoesNotSeedContainerReceiver() throws Exception {
+        assertContainerTypeArgumentCountsAsStaticUsageButDoesNotSeedReceiver(
+                "def run(m: dict[str, Foo]):\n    m.bar()\n");
+    }
+
+    @Test
+    void qualifiedListTypeArgumentDoesNotSeedContainerReceiver() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String init = """
+                from .service import Foo
+                """;
+        String consumer =
+                """
+                from typing import List
+                import pkg as p
+
+                def run(xs: List[p.Foo]):
+                    xs.bar()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "pkg/service.py")
+                .addFileContents(init, "pkg/__init__.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+            var member = memberDeclaration(analyzer, serviceFile, "bar");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Foo",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+
+            var memberResult = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Foo",
+                    member,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertTrue(memberResult.hits().isEmpty());
+        }
+    }
+
+    @Disabled(
+            "Element/value flow through generic containers is intentionally out of scope for the current Python usage graph")
+    @Test
+    void listElementSubscriptTypeArgumentResolvesFutureMemberUsage() throws Exception {
+        assertSinglePythonMemberHit(
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """,
+                """
+                def run(xs: list[Foo]):
+                    xs[0].bar()
+                """);
+    }
+
+    @Disabled(
+            "Element/value flow through generic containers is intentionally out of scope for the current Python usage graph")
+    @Test
+    void dictValueSubscriptTypeArgumentResolvesFutureMemberUsage() throws Exception {
+        assertSinglePythonMemberHit(
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """,
+                """
+                def run(m: dict[str, Foo]):
+                    m["key"].bar()
+                """);
+    }
+
+    @Disabled(
+            "Element/value flow through generic containers is intentionally out of scope for the current Python usage graph")
+    @Test
+    void iterableCallFlowTypeArgumentResolvesFutureMemberUsage() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String init = """
+                from .service import Foo
+                """;
+        String consumer =
+                """
+                from typing import Iterable
+                import pkg as p
+
+                def run(xs: Iterable[p.Foo]):
+                    next(iter(xs)).bar()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "pkg/service.py")
+                .addFileContents(init, "pkg/__init__.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+            var member = memberDeclaration(analyzer, serviceFile, "bar");
 
             var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
@@ -782,6 +995,77 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
 
             assertEquals(1, result.hits().size());
             assertTrue(endsWithPath(result.hits().iterator().next().file(), "tests/unit/test_timestamps.py"));
+        }
+    }
+
+    @Test
+    void relativeSamePackageImportedSubmoduleQualifierResolvesExportUsage() throws Exception {
+        String service = """
+                class Service:
+                    pass
+                """;
+        String consumer =
+                """
+                from . import service
+
+                def run():
+                    return service.Service()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "pkg/service.py")
+                .addFileContents("", "pkg/__init__.py")
+                .addFileContents(consumer, "pkg/consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "pkg/consumer.py");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Service",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void relativeParentImportedSubmoduleQualifierResolvesExportUsage() throws Exception {
+        String service = """
+                class Service:
+                    pass
+                """;
+        String consumer =
+                """
+                from .. import service
+
+                def run():
+                    return service.Service()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "pkg/service.py")
+                .addFileContents("", "pkg/__init__.py")
+                .addFileContents("", "pkg/tests/__init__.py")
+                .addFileContents(consumer, "pkg/tests/consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "pkg/tests/consumer.py");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Service",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
         }
     }
 
@@ -1290,7 +1574,7 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             var adapter = new PythonExportUsageGraphAdapter(analyzer);
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "cassandra/cluster.py");
 
-            Set<CodeUnit> definitions = adapter.definitionsOf("_try_asyncore_import");
+            Set<CodeUnit> definitions = adapter.definitionsOf(serviceFile, "_try_asyncore_import");
 
             assertEquals(1, definitions.size());
             assertTrue(definitions.stream().allMatch(cu -> cu.source().equals(serviceFile)));
@@ -1311,7 +1595,7 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             var adapter = new PythonExportUsageGraphAdapter(analyzer);
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
 
-            Set<CodeUnit> definitions = adapter.definitionsOf("bar");
+            Set<CodeUnit> definitions = adapter.definitionsOf(serviceFile, "bar");
 
             assertEquals(1, definitions.size());
             CodeUnit definition = definitions.iterator().next();
@@ -1378,6 +1662,269 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
         }
     }
 
+    @Test
+    void exportResolutionCacheInvalidatesWhenReexportTargetChanges() throws Exception {
+        String service = """
+                class Service:
+                    pass
+                """;
+        String init = """
+                from .service import Service
+                """;
+        String consumer =
+                """
+                from pkg import Service
+
+                def run():
+                    return Service()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "pkg/service.py")
+                .addFileContents(init, "pkg/__init__.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
+            ProjectFile initFile = projectFile(project.getAllFiles(), "pkg/__init__.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+
+            var initial = ExportUsageReferenceGraphEngine.findExportUsages(
+                    initFile,
+                    "Service",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+            assertEquals(1, initial.hits().size());
+
+            Files.writeString(
+                    serviceFile.absPath(),
+                    """
+                    class Renamed:
+                        pass
+                    """,
+                    StandardCharsets.UTF_8);
+            var updated = (PythonAnalyzer) analyzer.update(Set.of(serviceFile));
+
+            var afterUpdate = ExportUsageReferenceGraphEngine.findExportUsages(
+                    initFile,
+                    "Service",
+                    null,
+                    new PythonExportUsageGraphAdapter(updated),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertTrue(afterUpdate.hits().isEmpty());
+        }
+    }
+
+    @Test
+    void selfAttributeTypeFactsDoNotLeakAcrossClasses() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String consumer =
+                """
+                from service import Foo
+
+                class A:
+                    def __init__(self):
+                        self.x: Foo = Foo()
+
+                class B:
+                    def run(self):
+                        self.x.bar()
+                """;
+
+        assertNoPythonMemberHit(service, consumer);
+    }
+
+    @Test
+    void localParameterShadowsExportedClassAttributeCandidate() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String consumer =
+                """
+                from service import Foo
+
+                def run(Foo):
+                    Foo.bar()
+                """;
+
+        assertNoPythonMemberHit(service, consumer);
+    }
+
+    @Test
+    void defaultArgumentCallCountsAsUsageInsteadOfParameterShadow() throws Exception {
+        String service = """
+                class Widget:
+                    pass
+                """;
+        String consumer =
+                """
+                from service import Widget
+
+                def run(x=Widget()):
+                    pass
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Widget",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void importBinderHonorsSourceOrderWhenImportOverridesClass() throws Exception {
+        String service = """
+                class Widget:
+                    pass
+                """;
+        String consumer =
+                """
+                class Widget:
+                    pass
+
+                from service import Widget
+
+                def run():
+                    return Widget()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Widget",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void importBinderHonorsSourceOrderWhenClassOverridesImport() throws Exception {
+        String service = """
+                class Widget:
+                    pass
+                """;
+        String consumer =
+                """
+                from service import Widget
+
+                class Widget:
+                    pass
+
+                def run():
+                    return Widget()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Widget",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertTrue(result.hits().isEmpty());
+        }
+    }
+
+    @Test
+    void pythonGraphSuccessWithNoHitsDoesNotFallbackToRegex() throws Exception {
+        String service = """
+                class Widget:
+                    pass
+                """;
+        String consumer =
+                """
+                # Widget appears only in a comment.
+                note = "Widget appears only in a string"
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+            CodeUnit target = analyzer.getTopLevelDeclarations(serviceFile).stream()
+                    .filter(cu -> cu.identifier().equals("Widget"))
+                    .findFirst()
+                    .orElseThrow();
+
+            UsageAnalyzer graph = new PythonExportUsageGraphStrategy(analyzer);
+            var result =
+                    UsageAnalyzerSelector.findUsages(graph, analyzer, java.util.List.of(target), Set.of(consumerFile));
+
+            if (result instanceof FuzzyResult.Success success) {
+                assertTrue(success.hits().isEmpty());
+            } else {
+                throw new AssertionError("Expected successful graph result");
+            }
+        }
+    }
+
+    @Test
+    void deepAttributeExpressionDoesNotOverflow() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String chain = "root." + String.join(".", java.util.Collections.nCopies(300, "child")) + ".bar()";
+        String consumer =
+                """
+                from service import Foo
+
+                def run(root):
+                """
+                        + "    " + chain + "\n";
+
+        assertNoPythonMemberHit(service, consumer);
+    }
+
     private static void assertSinglePythonMemberHit(String service, String consumer) throws Exception {
         assertSinglePythonMemberHit(service, consumer, "Foo", "bar");
     }
@@ -1407,6 +1954,48 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
 
     private static void assertNoPythonMemberHit(String service, String consumer) throws Exception {
         assertNoPythonMemberHit(service, consumer, "Foo", "bar");
+    }
+
+    private static void assertContainerTypeArgumentCountsAsStaticUsageButDoesNotSeedReceiver(String consumerBody)
+            throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String consumer = """
+                from service import Foo
+
+                """ + consumerBody;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
+            var member = memberDeclaration(analyzer, serviceFile, "bar");
+
+            var typeUsage = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Foo",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+            assertEquals(1, typeUsage.hits().size());
+
+            var memberUsage = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "Foo",
+                    member,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+            assertTrue(memberUsage.hits().isEmpty());
+        }
     }
 
     private static void assertNoPythonMemberHit(String service, String consumer, String exportName, String memberName)

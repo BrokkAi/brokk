@@ -319,9 +319,9 @@ public final class ExportUsageReferenceGraphEngine {
         if (importedName == null || importedName.isBlank()) {
             return Optional.empty();
         }
-        String submoduleSpecifier = binding.moduleSpecifier() + "." + importedName;
-        ExportUsageGraphLanguageAdapter.ResolutionOutcome imported = adapter.resolveModule(file, submoduleSpecifier);
+        ExportUsageGraphLanguageAdapter.ResolutionOutcome imported = adapter.resolveImportedSubmodule(file, binding);
         if (imported.resolved().isEmpty()) {
+            imported.externalFrontier().ifPresent(externalFrontier::add);
             return Optional.empty();
         }
 
@@ -551,8 +551,7 @@ public final class ExportUsageReferenceGraphEngine {
             ProjectFile file, String localName, ExportUsageGraphLanguageAdapter adapter) {
         CodeUnit singleMatch = null;
         var matches = new LinkedHashSet<CodeUnit>();
-        for (CodeUnit cu : adapter.definitionsOf(localName)) {
-            if (!cu.source().equals(file)) continue;
+        for (CodeUnit cu : adapter.definitionsOf(file, localName)) {
             if (cu.identifier().equals(localName)
                     || cu.shortName().equals(localName)
                     || ownerNameOf(cu).equals(localName)) {

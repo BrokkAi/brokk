@@ -3,25 +3,20 @@ package ai.brokk.analyzer.usages;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
-import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.jetbrains.annotations.Nullable;
 
 public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLanguageAdapter {
     private final PythonAnalyzer analyzer;
-    private final Map<Path, ProjectFile> filesByPath;
-    private final Map<ModuleResolutionKey, Optional<ProjectFile>> moduleResolutionCache = new HashMap<>();
+    private final Map<ModuleResolutionKey, ResolutionOutcome> moduleResolutionCache = new HashMap<>();
 
     public PythonExportUsageGraphAdapter(PythonAnalyzer analyzer) {
         this.analyzer = analyzer;
-        this.filesByPath = analyzer.getProject().getAllFiles().stream()
-                .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        file -> file.getRelPath().normalize(), file -> file, (left, right) -> left));
     }
 
     @Override
@@ -45,20 +40,30 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
     }
 
     @Override
-    public Set<CodeUnit> definitionsOf(String localName) {
+    public Set<CodeUnit> definitionsOf(ProjectFile file, String localName) {
         var definitions = new LinkedHashSet<CodeUnit>();
         definitions.addAll(analyzer.getDefinitions(localName));
         definitions.addAll(analyzer.definitionsByIdentifier(localName));
-        return Set.copyOf(definitions);
+        return definitions.stream()
+                .filter(cu -> cu.source().equals(file))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     @Override
     public ResolutionOutcome resolveModule(ProjectFile importingFile, String moduleSpecifier) {
-        return resolvePythonModule(importingFile, moduleSpecifier)
-                .map(ResolutionOutcome::resolved)
-                .orElseGet(() -> isRelative(moduleSpecifier)
-                        ? ResolutionOutcome.empty()
-                        : ResolutionOutcome.external(moduleSpecifier));
+        return moduleResolutionCache.computeIfAbsent(new ModuleResolutionKey(importingFile, moduleSpecifier), key -> {
+            var outcome = analyzer.resolvePythonModuleOutcome(key.importingFile(), key.moduleSpecifier());
+            return new ResolutionOutcome(outcome.resolved(), outcome.externalFrontier());
+        });
+    }
+
+    @Override
+    public ResolutionOutcome resolveImportedSubmodule(ProjectFile importingFile, ImportBinder.ImportBinding binding) {
+        String importedName = binding.importedName();
+        if (importedName == null || importedName.isBlank()) {
+            return ResolutionOutcome.empty();
+        }
+        return resolveModule(importingFile, submoduleSpecifier(binding.moduleSpecifier(), importedName));
     }
 
     @Override
@@ -82,62 +87,19 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
         return analyzer.exactMember(sourceFile, new PythonAnalyzer.MemberKey(ownerClassName, memberName));
     }
 
-    private Optional<ProjectFile> resolvePythonModule(ProjectFile importingFile, String moduleSpecifier) {
-        var key = new ModuleResolutionKey(importingFile, moduleSpecifier);
-        Optional<ProjectFile> cached = moduleResolutionCache.get(key);
-        if (cached != null) {
-            return cached;
-        }
-        Path modulePath = modulePath(importingFile, moduleSpecifier);
-        Optional<ProjectFile> resolved;
-        if (modulePath.toString().isBlank()) {
-            resolved = findProjectFile(importingFile.getParent().resolve("__init__.py"));
-            moduleResolutionCache.put(key, resolved);
-            return resolved;
-        }
-
-        Optional<ProjectFile> moduleFile = findProjectFile(modulePath.resolveSibling(modulePath.getFileName() + ".py"));
-        if (moduleFile.isPresent()) {
-            moduleResolutionCache.put(key, moduleFile);
-            return moduleFile;
-        }
-        resolved = findProjectFile(modulePath.resolve("__init__.py"));
-        moduleResolutionCache.put(key, resolved);
-        return resolved;
+    @Override
+    public ExportResolutionData cachedExportResolution(
+            ProjectFile definingFile,
+            String exportName,
+            int maxReexportDepth,
+            Supplier<ExportResolutionData> supplier) {
+        return analyzer.cachedExportResolution(definingFile, exportName, maxReexportDepth, supplier);
     }
 
-    private Path modulePath(ProjectFile importingFile, String moduleSpecifier) {
-        if (!isRelative(moduleSpecifier)) {
-            return Path.of(moduleSpecifier.replace('.', '/'));
-        }
-
-        int dots = leadingDots(moduleSpecifier);
-        Path base = importingFile.getParent();
-        for (int i = 1; i < dots; i++) {
-            base = base.getParent() == null ? Path.of("") : base.getParent();
-        }
-
-        String remainder = moduleSpecifier.substring(dots);
-        if (remainder.isBlank()) {
-            return base;
-        }
-        return base.resolve(remainder.replace('.', '/')).normalize();
-    }
-
-    private Optional<ProjectFile> findProjectFile(Path relPath) {
-        return Optional.ofNullable(filesByPath.get(relPath.normalize()));
-    }
-
-    private static boolean isRelative(String moduleSpecifier) {
-        return moduleSpecifier.startsWith(".");
-    }
-
-    private static int leadingDots(String moduleSpecifier) {
-        int dots = 0;
-        while (dots < moduleSpecifier.length() && moduleSpecifier.charAt(dots) == '.') {
-            dots++;
-        }
-        return dots;
+    private static String submoduleSpecifier(String moduleSpecifier, String importedName) {
+        return moduleSpecifier.chars().allMatch(ch -> ch == '.')
+                ? moduleSpecifier + importedName
+                : moduleSpecifier + "." + importedName;
     }
 
     private record ModuleResolutionKey(ProjectFile importingFile, String moduleSpecifier) {}

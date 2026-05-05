@@ -125,7 +125,7 @@ class ExportUsageGraphAdapterTest {
         }
 
         @Override
-        public Set<CodeUnit> definitionsOf(String localName) {
+        public Set<CodeUnit> definitionsOf(ProjectFile file, String localName) {
             return definitions.getOrDefault(localName, Set.of());
         }
 
