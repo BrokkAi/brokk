@@ -14,11 +14,15 @@ on:
 
 jobs:
   test:
-    name: Lint and test brokk-code
-    runs-on: ubuntu-latest
+    name: Lint and test brokk-code (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -26,7 +30,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
 
@@ -44,4 +48,4 @@ jobs:
 
       - name: Pytest
         working-directory: brokk-code
-        run: uv run pytest -q -n auto
+        run: uv run pytest -q -n auto --no-header
