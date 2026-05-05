@@ -12,7 +12,7 @@ import ai.brokk.gui.mop.FilePathLookupService;
 import ai.brokk.gui.mop.SymbolLookupService;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
-import ai.brokk.util.Messages;
+import ai.brokk.util.LegacyFramingParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -235,7 +235,7 @@ public final class MOPBridge {
             var text = taskFragment.text().join();
             // Persisted task markdown may still contain legacy <message type=X>...</message> framing;
             // parse it into per-segment bubbles so framing tags never reach the webview.
-            for (var segment : Messages.parseLegacyFraming(text)) {
+            for (var segment : LegacyFramingParser.parse(text)) {
                 messages.add(new BrokkEvent.HistoryTask.Message(segment.content(), segment.type(), false, true));
             }
         }

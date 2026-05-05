@@ -9,17 +9,17 @@ import dev.langchain4j.data.message.UserMessage;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-class MessagesLegacyFramingTest {
+class LegacyFramingParserTest {
 
     @Test
     void emptyInputReturnsEmptyList() {
-        assertEquals(List.of(), Messages.parseLegacyFraming(""));
+        assertEquals(List.of(), LegacyFramingParser.parse(""));
     }
 
     @Test
     void cleanMarkdownPassesThroughAsCustomSegment() {
         var clean = "Some clean **markdown** with no framing.";
-        var segments = Messages.parseLegacyFraming(clean);
+        var segments = LegacyFramingParser.parse(clean);
         assertEquals(1, segments.size());
         assertEquals(ChatMessageType.CUSTOM, segments.get(0).type());
         assertEquals(clean, segments.get(0).content());
@@ -30,7 +30,7 @@ class MessagesLegacyFramingTest {
         List<ChatMessage> messages = List.of(new UserMessage("hello"), new AiMessage("hi there"));
         var framed = Messages.format(messages);
 
-        var segments = Messages.parseLegacyFraming(framed);
+        var segments = LegacyFramingParser.parse(framed);
 
         assertEquals(2, segments.size());
         assertEquals(ChatMessageType.USER, segments.get(0).type());
@@ -43,7 +43,7 @@ class MessagesLegacyFramingTest {
     void stripsAiSectionLabelsFromReasoningAndToolCalls() {
         var ai = new AiMessage("", "thinking out loud"); // text empty, reasoning set
         var framed = Messages.format(List.of(ai));
-        var segments = Messages.parseLegacyFraming(framed);
+        var segments = LegacyFramingParser.parse(framed);
         assertEquals(1, segments.size());
         assertEquals(ChatMessageType.AI, segments.get(0).type());
         // After stripping the "Reasoning:" label and de-indenting, only the reasoning body remains.
@@ -58,7 +58,7 @@ class MessagesLegacyFramingTest {
                   payload
                 </message>
                 """;
-        var segments = Messages.parseLegacyFraming(framed);
+        var segments = LegacyFramingParser.parse(framed);
         assertEquals(1, segments.size());
         assertEquals(ChatMessageType.CUSTOM, segments.get(0).type());
         assertEquals("payload", segments.get(0).content());
@@ -68,13 +68,13 @@ class MessagesLegacyFramingTest {
     void stripLegacyFramingJoinsSegments() {
         List<ChatMessage> messages = List.of(new UserMessage("hello"), new AiMessage("hi there"));
         var framed = Messages.format(messages);
-        assertEquals("hello\n\nhi there", Messages.stripLegacyFraming(framed));
+        assertEquals("hello\n\nhi there", LegacyFramingParser.strip(framed));
     }
 
     @Test
     void stripLegacyFramingPreservesCleanMarkdown() {
         var clean = "Already clean";
-        assertEquals(clean, Messages.stripLegacyFraming(clean));
+        assertEquals(clean, LegacyFramingParser.strip(clean));
     }
 
     @Test
@@ -89,7 +89,7 @@ class MessagesLegacyFramingTest {
                   </message>
                 </message>
                 """;
-        var segments = Messages.parseLegacyFraming(nested);
+        var segments = LegacyFramingParser.parse(nested);
         assertEquals(1, segments.size());
         assertEquals(ChatMessageType.USER, segments.get(0).type());
         assertEquals("can you list all the acp related issues?", segments.get(0).content());
@@ -111,7 +111,7 @@ class MessagesLegacyFramingTest {
                   thought
                 </message>
                 """;
-        var segments = Messages.parseLegacyFraming(input);
+        var segments = LegacyFramingParser.parse(input);
         assertEquals(1, segments.size());
         assertEquals(ChatMessageType.AI, segments.get(0).type());
         assertEquals("thought", segments.get(0).content());
@@ -128,7 +128,7 @@ class MessagesLegacyFramingTest {
                   </message>
                 </message>
                 """;
-        var segments = Messages.parseLegacyFraming(input);
+        var segments = LegacyFramingParser.parse(input);
         assertEquals(1, segments.size());
         assertEquals(ChatMessageType.USER, segments.get(0).type());
         assertEquals("deeply indented user text", segments.get(0).content());
@@ -137,7 +137,7 @@ class MessagesLegacyFramingTest {
     @Test
     void parseReturnsCustomFallbackWhenFramingTokenPresentButMalformed() {
         var malformed = "<message type=user> not a real block";
-        var segments = Messages.parseLegacyFraming(malformed);
+        var segments = LegacyFramingParser.parse(malformed);
         assertEquals(1, segments.size());
         assertEquals(ChatMessageType.CUSTOM, segments.get(0).type());
         assertEquals(malformed, segments.get(0).content());
@@ -158,7 +158,7 @@ class MessagesLegacyFramingTest {
                   suffix
                 </message>
                 """;
-        var segments = Messages.parseLegacyFraming(input);
+        var segments = LegacyFramingParser.parse(input);
         assertEquals(2, segments.size());
         assertEquals(ChatMessageType.USER, segments.get(0).type());
         assertEquals("question", segments.get(0).content());
@@ -172,7 +172,7 @@ class MessagesLegacyFramingTest {
         // bail out to a single CUSTOM segment containing the full markdown, preventing unbounded
         // StringBuilder allocation on adversarial input.
         var input = "<message type=user>\n".repeat(33) + "content\n";
-        var segments = Messages.parseLegacyFraming(input);
+        var segments = LegacyFramingParser.parse(input);
         assertEquals(1, segments.size());
         assertEquals(ChatMessageType.CUSTOM, segments.get(0).type());
         assertEquals(input, segments.get(0).content());

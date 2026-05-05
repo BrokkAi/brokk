@@ -33,6 +33,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Environment;
+import ai.brokk.util.LegacyFramingParser;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ShellConfig;
 import com.agentclientprotocol.sdk.spec.AcpSchema;
@@ -1724,7 +1725,7 @@ public class BrokkAcpAgent {
                     // Send agent response as AgentMessageChunk
                     var mopMarkdown = task.mopMarkdown();
                     var rawText = mopMarkdown != null ? mopMarkdown : task.summary();
-                    var responseText = rawText == null ? null : Messages.stripLegacyFraming(rawText);
+                    var responseText = rawText == null ? null : LegacyFramingParser.strip(rawText);
                     if (responseText != null && !responseText.isBlank()) {
                         sender.sendSessionUpdate(sessionId, AcpRequestContext.agentMessageChunk(responseText));
                     }

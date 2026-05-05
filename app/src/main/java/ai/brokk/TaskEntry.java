@@ -7,6 +7,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.util.FragmentUtils;
+import ai.brokk.util.LegacyFramingParser;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import java.util.Collection;
@@ -266,7 +267,7 @@ public final class TaskEntry {
         // display-side renderers receive properly typed bubbles instead of one big CustomMessage
         // whose text leaks framing tags to the user.
         if (mopMarkdown != null) {
-            return Messages.parseLegacyFraming(mopMarkdown).stream()
+            return LegacyFramingParser.parse(mopMarkdown).stream()
                     .map(seg -> Messages.create(seg.content(), seg.type()))
                     .toList();
         }
