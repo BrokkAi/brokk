@@ -20,7 +20,9 @@ use agent_client_protocol::{
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::llm_client::{ChatMessage, LlmBackend};
-use crate::session::{ConversationTurn, PermissionMode, SessionMode, SessionStore};
+use crate::session::{
+    ConversationTurn, PermissionMode, SessionMode, SessionSnapshot, SessionStore,
+};
 
 /// Stable ids for our `SessionConfigOption` selectors. We expose both
 /// dropdowns via configOptions because the ACP spec says clients SHOULD
@@ -415,13 +417,7 @@ pub async fn run_agent(
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
 
-                let mut messages = Vec::with_capacity(snap.history.len() * 2 + 2);
-                messages.push(ChatMessage::system(build_system_prompt(&snap.mode, &snap.cwd)));
-                for turn in snap.history {
-                    messages.push(ChatMessage::user(turn.user_prompt));
-                    messages.push(ChatMessage::assistant(turn.agent_response));
-                }
-                messages.push(ChatMessage::user(prompt_text.clone()));
+                let messages = build_prompt_messages(&snap, &prompt_text);
 
                 // Create a cancellation token for this prompt
                 let cancel = sessions_prompt.start_prompt(&session_id).await;
@@ -484,15 +480,18 @@ pub async fn run_agent(
                     .catch_unwind()
                     .await;
 
-                    let response_text = match loop_result {
-                        Ok(text) => text,
+                    let (response_text, tool_exchanges) = match loop_result {
+                        Ok((text, exchanges)) => (text, exchanges),
                         Err(panic) => {
                             tracing::error!(
                                 session_id = %session_id_for_loop,
                                 "tool loop panicked: {:?}",
                                 panic
                             );
-                            "Error: agent loop panicked. See server logs.".to_string()
+                            (
+                                "Error: agent loop panicked. See server logs.".to_string(),
+                                Vec::new(),
+                            )
                         }
                     };
 
@@ -502,13 +501,17 @@ pub async fn run_agent(
                     // the concurrency note on `SessionStore::add_turn`). On
                     // failure, surface the error to the client so the user
                     // knows their last turn isn't on disk.
+                    //
+                    // Tool exchanges are persisted alongside the turn so a
+                    // session/load can re-feed the LLM the same tool context
+                    // it had when it produced response_text (#3409).
                     let persist_result = sessions_for_loop
                         .add_turn(
                             &session_id_for_loop,
                             ConversationTurn {
                                 user_prompt: prompt_text_for_turn,
                                 agent_response: response_text,
-                                ..Default::default()
+                                tool_exchanges,
                             },
                         )
                         .await;
@@ -804,6 +807,54 @@ fn send_user_message(cx: &ConnectionTo<Client>, session_id: &str, text: &str) {
 }
 
 /// Build a system prompt based on the current session mode and working directory.
+/// Build the `Vec<ChatMessage>` to send to the LLM for a fresh prompt:
+/// system prompt, then replayed history (with tool exchanges, #3409),
+/// then the new user prompt. Pure -- exposed for unit testing the
+/// replay shape without spinning up an LLM.
+fn build_prompt_messages(snap: &SessionSnapshot, new_prompt: &str) -> Vec<ChatMessage> {
+    let mut messages = Vec::with_capacity(snap.history.len() * 2 + 2);
+    messages.push(ChatMessage::system(build_system_prompt(
+        &snap.mode, &snap.cwd,
+    )));
+    for turn in &snap.history {
+        messages.push(ChatMessage::user(turn.user_prompt.clone()));
+
+        // If the prior turn used tools, replay them as a single
+        // assistant_tool_calls message followed by one tool_result per call
+        // -- enough for the LLM to see the calls it made and what came back,
+        // so it doesn't redo the same searches or writes (#3409). Multi-
+        // round tool sequences within the same turn collapse into one batch
+        // here; `agent_response` carries any text the assistant emitted
+        // between rounds, so no words are lost.
+        if !turn.tool_exchanges.is_empty() {
+            let calls: Vec<crate::llm_client::ToolCall> = turn
+                .tool_exchanges
+                .iter()
+                .map(|e| crate::llm_client::ToolCall {
+                    id: e.call_id.clone(),
+                    r#type: "function".to_string(),
+                    function: crate::llm_client::FunctionCall {
+                        name: e.tool_name.clone(),
+                        arguments: e.arguments.clone(),
+                    },
+                })
+                .collect();
+            messages.push(ChatMessage::assistant_tool_calls(calls));
+            for exchange in &turn.tool_exchanges {
+                messages.push(ChatMessage::tool_result(
+                    &exchange.call_id,
+                    &exchange.tool_name,
+                    &exchange.result,
+                ));
+            }
+        }
+
+        messages.push(ChatMessage::assistant(turn.agent_response.clone()));
+    }
+    messages.push(ChatMessage::user(new_prompt.to_string()));
+    messages
+}
+
 fn build_system_prompt(mode: &SessionMode, cwd: &Path) -> String {
     let cwd_context = format!(
         "The user's working directory is: {}\n\
@@ -1047,5 +1098,116 @@ mod tests {
         assert!(report.contains("Model: `(none)`"));
         assert!(report.contains("(0 known in catalog)"));
         assert!(report.contains("Conversation turns: 0"));
+    }
+
+    /// `build_prompt_messages` for a turn that used no tools must produce
+    /// the historical user/assistant pair plus the new user prompt -- no
+    /// tool_call or tool messages snuck in.
+    #[test]
+    fn build_prompt_messages_text_only_history() {
+        use crate::session::{ConversationTurn, SessionSnapshot};
+        let snap = SessionSnapshot {
+            cwd: std::path::PathBuf::from("/tmp/cwd"),
+            mode: SessionMode::Code,
+            model: "m".into(),
+            history: vec![ConversationTurn {
+                user_prompt: "what is rust?".into(),
+                agent_response: "a language".into(),
+                ..Default::default()
+            }],
+        };
+        let msgs = build_prompt_messages(&snap, "follow up");
+        // system + user(history) + assistant(history) + user(new)
+        assert_eq!(msgs.len(), 4);
+        assert_eq!(msgs[0].role, "system");
+        assert_eq!(msgs[1].role, "user");
+        assert_eq!(msgs[1].content.as_deref(), Some("what is rust?"));
+        assert_eq!(msgs[2].role, "assistant");
+        assert_eq!(msgs[2].content.as_deref(), Some("a language"));
+        assert_eq!(msgs[3].role, "user");
+        assert_eq!(msgs[3].content.as_deref(), Some("follow up"));
+    }
+
+    /// History with tool_exchanges must replay as user → assistant_tool_calls
+    /// → N tool_results → final assistant text → new user. This is the
+    /// regression #3409 fixes: without it, a session/load fed the LLM
+    /// only the final answer and the model would repeat searches/reads.
+    #[test]
+    fn build_prompt_messages_replays_tool_exchanges() {
+        use crate::session::{ConversationTurn, SessionSnapshot, ToolExchange};
+        let snap = SessionSnapshot {
+            cwd: std::path::PathBuf::from("/tmp/cwd"),
+            mode: SessionMode::Code,
+            model: "m".into(),
+            history: vec![ConversationTurn {
+                user_prompt: "find TODOs".into(),
+                agent_response: "found 3 in src/lib.rs".into(),
+                tool_exchanges: vec![
+                    ToolExchange {
+                        call_id: "c1".into(),
+                        tool_name: "searchFileContents".into(),
+                        arguments: r#"{"pattern":"TODO"}"#.into(),
+                        result: "src/lib.rs:42: // TODO".into(),
+                    },
+                    ToolExchange {
+                        call_id: "c2".into(),
+                        tool_name: "readFile".into(),
+                        arguments: r#"{"path":"src/lib.rs"}"#.into(),
+                        result: "fn main() {}".into(),
+                    },
+                ],
+            }],
+        };
+        let msgs = build_prompt_messages(&snap, "now fix them");
+
+        // Expected flow: system, user, assistant(tool_calls), tool, tool,
+        // assistant(text), user.
+        assert_eq!(msgs.len(), 7);
+        assert_eq!(msgs[0].role, "system");
+        assert_eq!(msgs[1].role, "user");
+        assert_eq!(msgs[1].content.as_deref(), Some("find TODOs"));
+
+        // assistant_tool_calls: no content, tool_calls present, both calls
+        // bundled into a single batch (the conservative collapse).
+        assert_eq!(msgs[2].role, "assistant");
+        assert!(msgs[2].content.is_none());
+        let calls = msgs[2].tool_calls.as_ref().expect("tool_calls present");
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id, "c1");
+        assert_eq!(calls[0].function.name, "searchFileContents");
+        assert_eq!(calls[1].id, "c2");
+        assert_eq!(calls[1].function.name, "readFile");
+
+        // tool_result messages, paired by call_id and in original order.
+        assert_eq!(msgs[3].role, "tool");
+        assert_eq!(msgs[3].tool_call_id.as_deref(), Some("c1"));
+        assert_eq!(msgs[3].content.as_deref(), Some("src/lib.rs:42: // TODO"));
+        assert_eq!(msgs[4].role, "tool");
+        assert_eq!(msgs[4].tool_call_id.as_deref(), Some("c2"));
+        assert_eq!(msgs[4].content.as_deref(), Some("fn main() {}"));
+
+        // Final assistant text and new user prompt.
+        assert_eq!(msgs[5].role, "assistant");
+        assert_eq!(msgs[5].content.as_deref(), Some("found 3 in src/lib.rs"));
+        assert_eq!(msgs[6].role, "user");
+        assert_eq!(msgs[6].content.as_deref(), Some("now fix them"));
+    }
+
+    /// Empty history: just system + the new user prompt. Establishes the
+    /// `with_capacity(history.len() * 2 + 2)` lower bound.
+    #[test]
+    fn build_prompt_messages_empty_history() {
+        use crate::session::SessionSnapshot;
+        let snap = SessionSnapshot {
+            cwd: std::path::PathBuf::from("/tmp/cwd"),
+            mode: SessionMode::Lutz,
+            model: "m".into(),
+            history: vec![],
+        };
+        let msgs = build_prompt_messages(&snap, "hi");
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].role, "system");
+        assert_eq!(msgs[1].role, "user");
+        assert_eq!(msgs[1].content.as_deref(), Some("hi"));
     }
 }

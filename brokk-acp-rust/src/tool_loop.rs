@@ -14,7 +14,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::llm_client::{ChatMessage, LlmBackend, LlmResponse, ToolDefinition};
-use crate::session::{PermissionMode, SessionStore};
+use crate::session::{PermissionMode, SessionStore, ToolExchange};
 use crate::tools::sandbox::SandboxPolicy;
 use crate::tools::{ToolRegistry, ToolStatus, safe_resolve_for_write};
 
@@ -164,9 +164,13 @@ pub(crate) async fn run(
     spawned_cx: SpawnedCx<'_>,
     session_id: String,
     sessions: SessionStore,
-) -> String {
+) -> (String, Vec<ToolExchange>) {
     let tools: Vec<ToolDefinition> = registry.tool_definitions();
     let mut full_response = String::new();
+    // Captured per-call so the caller can persist them with the turn (#3409),
+    // letting a `session/load` re-feed the LLM the same tool context the
+    // model had when it produced `full_response`.
+    let mut tool_exchanges: Vec<ToolExchange> = Vec::new();
 
     'outer: for turn in 0..max_turns {
         if cancel.is_cancelled() {
@@ -264,6 +268,16 @@ pub(crate) async fn run(
                                 )),
                             );
                             messages.push(ChatMessage::tool_result(&call.id, &tool_name, &reason));
+                            // Record the failed exchange so a session/load
+                            // sees that the model attempted this call (with
+                            // unparseable args) and got rejected; without it
+                            // the model might re-emit the same broken call.
+                            tool_exchanges.push(ToolExchange {
+                                call_id: call.id.clone(),
+                                tool_name: tool_name.clone(),
+                                arguments: call.function.arguments.clone(),
+                                result: reason,
+                            });
                             continue;
                         }
                     };
@@ -382,6 +396,12 @@ pub(crate) async fn run(
                     };
 
                     messages.push(ChatMessage::tool_result(&call.id, &tool_name, &output));
+                    tool_exchanges.push(ToolExchange {
+                        call_id: call.id.clone(),
+                        tool_name: tool_name.clone(),
+                        arguments: call.function.arguments.clone(),
+                        result: output,
+                    });
                 }
             }
             Err(e) => {
@@ -395,7 +415,7 @@ pub(crate) async fn run(
         }
     }
 
-    full_response
+    (full_response, tool_exchanges)
 }
 
 /// Apply the per-call permission policy. Returns `Allow` if the tool should
