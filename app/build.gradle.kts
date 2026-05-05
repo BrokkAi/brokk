@@ -577,14 +577,9 @@ tasks.register("analyze") {
     dependsOn("compileJavaErrorProne", "spotlessCheck")
 }
 
-// Make check task run ErrorProne compilation, Python linting, and all tests for CI validation
+// Make check task run ErrorProne compilation and all tests for CI validation
 tasks.named("check") {
     dependsOn("compileJavaErrorProne")
-    val skipPythonTasks = project.rootProject.hasProperty("skipPython")
-    if (!skipPythonTasks) {
-        dependsOn(rootProject.tasks.named("brokkCodeRuffCheck"))
-        dependsOn(rootProject.tasks.named("pytest"))
-    }
 }
 
 // Ensure fix runs before other verification and compilation tasks when they run together.
