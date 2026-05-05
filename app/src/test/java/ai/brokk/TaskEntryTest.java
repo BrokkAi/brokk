@@ -126,7 +126,8 @@ class TaskEntryTest {
 
                 <message type=ai>
                   hi
-                </message>""";
+                </message>
+                """;
         var entry = new TaskEntry(7, "desc", framed, framed, null, null);
 
         var msgs = List.copyOf(entry.mopMessages());

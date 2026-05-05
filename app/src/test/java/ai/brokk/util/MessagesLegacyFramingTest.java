@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -195,6 +196,19 @@ class MessagesLegacyFramingTest {
         assertEquals(ChatMessageType.USER, segments.get(0).type());
         assertEquals("list the open ACP issues in this repo", segments.get(0).content());
         assertEquals(ChatMessageType.AI, segments.get(1).type());
+        // segments.get(1) is the only block that exercises label stripping + multi-paragraph
+        // de-indenting through cleanFramedContent. Lock both that the literal section labels
+        // are gone and that all three sub-bodies survive without being collapsed together.
+        var aiBody = segments.get(1).content();
+        assertFalse(aiBody.contains("Reasoning:"), "Reasoning: label should be stripped");
+        assertFalse(aiBody.contains("Text:"), "Text: label should be stripped");
+        assertFalse(aiBody.contains("Tool calls:"), "Tool calls: label should be stripped");
+        assertTrue(
+                aiBody.contains("The user wants a filtered view of GitHub issues."), "reasoning body should survive");
+        assertTrue(aiBody.contains("Here are the ACP issues currently open."), "text body should survive");
+        assertTrue(
+                aiBody.contains("listIssues({\"label\": \"ACP\", \"state\": \"open\"})"),
+                "tool-calls body should survive");
         assertEquals(ChatMessageType.AI, segments.get(2).type());
         assertEquals("Found 17 open issues with the ACP label.", segments.get(2).content());
         assertEquals(ChatMessageType.CUSTOM, segments.get(3).type());
@@ -211,5 +225,12 @@ class MessagesLegacyFramingTest {
         assertFalse(stripped.contains("<message type="), "stripped output still contains an opening framing tag");
         assertFalse(stripped.contains("</message>"), "stripped output still contains a closing framing tag");
         assertFalse(stripped.isBlank(), "stripped output should retain the human-readable body");
+        // Positive checks: every parsed segment's human-readable body must survive stripping,
+        // not just some. Pins the contract that BrokkAcpAgent.scheduleConversationReplay can
+        // never silently drop a turn's content while still passing the negative tag checks.
+        assertTrue(stripped.contains("list the open ACP issues in this repo"), "user prompt should survive stripping");
+        assertTrue(stripped.contains("Found 17 open issues with the ACP label."), "AI reply should survive stripping");
+        assertTrue(
+                stripped.contains("listIssues -> [\"#3438\""), "trailing custom tool-result should survive stripping");
     }
 }
