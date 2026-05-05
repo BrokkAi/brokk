@@ -32,6 +32,12 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
+# Codex login: PKCE OAuth flow + Token Exchange (RFC 8693) for OPENAI_API_KEY.
+# Wraps the same flow Codex CLI uses; we then drive `OpenAiClient` against
+# https://api.openai.com/v1 with the issued key -- no undocumented endpoints.
+openai-auth = { version = "1", features = ["async", "browser", "callback-server"] }
+dirs = "5"
+chrono = { version = "0.4", features = ["serde"] }
 
 # Unix-only: `setrlimit` via `Command::pre_exec` for per-process resource caps
 # applied to `runShellCommand`. See `tools/shell.rs::apply_rlimits`.
