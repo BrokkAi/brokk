@@ -205,6 +205,7 @@ dependencies = [
  "anyhow",
  "clap",
  "futures",
+ "libc",
  "regex",
  "reqwest",
  "serde",
