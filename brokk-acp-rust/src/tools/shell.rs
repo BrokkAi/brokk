@@ -189,13 +189,12 @@ fn parse_rlimit_value(var: &str, raw: &str, default: u64) -> u64 {
 /// no locking. Errors round-trip back to the parent via the `io::Result`
 /// pre_exec contract, which aborts the spawn.
 ///
-/// Values in `config` have already been clamped to the parent's hard
-/// limits by `RlimitConfig::clamp_to_parent_hard_limits`, so EPERM on
-/// "asked for more than hard limit" is not the expected path here. We
-/// still swallow EPERM on a per-limit basis as a belt-and-suspenders
-/// hedge against racy limit changes between the parent's clamp and the
-/// child's setrlimit; a misapplied cap is preferable to aborting the
-/// whole spawn when the operator isn't around to read tracing output.
+/// Each `set_rlimit` call only lowers the soft cap and leaves the
+/// inherited hard cap unchanged (see comment in `set_rlimit`); EPERM
+/// and EINVAL are swallowed so a single problematic resource doesn't
+/// abort the whole spawn, while operator-config-vs-host mismatches
+/// still surface as `tracing::warn!` from the parent-side
+/// `clamp_to_parent_hard_limits`.
 #[cfg(unix)]
 fn apply_rlimits(config: &RlimitConfig) -> std::io::Result<()> {
     set_rlimit(libc::RLIMIT_AS, config.as_bytes)?;
@@ -212,20 +211,6 @@ fn set_rlimit<R>(resource: R, value: u64) -> std::io::Result<()>
 where
     R: TryInto<libc::c_int>,
 {
-    // `RLIM_INFINITY` from the operator means "no constraint requested":
-    // skip the call entirely. The child inherits the parent's rlimits at
-    // fork(), which already reflects the parent's effective ceiling for
-    // this resource, so "skip" yields the same end-state as a successful
-    // `setrlimit(RLIM_INFINITY, RLIM_INFINITY)`. Skipping also sidesteps
-    // a macOS quirk where `setrlimit` returns EINVAL for `RLIM_INFINITY`
-    // operands even though `getrlimit` reports the same value back -- the
-    // kernel's view of the ceiling and the userspace report don't always
-    // agree, so we'd rather not poke setrlimit when there's nothing to
-    // change. Other resources in the same `apply_rlimits` call are still
-    // enforced (each has its own `set_rlimit` invocation).
-    if value == libc::RLIM_INFINITY {
-        return Ok(());
-    }
     // `libc::RLIMIT_*` are `__rlimit_resource_t` (u32) on Linux and
     // `c_int` on macOS; coerce to whatever `setrlimit` takes on this
     // platform. Failure here is a programming/libc-binding error: every
@@ -239,9 +224,49 @@ where
             "rlimit resource constant did not fit in c_int (libc-binding error)",
         )
     })?;
+    // Read the inherited limits and only lower the *soft* cap; never
+    // touch the hard cap. Two consequences:
+    //   1. We can't EPERM on "raising hard limit" (Linux without
+    //      CAP_SYS_RESOURCE).
+    //   2. We can't EINVAL on "rlim_cur > rlim_max" (macOS, where
+    //      setrlimit's accepted-value envelope is narrower than what
+    //      getrlimit's report suggests -- e.g. RLIMIT_RSS/RLIMIT_AS is
+    //      deprecated, RLIMIT_NPROC is bounded by `kern.maxprocperuid`,
+    //      and RLIM_INFINITY operands round-trip differently).
+    // Tradeoff: a child can `setrlimit` its own rlim_cur back up to the
+    // inherited rlim_max. That is acceptable for this code's role: it
+    // is a safety net against accidental runaways (fork bombs, `dd
+    // if=/dev/zero`), not the primary security boundary -- the OS
+    // sandbox (bwrap/Seatbelt) is. The parent-side
+    // `clamp_to_parent_hard_limits` already warns the operator when a
+    // requested cap can't be enforced past the host's own ceiling.
+    let mut current = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit is async-signal-safe and only reads.
+    if unsafe { libc::getrlimit(res as _, &mut current) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let want = value as libc::rlim_t;
+    let new_cur = if current.rlim_max == libc::RLIM_INFINITY {
+        want
+    } else if want == libc::RLIM_INFINITY {
+        // "Unlimited" can't go above what we already inherited.
+        current.rlim_max
+    } else {
+        std::cmp::min(want, current.rlim_max)
+    };
+    // No-op if the soft cap is already where we want it. macOS in
+    // particular can EINVAL on identity calls where rlim_cur and
+    // rlim_max are at their reported values, so we'd rather not poke
+    // setrlimit unless we're actually changing something.
+    if new_cur == current.rlim_cur {
+        return Ok(());
+    }
     let rlim = libc::rlimit {
-        rlim_cur: value as libc::rlim_t,
-        rlim_max: value as libc::rlim_t,
+        rlim_cur: new_cur,
+        rlim_max: current.rlim_max,
     };
     // SAFETY: `setrlimit` is async-signal-safe and is called only from
     // `pre_exec`, which is the canonical place to apply per-child caps
@@ -251,16 +276,16 @@ where
         Ok(())
     } else {
         let err = std::io::Error::last_os_error();
-        // EPERM here means a limit slipped past clamp_to_parent_hard_limits
-        // (e.g. parent's hard limit changed between the parent-side
-        // getrlimit and our setrlimit, or this is RLIMIT_NOFILE with the
-        // child already holding more fds than the requested cap). We'd
-        // rather still spawn with the limits that did stick than abort
-        // the call entirely.
-        if err.raw_os_error() == Some(libc::EPERM) {
-            Ok(())
-        } else {
-            Err(err)
+        // We never raise rlim_max and never set rlim_cur > rlim_max, so
+        // EPERM/EINVAL here means a libc/kernel divergence we have no
+        // recourse for from inside pre_exec (no allocation, no
+        // tracing). Swallow rather than aborting the spawn -- the
+        // parent has already emitted any clamp warnings via
+        // `tracing::warn!`, and the other rlimits in this batch may
+        // still apply.
+        match err.raw_os_error() {
+            Some(libc::EPERM) | Some(libc::EINVAL) => Ok(()),
+            _ => Err(err),
         }
     }
 }
