@@ -1639,4 +1639,369 @@ mod tests {
                 .await
         );
     }
+
+    /// `SessionMode::parse` round-trips every variant via its wire id, with
+    /// the canonical (uppercase) spelling.
+    #[test]
+    fn session_mode_parse_round_trip() {
+        for mode in [
+            SessionMode::Lutz,
+            SessionMode::Code,
+            SessionMode::Ask,
+            SessionMode::Plan,
+        ] {
+            assert_eq!(
+                SessionMode::parse(mode.as_str()),
+                Some(mode),
+                "round-trip failed for {mode:?}"
+            );
+        }
+    }
+
+    /// Clients sometimes lowercase or mixed-case the wire id; `parse` must
+    /// accept any casing because the wire form is documented as
+    /// case-insensitive.
+    #[test]
+    fn session_mode_parse_is_case_insensitive() {
+        assert_eq!(SessionMode::parse("lutz"), Some(SessionMode::Lutz));
+        assert_eq!(SessionMode::parse("Code"), Some(SessionMode::Code));
+        assert_eq!(SessionMode::parse("aSk"), Some(SessionMode::Ask));
+        assert_eq!(SessionMode::parse("plan"), Some(SessionMode::Plan));
+    }
+
+    /// Unknown / empty / whitespace-only ids must return `None` rather than
+    /// silently mapping to a default mode.
+    #[test]
+    fn session_mode_parse_rejects_unknown() {
+        assert_eq!(SessionMode::parse(""), None);
+        assert_eq!(SessionMode::parse("EDIT"), None);
+        assert_eq!(SessionMode::parse("LUT"), None);
+        assert_eq!(SessionMode::parse(" LUTZ "), None);
+    }
+
+    /// `PermissionMode::parse` round-trips every variant. Wire ids are
+    /// camelCase here (mirrors `claude-agent-acp`) and case-sensitive,
+    /// unlike `SessionMode`.
+    #[test]
+    fn permission_mode_parse_round_trip_all_variants() {
+        for mode in [
+            PermissionMode::Default,
+            PermissionMode::AcceptEdits,
+            PermissionMode::ReadOnly,
+            PermissionMode::BypassPermissions,
+        ] {
+            assert_eq!(
+                PermissionMode::parse(mode.as_str()),
+                Some(mode),
+                "round-trip failed for {mode:?}"
+            );
+        }
+        assert_eq!(PermissionMode::parse(""), None);
+        assert_eq!(PermissionMode::parse("ACCEPTEDITS"), None);
+        assert_eq!(PermissionMode::parse("accept-edits"), None);
+    }
+
+    /// `create_session` writes a manifest.json that round-trips through
+    /// `read_manifest_from_zip` -- the disk persistence format must stay
+    /// stable, otherwise a session created today won't load tomorrow.
+    #[tokio::test]
+    async fn create_session_persists_manifest_to_disk() {
+        let store = SessionStore::new("initial-model".to_string());
+        let cwd =
+            std::env::temp_dir().join(format!("brokk-acp-rust-create-{}", uuid::Uuid::new_v4()));
+        let session = store.create_session(cwd.clone()).await;
+
+        let zip_path = session_zip_path(&cwd, &session.id);
+        assert!(zip_path.exists(), "session zip must be written to disk");
+
+        let manifest = read_manifest_from_zip(&zip_path).expect("manifest must round-trip");
+        assert_eq!(manifest.id, session.id);
+        assert_eq!(manifest.mode.as_deref(), Some("LUTZ"));
+        assert_eq!(manifest.model.as_deref(), Some("initial-model"));
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// `get_session` for an unknown id (with no on-disk zip either) must
+    /// return None, not panic or allocate a session under the wrong id.
+    #[tokio::test]
+    async fn get_session_unknown_returns_none() {
+        let store = SessionStore::new("m".to_string());
+        let cwd = std::env::temp_dir().join(format!(
+            "brokk-acp-rust-get-unknown-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&cwd).ok();
+        assert!(store.get_session("does-not-exist", &cwd).await.is_none());
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// Cold path: a session that's been evicted from memory must reload
+    /// from its on-disk zip on the next `get_session`. Mode and model
+    /// survive the round-trip via the manifest.
+    #[tokio::test]
+    async fn get_session_loads_from_disk_when_cold() {
+        let store = SessionStore::new("m".to_string());
+        let cwd =
+            std::env::temp_dir().join(format!("brokk-acp-rust-cold-{}", uuid::Uuid::new_v4()));
+        let created = store.create_session(cwd.clone()).await;
+        let id = created.id.clone();
+
+        // Persist a non-default mode so we can verify it survives the reload.
+        store
+            .set_mode(&id, SessionMode::Plan)
+            .await
+            .expect("set_mode persists");
+
+        // Evict from memory; the on-disk zip is unaffected.
+        store.sessions.write().await.remove(&id);
+        store.registries.write().await.remove(&id);
+
+        let reloaded = store
+            .get_session(&id, &cwd)
+            .await
+            .expect("session must reload from disk");
+        assert_eq!(reloaded.id, id);
+        assert_eq!(reloaded.mode, SessionMode::Plan);
+        assert_eq!(reloaded.permission_mode, PermissionMode::Default);
+        assert!(reloaded.always_allow_tools.is_empty());
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// Permission-mode setters/getters round-trip, default to `Default`,
+    /// and report `false` for unknown sessions instead of silently
+    /// inserting an entry.
+    #[tokio::test]
+    async fn permission_mode_setter_and_getter_round_trip() {
+        let store = SessionStore::new("m".to_string());
+        let cwd =
+            std::env::temp_dir().join(format!("brokk-acp-rust-perm-{}", uuid::Uuid::new_v4()));
+        let session = store.create_session(cwd.clone()).await;
+        let id = session.id.clone();
+
+        // Defaults out of the box.
+        assert_eq!(
+            store.permission_mode(&id).await,
+            Some(PermissionMode::Default)
+        );
+
+        assert!(
+            store
+                .set_permission_mode(&id, PermissionMode::AcceptEdits)
+                .await
+        );
+        assert_eq!(
+            store.permission_mode(&id).await,
+            Some(PermissionMode::AcceptEdits)
+        );
+
+        // Unknown session: false, not Ok with a phantom insert.
+        assert!(
+            !store
+                .set_permission_mode("no-such", PermissionMode::ReadOnly)
+                .await
+        );
+        assert_eq!(store.permission_mode("no-such").await, None);
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// `add_always_allow` is in-memory only and survives across queries
+    /// for the same session id.
+    #[tokio::test]
+    async fn always_allow_set_is_session_scoped() {
+        let store = SessionStore::new("m".to_string());
+        let cwd = std::env::temp_dir().join(format!(
+            "brokk-acp-rust-always-allow-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let s = store.create_session(cwd.clone()).await;
+
+        assert!(!store.is_always_allowed(&s.id, "writeFile").await);
+        store.add_always_allow(&s.id, "writeFile").await;
+        assert!(store.is_always_allowed(&s.id, "writeFile").await);
+        // Different tool name, same session: still false.
+        assert!(!store.is_always_allowed(&s.id, "runShellCommand").await);
+        // Unknown session never reports allowed.
+        assert!(!store.is_always_allowed("no-such", "writeFile").await);
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// `start_prompt` registers a token, `cancel_prompt` flips it,
+    /// `finish_prompt` clears the registry. Together this is the gate
+    /// `add_turn` relies on to serialize per-session writes.
+    #[tokio::test]
+    async fn cancel_prompt_lifecycle() {
+        let store = SessionStore::new("m".to_string());
+        let token = store.start_prompt("s1").await;
+        assert!(!token.is_cancelled());
+
+        store.cancel_prompt("s1").await;
+        assert!(token.is_cancelled(), "cancel_prompt should fire the token");
+
+        store.finish_prompt("s1").await;
+        // After finish, cancel becomes a no-op (no token registered).
+        store.cancel_prompt("s1").await;
+    }
+
+    /// `cancel_prompt` for a session with no in-flight prompt must be a
+    /// silent no-op rather than a panic.
+    #[tokio::test]
+    async fn cancel_prompt_unknown_session_is_noop() {
+        let store = SessionStore::new("m".to_string());
+        store.cancel_prompt("never-started").await;
+    }
+
+    /// `set_default_model` flows into the next `create_session`. The
+    /// previous default (set by the constructor) must NOT be sticky.
+    #[tokio::test]
+    async fn set_default_model_drives_subsequent_create_session() {
+        let store = SessionStore::new("first".to_string());
+        store.set_default_model("second".into()).await;
+        let cwd =
+            std::env::temp_dir().join(format!("brokk-acp-rust-default-{}", uuid::Uuid::new_v4()));
+        let s = store.create_session(cwd.clone()).await;
+        assert_eq!(s.model, "second");
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// `set_available_models` round-trips through `available_models` --
+    /// this is the cache the agent populates on init and reuses for every
+    /// `session/new` and `session/set_config_option` validation.
+    #[tokio::test]
+    async fn available_models_round_trip() {
+        let store = SessionStore::new("m".to_string());
+        assert!(store.available_models().await.is_empty());
+
+        let models = vec!["a".to_string(), "b".to_string()];
+        store.set_available_models(models.clone()).await;
+        assert_eq!(store.available_models().await, models);
+
+        // Setting an empty list is allowed (model discovery cleared).
+        store.set_available_models(vec![]).await;
+        assert!(store.available_models().await.is_empty());
+    }
+
+    /// `list_sessions_from_disk` ignores non-zip files in the sessions
+    /// directory (e.g. half-written `.tmp` files from a crashed write,
+    /// or stray editor backups). Otherwise the list could surface entries
+    /// that fail to load on resume.
+    #[tokio::test]
+    async fn list_sessions_from_disk_filters_non_zip() {
+        let store = SessionStore::new("m".to_string());
+        let cwd =
+            std::env::temp_dir().join(format!("brokk-acp-rust-list-{}", uuid::Uuid::new_v4()));
+        let s = store.create_session(cwd.clone()).await;
+
+        // Drop a non-zip file alongside the real session zip.
+        let dir = sessions_dir(&cwd);
+        std::fs::write(dir.join("not-a-session.txt"), "hello").unwrap();
+        // And a stray .tmp from a crashed write.
+        std::fs::write(dir.join("garbage.tmp"), "junk").unwrap();
+
+        let listed = store.list_sessions_from_disk(&cwd).await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, s.id);
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// Concurrent `load_into_memory_if_cold` calls for the same id may
+    /// both read the zip from disk; the `or_insert` race-keeper must keep
+    /// exactly one entry in `sessions`. Regression coverage for the
+    /// "race window" comment in `load_into_memory_if_cold`.
+    #[tokio::test]
+    async fn concurrent_cold_loads_dedupe() {
+        let store = SessionStore::new("m".to_string());
+        let cwd =
+            std::env::temp_dir().join(format!("brokk-acp-rust-race-{}", uuid::Uuid::new_v4()));
+        let created = store.create_session(cwd.clone()).await;
+        let id = created.id.clone();
+
+        // Evict the in-memory entry so both calls take the cold path.
+        store.sessions.write().await.remove(&id);
+
+        let store2 = store.clone();
+        let id2 = id.clone();
+        let cwd2 = cwd.clone();
+        let h1 = tokio::spawn(async move { store2.get_session(&id2, &cwd2).await });
+        let store3 = store.clone();
+        let id3 = id.clone();
+        let cwd3 = cwd.clone();
+        let h2 = tokio::spawn(async move { store3.get_session(&id3, &cwd3).await });
+
+        let r1 = h1.await.unwrap();
+        let r2 = h2.await.unwrap();
+        assert!(r1.is_some() && r2.is_some());
+
+        let len = store.sessions.read().await.len();
+        assert_eq!(len, 1, "both racers must collapse to a single entry");
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// `update_cwd` rewrites the in-memory cwd; subsequent prompts use the
+    /// new directory when computing zip paths. Persistence side is tested
+    /// implicitly via `add_turn`/`set_mode`.
+    #[tokio::test]
+    async fn update_cwd_changes_in_memory_cwd() {
+        let store = SessionStore::new("m".to_string());
+        let cwd1 =
+            std::env::temp_dir().join(format!("brokk-acp-rust-cwd1-{}", uuid::Uuid::new_v4()));
+        let s = store.create_session(cwd1.clone()).await;
+
+        let cwd2 = std::env::temp_dir().join("brokk-acp-rust-cwd2-replacement");
+        store.update_cwd(&s.id, cwd2.clone()).await;
+        let after = store.sessions.read().await.get(&s.id).cloned().unwrap();
+        assert_eq!(after.cwd, cwd2);
+
+        let _ = std::fs::remove_dir_all(&cwd1);
+    }
+
+    /// Round-trip a full conversation history through the zip: write four
+    /// turns with `add_turn`, then re-read with `read_history_from_zip`
+    /// and verify both the user prompt and the agent response survive.
+    #[tokio::test]
+    async fn add_turn_round_trips_history_through_zip() {
+        let store = SessionStore::with_limits(
+            "m".to_string(),
+            SessionLimits {
+                max_sessions: 0,
+                max_history_turns: 0,
+            },
+        );
+        let cwd =
+            std::env::temp_dir().join(format!("brokk-acp-rust-history-{}", uuid::Uuid::new_v4()));
+        let s = store.create_session(cwd.clone()).await;
+
+        for i in 0..4 {
+            store
+                .add_turn(
+                    &s.id,
+                    ConversationTurn {
+                        user_prompt: format!("user-{i}"),
+                        agent_response: format!("agent-{i}"),
+                    },
+                )
+                .await
+                .expect("persist must succeed");
+        }
+
+        let on_disk = read_history_from_zip(&session_zip_path(&cwd, &s.id));
+        assert_eq!(on_disk.len(), 4);
+        // Persisted format uses `markdownContentId` so the user prompt is
+        // re-derived from `taskDescription` (null) -- only the agent
+        // response is round-tripped on this path. Iteration order is the
+        // serde_json object's (BTreeMap-keyed by random UUID), so compare
+        // as a set rather than positionally.
+        let actual: std::collections::HashSet<String> =
+            on_disk.iter().map(|t| t.agent_response.clone()).collect();
+        let expected: std::collections::HashSet<String> =
+            (0..4).map(|i| format!("agent-{i}")).collect();
+        assert_eq!(actual, expected);
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
 }

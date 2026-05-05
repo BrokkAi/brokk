@@ -944,4 +944,106 @@ mod tests {
         assert!(model_config_option("model-zzz", &models).is_some());
         assert!(model_config_option("", &models).is_some());
     }
+
+    /// `extract_prompt_text` joins text blocks with newlines and silently
+    /// drops blocks that are not text -- images, embedded resources, etc.
+    /// don't get fed to the chat-completions endpoint.
+    #[test]
+    fn extract_prompt_text_joins_text_blocks_with_newlines() {
+        let blocks = vec![
+            ContentBlock::Text(TextContent::new("hello")),
+            ContentBlock::Text(TextContent::new("world")),
+        ];
+        assert_eq!(extract_prompt_text(&blocks), "hello\nworld");
+    }
+
+    #[test]
+    fn extract_prompt_text_returns_empty_for_no_text_blocks() {
+        // Empty input is the simplest case `session/prompt` rejects with
+        // "Error: empty prompt" -- the helper itself just yields "".
+        assert_eq!(extract_prompt_text(&[]), "");
+    }
+
+    /// A prompt with mixed blocks (e.g. text plus an image) must keep the
+    /// text and silently drop the rest. Today the agent doesn't advertise
+    /// image support, but well-behaved clients can still send mixed prompts
+    /// when speaking to multiple agents through a single session.
+    #[test]
+    fn extract_prompt_text_filters_non_text_blocks() {
+        use agent_client_protocol::schema::ImageContent;
+        let blocks = vec![
+            ContentBlock::Text(TextContent::new("before")),
+            ContentBlock::Image(ImageContent::new("base64data", "image/png")),
+            ContentBlock::Text(TextContent::new("after")),
+        ];
+        assert_eq!(extract_prompt_text(&blocks), "before\nafter");
+    }
+
+    /// All four behavior modes embed the cwd into the system prompt so
+    /// the model can resolve relative paths, and each mode picks a
+    /// distinct mode-specific paragraph.
+    #[test]
+    fn build_system_prompt_includes_cwd_and_mode_specific_text() {
+        let cwd = std::path::Path::new("/tmp/some-cwd");
+        for (mode, marker) in [
+            (SessionMode::Lutz, "agentic approach"),
+            (SessionMode::Code, "focused on code changes"),
+            (SessionMode::Ask, "Answer questions about code"),
+            (SessionMode::Plan, "focused on planning"),
+        ] {
+            let prompt = build_system_prompt(&mode, cwd);
+            assert!(
+                prompt.contains("/tmp/some-cwd") || prompt.contains("\\tmp\\some-cwd"),
+                "system prompt for {mode:?} must embed the cwd, got: {prompt}"
+            );
+            assert!(
+                prompt.contains(marker),
+                "system prompt for {mode:?} must mention '{marker}', got: {prompt}"
+            );
+        }
+    }
+
+    /// `render_context_report` is the body of the `/context` slash command.
+    /// It should surface the mode, permission mode, model, conversation
+    /// turn count, and token estimate -- enough that the user can debug
+    /// "why does the model think X" without a separate inspector.
+    #[test]
+    fn render_context_report_lists_session_facts() {
+        use crate::session::{ConversationTurn, SessionSnapshot};
+        let snap = SessionSnapshot {
+            cwd: std::path::PathBuf::from("/tmp/cwd"),
+            mode: SessionMode::Code,
+            model: "gpt-99".into(),
+            history: vec![ConversationTurn {
+                user_prompt: "hi".repeat(8), // 16 chars -> ~4 tokens
+                agent_response: "ok".repeat(8),
+            }],
+        };
+        let report = render_context_report(&snap, PermissionMode::AcceptEdits, &["gpt-99".into()]);
+
+        assert!(report.contains("Mode: `CODE`"));
+        assert!(report.contains("Permission mode: `acceptEdits`"));
+        assert!(report.contains("Model: `gpt-99`"));
+        assert!(report.contains("(1 known in catalog)"));
+        assert!(report.contains("Conversation turns: 1"));
+        // Token estimate rolls user + agent into the total.
+        assert!(report.contains("~"));
+    }
+
+    /// When no model is set, `/context` shows `(none)` rather than the
+    /// empty string so the user notices the misconfig.
+    #[test]
+    fn render_context_report_shows_none_when_model_empty() {
+        use crate::session::SessionSnapshot;
+        let snap = SessionSnapshot {
+            cwd: std::path::PathBuf::from("/tmp/cwd"),
+            mode: SessionMode::Lutz,
+            model: String::new(),
+            history: vec![],
+        };
+        let report = render_context_report(&snap, PermissionMode::Default, &[]);
+        assert!(report.contains("Model: `(none)`"));
+        assert!(report.contains("(0 known in catalog)"));
+        assert!(report.contains("Conversation turns: 0"));
+    }
 }
