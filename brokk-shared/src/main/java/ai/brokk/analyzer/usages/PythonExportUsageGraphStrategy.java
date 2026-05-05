@@ -17,17 +17,17 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
 
     private final PythonAnalyzer analyzer;
     private final PythonExportUsageGraphAdapter adapter;
-    private final JsTsExportUsageReferenceGraph.Limits limits;
+    private final ExportUsageReferenceGraphEngine.Limits limits;
 
     public PythonExportUsageGraphStrategy(PythonAnalyzer analyzer) {
-        this(analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+        this(analyzer, ExportUsageReferenceGraphEngine.Limits.defaults());
     }
 
     public PythonExportUsageGraphStrategy(
-            PythonAnalyzer analyzer, @Nullable JsTsExportUsageReferenceGraph.Limits limits) {
+            PythonAnalyzer analyzer, @Nullable ExportUsageReferenceGraphEngine.Limits limits) {
         this.analyzer = analyzer;
         this.adapter = new PythonExportUsageGraphAdapter(analyzer);
-        this.limits = limits != null ? limits : JsTsExportUsageReferenceGraph.Limits.defaults();
+        this.limits = limits != null ? limits : ExportUsageReferenceGraphEngine.Limits.defaults();
     }
 
     public boolean canHandle(CodeUnit target) {
@@ -51,7 +51,7 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
 
         Set<UsageHit> hits = new LinkedHashSet<>();
         for (String exportName : exportNames) {
-            ReferenceGraphResult graphResult = JsTsExportUsageReferenceGraph.findExportUsages(
+            ReferenceGraphResult graphResult = ExportUsageReferenceGraphEngine.findExportUsages(
                     target.source(), exportName, target, adapter, limits, candidateFiles);
             hits.addAll(graphResult.hits().stream()
                     .map(hit -> new UsageHit(
@@ -73,16 +73,24 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
     }
 
     private Set<String> inferExportNames(CodeUnit target) {
-        return inferExportNames(target.source(), exportSeedName(target));
+        Set<String> exportNames = inferExportNames(target.source(), target.identifier());
+        if (!exportNames.isEmpty()) {
+            return exportNames;
+        }
+        String ownerName = ownerNameOf(target);
+        if (ownerName.isEmpty()) {
+            return Set.of();
+        }
+        return inferExportNames(target.source(), ownerName);
     }
 
-    private static String exportSeedName(CodeUnit target) {
+    private static String ownerNameOf(CodeUnit target) {
         String shortName = target.shortName();
         int lastDot = shortName.lastIndexOf('.');
-        if (lastDot > 0 && (target.isFunction() || target.isField())) {
-            return shortName.substring(0, lastDot);
+        if (lastDot <= 0 || (!target.isFunction() && !target.isField())) {
+            return "";
         }
-        return target.identifier();
+        return shortName.substring(0, lastDot);
     }
 
     private Set<String> inferExportNames(ProjectFile definingFile, String localName) {

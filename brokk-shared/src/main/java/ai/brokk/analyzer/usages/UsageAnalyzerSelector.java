@@ -26,7 +26,9 @@ public final class UsageAnalyzerSelector {
                 return graph;
             }
         }
-        if (language.contains(Languages.PYTHON) && analyzer instanceof PythonAnalyzer python) {
+        if (language.contains(Languages.PYTHON)) {
+            var python =
+                    analyzer instanceof PythonAnalyzer existingPython ? existingPython : new PythonAnalyzer(project);
             var graph = new PythonExportUsageGraphStrategy(python);
             if (graph.canHandle(target)) {
                 return graph;

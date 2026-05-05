@@ -34,12 +34,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -69,12 +69,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "pkg/consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -110,12 +110,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -158,12 +158,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/internal/service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -203,12 +203,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    new JsTsExportUsageReferenceGraph.Limits(50, 50, 10),
+                    new ExportUsageReferenceGraphEngine.Limits(50, 50, 10),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -240,12 +240,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertTrue(result.hits().isEmpty());
@@ -282,12 +282,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
                     .findFirst()
                     .orElseThrow();
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Foo",
                     member,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -431,12 +431,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
                     .findFirst()
                     .orElseThrow();
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Foo",
                     member,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -535,12 +535,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
                     .findFirst()
                     .orElseThrow();
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Foo",
                     member,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertTrue(result.hits().isEmpty());
@@ -620,12 +620,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertTrue(result.hits().isEmpty());
@@ -698,12 +698,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -732,12 +732,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -773,12 +773,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "pkg/service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -888,12 +888,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
             var member = memberDeclaration(analyzer, baseFile, "bar");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     baseFile,
                     "Base",
                     member,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -996,12 +996,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertTrue(result.hits().isEmpty());
@@ -1030,12 +1030,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     "Service",
                     null,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertTrue(result.hits().isEmpty());
@@ -1058,12 +1058,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
             var member = memberDeclaration(analyzer, serviceFile, memberName);
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     exportName,
                     member,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertEquals(1, result.hits().size());
@@ -1085,12 +1085,12 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "consumer.py");
             var member = memberDeclaration(analyzer, serviceFile, memberName);
 
-            var result = JsTsExportUsageReferenceGraph.findExportUsages(
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
                     serviceFile,
                     exportName,
                     member,
                     adapter,
-                    JsTsExportUsageReferenceGraph.Limits.defaults(),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
                     Set.of(consumerFile));
 
             assertTrue(result.hits().isEmpty());

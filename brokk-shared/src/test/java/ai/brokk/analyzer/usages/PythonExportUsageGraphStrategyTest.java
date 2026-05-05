@@ -6,10 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class PythonExportUsageGraphStrategyTest extends AbstractUsageReferenceGraphTest {
@@ -71,6 +74,29 @@ class PythonExportUsageGraphStrategyTest extends AbstractUsageReferenceGraphTest
     }
 
     @Test
+    void pythonMemberSeedFallsBackFromIdentifierToOwnerExport() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py").build()) {
+            var analyzer = new PythonAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            CodeUnit target = analyzer.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(serviceFile))
+                    .filter(cu -> cu.identifier().equals("bar"))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertFalse(analyzer.exportIndexOf(serviceFile).exportsByName().containsKey(target.identifier()));
+            assertTrue(new PythonExportUsageGraphStrategy(analyzer).canHandle(target));
+        }
+    }
+
+    @Test
     void selectorUsesPythonGraphForMemberTarget() throws Exception {
         String service =
                 """
@@ -105,6 +131,45 @@ class PythonExportUsageGraphStrategyTest extends AbstractUsageReferenceGraphTest
             assertTrue(result instanceof FuzzyResult.Success);
             var success = (FuzzyResult.Success) result;
             assertEquals(1, success.hitsByOverload().get(target).size());
+        }
+    }
+
+    @Test
+    void selectorUsesPythonGraphForPythonTargetWithMultiAnalyzer() throws Exception {
+        String service = """
+                class Service:
+                    pass
+                """;
+        String consumer =
+                """
+                from service import Service
+
+                def run():
+                    return Service()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py")
+                .addFileContents(consumer, "consumer.py")
+                .build()) {
+            var python = new PythonAnalyzer(project);
+            var multi = new MultiAnalyzer(Map.of(Languages.PYTHON, python));
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            CodeUnit target = python.getAllDeclarations().stream()
+                    .filter(cu -> cu.source().equals(serviceFile))
+                    .filter(cu -> cu.identifier().equals("Service"))
+                    .findFirst()
+                    .orElseThrow();
+
+            UsageAnalyzer usageAnalyzer = UsageAnalyzerSelector.forTarget(target, multi, project);
+            assertInstanceOf(PythonExportUsageGraphStrategy.class, usageAnalyzer);
+
+            FuzzyResult result =
+                    UsageAnalyzerSelector.findUsages(usageAnalyzer, multi, List.of(target), project.getAllFiles());
+            assertTrue(result instanceof FuzzyResult.Success);
+            var success = (FuzzyResult.Success) result;
+            assertEquals(1, success.hitsByOverload().get(target).size());
+            assertTrue(success.hitsByOverload().get(target).stream()
+                    .anyMatch(hit -> endsWithPath(hit.file(), "consumer.py")));
         }
     }
 
