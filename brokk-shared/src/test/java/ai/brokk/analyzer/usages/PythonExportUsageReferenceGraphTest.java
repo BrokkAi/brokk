@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.usages;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -1146,6 +1147,133 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
 
             assertEquals(1, result.hits().size());
             assertEquals(7, result.hits().iterator().next().range().startLine() + 1);
+        }
+    }
+
+    @Test
+    void sameFileStaticClassMethodCountsAsClassUsage() throws Exception {
+        String service =
+                """
+                class CloudConfig:
+                    @classmethod
+                    def from_dict(cls, data):
+                        return cls()
+
+                def parse_cloud_config(data):
+                    config = CloudConfig.from_dict(data)
+                    return config
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "cassandra/datastax/cloud/__init__.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "cassandra/datastax/cloud/__init__.py");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "CloudConfig",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(serviceFile));
+
+            assertEquals(1, result.hits().size());
+            assertEquals(7, result.hits().iterator().next().range().startLine() + 1);
+        }
+    }
+
+    @Test
+    void crossFilePartiallyQualifiedClassMethodCountsAsClassUsage() throws Exception {
+        String cloud =
+                """
+                class CloudConfig:
+                    @classmethod
+                    def from_dict(cls, data):
+                        return cls()
+                """;
+        String init = "";
+        String consumer =
+                """
+                import pkg.cloud as cloud
+
+                def parse_cloud_config(data):
+                    config = cloud.CloudConfig.from_dict(data)
+                    return config
+                """;
+
+        try (var project = InlineTestProjectCreator.code(cloud, "pkg/cloud.py")
+                .addFileContents(init, "pkg/__init__.py")
+                .addFileContents(consumer, "tests/test_cloud.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile cloudFile = projectFile(project.getAllFiles(), "pkg/cloud.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "tests/test_cloud.py");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    cloudFile,
+                    "CloudConfig",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+            assertTrue(endsWithPath(result.hits().iterator().next().file(), "tests/test_cloud.py"));
+        }
+    }
+
+    @Test
+    void sameNamedUnrelatedClassMethodDoesNotCountAsClassUsage() throws Exception {
+        String cloud =
+                """
+                class CloudConfig:
+                    @classmethod
+                    def from_dict(cls, data):
+                        return cls()
+                """;
+        String unrelated =
+                """
+                class CloudConfig:
+                    @classmethod
+                    def from_dict(cls, data):
+                        return cls()
+
+                def parse_cloud_config(data):
+                    config = CloudConfig.from_dict(data)
+                    return config
+                """;
+        String consumer =
+                """
+                from pkg.cloud import CloudConfig
+
+                def parse_cloud_config(data):
+                    config = CloudConfig.from_dict(data)
+                    return config
+                """;
+
+        try (var project = InlineTestProjectCreator.code(cloud, "pkg/cloud.py")
+                .addFileContents(unrelated, "other/cloud.py")
+                .addFileContents(consumer, "tests/test_cloud.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile cloudFile = projectFile(project.getAllFiles(), "pkg/cloud.py");
+            ProjectFile unrelatedFile = projectFile(project.getAllFiles(), "other/cloud.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "tests/test_cloud.py");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    cloudFile,
+                    "CloudConfig",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(unrelatedFile, consumerFile));
+
+            assertEquals(1, result.hits().size());
+            assertFalse(endsWithPath(result.hits().iterator().next().file(), "other/cloud.py"));
+            assertTrue(endsWithPath(result.hits().iterator().next().file(), "tests/test_cloud.py"));
         }
     }
 

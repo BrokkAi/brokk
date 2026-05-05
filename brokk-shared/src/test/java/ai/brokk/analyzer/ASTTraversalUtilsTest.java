@@ -38,6 +38,29 @@ class ASTTraversalUtilsTest {
         assertTrue(ASTTraversalUtils.sameRange(ifStatement, ifStatement));
     }
 
+    @Test
+    void charPositionToUtf8ByteOffsetMatchesAsciiPrefixLength() {
+        String source = "alpha Target omega";
+
+        assertEquals(0, ASTTraversalUtils.charPositionToUtf8ByteOffset(source, 0));
+        assertEquals(6, ASTTraversalUtils.charPositionToUtf8ByteOffset(source, source.indexOf("Target")));
+        assertEquals(source.length(), ASTTraversalUtils.charPositionToUtf8ByteOffset(source, source.length()));
+    }
+
+    @Test
+    void charPositionToUtf8ByteOffsetCountsBmpMultibyteCharacters() {
+        String source = "caf\u00e9 Target";
+
+        assertEquals(6, ASTTraversalUtils.charPositionToUtf8ByteOffset(source, source.indexOf("Target")));
+    }
+
+    @Test
+    void charPositionToUtf8ByteOffsetCountsSurrogatePairs() {
+        String source = "\uD83D\uDE80 Target";
+
+        assertEquals(5, ASTTraversalUtils.charPositionToUtf8ByteOffset(source, source.indexOf("Target")));
+    }
+
     private static TSNode firstNodeOfType(String source, String type) {
         TSParser parser = new TSParser();
         parser.setLanguage(new TreeSitterJavascript());

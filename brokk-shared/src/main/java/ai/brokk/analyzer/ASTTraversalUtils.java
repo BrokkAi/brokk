@@ -164,4 +164,43 @@ public class ASTTraversalUtils {
     public static List<TSNode> findAllNodesByType(TSNode rootNode, String nodeType) {
         return findAllNodesRecursive(rootNode, node -> nodeType.equals(typeOf(node)));
     }
+
+    /**
+     * Converts a Java String character index (UTF-16 code units) to a UTF-8 byte offset without allocating prefix
+     * substrings.
+     */
+    public static int charPositionToUtf8ByteOffset(String text, int charPosition) {
+        if (charPosition <= 0) {
+            return 0;
+        }
+        if (charPosition >= text.length()) {
+            charPosition = text.length();
+        }
+
+        int bytes = 0;
+        for (int i = 0; i < charPosition; ) {
+            char ch = text.charAt(i);
+            if (Character.isHighSurrogate(ch) && i + 1 < charPosition && Character.isLowSurrogate(text.charAt(i + 1))) {
+                bytes += 4;
+                i += 2;
+            } else {
+                bytes += utf8ByteLength(ch);
+                i++;
+            }
+        }
+        return bytes;
+    }
+
+    private static int utf8ByteLength(char ch) {
+        if (ch <= 0x7F) {
+            return 1;
+        }
+        if (ch <= 0x7FF) {
+            return 2;
+        }
+        if (Character.isSurrogate(ch)) {
+            return 1;
+        }
+        return 3;
+    }
 }

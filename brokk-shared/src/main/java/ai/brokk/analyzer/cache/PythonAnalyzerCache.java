@@ -16,18 +16,23 @@ import java.util.Set;
  */
 public final class PythonAnalyzerCache extends AnalyzerCache {
     private final Cache<ProjectFile, Map<PythonAnalyzer.MemberKey, CodeUnit>> exactMembersByFileCache;
+    private final Cache<ProjectFile, Map<String, CodeUnit>> topLevelImportablesByFileCache;
     private final Cache<CodeUnit, String> classKeyByCodeUnitCache;
     private @org.jetbrains.annotations.Nullable Map<String, Set<CodeUnit>> definitionsByIdentifierIndex;
 
     public PythonAnalyzerCache() {
         super();
         this.exactMembersByFileCache = Caffeine.newBuilder().maximumSize(10_000).build();
+        this.topLevelImportablesByFileCache =
+                Caffeine.newBuilder().maximumSize(10_000).build();
         this.classKeyByCodeUnitCache = Caffeine.newBuilder().maximumSize(20_000).build();
     }
 
     public PythonAnalyzerCache(PythonAnalyzerCache previous, Set<ProjectFile> changedFiles) {
         super(previous, changedFiles);
         this.exactMembersByFileCache = Caffeine.newBuilder().maximumSize(10_000).build();
+        this.topLevelImportablesByFileCache =
+                Caffeine.newBuilder().maximumSize(10_000).build();
         this.classKeyByCodeUnitCache = Caffeine.newBuilder().maximumSize(20_000).build();
 
         if (changedFiles.isEmpty()) {
@@ -36,6 +41,11 @@ public final class PythonAnalyzerCache extends AnalyzerCache {
         previous.exactMembersByFileCache.asMap().forEach((file, index) -> {
             if (!changedFiles.contains(file)) {
                 this.exactMembersByFileCache.put(file, Map.copyOf(index));
+            }
+        });
+        previous.topLevelImportablesByFileCache.asMap().forEach((file, index) -> {
+            if (!changedFiles.contains(file)) {
+                this.topLevelImportablesByFileCache.put(file, Map.copyOf(index));
             }
         });
         previous.classKeyByCodeUnitCache.asMap().forEach((codeUnit, classKey) -> {
@@ -55,6 +65,10 @@ public final class PythonAnalyzerCache extends AnalyzerCache {
 
     public Cache<ProjectFile, Map<PythonAnalyzer.MemberKey, CodeUnit>> exactMembersByFileCache() {
         return exactMembersByFileCache;
+    }
+
+    public Cache<ProjectFile, Map<String, CodeUnit>> topLevelImportablesByFileCache() {
+        return topLevelImportablesByFileCache;
     }
 
     public Cache<CodeUnit, String> classKeyByCodeUnitCache() {

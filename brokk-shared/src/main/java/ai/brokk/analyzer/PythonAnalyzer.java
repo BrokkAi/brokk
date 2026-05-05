@@ -564,8 +564,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             return List.of();
         }
         var out = new ArrayList<TSNode>();
-        for (int i = 0; i < args.getNamedChildCount(); i++) {
-            TSNode child = args.getNamedChild(i);
+        for (TSNode child : args.getNamedChildren()) {
             if (child != null) {
                 out.add(child);
             }
@@ -612,8 +611,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     private static @Nullable TSNode firstNamedChild(TSNode node) {
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child != null) {
                 return child;
             }
@@ -622,8 +620,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     private static @Nullable TSNode firstNamedChildOfType(TSNode node, String type) {
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child != null && type.equals(child.getType())) {
                 return child;
             }
@@ -657,8 +654,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     private Optional<ExceptionHandlingSmell> analyzeExceptClause(
             ProjectFile file, TSNode exceptClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
         TSNode bodyNode = null;
-        for (int i = 0; i < exceptClause.getNamedChildCount(); i++) {
-            TSNode child = exceptClause.getNamedChild(i);
+        for (TSNode child : exceptClause.getNamedChildren()) {
             if (child == null) {
                 continue;
             }
@@ -729,8 +725,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     private static int countBodyExpressions(TSNode bodyNode) {
         int expressions = 0;
-        for (int i = 0; i < bodyNode.getNamedChildCount(); i++) {
-            TSNode child = bodyNode.getNamedChild(i);
+        for (TSNode child : bodyNode.getNamedChildren()) {
             if (child == null) {
                 continue;
             }
@@ -967,8 +962,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                     }
                                 }
 
-                                for (int i = 0; i < node.getNamedChildCount(); i++) {
-                                    TSNode child = node.getNamedChild(i);
+                                for (TSNode child : node.getNamedChildren()) {
                                     if (child != null) {
                                         stack.push(child);
                                     }
@@ -1692,81 +1686,59 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, @Nullable TSNode classNode, String signature, SourceContent sourceContent) {
         if (classNode == null) return List.of();
-        // Extract superclass names from Python class definition
-        // Pattern: class Child(Parent1, Parent2): ...
-        return withCachedQuery(
-                QueryType.DEFINITIONS,
-                query -> {
-                    // Use the actual definition node for range matching.
-                    // If classNode is a decorated_definition, we must find the inner class_definition node
-                    // to match the 'type.decl' capture in python.scm.
-                    TSNode matchNode = classNode;
-                    if (nodeType(DECORATED_DEFINITION).equals(classNode.getType())) {
-                        for (TSNode child : classNode.getNamedChildren()) {
-                            if (nodeType(CLASS_DEFINITION).equals(child.getType())) {
-                                matchNode = child;
-                                break;
-                            }
-                        }
-                    }
+        TSNode definitionNode = classDefinitionNode(classNode);
+        if (definitionNode == null) {
+            return List.of();
+        }
+        TSNode superclasses = definitionNode.getChildByFieldName(nodeField(PythonNodeField.SUPERCLASSES));
+        if (superclasses == null) {
+            return List.of();
+        }
 
-                    // Ascend to root node for matching
-                    TSNode root = classNode;
-                    TSNode parent = root.getParent();
-                    while (parent != null) {
-                        root = parent;
-                        parent = root.getParent();
-                    }
+        var supers = new LinkedHashSet<String>();
+        for (TSNode child : superclasses.getNamedChildren()) {
+            if (child == null || !isSuperclassExpression(child)) {
+                continue;
+            }
+            String text = sourceContent.substringFrom(child).strip();
+            if (!text.isEmpty()) {
+                supers.add(text);
+            }
+        }
+        return List.copyOf(supers);
+    }
 
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        List<TSNode> aggregateSuperNodes = new ArrayList<>();
-                        cursor.exec(query, root, sourceContent.text());
+    private static @Nullable TSNode classDefinitionNode(TSNode node) {
+        TSNode current = node;
+        while (current != null
+                && !nodeType(CLASS_DEFINITION).equals(current.getType())
+                && !nodeType(DECORATED_DEFINITION).equals(current.getType())) {
+            current = current.getParent();
+        }
+        if (current == null) {
+            return null;
+        }
+        if (nodeType(CLASS_DEFINITION).equals(current.getType())) {
+            return current;
+        }
+        TSNode definition = current.getChildByFieldName(nodeField(PythonNodeField.DEFINITION));
+        if (definition != null && nodeType(CLASS_DEFINITION).equals(definition.getType())) {
+            return definition;
+        }
+        for (TSNode child : current.getNamedChildren()) {
+            if (child != null && nodeType(CLASS_DEFINITION).equals(child.getType())) {
+                return child;
+            }
+        }
+        return null;
+    }
 
-                        var match = new TSQueryMatch();
-                        final TSNode finalMatchNode = matchNode;
-                        final int targetStart = finalMatchNode.getStartByte();
-                        final int targetEnd = finalMatchNode.getEndByte();
-
-                        while (cursor.nextMatch(match)) {
-                            TSNode declNode = null;
-                            List<TSNode> superCapturesThisMatch = new ArrayList<>();
-
-                            for (var cap : match.getCaptures()) {
-                                var capName = query.getCaptureNameForId(cap.getIndex());
-                                var n = cap.getNode();
-                                if (n == null) continue;
-
-                                if ("type.decl".equals(capName)) {
-                                    declNode = n;
-                                } else if ("type.super".equals(capName)) {
-                                    superCapturesThisMatch.add(n);
-                                }
-                            }
-
-                            if (declNode != null
-                                    && declNode.getStartByte() == targetStart
-                                    && declNode.getEndByte() == targetEnd) {
-                                aggregateSuperNodes.addAll(superCapturesThisMatch);
-                            }
-                        }
-
-                        // Sort by position to preserve source order
-                        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
-
-                        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
-                        for (var s : aggregateSuperNodes) {
-                            var text = sourceContent.substringFrom(s).strip();
-                            if (!text.isEmpty()) {
-                                supers.add(text);
-                            }
-                        }
-
-                        // Deduplicate while preserving order
-                        var unique = new LinkedHashSet<>(supers);
-                        return List.copyOf(unique);
-                    }
-                },
-                List.of());
+    private static boolean isSuperclassExpression(TSNode node) {
+        String type = node.getType();
+        return nodeType(IDENTIFIER).equals(type)
+                || nodeType(ATTRIBUTE).equals(type)
+                || nodeType(SUBSCRIPT).equals(type)
+                || nodeType(GENERIC_TYPE).equals(type);
     }
 
     /**
@@ -1931,12 +1903,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                             // from X import Y
                                             var moduleFile = resolveModuleFile(currentModule);
                                             if (moduleFile != null) {
-                                                var decls = getDeclarations(moduleFile);
-                                                decls.stream()
-                                                        .filter(cu ->
-                                                                cu.identifier().equals(text)
-                                                                        && (cu.isClass() || cu.isFunction()))
-                                                        .findFirst()
+                                                resolveImportNameFromModule(moduleFile, text)
                                                         .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                                             }
                                         } else if (wildcardModule == null) {
@@ -1959,6 +1926,24 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         }
 
         return Collections.unmodifiableSet(new LinkedHashSet<>(resolvedByName.values()));
+    }
+
+    private Optional<CodeUnit> resolveImportNameFromModule(ProjectFile moduleFile, String name) {
+        Optional<CodeUnit> resolvedByDefinition = getDefinitions(name).stream()
+                .filter(cu -> isTopLevelImportableDeclaration(cu, moduleFile, name))
+                .findFirst();
+        if (resolvedByDefinition.isPresent()) {
+            return resolvedByDefinition;
+        }
+
+        return Optional.ofNullable(topLevelImportables(moduleFile).get(name));
+    }
+
+    private static boolean isTopLevelImportableDeclaration(CodeUnit cu, ProjectFile moduleFile, String name) {
+        return cu.source().equals(moduleFile)
+                && cu.identifier().equals(name)
+                && (cu.isClass() || cu.isFunction())
+                && ownerNameOf(cu).isEmpty();
     }
 
     @Override
@@ -2285,6 +2270,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                 cu -> cu,
                                 (left, right) -> left)))
                 .get(memberKey);
+    }
+
+    private Map<String, CodeUnit> topLevelImportables(ProjectFile sourceFile) {
+        return pythonCache().topLevelImportablesByFileCache().get(sourceFile, file -> getDeclarations(file).stream()
+                .filter(cu -> isTopLevelImportableDeclaration(cu, file, cu.identifier()))
+                .collect(Collectors.toUnmodifiableMap(CodeUnit::identifier, cu -> cu, (left, right) -> left)));
     }
 
     private String qualifiedClassKey(CodeUnit codeUnit) {

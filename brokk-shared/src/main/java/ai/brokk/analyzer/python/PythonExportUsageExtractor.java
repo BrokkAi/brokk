@@ -128,8 +128,7 @@ public final class PythonExportUsageExtractor {
             CodeUnit enclosing,
             Deque<Set<String>> locallyShadowedNames,
             List<LocalUsageEvent> events) {
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child != null) {
                 collectLocalUsageEvents(analyzer, file, child, source, binder, enclosing, locallyShadowedNames, events);
             }
@@ -288,8 +287,7 @@ public final class PythonExportUsageExtractor {
             }
             return;
         }
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child != null) {
                 collectTypeNames(child, source, names);
             }
@@ -372,11 +370,12 @@ public final class PythonExportUsageExtractor {
             CodeUnit enclosing,
             Deque<Set<String>> scopes,
             Set<ReferenceCandidate> candidates) {
-        if (insideImport(node)) {
+        String type = node.getType();
+        if (nodeType(IMPORT_STATEMENT).equals(type)
+                || nodeType(IMPORT_FROM_STATEMENT).equals(type)) {
             return;
         }
 
-        String type = node.getType();
         if (nodeType(FUNCTION_DEFINITION).equals(type)
                 || nodeType(CLASS_DEFINITION).equals(type)) {
             TSNode name = node.getChildByFieldName(nodeField(PythonNodeField.NAME));
@@ -442,8 +441,7 @@ public final class PythonExportUsageExtractor {
             CodeUnit enclosing,
             Deque<Set<String>> scopes,
             Set<ReferenceCandidate> candidates) {
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child != null) {
                 collectUsageCandidates(child, source, binder, localExportNames, enclosing, scopes, candidates);
             }
@@ -459,8 +457,7 @@ public final class PythonExportUsageExtractor {
             CodeUnit enclosing,
             Deque<Set<String>> scopes,
             Set<ReferenceCandidate> candidates) {
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child != null && !sameNode(child, excluded)) {
                 collectUsageCandidates(child, source, binder, localExportNames, enclosing, scopes, candidates);
             }
@@ -510,6 +507,17 @@ public final class PythonExportUsageExtractor {
                         enclosing));
                 return;
             }
+        }
+        ImportBinder.ImportBinding firstBinding = binder.bindings().get(first);
+        if (firstBinding != null && chain.size() == 3) {
+            candidates.add(new ReferenceCandidate(
+                    chain.getLast(),
+                    first,
+                    chain.get(1),
+                    false,
+                    ReferenceKind.STATIC_REFERENCE,
+                    rangeOf(node),
+                    enclosing));
         }
     }
 
@@ -739,8 +747,7 @@ public final class PythonExportUsageExtractor {
     }
 
     private static @Nullable TSNode firstNamedIdentifier(TSNode node) {
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child != null && isIdentifier(child)) {
                 return child;
             }
@@ -752,8 +759,7 @@ public final class PythonExportUsageExtractor {
         if (previous == null) {
             return null;
         }
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child == null || child.getStartByte() <= previous.getEndByte()) {
                 continue;
             }
@@ -764,19 +770,6 @@ public final class PythonExportUsageExtractor {
 
     private static boolean sameNode(TSNode left, @Nullable TSNode right) {
         return right != null && left.getStartByte() == right.getStartByte() && left.getEndByte() == right.getEndByte();
-    }
-
-    private static boolean insideImport(TSNode node) {
-        TSNode current = node;
-        while (current.getParent() != null) {
-            current = current.getParent();
-            String type = current.getType();
-            if (nodeType(IMPORT_STATEMENT).equals(type)
-                    || nodeType(IMPORT_FROM_STATEMENT).equals(type)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static IAnalyzer.Range rangeOf(TSNode node) {
@@ -794,8 +787,7 @@ public final class PythonExportUsageExtractor {
 
     private static void walk(TSNode node, java.util.function.Consumer<TSNode> consumer) {
         consumer.accept(node);
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child != null) {
                 walk(child, consumer);
             }

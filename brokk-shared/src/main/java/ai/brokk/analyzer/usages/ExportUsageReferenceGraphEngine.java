@@ -3,7 +3,6 @@ package ai.brokk.analyzer.usages;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.PathNormalizer;
 import java.util.ArrayDeque;
@@ -77,7 +76,7 @@ public final class ExportUsageReferenceGraphEngine {
                 shouldResolveReceiverCandidates);
 
         Map<String, Set<String>> heritageEdges =
-                targets.stream().allMatch(target -> target.kind() != CodeUnitType.CLASS && !isMemberTarget(target))
+                targets.stream().allMatch(target -> !target.isClass() && !isMemberTarget(target))
                         ? Map.of()
                         : adapter.heritageIndex();
 
@@ -144,8 +143,8 @@ public final class ExportUsageReferenceGraphEngine {
             return true;
         }
 
-        if ((queryTarget.kind() == CodeUnitType.FIELD || queryTarget.kind() == CodeUnitType.FUNCTION)
-                && (resolvedTarget.kind() == CodeUnitType.FIELD || resolvedTarget.kind() == CodeUnitType.FUNCTION)
+        if ((queryTarget.isField() || queryTarget.isFunction())
+                && (resolvedTarget.isField() || resolvedTarget.isFunction())
                 && normalizedMemberName(queryTarget).equals(normalizedMemberName(resolvedTarget))) {
             String queryOwner = qualifiedOwnerKey(queryTarget);
             String resolvedOwner = qualifiedOwnerKey(resolvedTarget);
@@ -155,8 +154,17 @@ public final class ExportUsageReferenceGraphEngine {
             return ownerMatchesHeritage(queryOwner, resolvedOwner, heritageEdges);
         }
 
+        if (queryTarget.isClass() && (resolvedTarget.isField() || resolvedTarget.isFunction())) {
+            String queryOwner = qualifiedClassKey(queryTarget);
+            String resolvedOwner = qualifiedOwnerKey(resolvedTarget);
+            if (!resolvedOwner.isEmpty() && queryOwner.equals(resolvedOwner)) {
+                return true;
+            }
+            return ownerMatchesHeritage(queryOwner, resolvedOwner, heritageEdges);
+        }
+
         // JS/TS polymorphism (v1): class inheritance only, flow-insensitive.
-        if (queryTarget.kind() == CodeUnitType.CLASS && resolvedTarget.kind() == CodeUnitType.CLASS) {
+        if (queryTarget.isClass() && resolvedTarget.isClass()) {
             String q = qualifiedClassKey(queryTarget);
             var queue = new ArrayDeque<String>();
             var visited = new HashSet<String>();
@@ -205,6 +213,10 @@ public final class ExportUsageReferenceGraphEngine {
         if (cand.ownerIdentifier() != null) {
             if (cand.qualifier() == null) {
                 return resolveLocalOwnerMemberCandidate(cand, file, adapter);
+            }
+            ImportBinder.ImportBinding binding = binder.bindings().get(cand.qualifier());
+            if (binding != null && binding.kind() != ImportBinder.ImportKind.NAMESPACE) {
+                return resolveClassMemberCandidate(cand, file, binding, adapter, limits, frontier, externalFrontier);
             }
             return resolveNamespaceMemberCandidate(cand, file, binder, adapter, limits, frontier, externalFrontier);
         }
@@ -281,7 +293,7 @@ public final class ExportUsageReferenceGraphEngine {
                 resolveExport(imported.resolved().orElseThrow(), importedName, adapter, limits, externalFrontier);
         frontier.addAll(ownerResolution.frontier());
         CodeUnit ownerClass = ownerResolution.targets().stream()
-                .filter(cu -> cu.kind() == CodeUnitType.CLASS)
+                .filter(CodeUnit::isClass)
                 .findFirst()
                 .orElse(null);
         if (ownerClass == null) {
@@ -345,7 +357,7 @@ public final class ExportUsageReferenceGraphEngine {
                 resolveExport(imported.resolved().orElseThrow(), ownerIdentifier, adapter, limits, externalFrontier);
         frontier.addAll(ownerResolution.frontier());
         CodeUnit ownerClass = ownerResolution.targets().stream()
-                .filter(cu -> cu.kind() == CodeUnitType.CLASS)
+                .filter(CodeUnit::isClass)
                 .findFirst()
                 .orElse(null);
         if (ownerClass == null) {
@@ -405,7 +417,7 @@ public final class ExportUsageReferenceGraphEngine {
                 resolveExport(ownerFile, cand.receiverTarget().exportedName(), adapter, limits, externalFrontier);
         frontier.addAll(ownerResolution.frontier());
         CodeUnit ownerClass = ownerResolution.targets().stream()
-                .filter(cu -> cu.kind() == CodeUnitType.CLASS)
+                .filter(CodeUnit::isClass)
                 .findFirst()
                 .orElse(null);
         if (ownerClass == null) {
@@ -537,14 +549,26 @@ public final class ExportUsageReferenceGraphEngine {
 
     private static Set<CodeUnit> resolveLocalExport(
             ProjectFile file, String localName, ExportUsageGraphLanguageAdapter adapter) {
+        CodeUnit singleMatch = null;
         var matches = new LinkedHashSet<CodeUnit>();
         for (CodeUnit cu : adapter.definitionsOf(localName)) {
             if (!cu.source().equals(file)) continue;
             if (cu.identifier().equals(localName)
                     || cu.shortName().equals(localName)
                     || ownerNameOf(cu).equals(localName)) {
-                matches.add(cu);
+                if (singleMatch == null && matches.isEmpty()) {
+                    singleMatch = cu;
+                } else {
+                    if (singleMatch != null) {
+                        matches.add(singleMatch);
+                        singleMatch = null;
+                    }
+                    matches.add(cu);
+                }
             }
+        }
+        if (singleMatch != null) {
+            return Set.of(singleMatch);
         }
         if (matches.isEmpty()) {
             // JS/TS sometimes does not emit CodeUnits for certain top-level export forms yet (e.g., exported const).
@@ -670,7 +694,7 @@ public final class ExportUsageReferenceGraphEngine {
     }
 
     private static boolean isMemberTarget(CodeUnit target) {
-        return (target.kind() == CodeUnitType.FIELD || target.kind() == CodeUnitType.FUNCTION)
+        return (target.isField() || target.isFunction())
                 && !qualifiedOwnerKey(target).isEmpty();
     }
 
