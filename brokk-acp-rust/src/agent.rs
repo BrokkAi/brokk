@@ -508,6 +508,7 @@ pub async fn run_agent(
                             ConversationTurn {
                                 user_prompt: prompt_text_for_turn,
                                 agent_response: response_text,
+                                ..Default::default()
                             },
                         )
                         .await;
@@ -1017,6 +1018,7 @@ mod tests {
             history: vec![ConversationTurn {
                 user_prompt: "hi".repeat(8), // 16 chars -> ~4 tokens
                 agent_response: "ok".repeat(8),
+                ..Default::default()
             }],
         };
         let report = render_context_report(&snap, PermissionMode::AcceptEdits, &["gpt-99".into()]);
