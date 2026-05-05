@@ -287,6 +287,8 @@ public class Messages {
 
     private static final Pattern LEGACY_SECTION_LABEL = Pattern.compile("(?m)^(?:Reasoning|Text|Tool calls):\\s*$");
 
+    private static final Pattern BLANK_RUN = Pattern.compile("\\n{3,}");
+
     private static final int MAX_FRAMING_DEPTH = 32;
 
     /**
@@ -360,7 +362,8 @@ public class Messages {
         if (content.isEmpty()) {
             return "";
         }
-        var minIndent = content.lines()
+        var lines = content.lines().toList();
+        int minIndent = lines.stream()
                 .filter(line -> !line.isBlank())
                 .mapToInt(line -> {
                     int n = 0;
@@ -369,11 +372,12 @@ public class Messages {
                 })
                 .min()
                 .orElse(0);
-        var deindented = content.lines()
-                .map(line -> line.length() >= minIndent ? line.substring(minIndent) : line)
+        final int strip = minIndent;
+        var deindented = lines.stream()
+                .map(line -> line.length() >= strip ? line.substring(strip) : line)
                 .collect(Collectors.joining("\n"));
         var withoutLabels = LEGACY_SECTION_LABEL.matcher(deindented).replaceAll("");
-        return withoutLabels.replaceAll("\\n{3,}", "\n\n").strip();
+        return BLANK_RUN.matcher(withoutLabels).replaceAll("\n\n").strip();
     }
 
     /** Strips legacy framing while preserving readable content; used where per-segment structure isn't needed. */
