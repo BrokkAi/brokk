@@ -38,8 +38,8 @@ class ExportUsageGraphAdapterTest {
                 Map.of(new ModuleKey(B, "./a"), ExportUsageGraphLanguageAdapter.ResolutionOutcome.resolved(A)),
                 Map.of("foo", Set.of(FOO)));
 
-        var result = JsTsExportUsageReferenceGraph.findExportUsages(
-                A, "foo", null, adapter, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+        var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                A, "foo", null, adapter, ExportUsageReferenceGraphEngine.Limits.defaults(), null);
 
         assertEquals(1, result.hits().size());
         assertEquals(B, result.hits().iterator().next().file());
@@ -61,8 +61,8 @@ class ExportUsageGraphAdapterTest {
                 Map.of(new ModuleKey(B, "./a"), ExportUsageGraphLanguageAdapter.ResolutionOutcome.resolved(A)),
                 Map.of("foo", Set.of(FOO)));
 
-        var result = JsTsExportUsageReferenceGraph.findExportUsages(
-                A, "foo", null, adapter, JsTsExportUsageReferenceGraph.Limits.defaults(), Set.of(C));
+        var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                A, "foo", null, adapter, ExportUsageReferenceGraphEngine.Limits.defaults(), Set.of(C));
 
         assertTrue(result.hits().isEmpty());
     }
@@ -86,8 +86,8 @@ class ExportUsageGraphAdapterTest {
                         ExportUsageGraphLanguageAdapter.ResolutionOutcome.external("external-pkg")),
                 Map.of("foo", Set.of(FOO)));
 
-        var result = JsTsExportUsageReferenceGraph.findExportUsages(
-                A, "foo", null, adapter, JsTsExportUsageReferenceGraph.Limits.defaults(), null);
+        var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                A, "foo", null, adapter, ExportUsageReferenceGraphEngine.Limits.defaults(), null);
 
         assertTrue(result.hits().isEmpty());
         assertEquals(Set.of("external-pkg"), result.externalFrontierSpecifiers());

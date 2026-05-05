@@ -7,6 +7,8 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -745,6 +747,44 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
     }
 
     @Test
+    void fromPackageImportedSubmoduleQualifierResolvesExportUsage() throws Exception {
+        String timestamps =
+                """
+                class MonotonicTimestampGenerator:
+                    pass
+                """;
+        String init = "";
+        String consumer =
+                """
+                from cassandra import timestamps
+
+                def run():
+                    return timestamps.MonotonicTimestampGenerator()
+                """;
+
+        try (var project = InlineTestProjectCreator.code(timestamps, "cassandra/timestamps.py")
+                .addFileContents(init, "cassandra/__init__.py")
+                .addFileContents(consumer, "tests/unit/test_timestamps.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile timestampsFile = projectFile(project.getAllFiles(), "cassandra/timestamps.py");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "tests/unit/test_timestamps.py");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    timestampsFile,
+                    "MonotonicTimestampGenerator",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(consumerFile));
+
+            assertEquals(1, result.hits().size());
+            assertTrue(endsWithPath(result.hits().iterator().next().file(), "tests/unit/test_timestamps.py"));
+        }
+    }
+
+    @Test
     void staticWildcardBarrelResolvesThroughAll() throws Exception {
         String service =
                 """
@@ -1040,6 +1080,173 @@ class PythonExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTes
 
             assertTrue(result.hits().isEmpty());
             assertEquals(Set.of("external_pkg"), result.externalFrontierSpecifiers());
+        }
+    }
+
+    @Test
+    void sameFileTupleReferenceResolvesTopLevelFunctionUsage() throws Exception {
+        String service =
+                """
+                def _try_gevent_import():
+                    pass
+
+                def _try_asyncore_import():
+                    pass
+
+                conn_fns = (_try_gevent_import, _try_asyncore_import)
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(service, "cassandra/cluster.py").build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "cassandra/cluster.py");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "_try_asyncore_import",
+                    null,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(serviceFile));
+
+            assertEquals(1, result.hits().size());
+            assertEquals(7, result.hits().iterator().next().range().startLine() + 1);
+        }
+    }
+
+    @Test
+    void sameFileStaticClassMethodResolvesUsage() throws Exception {
+        String service =
+                """
+                class CloudConfig:
+                    @classmethod
+                    def from_dict(cls, data):
+                        return cls()
+
+                def parse_cloud_config(data):
+                    config = CloudConfig.from_dict(data)
+                    return config
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "cassandra/datastax/cloud/__init__.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "cassandra/datastax/cloud/__init__.py");
+            var member = memberDeclaration(analyzer, serviceFile, "from_dict");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    serviceFile,
+                    "CloudConfig",
+                    member,
+                    adapter,
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(serviceFile));
+
+            assertEquals(1, result.hits().size());
+            assertEquals(7, result.hits().iterator().next().range().startLine() + 1);
+        }
+    }
+
+    @Test
+    void cachedDefinitionsByIdentifierFindsBareTopLevelFunction() throws Exception {
+        String service = """
+                def _try_asyncore_import():
+                    pass
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(service, "cassandra/cluster.py").build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "cassandra/cluster.py");
+
+            Set<CodeUnit> definitions = adapter.definitionsOf("_try_asyncore_import");
+
+            assertEquals(1, definitions.size());
+            assertTrue(definitions.stream().allMatch(cu -> cu.source().equals(serviceFile)));
+        }
+    }
+
+    @Test
+    void cachedDefinitionsByIdentifierFindsMemberIdentifierFallback() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py").build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+
+            Set<CodeUnit> definitions = adapter.definitionsOf("bar");
+
+            assertEquals(1, definitions.size());
+            CodeUnit definition = definitions.iterator().next();
+            assertEquals(serviceFile, definition.source());
+            assertEquals("bar", definition.identifier());
+        }
+    }
+
+    @Test
+    void cachedExactMemberResolvesOnlyWithinSourceFile() throws Exception {
+        String service =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+        String other =
+                """
+                class Foo:
+                    def bar(self):
+                        pass
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py")
+                .addFileContents(other, "other.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(project);
+            var adapter = new PythonExportUsageGraphAdapter(analyzer);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+            ProjectFile otherFile = projectFile(project.getAllFiles(), "other.py");
+
+            CodeUnit serviceMember = adapter.exactMember(serviceFile, "Foo", "bar", true);
+            CodeUnit otherMember = adapter.exactMember(otherFile, "Foo", "bar", true);
+
+            assertEquals(serviceFile, serviceMember.source());
+            assertEquals(otherFile, otherMember.source());
+        }
+    }
+
+    @Test
+    void pythonUsageGraphCachesInvalidateChangedFilesOnUpdate() throws Exception {
+        String service = """
+                class Service:
+                    pass
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "service.py").build()) {
+            var analyzer = new PythonAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "service.py");
+
+            assertEquals(1, analyzer.definitionsByIdentifier("Service").size());
+
+            Files.writeString(
+                    serviceFile.absPath(),
+                    """
+                    class Renamed:
+                        pass
+                    """,
+                    StandardCharsets.UTF_8);
+            var updated = (PythonAnalyzer) analyzer.update(Set.of(serviceFile));
+
+            assertTrue(updated.definitionsByIdentifier("Service").isEmpty());
+            assertEquals(1, updated.definitionsByIdentifier("Renamed").size());
         }
     }
 

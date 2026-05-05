@@ -183,6 +183,17 @@ public final class ExportUsageReferenceGraphEngine {
 
     private record ResolvedExport(CodeUnit target, double confidence) {}
 
+    private static Optional<ResolvedExport> resolveSameFileCandidate(
+            ReferenceCandidate cand, ProjectFile file, ExportUsageGraphLanguageAdapter adapter) {
+        CodeUnit target = resolveLocalExport(file, cand.identifier(), adapter).stream()
+                .findFirst()
+                .orElse(null);
+        if (target == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new ResolvedExport(target, 1.0));
+    }
+
     private static Optional<ResolvedExport> resolveCandidate(
             ReferenceCandidate cand,
             ProjectFile file,
@@ -200,7 +211,7 @@ public final class ExportUsageReferenceGraphEngine {
 
         if (cand.qualifier() == null) {
             ImportBinder.ImportBinding binding = binder.bindings().get(cand.identifier());
-            if (binding == null) return Optional.empty();
+            if (binding == null) return resolveSameFileCandidate(cand, file, adapter);
 
             ExportUsageGraphLanguageAdapter.ResolutionOutcome imported =
                     adapter.resolveModule(file, binding.moduleSpecifier());
@@ -274,7 +285,7 @@ public final class ExportUsageReferenceGraphEngine {
                 .findFirst()
                 .orElse(null);
         if (ownerClass == null) {
-            return Optional.empty();
+            return resolveImportedSubmoduleCandidate(cand, file, binding, adapter, limits, frontier, externalFrontier);
         }
 
         CodeUnit member = resolveClassMember(ownerClass, cand.identifier(), cand.instanceReceiver(), adapter);
@@ -282,6 +293,31 @@ public final class ExportUsageReferenceGraphEngine {
             return Optional.empty();
         }
         return Optional.of(new ResolvedExport(member, cand.instanceReceiver() ? 0.95 : 1.0));
+    }
+
+    private static Optional<ResolvedExport> resolveImportedSubmoduleCandidate(
+            ReferenceCandidate cand,
+            ProjectFile file,
+            ImportBinder.ImportBinding binding,
+            ExportUsageGraphLanguageAdapter adapter,
+            Limits limits,
+            Set<ProjectFile> frontier,
+            Set<String> externalFrontier) {
+        String importedName = binding.importedName();
+        if (importedName == null || importedName.isBlank()) {
+            return Optional.empty();
+        }
+        String submoduleSpecifier = binding.moduleSpecifier() + "." + importedName;
+        ExportUsageGraphLanguageAdapter.ResolutionOutcome imported = adapter.resolveModule(file, submoduleSpecifier);
+        if (imported.resolved().isEmpty()) {
+            return Optional.empty();
+        }
+
+        var resolution =
+                resolveExport(imported.resolved().orElseThrow(), cand.identifier(), adapter, limits, externalFrontier);
+        frontier.addAll(resolution.frontier());
+        CodeUnit target = resolution.targets().stream().findFirst().orElse(null);
+        return target == null ? Optional.empty() : Optional.of(new ResolvedExport(target, 0.9));
     }
 
     private static Optional<ResolvedExport> resolveNamespaceMemberCandidate(

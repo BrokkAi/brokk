@@ -5,6 +5,7 @@ import static org.treesitter.PythonNodeType.*;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cache.PythonAnalyzerCache;
 import ai.brokk.analyzer.python.CognitiveComplexityAnalysis;
 import ai.brokk.analyzer.python.PythonExportUsageExtractor;
 import ai.brokk.analyzer.usages.ExportIndex;
@@ -35,6 +36,7 @@ import org.jetbrains.annotations.Nullable;
 import org.treesitter.PythonNodeField;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
@@ -44,6 +46,7 @@ import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
+    public record MemberKey(String ownerClassName, String memberName) {}
 
     @Override
     public boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
@@ -1023,12 +1026,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     public PythonAnalyzer(ICoreProject project, ProgressListener listener) {
-        super(project, Languages.PYTHON, listener);
+        super(project, Languages.PYTHON, listener, new PythonAnalyzerCache());
     }
 
     private PythonAnalyzer(
             ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
-        super(project, Languages.PYTHON, state, listener, cache);
+        super(project, Languages.PYTHON, state, listener, cache != null ? cache : new PythonAnalyzerCache());
     }
 
     public static PythonAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
@@ -1039,6 +1042,18 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     protected IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
         return new PythonAnalyzer(getProject(), state, listener, previousCache);
+    }
+
+    @Override
+    protected AnalyzerCache createEmptyCache() {
+        return new PythonAnalyzerCache();
+    }
+
+    @Override
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return previous instanceof PythonAnalyzerCache pythonCache
+                ? new PythonAnalyzerCache(pythonCache, changedFiles)
+                : new PythonAnalyzerCache();
     }
 
     @Override
@@ -2005,9 +2020,19 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         if (cached != null) {
             return cached;
         }
-        ExportIndex computed = withSource(
+        ExportIndex computed = withTreeOf(
                 file,
-                source -> PythonExportUsageExtractor.computeExportIndex(this, file, source.text(), importInfoOf(file)),
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return ExportIndex.empty();
+                    }
+                    return withSource(
+                            file,
+                            source -> PythonExportUsageExtractor.computeExportIndex(
+                                    this, file, root, source, importBinderOf(file), pythonReexportStarsOf(file)),
+                            ExportIndex.empty());
+                },
                 ExportIndex.empty());
         cache().exportIndex().put(file, computed);
         return computed;
@@ -2018,7 +2043,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         if (cached != null) {
             return cached;
         }
-        ImportBinder computed = PythonExportUsageExtractor.computeImportBinder(importInfoOf(file));
+        ImportBinder computed = pythonImportBindingsOf(file);
         var localNames = getTopLevelDeclarations(file).stream()
                 .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
                 .map(CodeUnit::identifier)
@@ -2030,6 +2055,136 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         }
         cache().importBinder().put(file, computed);
         return computed;
+    }
+
+    private ImportBinder pythonImportBindingsOf(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return ImportBinder.empty();
+                    }
+                    return withSource(
+                            file,
+                            source -> withCachedQuery(
+                                    QueryType.IMPORTS,
+                                    query -> {
+                                        var bindings = new LinkedHashMap<String, ImportBinder.ImportBinding>();
+                                        try (var cursor = new TSQueryCursor()) {
+                                            cursor.exec(query, root, source.text());
+                                            var match = new TSQueryMatch();
+                                            while (cursor.nextMatch(match)) {
+                                                bindPythonImportMatch(query, match, source, bindings);
+                                            }
+                                        }
+                                        return new ImportBinder(Map.copyOf(bindings));
+                                    },
+                                    ImportBinder.empty()),
+                            ImportBinder.empty());
+                },
+                ImportBinder.empty());
+    }
+
+    private List<ExportIndex.ReexportStar> pythonReexportStarsOf(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file,
+                            source -> withCachedQuery(
+                                    QueryType.IMPORTS,
+                                    query -> {
+                                        var stars = new ArrayList<ExportIndex.ReexportStar>();
+                                        try (var cursor = new TSQueryCursor()) {
+                                            cursor.exec(query, root, source.text());
+                                            var match = new TSQueryMatch();
+                                            while (cursor.nextMatch(match)) {
+                                                pythonWildcardModule(query, match, source)
+                                                        .ifPresent(module ->
+                                                                stars.add(new ExportIndex.ReexportStar(module)));
+                                            }
+                                        }
+                                        return List.copyOf(stars);
+                                    },
+                                    List.of()),
+                            List.of());
+                },
+                List.of());
+    }
+
+    private static void bindPythonImportMatch(
+            TSQuery query, TSQueryMatch match, SourceContent source, Map<String, ImportBinder.ImportBinding> bindings) {
+        if (pythonWildcardModule(query, match, source).isPresent()) {
+            return;
+        }
+
+        String moduleSpecifier = null;
+        String importedName = null;
+        String alias = null;
+        for (var cap : match.getCaptures()) {
+            var node = cap.getNode();
+            if (node == null) {
+                continue;
+            }
+            String capName = query.getCaptureNameForId(cap.getIndex());
+            String text = source.substringFrom(node).strip();
+            switch (capName) {
+                case IMPORT_MODULE_CAPTURE, IMPORT_RELATIVE_CAPTURE -> moduleSpecifier = text;
+                case IMPORT_NAME_CAPTURE -> importedName = text;
+                case IMPORT_ALIAS_CAPTURE -> alias = text;
+                default -> {}
+            }
+        }
+
+        if (importedName == null || importedName.isBlank()) {
+            return;
+        }
+
+        if (moduleSpecifier != null && !moduleSpecifier.isBlank()) {
+            String localName = alias != null && !alias.isBlank() ? alias : importedName;
+            bindings.put(
+                    localName,
+                    new ImportBinder.ImportBinding(moduleSpecifier, ImportBinder.ImportKind.NAMED, importedName));
+            return;
+        }
+
+        String localName = alias != null && !alias.isBlank() ? alias : firstModuleSegment(importedName);
+        var binding = new ImportBinder.ImportBinding(importedName, ImportBinder.ImportKind.NAMESPACE, null);
+        bindings.put(localName, binding);
+        if (!localName.equals(importedName)) {
+            bindings.put(importedName, binding);
+        }
+    }
+
+    private static Optional<String> pythonWildcardModule(TSQuery query, TSQueryMatch match, SourceContent source) {
+        String moduleSpecifier = null;
+        boolean wildcard = false;
+        for (var cap : match.getCaptures()) {
+            var node = cap.getNode();
+            if (node == null) {
+                continue;
+            }
+            String capName = query.getCaptureNameForId(cap.getIndex());
+            if (IMPORT_MODULE_WILDCARD_CAPTURE.equals(capName) || IMPORT_RELATIVE_WILDCARD_CAPTURE.equals(capName)) {
+                moduleSpecifier = source.substringFrom(node).strip();
+            }
+            if (IMPORT_WILDCARD_CAPTURE.equals(capName)) {
+                wildcard = true;
+            }
+        }
+        return wildcard && moduleSpecifier != null && !moduleSpecifier.isBlank()
+                ? Optional.of(moduleSpecifier)
+                : Optional.empty();
+    }
+
+    private static String firstModuleSegment(String moduleSpecifier) {
+        int dot = moduleSpecifier.indexOf('.');
+        return dot >= 0 ? moduleSpecifier.substring(0, dot) : moduleSpecifier;
     }
 
     public Set<ReferenceCandidate> exportUsageCandidatesOf(ProjectFile file) {
@@ -2047,7 +2202,14 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                     return withSource(
                             file,
                             source -> PythonExportUsageExtractor.computeUsageCandidates(
-                                    file, root, source.text(), importBinderOf(file)),
+                                    file,
+                                    root,
+                                    source,
+                                    importBinderOf(file),
+                                    getTopLevelDeclarations(file).stream()
+                                            .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
+                                            .map(CodeUnit::identifier)
+                                            .collect(Collectors.toSet())),
                             Set.<ReferenceCandidate>of());
                 },
                 Set.<ReferenceCandidate>of());
@@ -2070,7 +2232,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                     return withSource(
                             file,
                             source -> PythonExportUsageExtractor.computeResolvedReceiverCandidates(
-                                    this, file, root, source.text(), binder),
+                                    this, file, root, source, binder),
                             Set.<ResolvedReceiverCandidate>of());
                 },
                 Set.<ResolvedReceiverCandidate>of());
@@ -2086,10 +2248,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         var computed = getAllDeclarations().stream()
                 .filter(CodeUnit::isClass)
                 .collect(Collectors.toUnmodifiableMap(
-                        PythonAnalyzer::qualifiedClassKey,
+                        this::qualifiedClassKey,
                         cu -> getDirectAncestors(cu).stream()
                                 .filter(CodeUnit::isClass)
-                                .map(PythonAnalyzer::qualifiedClassKey)
+                                .map(this::qualifiedClassKey)
                                 .collect(Collectors.toUnmodifiableSet()),
                         (left, right) -> {
                             var merged = new LinkedHashSet<String>(left);
@@ -2100,12 +2262,55 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         return computed;
     }
 
-    private static String qualifiedClassKey(CodeUnit codeUnit) {
-        return PathNormalizer.canonicalizeForProject(
-                        codeUnit.source().getRelPath().toString(),
-                        codeUnit.source().getRoot())
-                + ":"
-                + codeUnit.identifier();
+    public Set<CodeUnit> definitionsByIdentifier(String identifier) {
+        Map<String, Set<CodeUnit>> cached = pythonCache().definitionsByIdentifierIndex();
+        if (cached != null) {
+            return cached.getOrDefault(identifier, Set.of());
+        }
+        var computed = getAllDeclarations().stream()
+                .collect(Collectors.groupingBy(
+                        CodeUnit::identifier, Collectors.collectingAndThen(Collectors.toSet(), Set::copyOf)));
+        pythonCache().definitionsByIdentifierIndex(Map.copyOf(computed));
+        return computed.getOrDefault(identifier, Set.of());
+    }
+
+    public @Nullable CodeUnit exactMember(ProjectFile sourceFile, MemberKey memberKey) {
+        return pythonCache()
+                .exactMembersByFileCache()
+                .get(sourceFile, file -> getDeclarations(file).stream()
+                        .filter(cu -> cu.isFunction() || cu.isField())
+                        .filter(cu -> !ownerNameOf(cu).isEmpty())
+                        .collect(Collectors.toUnmodifiableMap(
+                                cu -> new MemberKey(ownerNameOf(cu), cu.identifier()),
+                                cu -> cu,
+                                (left, right) -> left)))
+                .get(memberKey);
+    }
+
+    private String qualifiedClassKey(CodeUnit codeUnit) {
+        return pythonCache()
+                .classKeyByCodeUnitCache()
+                .get(
+                        codeUnit,
+                        cu -> PathNormalizer.canonicalizeForProject(
+                                        cu.source().getRelPath().toString(),
+                                        cu.source().getRoot())
+                                + ":"
+                                + cu.identifier());
+    }
+
+    private PythonAnalyzerCache pythonCache() {
+        assert cache() instanceof PythonAnalyzerCache;
+        return (PythonAnalyzerCache) cache();
+    }
+
+    private static String ownerNameOf(CodeUnit codeUnit) {
+        String shortName = codeUnit.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return "";
+        }
+        return shortName.substring(0, lastDot);
     }
 
     @Override

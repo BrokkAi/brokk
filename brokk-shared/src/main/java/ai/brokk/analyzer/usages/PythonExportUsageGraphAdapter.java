@@ -48,9 +48,7 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
     public Set<CodeUnit> definitionsOf(String localName) {
         var definitions = new LinkedHashSet<CodeUnit>();
         definitions.addAll(analyzer.getDefinitions(localName));
-        analyzer.getAllDeclarations().stream()
-                .filter(cu -> cu.identifier().equals(localName))
-                .forEach(definitions::add);
+        definitions.addAll(analyzer.definitionsByIdentifier(localName));
         return Set.copyOf(definitions);
     }
 
@@ -81,12 +79,7 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
     @Override
     public @Nullable CodeUnit exactMember(
             ProjectFile sourceFile, String ownerClassName, String memberName, boolean instanceReceiver) {
-        return analyzer.getAllDeclarations().stream()
-                .filter(cu -> cu.source().equals(sourceFile))
-                .filter(cu -> ownerClassName.equals(ownerNameOf(cu)))
-                .filter(cu -> memberName.equals(cu.identifier()))
-                .findFirst()
-                .orElse(null);
+        return analyzer.exactMember(sourceFile, new PythonAnalyzer.MemberKey(ownerClassName, memberName));
     }
 
     private Optional<ProjectFile> resolvePythonModule(ProjectFile importingFile, String moduleSpecifier) {
@@ -145,15 +138,6 @@ public final class PythonExportUsageGraphAdapter implements ExportUsageGraphLang
             dots++;
         }
         return dots;
-    }
-
-    private static String ownerNameOf(CodeUnit codeUnit) {
-        String shortName = codeUnit.shortName();
-        int lastDot = shortName.lastIndexOf('.');
-        if (lastDot <= 0) {
-            return "";
-        }
-        return shortName.substring(0, lastDot);
     }
 
     private record ModuleResolutionKey(ProjectFile importingFile, String moduleSpecifier) {}
