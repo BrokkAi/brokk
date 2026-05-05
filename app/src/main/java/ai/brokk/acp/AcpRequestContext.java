@@ -69,16 +69,28 @@ final class AcpRequestContext implements AcpPromptContext {
     private final String sessionId;
     private final @Nullable NegotiatedCapabilities clientCapabilities;
     private final @Nullable BrokkAcpAgent agent;
+    private final Duration permissionTimeout;
 
     AcpRequestContext(
             AcpAgentSession session,
             String sessionId,
             @Nullable NegotiatedCapabilities clientCapabilities,
             @Nullable BrokkAcpAgent agent) {
+        this(session, sessionId, clientCapabilities, agent, PERMISSION_TIMEOUT);
+    }
+
+    /** Test-seam constructor: accepts a custom per-permission timeout so tests can verify the deny-on-timeout flow without waiting {@link #PERMISSION_TIMEOUT}. */
+    AcpRequestContext(
+            AcpAgentSession session,
+            String sessionId,
+            @Nullable NegotiatedCapabilities clientCapabilities,
+            @Nullable BrokkAcpAgent agent,
+            Duration permissionTimeout) {
         this.session = session;
         this.sessionId = sessionId;
         this.clientCapabilities = clientCapabilities;
         this.agent = agent;
+        this.permissionTimeout = permissionTimeout;
     }
 
     @Override
@@ -115,19 +127,19 @@ final class AcpRequestContext implements AcpPromptContext {
                             AcpSchema.METHOD_SESSION_REQUEST_PERMISSION,
                             request,
                             new TypeRef<AcpSchema.RequestPermissionResponse>() {})
-                    .timeout(PERMISSION_TIMEOUT)
+                    .timeout(permissionTimeout)
                     .onErrorResume(TimeoutException.class, e -> {
                         logger.warn(
                                 "Permission request timed out after {} (no response from client). "
                                         + "Treating as denied. Request: {}",
-                                PERMISSION_TIMEOUT,
+                                permissionTimeout,
                                 request);
                         // Compose the notification into the Mono chain — calling sendMessage()
                         // here would invoke .block() on Reactor's parallel scheduler thread,
                         // which Reactor forbids and would replace the timeout error with an
                         // IllegalStateException.
                         var timeoutText = "\n**Permission request timed out** after "
-                                + PERMISSION_TIMEOUT.toSeconds()
+                                + permissionTimeout.toSeconds()
                                 + "s without a response from the client. Treating this tool call as denied. "
                                 + "If you did click Allow, the IDE may have failed to deliver the response — "
                                 + "check `~/.brokk/debug.log` for the `acp-agent-inbound` thread.\n";
