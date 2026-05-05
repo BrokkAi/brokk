@@ -20,10 +20,6 @@ jobs:
             target: aarch64-apple-darwin
             asset_name: brokk-acp-macos-aarch64
             binary_name: brokk-acp
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            asset_name: brokk-acp-macos-x86_64
-            binary_name: brokk-acp
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             asset_name: brokk-acp-windows-x86_64.exe
