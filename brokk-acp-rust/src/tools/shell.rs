@@ -212,6 +212,20 @@ fn set_rlimit<R>(resource: R, value: u64) -> std::io::Result<()>
 where
     R: TryInto<libc::c_int>,
 {
+    // `RLIM_INFINITY` from the operator means "no constraint requested":
+    // skip the call entirely. The child inherits the parent's rlimits at
+    // fork(), which already reflects the parent's effective ceiling for
+    // this resource, so "skip" yields the same end-state as a successful
+    // `setrlimit(RLIM_INFINITY, RLIM_INFINITY)`. Skipping also sidesteps
+    // a macOS quirk where `setrlimit` returns EINVAL for `RLIM_INFINITY`
+    // operands even though `getrlimit` reports the same value back -- the
+    // kernel's view of the ceiling and the userspace report don't always
+    // agree, so we'd rather not poke setrlimit when there's nothing to
+    // change. Other resources in the same `apply_rlimits` call are still
+    // enforced (each has its own `set_rlimit` invocation).
+    if value == libc::RLIM_INFINITY {
+        return Ok(());
+    }
     // `libc::RLIMIT_*` are `__rlimit_resource_t` (u32) on Linux and
     // `c_int` on macOS; coerce to whatever `setrlimit` takes on this
     // platform. Failure here is a programming/libc-binding error: every
