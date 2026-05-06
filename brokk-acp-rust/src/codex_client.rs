@@ -71,6 +71,25 @@ const IDLE_CHUNK_TIMEOUT: Duration = Duration::from_secs(90);
 /// `/config` prompt and the server forwards it verbatim.
 const FALLBACK_CHATGPT_MODEL: &str = "gpt-5-codex";
 
+/// `client_version` we report to the ChatGPT backend. The server uses
+/// it to gate per-model rollout via each `ModelInfo.minimal_client_version`:
+/// any model whose minimum exceeds the value we send is filtered out
+/// of `/models` before it reaches us. Sending our own crate version
+/// (e.g. `0.1.0`) signals we're a primitive client and the server
+/// hands back only the lowest-common-denominator entry, which is what
+/// produced the "single old model" picker.
+///
+/// We pin this to a recent Codex CLI release tag so we get the same
+/// model list the official client gets. Bump it when the picker starts
+/// hiding new models that codex itself shows. (Spec lives at
+/// `codex-rs/Cargo.toml#workspace.package.version`; current GitHub
+/// releases tag e.g. `rust-v0.129.0-alpha.10` resolve to a
+/// `client_version_to_whole()` of `0.129.0`.) This is a shim, not
+/// impersonation: the user *is* authenticating with their own OAuth
+/// tokens, we're just declaring "I can handle any model Codex CLI
+/// at this version can handle."
+const CODEX_COMPAT_CLIENT_VERSION: &str = "0.129.0";
+
 /// LLM backend that proxies to the ChatGPT subscription via the
 /// Responses API. Reads `~/.codex/auth.json` on every request and
 /// transparently refreshes the OAuth tokens when they go stale.
@@ -289,7 +308,7 @@ async fn fetch_chatgpt_models(
 ) -> Result<Vec<String>> {
     let url = format!(
         "{CHATGPT_MODELS_URL}?client_version={}",
-        urlencode_minimal(env!("CARGO_PKG_VERSION"))
+        urlencode_minimal(CODEX_COMPAT_CLIENT_VERSION)
     );
     let resp = http
         .get(&url)
