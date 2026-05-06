@@ -955,8 +955,13 @@ async fn handle_codex_login(prompt_text: &str) -> String {
                     .last_refresh
                     .map(|ts| ts.to_rfc3339())
                     .unwrap_or_else(|| "(unknown)".to_string());
+                let routing = match mode {
+                    "chatgpt" => "ChatGPT subscription (Responses API on chatgpt.com)",
+                    "apikey" => "OPENAI_API_KEY (api.openai.com, billed as API usage)",
+                    _ => "unknown",
+                };
                 format!(
-                    "Codex login status:\n  auth_mode: {mode}\n  api_key: {}\n  account_id: {acct}\n  last_refresh: {last}",
+                    "Codex login status:\n  auth_mode: {mode}\n  routing: {routing}\n  api_key: {}\n  account_id: {acct}\n  last_refresh: {last}",
                     if has_key { "present" } else { "MISSING" }
                 )
             }
@@ -964,7 +969,7 @@ async fn handle_codex_login(prompt_text: &str) -> String {
             Err(e) => format!("Failed to read ~/.codex/auth.json: {e:#}"),
         },
         "disconnect" => match crate::codex_auth::logout() {
-            Ok(()) => "Codex credentials cleared. Restart the server to drop the cached API key from memory.".to_string(),
+            Ok(()) => "Codex credentials cleared. Restart the server to drop any cached tokens from memory.".to_string(),
             Err(e) => format!("Failed to remove ~/.codex/auth.json: {e:#}"),
         },
         "" => match crate::codex_auth::interactive_login().await {
@@ -975,7 +980,9 @@ async fn handle_codex_login(prompt_text: &str) -> String {
                     .map(|t| t.account_id.as_str())
                     .unwrap_or("(unknown)");
                 format!(
-                    "Codex login complete (account_id: {acct}). Restart the server with --use-codex to route prompts through the issued OPENAI_API_KEY."
+                    "Codex login complete (account_id: {acct}). \
+                     Restart the server with --use-codex; prompts will route through your \
+                     ChatGPT subscription via https://chatgpt.com/backend-api/codex/responses."
                 )
             }
             Err(e) => format!("Codex login failed: {e:#}"),
