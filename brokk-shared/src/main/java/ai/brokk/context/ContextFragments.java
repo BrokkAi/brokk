@@ -1481,24 +1481,10 @@ public class ContextFragments {
                     .collect(Collectors.toCollection(LinkedHashSet::new));
 
             List<CodeUnit> overloads = List.copyOf(analyzer.getDefinitions(targetIdentifier));
-            logger.debug(
-                    "UsageFragment {} getDefinitions -> {}",
-                    targetIdentifier,
-                    overloads.stream()
-                            .map(codeUnit -> "%s[%s:%s]".formatted(
-                                    codeUnit.fqName(), codeUnit.kind(), codeUnit.source().getRelPath()))
-                            .toList());
             if (overloads.isEmpty()) {
                 overloads = analyzer.searchDefinitions(targetIdentifier).stream()
                         .limit(5)
                         .toList();
-                logger.debug(
-                        "UsageFragment {} searchDefinitions(limit=5) -> {}",
-                        targetIdentifier,
-                        overloads.stream()
-                                .map(codeUnit -> "%s[%s:%s]".formatted(
-                                        codeUnit.fqName(), codeUnit.kind(), codeUnit.source().getRelPath()))
-                                .toList());
             }
 
             if (overloads.isEmpty()) {
@@ -1527,12 +1513,6 @@ public class ContextFragments {
                         overloads,
                         result,
                         mode == UsageMode.SAMPLE ? UsageRenderer.Mode.SAMPLE : UsageRenderer.Mode.FULL);
-                logger.debug(
-                        "UsageFragment {} result={} renderedHitCount={} hasUsages={}",
-                        targetIdentifier,
-                        result,
-                        rendered.hitCount(),
-                        rendered.hasUsages());
                 if (!rendered.hasUsages()) {
                     logger.debug("UsageFragment found no usages for {} via {}", targetIdentifier, usageAnalyzer);
                     return new ContentSnapshot(rendered.text(), Set.of(), Set.of(), (List<Byte>) null, false);

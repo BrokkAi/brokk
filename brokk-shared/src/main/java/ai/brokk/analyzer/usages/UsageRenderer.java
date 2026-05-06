@@ -32,12 +32,9 @@ public final class UsageRenderer {
             return new Output(either.getErrorMessage(), Set.of(), false, 0);
         }
 
-        CodeUnit definingOwner = analyzer.parentOf(overloads.getFirst()).orElse(overloads.getFirst());
+        CodeUnit target = overloads.getFirst();
         var hits = either.getUsages().stream()
-                .filter(hit -> {
-                    var owner = analyzer.parentOf(hit.enclosing()).orElse(hit.enclosing());
-                    return !owner.equals(definingOwner);
-                })
+                .filter(hit -> !hit.enclosing().equals(target))
                 .sorted(Comparator.comparing((UsageHit hit) -> hit.enclosing().fqName())
                         .thenComparing(hit -> hit.file().toString())
                         .thenComparingInt(UsageHit::line))
