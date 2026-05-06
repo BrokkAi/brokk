@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.usages;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -53,6 +54,20 @@ final class UsageFinderRustGraphTest {
             var result = emptyFallback.findUsages(target.fqName()).toEither();
 
             assertEquals(3, result.getUsages().size());
+
+            var shortNameResult = emptyFallback.findUsages("RenderedSummary").toEither();
+
+            assertFalse(shortNameResult.hasErrorMessage());
+            assertEquals(3, shortNameResult.getUsages().size());
+            assertEquals(
+                    3,
+                    UsageRenderer.render(
+                                    analyzer,
+                                    "RenderedSummary",
+                                    java.util.List.of(target),
+                                    emptyFallback.findUsages("RenderedSummary"),
+                                    UsageRenderer.Mode.SAMPLE)
+                            .hitCount());
         }
     }
 
@@ -92,6 +107,20 @@ final class UsageFinderRustGraphTest {
             var result = emptyFallback.findUsages(target.fqName()).toEither();
 
             assertEquals(1, result.getUsages().size());
+
+            var shortNameResult = emptyFallback.findUsages("summarize_input").toEither();
+
+            assertFalse(shortNameResult.hasErrorMessage());
+            assertEquals(1, shortNameResult.getUsages().size());
+            assertEquals(
+                    1,
+                    UsageRenderer.render(
+                                    analyzer,
+                                    "summarize_input",
+                                    java.util.List.of(target),
+                                    emptyFallback.findUsages("summarize_input"),
+                                    UsageRenderer.Mode.SAMPLE)
+                            .hitCount());
         }
     }
 }

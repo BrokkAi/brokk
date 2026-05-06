@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -220,7 +221,13 @@ public final class UsageFinder {
         if (isEffectivelyEmpty()) {
             return new FuzzyResult.Success(Map.of());
         }
-        var definitions = analyzer.getDefinitions(fqName);
+        Set<CodeUnit> definitions = analyzer.getDefinitions(fqName);
+        if (definitions.isEmpty()) {
+            definitions = analyzer.searchDefinitions(fqName).stream()
+                    .filter(codeUnit -> codeUnit.identifier().equals(fqName)
+                            || codeUnit.shortName().equals(fqName))
+                    .collect(Collectors.toSet());
+        }
         if (definitions.isEmpty()) {
             return new FuzzyResult.Failure(fqName, "No definitions found");
         }
