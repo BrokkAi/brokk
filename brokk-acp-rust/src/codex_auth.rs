@@ -31,7 +31,29 @@ const AUTH_URL: &str = "https://auth.openai.com/oauth/authorize";
 const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CALLBACK_PORT: u16 = 1455;
 const REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
-const SCOPES: &[&str] = &["openid", "profile", "email", "offline_access"];
+
+/// OAuth scopes Codex CLI requests during ChatGPT login. The two
+/// `api.connectors.*` scopes plus `id_token_add_organizations` /
+/// `codex_cli_simplified_flow` flags below are what flips the consent
+/// page from the legacy "API organization access" screen (the one that
+/// says "Codex will receive a token to generate API keys") to the
+/// ChatGPT-subscription consent screen. Drop any of them and OpenAI
+/// silently routes us back to the API-key flow.
+const SCOPES: &[&str] = &[
+    "openid",
+    "profile",
+    "email",
+    "offline_access",
+    "api.connectors.read",
+    "api.connectors.invoke",
+];
+
+/// Identifies our requests as Codex CLI to OpenAI's auth and Responses
+/// servers. The ChatGPT-subscription consent UI and the
+/// `chatgpt.com/backend-api/codex/responses` gateway both gate on this
+/// value -- using anything else (or omitting it) is what produced the
+/// "API organization access" screen reported in #3540's review.
+const CODEX_ORIGINATOR: &str = "codex_cli_rs";
 
 /// Refresh proactively if the stored credentials are older than this.
 /// Codex CLI uses an 8-day window; we follow suit.
@@ -129,20 +151,40 @@ struct OidcTokenResponse {
 }
 
 fn build_authorize_url(challenge: &PkceCodeChallenge, state: &str) -> String {
-    // OAuth2 RFC 6749 + PKCE RFC 7636. We URL-encode the scope string
-    // because " " inside a query value must be either "+" or "%20".
-    let scopes_encoded = SCOPES.join("%20");
+    // OAuth2 RFC 6749 + PKCE RFC 7636 plus three Codex-specific flags
+    // that Codex CLI passes verbatim:
+    //   * `id_token_add_organizations=true` -> the auth server includes
+    //     the user's organization claim in the issued id_token, which
+    //     downstream code uses to derive `chatgpt_account_id`.
+    //   * `codex_cli_simplified_flow=true` -> tells OpenAI to render the
+    //     ChatGPT-subscription consent screen ("Sign in with ChatGPT")
+    //     instead of the legacy API-organization screen. Omitting this
+    //     was the bug behind the "Codex requests access to your API
+    //     organization" page users were seeing.
+    //   * `originator=codex_cli_rs` -> identifies us as Codex CLI both
+    //     to the consent UI and to the chatgpt.com/backend-api gateway.
+    // Scopes already cover `api.connectors.*`; see SCOPES above for why
+    // those are required for the simplified flow.
+    let scopes_encoded = SCOPES
+        .iter()
+        .map(|s| urlencode(s))
+        .collect::<Vec<_>>()
+        .join("%20");
     format!(
         "{AUTH_URL}?response_type=code\
          &client_id={CLIENT_ID}\
          &redirect_uri={redirect}\
          &scope={scopes_encoded}\
-         &state={state}\
          &code_challenge={code_challenge}\
-         &code_challenge_method=S256",
+         &code_challenge_method=S256\
+         &id_token_add_organizations=true\
+         &codex_cli_simplified_flow=true\
+         &state={state}\
+         &originator={originator}",
         redirect = urlencode(REDIRECT_URI),
         state = urlencode(state),
         code_challenge = challenge.as_str(),
+        originator = urlencode(CODEX_ORIGINATOR),
     )
 }
 
@@ -599,5 +641,39 @@ mod tests {
         let url = "/auth/callback?error=access_denied&state=xyz";
         let err = parse_callback_url(url, "xyz").unwrap_err().to_string();
         assert!(err.contains("access_denied"));
+    }
+
+    #[test]
+    fn authorize_url_carries_codex_simplified_flow_flags() {
+        // These three params + the connectors scopes are exactly what
+        // flips OpenAI's consent screen from "API organization access"
+        // to "Sign in with ChatGPT". Regression-guard them: dropping
+        // any one silently routes the user back to the API-key flow.
+        let (challenge, _verifier) = oauth2::PkceCodeChallenge::new_random_sha256();
+        let url = build_authorize_url(&challenge, "test-state");
+        assert!(
+            url.contains("codex_cli_simplified_flow=true"),
+            "missing codex_cli_simplified_flow flag in {url}"
+        );
+        assert!(
+            url.contains("id_token_add_organizations=true"),
+            "missing id_token_add_organizations flag in {url}"
+        );
+        assert!(
+            url.contains("originator=codex_cli_rs"),
+            "missing originator=codex_cli_rs in {url}"
+        );
+        assert!(
+            url.contains("api.connectors.read"),
+            "missing api.connectors.read scope in {url}"
+        );
+        assert!(
+            url.contains("api.connectors.invoke"),
+            "missing api.connectors.invoke scope in {url}"
+        );
+        // Sanity: still PKCE + CSRF.
+        assert!(url.contains("code_challenge="));
+        assert!(url.contains("code_challenge_method=S256"));
+        assert!(url.contains("state=test-state"));
     }
 }

@@ -138,12 +138,17 @@ fn all_config_options(
 /// Slash commands advertised to clients via `available_commands_update`.
 /// Mirrors the Java executor's `/context` command (other Java commands are
 /// intentionally omitted -- they depend on the live workspace context that
-/// the Rust agent does not yet model).
+/// the Rust agent does not yet model). `/codex-login` is published so it
+/// shows up in editor autocomplete (Zed, JetBrains ACP) -- without this
+/// the slash command works when typed but is invisible to discovery.
 fn available_commands() -> Vec<AvailableCommand> {
-    vec![AvailableCommand::new(
-        "context",
-        "Show current session context snapshot",
-    )]
+    vec![
+        AvailableCommand::new("context", "Show current session context snapshot"),
+        AvailableCommand::new(
+            "codex-login",
+            "Sign in with ChatGPT (or `status` / `disconnect`)",
+        ),
+    ]
 }
 
 fn send_available_commands_update(cx: &ConnectionTo<Client>, session_id: &str) {
