@@ -78,7 +78,10 @@ public final class RustExportUsageGraphStrategy implements UsageAnalyzer {
     }
 
     private Set<String> inferExportNames(CodeUnit target) {
-        return inferExportNames(target.source(), target.identifier());
+        var exportNames = new LinkedHashSet<>(inferExportNames(target.source(), target.identifier()));
+        analyzer.parentOf(target)
+                .ifPresent(owner -> exportNames.addAll(inferExportNames(owner.source(), owner.identifier())));
+        return Set.copyOf(exportNames);
     }
 
     private Set<String> inferExportNames(ProjectFile definingFile, String localName) {

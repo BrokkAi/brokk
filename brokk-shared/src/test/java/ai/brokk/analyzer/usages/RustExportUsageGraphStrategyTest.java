@@ -114,10 +114,84 @@ class RustExportUsageGraphStrategyTest extends AbstractUsageReferenceGraphTest {
         }
     }
 
+    @Test
+    void selectorUsesRustGraphForMemberOfPublicExport() throws Exception {
+        String service =
+                """
+                pub struct Service;
+                impl Service {
+                    pub fn run(&self) {}
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(service, "src/service.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            CodeUnit target = member(analyzer, serviceFile, "Service", "run");
+
+            UsageAnalyzer usageAnalyzer = UsageAnalyzerSelector.forTarget(target, analyzer, project);
+
+            assertInstanceOf(RustExportUsageGraphStrategy.class, usageAnalyzer);
+        }
+    }
+
+    @Test
+    void strategyFindsReceiverUsagesForMemberOfPublicExport() throws Exception {
+        String service =
+                """
+                pub struct Service;
+                impl Service {
+                    pub fn run(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Service;
+
+                fn main() {
+                    let service: Service = Service {};
+                    service.run();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            CodeUnit target = member(analyzer, serviceFile, "Service", "run");
+
+            FuzzyResult result =
+                    new RustExportUsageGraphStrategy(analyzer).findUsages(List.of(target), project.getAllFiles(), 1000);
+
+            assertEquals(
+                    1,
+                    ((FuzzyResult.Success) result).hitsByOverload().get(target).size());
+        }
+    }
+
     private static CodeUnit target(RustAnalyzer analyzer, ProjectFile file, String identifier) {
         return analyzer.getAllDeclarations().stream()
                 .filter(cu -> cu.source().equals(file))
                 .filter(cu -> cu.identifier().equals(identifier))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static CodeUnit member(RustAnalyzer analyzer, ProjectFile file, String ownerName, String memberName) {
+        CodeUnit exact = analyzer.exactMember(file, ownerName, memberName, true);
+        if (exact != null) {
+            return exact;
+        }
+        exact = analyzer.exactMember(file, ownerName, memberName, false);
+        if (exact != null) {
+            return exact;
+        }
+        return analyzer.getAllDeclarations().stream()
+                .filter(cu -> cu.source().equals(file))
+                .filter(cu -> cu.identifier().equals(memberName))
+                .filter(cu -> cu.shortName().startsWith(ownerName + "."))
                 .findFirst()
                 .orElseThrow();
     }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -261,15 +262,282 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
         }
     }
 
+    @Test
+    void typedReceiverResolvesInstanceMethod() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                impl Foo {
+                    pub fn bar(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run(x: Foo) {
+                    let y: Foo = x;
+                    y.bar();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+            CodeUnit target = member(analyzer, serviceFile, "Foo", "bar");
+
+            var result = find(analyzer, serviceFile, "Foo", target, consumerFile);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void constructorAndStructLiteralReceiversResolveInstanceMethod() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                impl Foo {
+                    pub fn new() -> Foo { Foo }
+                    pub fn bar(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run() {
+                    let a = Foo::new();
+                    a.bar();
+                    let b = Foo {};
+                    b.bar();
+                    let c = a;
+                    c.bar();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+            CodeUnit target = member(analyzer, serviceFile, "Foo", "bar");
+
+            var result = find(analyzer, serviceFile, "Foo", target, consumerFile);
+
+            assertEquals(3, result.hits().size());
+        }
+    }
+
+    @Test
+    void associatedMethodAndConstResolveWithoutReceiverInference() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                impl Foo {
+                    pub const CONST: usize = 1;
+                    pub fn make() -> Foo { Foo }
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run() {
+                    let _ = Foo::make();
+                    let _ = Foo::CONST;
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+            CodeUnit make = member(analyzer, serviceFile, "Foo", "make");
+            CodeUnit constant = member(analyzer, serviceFile, "Foo", "CONST");
+
+            assertEquals(
+                    1,
+                    find(analyzer, serviceFile, "Foo", make, consumerFile)
+                            .hits()
+                            .size());
+            assertEquals(
+                    1,
+                    find(analyzer, serviceFile, "Foo", constant, consumerFile)
+                            .hits()
+                            .size());
+        }
+    }
+
+    @Test
+    void duplicateOwnerNamesAcrossModulesDoNotCrossMatch() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                impl Foo {
+                    pub fn bar(&self) {}
+                }
+                """;
+        String other =
+                """
+                pub struct Foo;
+                impl Foo {
+                    pub fn bar(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run() {
+                    let x: Foo = Foo {};
+                    x.bar();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(other, "src/other.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile otherFile = projectFile(project.getAllFiles(), "src/other.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1,
+                    find(analyzer, serviceFile, "Foo", member(analyzer, serviceFile, "Foo", "bar"), consumerFile)
+                            .hits()
+                            .size());
+            assertTrue(find(analyzer, otherFile, "Foo", member(analyzer, otherFile, "Foo", "bar"), consumerFile)
+                    .hits()
+                    .isEmpty());
+        }
+    }
+
+    @Test
+    void traitMethodResolvesExplicitTraitPathAndProvenReceiver() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                pub trait Worker {
+                    fn work(&self);
+                }
+                impl Worker for Foo {
+                    fn work(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::{Foo, Worker};
+
+                fn run() {
+                    let x: Foo = Foo {};
+                    Worker::work(&x);
+                    x.work();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+            CodeUnit target = member(analyzer, serviceFile, "Worker", "work");
+
+            var result = find(analyzer, serviceFile, "Worker", target, consumerFile);
+
+            assertEquals(2, result.hits().size(), result.hits().toString());
+        }
+    }
+
+    @Test
+    void traitReceiverRequiresProvenImplAndReceiverType() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                pub trait Worker {
+                    fn work(&self);
+                }
+                pub trait Other {
+                    fn work(&self);
+                }
+                impl Worker for Foo {
+                    fn work(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn known() {
+                    let x: Foo = Foo {};
+                    x.work();
+                }
+
+                fn unknown(x: impl std::fmt::Debug) {
+                    x.work();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1,
+                    find(analyzer, serviceFile, "Worker", member(analyzer, serviceFile, "Worker", "work"), consumerFile)
+                            .hits()
+                            .size());
+            assertTrue(
+                    find(analyzer, serviceFile, "Other", member(analyzer, serviceFile, "Other", "work"), consumerFile)
+                            .hits()
+                            .isEmpty());
+        }
+    }
+
     private static ReferenceGraphResult find(
             RustAnalyzer analyzer, ProjectFile definingFile, String exportName, ProjectFile candidate)
+            throws InterruptedException {
+        return find(analyzer, definingFile, exportName, null, candidate);
+    }
+
+    private static ReferenceGraphResult find(
+            RustAnalyzer analyzer, ProjectFile definingFile, String exportName, CodeUnit target, ProjectFile candidate)
             throws InterruptedException {
         return ExportUsageReferenceGraphEngine.findExportUsages(
                 definingFile,
                 exportName,
-                null,
+                target,
                 new RustExportUsageGraphAdapter(analyzer),
                 ExportUsageReferenceGraphEngine.Limits.defaults(),
                 Set.of(candidate));
+    }
+
+    private static CodeUnit member(RustAnalyzer analyzer, ProjectFile file, String ownerName, String memberName) {
+        CodeUnit exact = analyzer.exactMember(file, ownerName, memberName, true);
+        if (exact != null) {
+            return exact;
+        }
+        exact = analyzer.exactMember(file, ownerName, memberName, false);
+        if (exact != null) {
+            return exact;
+        }
+        return analyzer.getAllDeclarations().stream()
+                .filter(cu -> cu.source().equals(file))
+                .filter(cu -> cu.identifier().equals(memberName))
+                .filter(cu -> cu.shortName().startsWith(ownerName + "."))
+                .findFirst()
+                .orElseThrow();
     }
 }

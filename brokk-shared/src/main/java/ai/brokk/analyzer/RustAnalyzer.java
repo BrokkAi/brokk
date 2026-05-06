@@ -9,7 +9,9 @@ import ai.brokk.analyzer.rust.RustExportUsageExtractor;
 import ai.brokk.analyzer.usages.ExportIndex;
 import ai.brokk.analyzer.usages.ImportBinder;
 import ai.brokk.analyzer.usages.ReferenceCandidate;
+import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import ai.brokk.project.ICoreProject;
+import ai.brokk.util.PathNormalizer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -17,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -24,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -584,6 +588,66 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return computed;
     }
 
+    public Set<ResolvedReceiverCandidate> resolvedReceiverCandidatesOf(ProjectFile file, ImportBinder binder) {
+        Set<ResolvedReceiverCandidate> cached = cache().receiverCandidates().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        Set<ResolvedReceiverCandidate> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Set.<ResolvedReceiverCandidate>of();
+                    }
+                    return withSource(
+                            file,
+                            source -> RustExportUsageExtractor.computeResolvedReceiverCandidates(
+                                    this, file, root, source, binder),
+                            Set.<ResolvedReceiverCandidate>of());
+                },
+                Set.<ResolvedReceiverCandidate>of());
+        cache().receiverCandidates().put(file, computed);
+        return computed;
+    }
+
+    public Map<String, Set<String>> heritageIndex() {
+        Map<String, Set<String>> cached = cache().heritageIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = new HashMap<String, Set<String>>();
+        for (ProjectFile file : getAnalyzedFiles()) {
+            ExportIndex index = exportIndexOf(file);
+            for (ExportIndex.HeritageEdge edge : index.heritageEdges()) {
+                String childKey = qualifiedClassKey(file, edge.childName());
+                String parentKey = qualifiedClassKey(file, edge.parentName());
+                computed.computeIfAbsent(childKey, ignored -> new HashSet<>()).add(parentKey);
+            }
+        }
+        var immutable = computed.entrySet().stream()
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> Set.copyOf(entry.getValue())));
+        cache().heritageIndex(immutable);
+        return immutable;
+    }
+
+    public @Nullable CodeUnit exactMember(
+            ProjectFile sourceFile, String ownerClassName, String memberName, boolean instanceReceiver) {
+        boolean declared = exportIndexOf(sourceFile).classMembers().stream()
+                .filter(member -> member.ownerClassName().equals(ownerClassName))
+                .filter(member -> member.memberName().equals(memberName))
+                .anyMatch(member -> instanceReceiver ? !member.staticMember() : member.staticMember());
+        if (!declared) {
+            return null;
+        }
+        return getDeclarations(sourceFile).stream()
+                .filter(cu -> cu.isFunction() || cu.isField())
+                .filter(cu -> parentOf(cu).map(CodeUnit::identifier).orElse("").equals(ownerClassName))
+                .filter(cu -> normalizedMemberName(cu).equals(memberName))
+                .findFirst()
+                .orElse(null);
+    }
+
     public ai.brokk.analyzer.usages.ExportUsageGraphLanguageAdapter.ResolutionOutcome resolveRustModuleOutcome(
             ProjectFile importingFile, String moduleSpecifier) {
         String fqn = resolveRustPathToFqn(moduleSpecifier, packageNameOf(importingFile));
@@ -726,6 +790,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 .map(path -> getProject().getFileByRelPath(path))
                 .flatMap(Optional::stream)
                 .findFirst();
+    }
+
+    private static String normalizedMemberName(CodeUnit codeUnit) {
+        String identifier = codeUnit.identifier();
+        int marker = identifier.indexOf('$');
+        return marker >= 0 ? identifier.substring(0, marker) : identifier;
+    }
+
+    private static String qualifiedClassKey(ProjectFile file, String className) {
+        return PathNormalizer.canonicalizeForProject(file.getRelPath().toString(), file.getRoot()) + ":" + className;
     }
 
     @Override
