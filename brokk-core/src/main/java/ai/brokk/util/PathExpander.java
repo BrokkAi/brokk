@@ -148,7 +148,11 @@ public final class PathExpander {
         int maxDepth = recursive ? Integer.MAX_VALUE : (1 + remainingSeparators);
 
         // Build a matcher relative to baseDir to avoid Windows absolute glob quirks.
-        String relGlob = remainder.replace('/', sepChar).replace('\\', sepChar);
+        // Globs always use '/' as the path separator (java.nio.file.FileSystem#getPathMatcher);
+        // on Windows, "/" in a glob still matches "\" in a Path, so we normalize '\' -> '/' but
+        // never the reverse: replacing '/' with '\' on Windows would turn the separator into the
+        // glob escape character and break "**/*.rs"-style patterns.
+        String relGlob = remainder.replace('\\', '/');
         PathMatcher matcher;
         try {
             // getPathMatcher also declares IllegalArgumentException for an unknown syntax identifier,
