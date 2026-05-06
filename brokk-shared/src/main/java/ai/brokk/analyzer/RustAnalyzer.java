@@ -5,6 +5,10 @@ import static org.treesitter.RustNodeType.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.rust.CognitiveComplexityAnalysis;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor;
+import ai.brokk.analyzer.usages.ExportIndex;
+import ai.brokk.analyzer.usages.ImportBinder;
+import ai.brokk.analyzer.usages.ReferenceCandidate;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -508,23 +512,89 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return performReferencingFilesOf(file);
     }
 
-    @Override
-    protected String extractPackageFromWildcard(String rawSnippet) {
-        if (rawSnippet.startsWith("use ")) {
-            rawSnippet = rawSnippet.substring(4);
+    public ExportIndex exportIndexOf(ProjectFile file) {
+        ExportIndex cached = cache().exportIndex().get(file);
+        if (cached != null) {
+            return cached;
         }
-        if (rawSnippet.endsWith(";")) {
-            rawSnippet = rawSnippet.substring(0, rawSnippet.length() - 1);
-        }
-        if (rawSnippet.endsWith("::*")) {
-            return rawSnippet.substring(0, rawSnippet.length() - 3);
-        }
-        return "";
+        ExportIndex computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return ExportIndex.empty();
+                    }
+                    return withSource(
+                            file,
+                            source -> RustExportUsageExtractor.computeExportIndex(root, source),
+                            ExportIndex.empty());
+                },
+                ExportIndex.empty());
+        cache().exportIndex().put(file, computed);
+        return computed;
     }
 
-    @Override
-    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        String currentPackage = withTreeOf(
+    public ImportBinder importBinderOf(ProjectFile file) {
+        ImportBinder cached = cache().importBinder().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        Set<String> localTopLevelNames = getTopLevelDeclarations(file).stream()
+                .map(CodeUnit::identifier)
+                .collect(java.util.stream.Collectors.toSet());
+        ImportBinder computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return ImportBinder.empty();
+                    }
+                    return withSource(
+                            file,
+                            source -> RustExportUsageExtractor.computeImportBinder(
+                                    this, file, root, source, localTopLevelNames),
+                            ImportBinder.empty());
+                },
+                ImportBinder.empty());
+        cache().importBinder().put(file, computed);
+        return computed;
+    }
+
+    public Set<ReferenceCandidate> exportUsageCandidatesOf(ProjectFile file, ImportBinder binder) {
+        Set<ReferenceCandidate> cached = cache().references().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        Set<String> localExportNames = exportIndexOf(file).exportsByName().keySet();
+        Set<ReferenceCandidate> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Set.<ReferenceCandidate>of();
+                    }
+                    return withSource(
+                            file,
+                            source -> RustExportUsageExtractor.computeUsageCandidates(
+                                    this, file, root, source, binder, localExportNames),
+                            Set.<ReferenceCandidate>of());
+                },
+                Set.<ReferenceCandidate>of());
+        cache().references().put(file, computed);
+        return computed;
+    }
+
+    public ai.brokk.analyzer.usages.ExportUsageGraphLanguageAdapter.ResolutionOutcome resolveRustModuleOutcome(
+            ProjectFile importingFile, String moduleSpecifier) {
+        String fqn = resolveRustPathToFqn(moduleSpecifier, packageNameOf(importingFile));
+        return rustModuleFileForFqn(fqn)
+                .map(ai.brokk.analyzer.usages.ExportUsageGraphLanguageAdapter.ResolutionOutcome::resolved)
+                .orElseGet(() -> ai.brokk.analyzer.usages.ExportUsageGraphLanguageAdapter.ResolutionOutcome.external(
+                        moduleSpecifier));
+    }
+
+    public String packageNameOf(ProjectFile file) {
+        return withTreeOf(
                 file,
                 tree -> {
                     TSNode root = tree.getRootNode();
@@ -532,47 +602,66 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                     return withSource(file, sc -> determinePackageName(file, root, root, sc), "");
                 },
                 "");
+    }
+
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        String currentPackage = packageNameOf(file);
         Set<CodeUnit> resolved = new HashSet<>();
 
-        for (ImportInfo info : importInfoOf(file)) {
-            if (info.isWildcard()) {
-                String wildcardPackage = extractPackageFromWildcard(info.rawSnippet());
-                if (!wildcardPackage.isEmpty()) {
-                    String packageFqn = resolveRustPathToFqn(wildcardPackage, currentPackage);
+        for (var spec : rustUseSpecsOf(file)) {
+            if (spec.wildcard()) {
+                String wildcardPath = stripWildcardSegment(spec.path());
+                if (!wildcardPath.isEmpty()) {
+                    String packageFqn = resolveRustPathToFqn(wildcardPath, currentPackage);
                     // Search for all definitions that belong to this package
                     resolved.addAll(searchDefinitions("^" + Pattern.quote(packageFqn) + "\\.[^.]+$", false));
                 }
                 continue;
             }
 
-            String identifier = info.identifier();
-            if (identifier == null) {
-                continue;
-            }
-
-            // Extract the path from the raw snippet "use path::to::Symbol [as Alias];"
-            String rawPath = info.rawSnippet();
-            if (rawPath.startsWith("use ")) {
-                rawPath = rawPath.substring(4);
-            }
-            if (rawPath.endsWith(";")) {
-                rawPath = rawPath.substring(0, rawPath.length() - 1);
-            }
-
-            // Strip alias if present to get the target path
-            int asIdx = rawPath.toLowerCase(Locale.ROOT).lastIndexOf(" as ");
-            if (asIdx != -1) {
-                rawPath = rawPath.substring(0, asIdx).trim();
-            }
-
-            String fqn = resolveRustPathToFqn(rawPath, currentPackage);
+            String fqn = resolveRustPathToFqn(spec.path(), currentPackage);
             resolved.addAll(getDefinitions(fqn));
         }
 
         return Collections.unmodifiableSet(resolved);
     }
 
-    private String resolveRustPathToFqn(String rustPath, String currentPackage) {
+    private List<RustExportUsageExtractor.UseSpec> rustUseSpecsOf(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.<RustExportUsageExtractor.UseSpec>of();
+                    }
+                    return withSource(file, source -> rustUseSpecsOf(root, source), List.of());
+                },
+                List.of());
+    }
+
+    private static List<RustExportUsageExtractor.UseSpec> rustUseSpecsOf(TSNode root, SourceContent source) {
+        var specs = new ArrayList<RustExportUsageExtractor.UseSpec>();
+        collectRustUseSpecs(root, source, specs);
+        return List.copyOf(specs);
+    }
+
+    private static void collectRustUseSpecs(
+            TSNode node, SourceContent source, List<RustExportUsageExtractor.UseSpec> specs) {
+        if (nodeType(USE_DECLARATION).equals(node.getType())) {
+            specs.addAll(RustExportUsageExtractor.useSpecsOf(node, source));
+            return;
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            collectRustUseSpecs(child, source, specs);
+        }
+    }
+
+    private static String stripWildcardSegment(String rustPath) {
+        return rustPath.endsWith("::*") ? rustPath.substring(0, rustPath.length() - 3) : rustPath;
+    }
+
+    public String resolveRustPathToFqn(String rustPath, String currentPackage) {
         String trimmedPath = rustPath.trim();
 
         if (trimmedPath.startsWith("crate::")) {
@@ -619,6 +708,26 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return trimmedPath.replace("::", ".");
     }
 
+    private Optional<ProjectFile> rustModuleFileForFqn(String fqn) {
+        String slashPath = fqn.replace('.', '/');
+        var candidates = new ArrayList<Path>();
+        if (slashPath.isBlank()) {
+            candidates.add(Path.of("src/lib.rs"));
+            candidates.add(Path.of("src/main.rs"));
+            candidates.add(Path.of("lib.rs"));
+            candidates.add(Path.of("main.rs"));
+        } else {
+            candidates.add(Path.of("src", slashPath + ".rs"));
+            candidates.add(Path.of("src", slashPath, "mod.rs"));
+            candidates.add(Path.of(slashPath + ".rs"));
+            candidates.add(Path.of(slashPath, "mod.rs"));
+        }
+        return candidates.stream()
+                .map(path -> getProject().getFileByRelPath(path))
+                .flatMap(Optional::stream)
+                .findFirst();
+    }
+
     @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
@@ -627,102 +736,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             return;
         }
 
-        String fullSnippet = sourceContent.substringFrom(importNode).trim();
-        if (fullSnippet.isEmpty()) {
-            return;
-        }
-
-        // Clean snippet: remove 'use ' and trailing ';'
-        String pathArea = fullSnippet;
-        if (pathArea.startsWith("use ")) {
-            pathArea = pathArea.substring(4).trim();
-        }
-        if (pathArea.endsWith(";")) {
-            pathArea = pathArea.substring(0, pathArea.length() - 1).trim();
-        }
-
-        flattenRustImports(pathArea, "", localImportInfos);
-    }
-
-    private void flattenRustImports(String pathPart, String prefix, List<ImportInfo> localImportInfos) {
-        pathPart = pathPart.trim();
-        if (pathPart.isEmpty()) return;
-
-        // Handle nesting: "prefix::{a, b, c::{d, e}}"
-        int braceIdx = pathPart.indexOf('{');
-        if (braceIdx != -1) {
-            String base = pathPart.substring(0, braceIdx).trim();
-            if (base.endsWith("::")) {
-                base = base.substring(0, base.length() - 2);
-            }
-
-            String newPrefix;
-            if (base.isEmpty()) {
-                newPrefix = prefix;
-            } else {
-                newPrefix = prefix.isEmpty() ? base : prefix + "::" + base;
-            }
-
-            String listContent = pathPart.substring(braceIdx + 1);
-            int lastBrace = listContent.lastIndexOf('}');
-            if (lastBrace != -1) {
-                listContent = listContent.substring(0, lastBrace);
-            }
-
-            // Split by comma, but respect nested braces
-            int depth = 0;
-            int start = 0;
-            for (int i = 0; i < listContent.length(); i++) {
-                char c = listContent.charAt(i);
-                if (c == '{') depth++;
-                else if (c == '}') depth--;
-                else if (c == ',' && depth == 0) {
-                    flattenRustImports(listContent.substring(start, i), newPrefix, localImportInfos);
-                    start = i + 1;
-                }
-            }
-            flattenRustImports(listContent.substring(start), newPrefix, localImportInfos);
-        } else {
-            // Leaf node: "path::to::Symbol [as Alias]" or "*"
-            String fullPath = prefix.isEmpty() ? pathPart : prefix + "::" + pathPart;
-            boolean isWildcard = fullPath.endsWith("*");
-
-            String identifier = null;
-            String alias = null;
-            String resolvedPath = fullPath;
-
-            if (!isWildcard) {
-                // Check for alias "path as alias"
-                int asIdx = fullPath.toLowerCase(Locale.ROOT).lastIndexOf(" as ");
-                if (asIdx != -1) {
-                    resolvedPath = fullPath.substring(0, asIdx).trim();
-                    alias = fullPath.substring(asIdx + 4).trim();
-                    identifier = alias;
-                } else {
-                    // Extract identifier from last segment
-                    int lastSep = fullPath.lastIndexOf("::");
-                    identifier = (lastSep != -1) ? fullPath.substring(lastSep + 2) : fullPath;
-
-                    // Handle "self" keyword: "use std::io::{self, Read}"
-                    // "use std::io::self" -> "use std::io;"
-                    if ("self".equals(identifier)) {
-                        if (lastSep != -1) {
-                            resolvedPath = fullPath.substring(0, lastSep);
-                            // After stripping ::self, update identifier to the new last segment
-                            int prevSep = resolvedPath.lastIndexOf("::");
-                            identifier = (prevSep != -1) ? resolvedPath.substring(prevSep + 2) : resolvedPath;
-                        } else {
-                            // "use self;" (crate root or relative)
-                            identifier = "self";
-                        }
-                    }
-                }
-            }
-
-            // The rawSnippet in ImportInfo should be a clean standalone "use ...;" statement for the specific leaf.
-            String standaloneSnippet = "use " + resolvedPath + (alias != null ? " as " + alias : "") + ";";
-            localImportInfos.add(new ImportInfo(standaloneSnippet, isWildcard, identifier, alias));
-        }
+        RustExportUsageExtractor.useSpecsOf(importNode, sourceContent).stream()
+                .map(spec -> new ImportInfo(
+                        "use " + spec.path() + (spec.alias() != null ? " as " + spec.alias() : "") + ";",
+                        spec.wildcard(),
+                        spec.localName(),
+                        spec.alias()))
+                .forEach(localImportInfos::add);
     }
 
     @Override

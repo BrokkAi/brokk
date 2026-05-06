@@ -1,165 +1,144 @@
-# Python Receiver And Type Usage Plan
+# Rust Export Usage Analysis Plan
 
-This document tracks the Python receiver/type and member hierarchy work for this PR. The import/export rollout is now
-baseline context: it proves the reference graph can be reused for Python without copying traversal logic.
+The Python receiver/type plan that previously lived here is implemented. This file now records the current
+JS/TS and Python usage-analysis model, the differences that matter for Rust, and the test parity target for a Rust
+implementation.
 
-The v1 scope is deliberately pragmatic: seed receiver facts from explicit Python syntax, reuse `LocalUsageInference`,
-and keep false positives low. This is not a broad Python type checker and should not drift into JS/TS parity work that
-is unrelated to Python member usages.
+## What Exists Today
 
-## Completed Baseline
+The shared usage path is `ExportUsageReferenceGraphEngine` plus one language adapter per analyzer. The engine is
+language-neutral: it starts from a defining file and exported name, resolves that export to one or more `CodeUnit`
+targets, walks import/re-export frontiers, collects `ReferenceCandidate` and `ResolvedReceiverCandidate` facts from the
+language adapter, then matches candidates against the query target. `ReferenceCandidate`, `ReferenceHit`,
+`ExportIndex`, `ImportBinder`, `ExportResolutionData`, and `LocalUsageInference` are the reusable contract.
 
-This PR already has:
+JS/TS already uses this path through `JsTsExportUsageGraphStrategy` and `JsTsExportUsageGraphAdapter`. It has the
+widest coverage:
 
-- adapter-based graph traversal through `ExportUsageGraphLanguageAdapter`;
-- Python export/import extraction through `PythonExportUsageExtractor`;
-- Python module and package-barrel resolution, including package `__init__.py` re-exports;
-- app routing through `UsageAnalyzerSelector` with regex fallback preserved;
-- hardening for nested barrels, import cycles, local import shadowing, and explicit `Foo.bar()` static class access.
+- named, aliased, namespace, and default imports;
+- direct exports, aliased exports, default exports, re-export chains, and local barrel re-exports;
+- `tsconfig` baseUrl/path alias resolution and extended `tsconfig` inheritance;
+- import shadowing and duplicate owner names across files;
+- class, member, static member, constructed receiver, typed receiver, and alias-chain receiver matching;
+- inheritance-aware class/member matching through adapter-provided heritage edges;
+- graph-result and export-resolution caching;
+- strategy routing from `UsageAnalyzerSelector`, including graph miss/fallback behavior.
 
-Keep the existing import/export graph tests as regression coverage. They are no longer the active roadmap.
+Python now uses the same engine through `PythonExportUsageGraphStrategy` and `PythonExportUsageGraphAdapter`. It borrows
+the JS/TS graph but adapts the language surface:
 
-## Completed Receiver/Type Scope
+- absolute imports, relative imports, and package-barrel resolution through `__init__.py`;
+- `__all__`-backed and nested package re-exports;
+- import cycles, local import shadowing, imported submodule qualifiers, and namespace-qualified imports;
+- explicit receiver facts from annotations, constructor-created locals, alias propagation, and `self.x: Foo` attributes;
+- Python heritage edges and ancestor lookup for inherited members and overrides;
+- guardrails for ambiguous receiver sets, object/dict literal lookalikes, scope leakage, and unrelated same-name
+  members;
+- selector integration with both `PythonAnalyzer` and `MultiAnalyzer`.
 
-Python receiver/type inference v1 covers:
+The important lesson is that neither implementation relies on grep once a structured graph seed exists. Each language
+does its own syntax extraction, but then hands normalized import/export/reference/receiver facts to the shared engine.
 
-- simple annotations: `x: Foo`, `def f(x: Foo)`, and `self.x: Foo` where the type resolves through imports or same-file
-  declarations;
-- qualified annotations such as `x: p.Foo` only when `p` is a namespace import with resolvable in-project provenance;
-- constructor-created locals such as `x = Foo()` and `x = imported_alias()`;
-- same-scope aliases such as `y = x`;
-- local shadowing, where `Foo = ...` or `x = ...` blocks stale imported/type facts;
-- explicit receiver access such as `obj.foo` and `obj.foo()`.
+## Rust Is Different
 
-Do not implement broad flow inference, runtime type inference, dynamic imports, monkeypatching, return-type propagation,
-interprocedural calls, wildcard provenance beyond static imports, or JS/TS parity work that is not needed for Python.
+Rust should use the same engine, but it should not pretend that Rust modules are ESM modules or Python packages.
+The adapter boundary should translate Rust concepts into the existing IR:
 
-## Active Member Hierarchy Scope
+- Exports are visibility-filtered items: `pub struct`, `pub enum`, `pub trait`, `pub fn`, `pub const`, `pub static`,
+  `pub type`, public enum variants, and public associated items when the owning type/trait is exported. Private items can
+  still be searched by regex fallback, but they should not seed the exported-symbol graph.
+- Modules are path-based, not file-extension specifiers. `crate::`, `self::`, `super::`, nested `mod` blocks,
+  file modules (`foo.rs`), directory modules (`foo/mod.rs`), and crate roots (`lib.rs`, `main.rs`) need explicit module
+  path resolution.
+- `use` declarations combine import and re-export semantics. `use crate::x::Y;` is an import, `pub use crate::x::Y;`
+  is a re-export, grouped imports flatten into several bindings, `as` creates local aliases, `self` imports the module
+  itself, and glob imports are high risk unless the exported names of the target module are known.
+- There is no default export. The closest special cases are module-level re-exports, `pub use foo::Bar as Baz`, enum
+  variants, trait methods, and associated functions/constants.
+- Receiver analysis is more explicit than Python but different from JS/TS. Useful high-confidence facts come from
+  `let x: Foo`, `let x = Foo::new()`, `let x = Foo { ... }`, tuple/unit struct constructors, `let y = x`, and method
+  calls like `x.bar()`. Associated calls such as `Foo::bar()` or `Trait::method(&x)` should be modeled separately from
+  instance receivers.
+- Trait semantics are the main new wrinkle. An inherent impl method belongs to the concrete type. A trait signature
+  belongs to the trait. A trait impl method can be a usage of the trait member, but a call `x.bar()` can only be resolved
+  to a trait member when there is enough provenance to connect `x` to a concrete type and that type to an impl of the
+  trait. V1 should prefer concrete/inherent methods and explicit trait paths over broad trait fan-out.
+- Generics and type aliases should be conservative. Strip generic arguments for owner keys like `Vec<T>` -> `Vec` when
+  the base type is resolvable, but also emit reference candidates for type arguments in type positions, such as
+  `Vec<Foo>` counting as a usage of `Foo`. Follow simple `type Alias = Foo` when the analyzer already marks aliases, but
+  do not try to solve bounds, where clauses, or inference across function calls in v1.
+- Macros should not be expanded. Macro invocations can be reference candidates when the macro itself is imported or
+  exported, but code generated by macros is out of scope for the graph.
 
-Use existing Python type hierarchy capabilities to make member usage matching inheritance-aware:
+## Implementation Shape
 
-- build Python heritage edges from `TypeHierarchyProvider` as child class keys to parent class keys;
-- resolve receiver members against the receiver class first, then walk ancestors for inherited members;
-- count subclass overrides for base-member queries through the graph's existing owner-hierarchy matcher;
-- keep hierarchy work active only for member queries with explicit receiver provenance.
+Add Rust support by mirroring the JS/TS and Python adapter pattern:
 
-Progress:
+- Add a `RustExportUsageGraphStrategy` selected for Rust `CodeUnit` targets only when the target's defining file has an
+  export seed. Keep regex fallback for unseeded/private/local targets.
+- Add a `RustExportUsageGraphAdapter` that implements `ExportUsageGraphLanguageAdapter` and delegates to structured
+  methods on `RustAnalyzer`.
+- Add Rust extraction methods on `RustAnalyzer` or helper classes in a Rust-specific package, but return only shared IR
+  types to the usages package:
+  - `exportIndexOf(ProjectFile)`;
+  - `importBinderOf(ProjectFile)`;
+  - `exportUsageCandidatesOf(ProjectFile, ImportBinder)`;
+  - `resolvedReceiverCandidatesOf(ProjectFile, ImportBinder)`;
+  - `resolveRustModuleOutcome(ProjectFile, String)`;
+  - `reverseReexportIndex()`;
+  - `heritageIndex()` for trait/inheritance-like owner relationships where they are proven.
+- Prefer Tree-sitter traversal and generated Rust node constants/fields over text parsing. Existing Rust import tests
+  show that grouped, aliased, wildcard, and `self` imports already have behavior worth preserving; use those as the
+  starting point rather than inventing a separate parser.
+- Keep module resolution and export/import caches in `AnalyzerCache` or analyzer-owned cache hooks, matching the JS/TS
+  and Python export-resolution cache pattern.
 
-- 2026-05-04: Added Python heritage edges through `PythonAnalyzer.heritageIndex()` and
-  `PythonExportUsageGraphAdapter.heritageIndex()`.
-- 2026-05-04: Extended shared member resolution to check adapter-provided ancestors after the receiver class itself.
-- 2026-05-04: Added Python graph tests for inherited base members, overrides, multilevel inheritance, cross-file
-  inheritance, multiple inheritance, unrelated members, unresolved supertypes, and existing ambiguity caps.
+## Rust Test Parity Target
 
-## Stage 1: Python Local Usage Events
+Write tests in `brokk-shared/src/test/java/ai/brokk/analyzer/usages`, using the JS/TS and Python graph tests as the
+template. The Rust suite should prove the same categories, not necessarily the same syntax.
 
-Goal: emit the Python facts needed by the existing local inference engine.
+Export/import graph tests:
 
-Implementation:
+- `use crate::service::Service; Service::new()` resolves to `pub struct Service`;
+- `use crate::service::Service as S; S::new()` resolves through the alias;
+- grouped imports such as `use crate::service::{Service, Helper};` flatten into discrete bindings;
+- `use crate::service::{self, Service}; service::factory()` resolves namespace/module-qualified references;
+- `pub use crate::service::Service;` re-export chains are followed through one or more modules;
+- `pub use crate::service::Service as PublicService;` preserves the exported alias;
+- `foo.rs` and `foo/mod.rs` module layouts both resolve;
+- `crate::`, `self::`, and `super::` paths resolve from nested files;
+- type arguments in type positions count as usages of the argument type, such as `Vec<Foo>`, `Option<Foo>`,
+  `HashMap<String, Foo>`, and nested forms like `Result<Vec<Foo>, Error>`;
+- external crates and unresolved paths are recorded as external frontier, not false local hits;
+- local definitions shadow imported names and do not count as import usages.
 
-- Add Python extraction of `LocalUsageEvent` facts.
-- Use `ImportBinder` as a resolver for imported class/function names, but do not globally seed imported symbols as
-  receivers. Imports should seed locals only through annotations or constructor assignments.
-- Emit `DeclareSymbol` for local assignments, function parameters, class/function declarations, and local declarations
-  that shadow imports.
-- Emit `ReceiverAccess` for `obj.foo` and `obj.foo()`.
+Member and receiver tests:
 
-Progress:
+- `let x: Foo; x.bar();` resolves a method target on `Foo`;
+- `let x = Foo::new(); x.bar();` and `let x = Foo { ... }; x.bar();` seed constructor-created receivers;
+- `let y = x; y.bar();` reuses `LocalUsageInference` alias propagation and confidence degradation;
+- `Foo::bar()` resolves associated/static methods without requiring receiver inference;
+- duplicate `Foo::bar` methods in different modules do not cross-match;
+- `impl Foo { pub fn bar(&self) {} }` is distinct from `impl Other { pub fn bar(&self) {} }`;
+- trait method signatures, trait impl methods, and concrete inherent methods have explicit tests for what is counted in
+  v1 and what is intentionally not counted;
+- enum variants and associated constants are covered as field-like exported targets;
+- type alias receiver seeds work only for simple resolvable aliases.
 
-- 2026-05-04: Added Python receiver event extraction for assignments, typed parameters, constructor calls, aliases, and
-  attribute access.
-- 2026-05-04: Kept static `Foo.bar()` on the existing qualified-member path by avoiding global receiver seeds for
-  imported names.
+Guardrail tests:
 
-## Stage 2: Type Annotation Seeds
+- private Rust items do not seed the graph strategy;
+- glob imports do not fan out unless the target module's exports are known and bounded;
+- generic bounds, return types, closures, dynamic dispatch through `dyn Trait`, macro-generated methods, and
+  interprocedural inference do not create graph hits in v1;
+- ambiguous receiver target sets are capped by the existing `LocalUsageInference` limits;
+- receiver inference is skipped for plain exported-symbol queries, matching the JS/TS caching/skip tests;
+- `UsageAnalyzerSelector` chooses the Rust graph for seeded exported Rust targets and falls back to regex for misses.
 
-Goal: use explicit annotations as high-confidence local receiver seeds without parsing Python's full type system.
+Acceptance criteria for the Rust work:
 
-Implementation:
-
-- Seed locals and parameters from simple annotations such as `x: Foo` and `def f(x: Foo)` only when `Foo` resolves
-  through imports or same-file declarations.
-- Support qualified annotations like `pkg.Foo` only when `pkg` is a namespace import with a resolvable module.
-- For union or generic-looking annotations, only extract explicit simple or qualified type identifiers. Do not interpret
-  union/generic semantics beyond those identifiers.
-
-Progress:
-
-- 2026-05-04: Added annotation-backed receiver seeds for local variables, function parameters, annotated instance
-  attributes, same-file declarations, named imports, and namespace-qualified imports.
-- 2026-05-04: Ambiguous annotations rely on `LocalUsageInference` target caps instead of adding Python-specific
-  widening behavior.
-
-## Stage 3: Constructor And Alias Propagation
-
-Goal: cover the common explicit cases where Python code constructs or copies a typed local.
-
-Implementation:
-
-- Seed `x = Foo()` and `x = imported_alias()` when the callee resolves to an exported class.
-- Add simple same-scope alias propagation such as `y = x`.
-- Respect local shadowing so `Foo = ...` or `x = ...` blocks stale imported/type facts.
-
-Progress:
-
-- 2026-05-04: Added constructor-created receiver seeds and simple alias events.
-- 2026-05-04: Added local assignment shadowing so a later `Foo()` does not reuse an imported `Foo` after `Foo = ...`.
-
-## Stage 4: Graph Integration
-
-Goal: make Python receiver facts participate in member usage queries through the reusable graph.
-
-Implementation:
-
-- Add `PythonAnalyzer.resolvedReceiverCandidatesOf(file, binder)`.
-- Have `PythonExportUsageGraphAdapter` return Python receiver candidates through the existing adapter hook.
-- Keep receiver inference active only for member queries, matching existing graph behavior.
-- Reuse `LocalUsageInference` limits and confidence behavior. Do not add Python-only inference machinery.
-
-Progress:
-
-- 2026-05-04: Wired Python receiver candidates through `PythonAnalyzer` caching and
-  `PythonExportUsageGraphAdapter.resolvedReceiverCandidatesOf`.
-
-## Stage 5: Guardrails And Non-Goals
-
-Goal: prove the useful positives while explicitly blocking common false positives.
-
-Implementation:
-
-- Cap ambiguous receiver targets through existing `LocalUsageInference` limits.
-- Do not fan out by member name alone.
-- Do not infer from runtime assignments, dynamic imports, monkeypatching, return types, or interprocedural calls in this
-  PR.
-- Keep object and dict literals from producing class-member usage hits.
-
-Progress:
-
-- 2026-05-04: Added true-positive and true-negative Python receiver/type graph tests for annotation, constructor,
-  alias, namespace-qualified annotation, unknown receivers, unknown constructors, local shadowing, unrelated same-name
-  members, ambiguity caps, and dict/object literal collisions.
-
-## Test Plan
-
-Receiver/type tests:
-
-- true positives: `x: Foo; x.bar()`, `def f(x: Foo): x.bar()`, `self.x: Foo; self.x.bar()`,
-  `x = Foo(); x.bar()`, `y = x; y.bar()`, `import pkg as p; x: p.Foo; x.bar()`, and existing `Foo.bar()` static
-  class access;
-- true negatives: `x.bar()` with no seed, `x = Unknown(); x.bar()`, local `Foo = ...` shadowing imported `Foo`,
-  unrelated classes with the same `bar` member, ambiguous receiver target sets beyond the cap, and object/dict literal
-  lookalikes.
-
-Regression tests:
-
-- existing Python import/export graph tests;
-- existing Python graph strategy and app-routing tests;
-- existing JS/TS usage graph and strategy tests.
-
-Acceptance criteria:
-
-- targeted Python receiver/type tests pass;
-- targeted Python member hierarchy tests pass;
-- existing Python import/export tests pass;
-- existing JS/TS usage graph tests pass;
-- `./gradlew fix tidy` and final `./gradlew analyze` pass before commit.
+- the new Rust graph, strategy, and selector tests pass;
+- existing JS/TS and Python usage graph tests still pass;
+- `./gradlew fix tidy` passes during editing;
+- final `./gradlew analyze` passes once code editing is complete.
