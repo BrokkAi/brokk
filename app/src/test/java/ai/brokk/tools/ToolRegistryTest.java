@@ -261,8 +261,7 @@ class ToolRegistryTest {
                 "result text should not leak the reflection wrapper, was: " + result.resultText());
         assertTrue(
                 result.resultText().contains("NullPointerException"),
-                "result text should name the actual cause class even without a message, was: "
-                        + result.resultText());
+                "result text should name the actual cause class even without a message, was: " + result.resultText());
     }
 
     @Test
