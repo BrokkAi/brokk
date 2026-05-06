@@ -10,10 +10,14 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.PythonAnalyzer;
+import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.analyzer.usages.CandidateFileProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.JdtUsageAnalyzerStrategy;
 import ai.brokk.analyzer.usages.JsTsExportUsageGraphStrategy;
+import ai.brokk.analyzer.usages.PythonExportUsageGraphStrategy;
+import ai.brokk.analyzer.usages.RustExportUsageGraphStrategy;
 import ai.brokk.analyzer.usages.UsageAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
@@ -91,6 +95,32 @@ public final class UsageFinder {
         if (lang.contains(Languages.JAVA)) {
             log.debug("Usage lookup for {} routed to JDT strategy", target.fqName());
             return new Configuration(new TextSearchCandidateProvider(), new JdtUsageAnalyzerStrategy(project), true);
+        }
+        if (lang.contains(Languages.PYTHON)) {
+            var python = analyzer.subAnalyzer(Languages.PYTHON)
+                    .filter(PythonAnalyzer.class::isInstance)
+                    .map(PythonAnalyzer.class::cast)
+                    .orElseGet(() -> new PythonAnalyzer(project));
+            var graphStrategy = new PythonExportUsageGraphStrategy(python);
+            if (graphStrategy.canHandle(target)) {
+                log.debug("Usage lookup for {} routed to Python export graph", target.fqName());
+                return new Configuration(createDefaultProvider(), graphStrategy, true);
+            }
+            log.debug("Usage lookup for {} not seedable by Python export graph, using fuzzy fallback", target.fqName());
+            return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
+        }
+        if (lang.contains(Languages.RUST)) {
+            var rust = analyzer.subAnalyzer(Languages.RUST)
+                    .filter(RustAnalyzer.class::isInstance)
+                    .map(RustAnalyzer.class::cast)
+                    .orElseGet(() -> new RustAnalyzer(project));
+            var graphStrategy = new RustExportUsageGraphStrategy(rust);
+            if (graphStrategy.canHandle(target)) {
+                log.debug("Usage lookup for {} routed to Rust export graph", target.fqName());
+                return new Configuration((ignoredTarget, ignoredAnalyzer) -> Set.of(), graphStrategy, true);
+            }
+            log.debug("Usage lookup for {} not seedable by Rust export graph, using fuzzy fallback", target.fqName());
+            return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
         }
         log.debug("Usage lookup for {} using default fallback strategy", target.fqName());
         return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer, true);
