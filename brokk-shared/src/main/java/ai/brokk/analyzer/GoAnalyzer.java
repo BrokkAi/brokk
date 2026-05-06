@@ -1,9 +1,12 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
+import static ai.brokk.analyzer.go.Constants.*;
+import static org.treesitter.GoNodeType.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.GoAnalyzerCache;
+import ai.brokk.analyzer.go.CognitiveComplexityAnalysis;
+import ai.brokk.analyzer.go.GoSourceLookupAliases;
 import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import java.nio.file.Path;
@@ -38,29 +41,33 @@ import org.treesitter.TreeSitterGo;
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
+    @Override
+    public boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
+        return topLevel
+                && cu.isModule()
+                && parentOf(cu).isEmpty()
+                && languages().stream().anyMatch(language -> language.getExtensions()
+                        .contains(cu.source().extension()));
+    }
+
     // Pattern to match both double-quoted and backtick-quoted import paths
     private static final Pattern IMPORT_PATH_PATTERN = Pattern.compile("\"([^\"]+)\"|`([^`]+)`");
 
     // Pattern to strip Go comments (line comments // and block comments /* */)
     private static final Pattern GO_COMMENT_PATTERN = Pattern.compile("//[^\r\n]*|/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/");
 
-    private static final Set<String> COMMENT_NODE_TYPES = Set.of(COMMENT);
-    private static final Set<String> GO_LOG_RECEIVER_NAMES = Set.of("log", "logger", "zap", "slog", "fmt");
-    private static final Set<String> GO_LOG_METHOD_NAMES =
-            Set.of("print", "printf", "println", "debug", "info", "warn", "warning", "error", "fatal", "panic");
-
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(TYPE_SPEC, TYPE_ALIAS), // classLikeNodeTypes
-            Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
-            Set.of(VAR_SPEC, CONST_SPEC), // fieldLikeNodeTypes
+            CLASS_LIKE_NODE_TYPES,
+            FUNCTION_LIKE_NODE_TYPES,
+            FIELD_LIKE_NODE_TYPES,
             Set.of(), // constructorNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
             CaptureNames.IMPORT_DECLARATION, // importNodeType - matches @import.declaration capture in go.scm
-            "name", // identifierFieldName (used as fallback if specific .name capture is missing)
-            "body", // bodyFieldName (e.g. function_declaration.body -> block)
-            "parameters", // parametersFieldName
-            "result", // returnTypeFieldName (Go's grammar uses "result" for return types)
-            "type_parameters", // typeParametersFieldName (Go generics)
+            IDENTIFIER_FIELD_NAME,
+            BODY_FIELD_NAME,
+            PARAMETERS_FIELD_NAME,
+            RESULT_FIELD_NAME,
+            TYPE_PARAMETERS_FIELD_NAME,
             Map.of(
                     CaptureNames.FUNCTION_DEFINITION,
                     SkeletonType.FUNCTION_LIKE,
@@ -149,6 +156,21 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return GO_SYNTAX_PROFILE;
+    }
+
+    @Override
+    public Collection<SourceLookupAlias> sourceLookupAliases(String requestedName) {
+        return GoSourceLookupAliases.create(getTSParser(), requestedName);
+    }
+
+    @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return computeCognitiveComplexity(cu, CognitiveComplexityAnalysis::compute);
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return computeCognitiveComplexities(file, CognitiveComplexityAnalysis::compute);
     }
 
     @Override
@@ -340,12 +362,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         TSNode current = definitionNode;
         while (current != null) {
             String nodeType = current.getType();
-            if (FUNCTION_DECLARATION.equals(nodeType)
-                    || METHOD_DECLARATION.equals(nodeType)
-                    || "func_literal".equals(nodeType)) {
+            if (nodeType(FUNCTION_DECLARATION).equals(nodeType)
+                    || nodeType(METHOD_DECLARATION).equals(nodeType)
+                    || nodeType(FUNC_LITERAL).equals(nodeType)) {
                 return false;
             }
-            if ("source_file".equals(nodeType)) {
+            if (nodeType(SOURCE_FILE).equals(nodeType)) {
                 return true;
             }
             current = current.getParent();
@@ -372,8 +394,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 returnTypeText);
         String rt = !returnTypeText.isEmpty() ? " " + returnTypeText : "";
         String signature;
-        if (METHOD_DECLARATION.equals(funcNode.getType())) {
-            TSNode receiverNode = funcNode.getChildByFieldName("receiver");
+        if (nodeType(METHOD_DECLARATION).equals(funcNode.getType())) {
+            TSNode receiverNode = funcNode.getChildByFieldName(RECEIVER_FIELD_NAME);
             String receiverText = "";
             if (receiverNode != null) {
                 receiverText = sourceContent.substringFrom(receiverNode).trim();
@@ -382,7 +404,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             // For methods, paramsText is for the method's own parameters, not the receiver.
             signature = String.format("func %s %s%s%s%s", receiverText, functionName, typeParamsText, paramsText, rt);
             return signature + " { " + bodyPlaceholder() + " }";
-        } else if (METHOD_ELEM.equals(funcNode.getType())) { // Interface method
+        } else if (nodeType(METHOD_ELEM).equals(funcNode.getType())) { // Interface method
             // Interface methods don't have 'func', receiver, or body placeholder in their definition.
             // functionName is the method name.
             // paramsText is the parameters (e.g., "()", "(p int)").
@@ -400,7 +422,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     protected TSNode adjustSourceRangeNode(TSNode definitionNode, String captureName) {
         if (CaptureNames.TYPE_DEFINITION.equals(captureName)) {
             TSNode parent = definitionNode.getParent();
-            if (parent != null && TYPE_DECLARATION.equals(parent.getType())) {
+            if (parent != null && nodeType(TYPE_DECLARATION).equals(parent.getType())) {
                 return parent;
             }
         }
@@ -411,7 +433,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     protected SkeletonType refineSkeletonType(
             String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
         if (CaptureNames.TYPE_DEFINITION.equals(captureName)) {
-            if (TYPE_ALIAS.equals(definitionNode.getType())) {
+            if (nodeType(TYPE_ALIAS).equals(definitionNode.getType())) {
                 return SkeletonType.FIELD_LIKE;
             }
         }
@@ -438,9 +460,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         String nameText = sourceContent.substringFrom(nameNode);
         String kindNodeType = kindNode.getType();
 
-        if (STRUCT_TYPE.equals(kindNodeType)) {
+        if (nodeType(STRUCT_TYPE).equals(kindNodeType)) {
             return String.format("type %s struct {", nameText).strip();
-        } else if (INTERFACE_TYPE.equals(kindNodeType)) {
+        } else if (nodeType(INTERFACE_TYPE).equals(kindNodeType)) {
             return String.format("type %s interface {", nameText).strip();
         } else {
             String kindSource = sourceContent.substringFrom(kindNode);
@@ -513,12 +535,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 if (current == null) {
                     return;
                 }
-                if (TYPE_SPEC.equals(current.getType()) && isPackageLevelDeclaration(current)) {
+                if (nodeType(TYPE_SPEC).equals(current.getType()) && isPackageLevelDeclaration(current)) {
                     TSNode nameNode = current.getChildByFieldName("name");
-                    TSNode typeNode = current.getChildByFieldName(FIELD_TYPE);
+                    TSNode typeNode = current.getChildByFieldName(TYPE_FIELD_NAME);
                     if (nameNode != null
                             && typeNode != null
-                            && (STRUCT_TYPE.equals(typeNode.getType()) || INTERFACE_TYPE.equals(typeNode.getType()))) {
+                            && (nodeType(STRUCT_TYPE).equals(typeNode.getType())
+                                    || nodeType(INTERFACE_TYPE).equals(typeNode.getType()))) {
                         String typeName = sourceContent.substringFrom(nameNode).trim();
                         CodeUnit parent = acc.topLevelCUs().stream()
                                 .filter(CodeUnit::isClass)
@@ -542,24 +565,25 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         if (parents.isEmpty()) {
             return;
         }
-        if (STRUCT_TYPE.equals(typeNode.getType())) {
-            for (TSNode fieldDecl : directMembers(typeNode, FIELD_DECLARATION)) {
+        if (nodeType(STRUCT_TYPE).equals(typeNode.getType())) {
+            for (TSNode fieldDecl : directMembers(typeNode, nodeType(FIELD_DECLARATION))) {
                 List<String> fieldNames = fieldNames(fieldDecl, sourceContent);
                 if (fieldNames.isEmpty()) {
                     continue;
                 }
                 List<CodeUnit> fieldParents = ensureFieldChildren(parents, fieldNames, acc);
-                TSNode nestedType = fieldDecl.getChildByFieldName(FIELD_TYPE);
+                TSNode nestedType = fieldDecl.getChildByFieldName(TYPE_FIELD_NAME);
                 if (nestedType != null
-                        && (STRUCT_TYPE.equals(nestedType.getType()) || INTERFACE_TYPE.equals(nestedType.getType()))) {
+                        && (nodeType(STRUCT_TYPE).equals(nestedType.getType())
+                                || nodeType(INTERFACE_TYPE).equals(nestedType.getType()))) {
                     replicateAnonymousTypeMembers(nestedType, fieldParents, acc, sourceContent);
                 }
             }
             return;
         }
 
-        if (INTERFACE_TYPE.equals(typeNode.getType())) {
-            for (TSNode methodElem : directMembers(typeNode, METHOD_ELEM)) {
+        if (nodeType(INTERFACE_TYPE).equals(typeNode.getType())) {
+            for (TSNode methodElem : directMembers(typeNode, nodeType(METHOD_ELEM))) {
                 TSNode nameNode = methodElem.getChildByFieldName("name");
                 if (nameNode == null) {
                     continue;
@@ -591,7 +615,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     private List<String> fieldNames(TSNode fieldDecl, SourceContent sourceContent) {
         return fieldDecl.getNamedChildren().stream()
-                .filter(child -> FIELD_IDENTIFIER.equals(child.getType()))
+                .filter(child -> nodeType(FIELD_IDENTIFIER).equals(child.getType()))
                 .map(sourceContent::substringFrom)
                 .map(String::trim)
                 .filter(name -> !name.isBlank())
@@ -675,7 +699,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                         segments.addFirst(determineClassChainSegmentName(parent.getType(), name));
                     }
                 });
-            } else if (FIELD_DECLARATION.equals(current.getType())
+            } else if (nodeType(FIELD_DECLARATION).equals(current.getType())
                     && !current.equals(immediateParent)
                     && hasEnclosingNamedType(current, rootNode)) {
                 extractAnonymousStructContainerName(current, sourceContent).ifPresent(segments::addFirst);
@@ -707,19 +731,19 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             ProjectFile file) {
         // Go struct fields are usually captured as field_identifiers (one match per name).
         // The parent field_declaration provides the shared type and optional tag.
-        if (FIELD_IDENTIFIER.equals(fieldNode.getType())) {
+        if (nodeType(FIELD_IDENTIFIER).equals(fieldNode.getType())) {
             TSNode fieldDeclNode = fieldNode.getParent();
-            while (fieldDeclNode != null && !FIELD_DECLARATION.equals(fieldDeclNode.getType())) {
+            while (fieldDeclNode != null && !nodeType(FIELD_DECLARATION).equals(fieldDeclNode.getType())) {
                 fieldDeclNode = fieldDeclNode.getParent();
             }
 
             if (fieldDeclNode != null
-                    && FIELD_DECLARATION.equals(fieldDeclNode.getType())
+                    && nodeType(FIELD_DECLARATION).equals(fieldDeclNode.getType())
                     && isInsideStructType(fieldDeclNode)) {
                 String fieldName = sourceContent.substringFrom(fieldNode).trim();
 
-                TSNode typeNode = fieldDeclNode.getChildByFieldName(FIELD_TYPE);
-                TSNode tagNode = fieldDeclNode.getChildByFieldName("tag");
+                TSNode typeNode = fieldDeclNode.getChildByFieldName(TYPE_FIELD_NAME);
+                TSNode tagNode = fieldDeclNode.getChildByFieldName(TAG_FIELD_NAME);
 
                 String tagText = (tagNode != null)
                         ? " " + sourceContent.substringFrom(tagNode).trim()
@@ -734,11 +758,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     return (baseIndent + fieldName + " " + typeText + tagText).stripTrailing();
                 }
             }
-        } else if (FIELD_DECLARATION.equals(fieldNode.getType()) && isInsideStructType(fieldNode)) {
+        } else if (nodeType(FIELD_DECLARATION).equals(fieldNode.getType()) && isInsideStructType(fieldNode)) {
             // Defensive: if the query ever captures the whole field_declaration node, still render a single-field
             // signature based on simpleName (which is the field identifier for this CodeUnit).
-            TSNode typeNode = fieldNode.getChildByFieldName(FIELD_TYPE);
-            TSNode tagNode = fieldNode.getChildByFieldName("tag");
+            TSNode typeNode = fieldNode.getChildByFieldName(TYPE_FIELD_NAME);
+            TSNode tagNode = fieldNode.getChildByFieldName(TAG_FIELD_NAME);
 
             String typeText = summarizeAnonymousFieldType(typeNode, sourceContent)
                     .orElseGet(() -> typeNode != null
@@ -761,16 +785,18 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             identifier = simpleName.substring(simpleName.lastIndexOf('.') + 1);
         }
 
-        if (VAR_DECLARATION.equals(fieldNodeType) || CONST_DECLARATION.equals(fieldNodeType)) {
+        if (nodeType(VAR_DECLARATION).equals(fieldNodeType)
+                || nodeType(CONST_DECLARATION).equals(fieldNodeType)) {
             // Find the correct spec node containing this identifier
             for (TSNode child : fieldNode.getChildren()) {
-                if (VAR_SPEC.equals(child.getType()) || CONST_SPEC.equals(child.getType())) {
+                if (nodeType(VAR_SPEC).equals(child.getType())
+                        || nodeType(CONST_SPEC).equals(child.getType())) {
                     TSNode childNameList = child.getChildByFieldName("name");
                     if (childNameList == null) {
                         childNameList = child;
                     }
                     for (TSNode nameNode : childNameList.getNamedChildren()) {
-                        if ("identifier".equals(nameNode.getType())
+                        if (nodeType(IDENTIFIER).equals(nameNode.getType())
                                 && identifier.equals(
                                         sourceContent.substringFrom(nameNode).trim())) {
                             specNode = child;
@@ -785,7 +811,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             }
         }
 
-        if (VAR_SPEC.equals(fieldNodeType) || CONST_SPEC.equals(fieldNodeType)) {
+        if (nodeType(VAR_SPEC).equals(fieldNodeType) || nodeType(CONST_SPEC).equals(fieldNodeType)) {
             // In some Go TS versions, identifiers are children of a 'name' field; in others, direct children.
             TSNode nameList = specNode.getChildByFieldName("name");
             if (nameList == null) {
@@ -797,14 +823,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             // Count identifiers to detect tuples/multi-assignments
             int identifierCount = 0;
             for (TSNode namedChild : nameList.getNamedChildren()) {
-                if ("identifier".equals(namedChild.getType())) {
+                if (nodeType(IDENTIFIER).equals(namedChild.getType())) {
                     identifierCount++;
                 }
             }
 
             // If there are multiple names or values (tuples), consider it a complex expression and truncate
             if (identifierCount > 1 || (valueList != null && valueList.getNamedChildCount() > 1)) {
-                TSNode typeNode = specNode.getChildByFieldName("type");
+                TSNode typeNode = specNode.getChildByFieldName(TYPE_FIELD_NAME);
                 String typeStr = (typeNode != null)
                         ? " " + sourceContent.substringFrom(typeNode).trim()
                         : "";
@@ -836,13 +862,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             || valType.equals("false")
                             || valText.equals("iota");
                 }
-            } else if (valueList == null && CONST_SPEC.equals(fieldNodeType)) {
+            } else if (valueList == null && nodeType(CONST_SPEC).equals(fieldNodeType)) {
                 // In Go const blocks, missing values imply iota or inherited values.
                 // We treat these as literals.
                 isLiteral = true;
             }
 
-            TSNode typeNode = specNode.getChildByFieldName("type");
+            TSNode typeNode = specNode.getChildByFieldName(TYPE_FIELD_NAME);
             String typeStr = (typeNode != null)
                     ? " " + sourceContent.substringFrom(typeNode).trim()
                     : "";
@@ -850,7 +876,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             if (isLiteral) {
                 String valuePart = (specificValueNode != null)
                         ? " = " + sourceContent.substringFrom(specificValueNode)
-                        : (CONST_SPEC.equals(fieldNodeType) && valueList == null
+                        : (nodeType(CONST_SPEC).equals(fieldNodeType) && valueList == null
                                 ? " = iota" // Special case for rendering inherited const values in skeletons
                                 : "");
 
@@ -873,7 +899,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     private static boolean isInsideStructType(TSNode node) {
         TSNode current = node;
         while (current != null) {
-            if (STRUCT_TYPE.equals(current.getType())) {
+            if (nodeType(STRUCT_TYPE).equals(current.getType())) {
                 return true;
             }
             current = current.getParent();
@@ -883,10 +909,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     private String summarizeInlineAnonymousType(TSNode typeNode, SourceContent sourceContent) {
         String typeKeyword = typeNode.getType();
-        if (STRUCT_TYPE.equals(typeKeyword)) {
+        if (nodeType(STRUCT_TYPE).equals(typeKeyword)) {
             return "struct { " + bodyPlaceholder() + " }";
         }
-        if (INTERFACE_TYPE.equals(typeKeyword)) {
+        if (nodeType(INTERFACE_TYPE).equals(typeKeyword)) {
             return "interface { " + bodyPlaceholder() + " }";
         }
         return sourceContent.substringFrom(typeNode).trim();
@@ -896,10 +922,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         if (typeNode == null) {
             return Optional.empty();
         }
-        return switch (typeNode.getType()) {
-            case STRUCT_TYPE, INTERFACE_TYPE -> Optional.of(summarizeInlineAnonymousType(typeNode, sourceContent));
-            default -> Optional.empty();
-        };
+        String type = typeNode.getType();
+        if (nodeType(STRUCT_TYPE).equals(type) || nodeType(INTERFACE_TYPE).equals(type)) {
+            return Optional.of(summarizeInlineAnonymousType(typeNode, sourceContent));
+        }
+        return Optional.empty();
     }
 
     private static Optional<String> extractAnonymousStructContainerName(TSNode fieldDeclaration, SourceContent source) {
@@ -908,9 +935,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         for (TSNode child : fieldDeclaration.getNamedChildren()) {
             String childType = child.getType();
-            if (STRUCT_TYPE.equals(childType) || INTERFACE_TYPE.equals(childType)) {
+            if (nodeType(STRUCT_TYPE).equals(childType)
+                    || nodeType(INTERFACE_TYPE).equals(childType)) {
                 hasAnonymousStructType = true;
-            } else if (name == null && (FIELD_IDENTIFIER.equals(childType) || "identifier".equals(childType))) {
+            } else if (name == null
+                    && (nodeType(FIELD_IDENTIFIER).equals(childType)
+                            || nodeType(IDENTIFIER).equals(childType))) {
                 String candidate = source.substringFrom(child).trim();
                 if (!candidate.isBlank()) {
                     name = candidate;
@@ -1518,12 +1548,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             TSNode firstParamDecl = null;
                             String testParamName = null;
                             for (TSNode child : paramsNode.getNamedChildren()) {
-                                if (PARAMETER_DECLARATION.equals(child.getType())) {
+                                if (nodeType(PARAMETER_DECLARATION).equals(child.getType())) {
                                     if (firstParamDecl == null) {
                                         firstParamDecl = child;
                                     }
                                     for (TSNode n : child.getNamedChildren()) {
-                                        if (IDENTIFIER.equals(n.getType())) {
+                                        if (nodeType(IDENTIFIER).equals(n.getType())) {
                                             totalIdentifierCount++;
                                             if (testParamName == null) {
                                                 testParamName = sourceContent
@@ -1539,13 +1569,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                                 continue;
                             }
 
-                            TSNode typeNode = firstParamDecl.getChildByFieldName(FIELD_TYPE);
+                            TSNode typeNode = firstParamDecl.getChildByFieldName(TYPE_FIELD_NAME);
                             if (typeNode == null) {
                                 for (TSNode child : firstParamDecl.getNamedChildren()) {
                                     String type = child.getType();
-                                    if (POINTER_TYPE.equals(type)
-                                            || QUALIFIED_TYPE.equals(type)
-                                            || TYPE_IDENTIFIER.equals(type)) {
+                                    if (nodeType(POINTER_TYPE).equals(type)
+                                            || nodeType(QUALIFIED_TYPE).equals(type)
+                                            || nodeType(TYPE_IDENTIFIER).equals(type)) {
                                         typeNode = child;
                                         break;
                                     }
@@ -1571,7 +1601,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     private GoAssertionAnalysis analyzeGoAssertions(
             TSNode testFn, String testParamName, SourceContent sourceContent, TestAssertionWeights weights) {
         var ifStatements = new ArrayList<TSNode>();
-        collectNodesByType(testFn, Set.of(IF_STATEMENT), ifStatements);
+        collectNodesByType(testFn, Set.of(nodeType(IF_STATEMENT)), ifStatements);
         if (ifStatements.isEmpty()) {
             return new GoAssertionAnalysis(0, 0, 0, List.of());
         }
@@ -1582,7 +1612,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         int meaningfulAssertionCount = 0;
         for (TSNode ifStmt : ifStatements) {
             var errorCalls = new ArrayList<TSNode>();
-            collectNodesByType(ifStmt, Set.of(CALL_EXPRESSION), errorCalls);
+            collectNodesByType(ifStmt, Set.of(nodeType(CALL_EXPRESSION)), errorCalls);
             boolean hasErrorCall = false;
             for (TSNode call : errorCalls) {
                 if (isTestFailureCall(call, testParamName, sourceContent)) {
@@ -1598,7 +1628,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             TSNode condition = ifStmt.getChildByFieldName("condition");
             if (condition == null) {
                 var condCandidates = new ArrayList<TSNode>();
-                collectNodesByType(ifStmt, Set.of(BINARY_EXPRESSION, EXPRESSION), condCandidates);
+                collectNodesByType(ifStmt, Set.of(nodeType(BINARY_EXPRESSION), nodeType(EXPRESSION)), condCandidates);
                 if (condCandidates.isEmpty()) {
                     // If we detect an assertion-shaped branch but cannot parse condition shape, treat it as non-shallow
                     // and meaningful to avoid false "no assertions"/"all shallow" outcomes.
@@ -1631,7 +1661,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     private static boolean isTestFailureCall(TSNode call, String testParamName, SourceContent sourceContent) {
         TSNode functionExpr = call.getChildByFieldName("function");
-        if (functionExpr == null || !SELECTOR_EXPRESSION.equals(functionExpr.getType())) {
+        if (functionExpr == null || !nodeType(SELECTOR_EXPRESSION).equals(functionExpr.getType())) {
             return false;
         }
 
@@ -1662,7 +1692,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         TSNode right = condition.getChildByFieldName("right");
         if (left == null || right == null) {
             var exprs = new ArrayList<TSNode>();
-            collectNodesByType(condition, Set.of(EXPRESSION), exprs);
+            collectNodesByType(condition, Set.of(nodeType(EXPRESSION)), exprs);
             if (exprs.size() >= 2) {
                 left = exprs.getFirst();
                 right = exprs.get(1);
@@ -1722,27 +1752,28 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     private static boolean isGoNilExpr(TSNode expr) {
         // Tree-sitter represents the `nil` keyword as its own named node type: "nil".
-        if (NIL_LITERAL.equals(expr.getType())) {
+        if (nodeType(NIL).equals(expr.getType())) {
             return true;
         }
         // Be defensive: nil may be wrapped in parens or other expression nodes.
-        return hasDescendantOfType(expr, NIL_LITERAL);
+        return hasDescendantOfType(expr, nodeType(NIL));
     }
 
     private static boolean isGoConstantExpr(TSNode expr) {
         // nil/true/false are represented as dedicated named node types in the Go grammar.
-        if (NIL_LITERAL.equals(expr.getType())
-                || TRUE_LITERAL.equals(expr.getType())
-                || FALSE_LITERAL.equals(expr.getType())) {
+        if (nodeType(NIL).equals(expr.getType())
+                || nodeType(TRUE).equals(expr.getType())
+                || nodeType(FALSE).equals(expr.getType())) {
             return true;
         }
-        return hasDescendantOfType(expr, NIL_LITERAL)
-                || hasDescendantOfType(expr, TRUE_LITERAL)
-                || hasDescendantOfType(expr, FALSE_LITERAL)
-                || hasDescendantOfType(expr, STRING_LITERAL)
-                || hasDescendantOfType(expr, INTEGER_LITERAL)
-                || hasDescendantOfType(expr, FLOAT_LITERAL)
-                || hasDescendantOfType(expr, BOOLEAN_LITERAL);
+        return hasDescendantOfType(expr, nodeType(NIL))
+                || hasDescendantOfType(expr, nodeType(TRUE))
+                || hasDescendantOfType(expr, nodeType(FALSE))
+                || hasDescendantOfType(expr, nodeType(RAW_STRING_LITERAL))
+                || hasDescendantOfType(expr, nodeType(INTERPRETED_STRING_LITERAL))
+                || hasDescendantOfType(expr, nodeType(RUNE_LITERAL))
+                || hasDescendantOfType(expr, nodeType(INT_LITERAL))
+                || hasDescendantOfType(expr, nodeType(FLOAT_LITERAL));
     }
 
     private static boolean sameGoExpr(TSNode left, TSNode right, SourceContent sourceContent) {
@@ -1754,16 +1785,16 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         if (lType == null || rType == null || !lType.equals(rType)) return false;
 
         String type = lType;
-        if (type.equals(IDENTIFIER) || type.equals(SELECTOR_EXPRESSION)) {
+        if (type.equals(nodeType(IDENTIFIER)) || type.equals(nodeType(SELECTOR_EXPRESSION))) {
             // Compare CST shape for common cases (including chained selectors).
             return sameGoSelectorOrIdentifier(l, r, sourceContent);
         }
 
-        if (type.equals(CALL_EXPRESSION)) {
+        if (type.equals(nodeType(CALL_EXPRESSION))) {
             return sameGoCallExpr(l, r, sourceContent);
         }
 
-        if (type.equals(BINARY_EXPRESSION)) {
+        if (type.equals(nodeType(BINARY_EXPRESSION))) {
             return sameGoBinaryExpr(l, r, sourceContent);
         }
 
@@ -1779,7 +1810,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         // Parentheses may wrap expressions; unwrap up to 2 layers.
         for (int i = 0; i < 2; i++) {
             if (current == null) return n;
-            if (!PARENTHESIZED_EXPRESSION.equals(current.getType())) break;
+            if (!nodeType(PARENTHESIZED_EXPRESSION).equals(current.getType())) break;
             if (current.getNamedChildCount() == 0) break;
             TSNode child = current.getNamedChild(0);
             if (child == null) break;
@@ -1792,7 +1823,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         // selector_expression has fields `operand` and `field`.
         String leftType = left.getType();
         String rightType = right.getType();
-        if (SELECTOR_EXPRESSION.equals(leftType) && SELECTOR_EXPRESSION.equals(rightType)) {
+        if (nodeType(SELECTOR_EXPRESSION).equals(leftType)
+                && nodeType(SELECTOR_EXPRESSION).equals(rightType)) {
             TSNode lOperand = left.getChildByFieldName("operand");
             TSNode lField = left.getChildByFieldName("field");
             TSNode rOperand = right.getChildByFieldName("operand");
@@ -1859,7 +1891,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     private static boolean containsLargeGoStringLiteral(TSNode root, SourceContent sourceContent, int threshold) {
         var lits = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(STRING_LITERAL), lits);
+        collectNodesByType(
+                root,
+                Set.of(nodeType(RAW_STRING_LITERAL), nodeType(INTERPRETED_STRING_LITERAL), nodeType(RUNE_LITERAL)),
+                lits);
         for (TSNode lit : lits) {
             if (sourceContent.substringFrom(lit).length() >= threshold) {
                 return true;
@@ -1931,12 +1966,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             TSNode firstParamDecl = null;
 
                             for (TSNode child : paramsNode.getNamedChildren()) {
-                                if (PARAMETER_DECLARATION.equals(child.getType())) {
+                                if (nodeType(PARAMETER_DECLARATION).equals(child.getType())) {
                                     if (firstParamDecl == null) {
                                         firstParamDecl = child;
                                     }
                                     for (TSNode n : child.getNamedChildren()) {
-                                        if ("identifier".equals(n.getType())) {
+                                        if (nodeType(IDENTIFIER).equals(n.getType())) {
                                             totalIdentifierCount++;
                                         }
                                     }
@@ -1947,14 +1982,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                                 continue;
                             }
 
-                            TSNode typeNode = firstParamDecl.getChildByFieldName(FIELD_TYPE);
+                            TSNode typeNode = firstParamDecl.getChildByFieldName(TYPE_FIELD_NAME);
                             // Fallback for types without field name (depending on TS version/grammar)
                             if (typeNode == null) {
                                 for (TSNode child : firstParamDecl.getNamedChildren()) {
                                     String type = child.getType();
-                                    if (POINTER_TYPE.equals(type)
-                                            || QUALIFIED_TYPE.equals(type)
-                                            || TYPE_IDENTIFIER.equals(type)) {
+                                    if (nodeType(POINTER_TYPE).equals(type)
+                                            || nodeType(QUALIFIED_TYPE).equals(type)
+                                            || nodeType(TYPE_IDENTIFIER).equals(type)) {
                                         typeNode = child;
                                         break;
                                     }
@@ -2001,13 +2036,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         var findings = new ArrayList<SmellCandidate>();
 
         var defers = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(DEFER_STATEMENT), defers);
+        collectNodesByType(root, Set.of(nodeType(DEFER_STATEMENT)), defers);
         for (TSNode defer : defers) {
             analyzeDeferRecoverHandler(file, defer, sourceContent, weights).ifPresent(findings::add);
         }
 
         var ifs = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(IF_STATEMENT), ifs);
+        collectNodesByType(root, Set.of(nodeType(IF_STATEMENT)), ifs);
         for (TSNode ifNode : ifs) {
             analyzeErrNotNilHandler(file, ifNode, sourceContent, weights).ifPresent(findings::add);
         }
@@ -2020,13 +2055,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     private Optional<SmellCandidate> analyzeDeferRecoverHandler(
             ProjectFile file, TSNode deferNode, SourceContent sourceContent, ExceptionSmellWeights weights) {
-        TSNode functionLiteral = findFirstNamedDescendant(deferNode, FUNCTION_LITERAL);
+        TSNode functionLiteral = findFirstNamedDescendant(deferNode, nodeType(FUNC_LITERAL));
         if (functionLiteral == null) {
             return Optional.empty();
         }
         TSNode body = functionLiteral.getChildByFieldName("body");
         if (body == null) {
-            body = findFirstNamedDescendant(functionLiteral, BLOCK);
+            body = findFirstNamedDescendant(functionLiteral, nodeType(BLOCK));
         }
         if (body == null) {
             return Optional.empty();
@@ -2034,11 +2069,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         // Find `if ... recover() ... { handler }` patterns inside the deferred function.
         var ifs = new ArrayList<TSNode>();
-        collectNodesByType(body, Set.of(IF_STATEMENT), ifs);
+        collectNodesByType(body, Set.of(nodeType(IF_STATEMENT)), ifs);
         for (TSNode ifNode : ifs) {
             TSNode consequence = ifNode.getChildByFieldName("consequence");
             if (consequence == null) {
-                consequence = findFirstNamedDescendant(ifNode, BLOCK);
+                consequence = findFirstNamedDescendant(ifNode, nodeType(BLOCK));
             }
             if (consequence == null) {
                 continue;
@@ -2060,7 +2095,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     private static boolean ifConditionContainsRecoverCall(
             TSNode ifNode, TSNode consequence, SourceContent sourceContent) {
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(ifNode, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(ifNode, Set.of(nodeType(CALL_EXPRESSION)), calls);
         for (TSNode call : calls) {
             if (call.getStartByte() >= consequence.getStartByte()) {
                 continue;
@@ -2077,7 +2112,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             ProjectFile file, TSNode ifNode, SourceContent sourceContent, ExceptionSmellWeights weights) {
         TSNode consequence = ifNode.getChildByFieldName("consequence");
         if (consequence == null) {
-            consequence = findFirstNamedDescendant(ifNode, BLOCK);
+            consequence = findFirstNamedDescendant(ifNode, nodeType(BLOCK));
         }
         if (consequence == null) {
             return Optional.empty();
@@ -2093,7 +2128,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     private static boolean conditionLooksLikeErrNotNil(TSNode ifNode, TSNode consequence, SourceContent sourceContent) {
         // Keep this AST-guided: look for a binary expression "err != nil" that appears before the consequence block.
         var binaries = new ArrayList<TSNode>();
-        collectNodesByType(ifNode, Set.of(BINARY_EXPRESSION), binaries);
+        collectNodesByType(ifNode, Set.of(nodeType(BINARY_EXPRESSION)), binaries);
         for (TSNode binary : binaries) {
             if (binary.getStartByte() >= consequence.getStartByte()) {
                 continue;
@@ -2103,7 +2138,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             if (left == null || right == null) {
                 continue;
             }
-            if (!IDENTIFIER.equals(left.getType()) || !NIL.equals(right.getType())) {
+            if (!nodeType(IDENTIFIER).equals(left.getType()) || !nodeType(NIL).equals(right.getType())) {
                 continue;
             }
             if (!"err".equals(sourceContent.substringFrom(left).strip())) {
@@ -2183,7 +2218,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     private static int countHandlerStatements(TSNode bodyNode) {
-        TSNode list = firstNamedChildOfType(bodyNode, STATEMENT_LIST);
+        TSNode list = firstNamedChildOfType(bodyNode, nodeType(STATEMENT_LIST));
         TSNode container = list != null ? list : bodyNode;
         int expressions = 0;
         for (int i = 0; i < container.getNamedChildCount(); i++) {
@@ -2191,7 +2226,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             if (child == null) {
                 continue;
             }
-            if (COMMENT.equals(child.getType())) {
+            if (nodeType(COMMENT).equals(child.getType())) {
                 continue;
             }
             expressions++;
@@ -2201,7 +2236,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     private static boolean hasCallToIdent(TSNode root, String targetName, SourceContent sourceContent) {
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(root, Set.of(nodeType(CALL_EXPRESSION)), calls);
         return calls.stream().anyMatch(call -> targetName.equals(callExpressionCalleeName(call, sourceContent)));
     }
 
@@ -2213,10 +2248,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         if (fn == null) {
             return "";
         }
-        if (IDENTIFIER.equals(fn.getType())) {
+        if (nodeType(IDENTIFIER).equals(fn.getType())) {
             return sourceContent.substringFrom(fn).strip();
         }
-        if (!SELECTOR_EXPRESSION.equals(fn.getType())) {
+        if (!nodeType(SELECTOR_EXPRESSION).equals(fn.getType())) {
             return "";
         }
         TSNode field = fn.getChildByFieldName("field");
@@ -2224,18 +2259,18 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             return sourceContent.substringFrom(field).strip();
         }
         // Fallback: last identifier within selector expression
-        TSNode ident = findFirstNamedDescendant(fn, IDENTIFIER);
+        TSNode ident = findFirstNamedDescendant(fn, nodeType(IDENTIFIER));
         return ident == null ? "" : sourceContent.substringFrom(ident).strip();
     }
 
     private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
-        TSNode list = firstNamedChildOfType(bodyNode, STATEMENT_LIST);
+        TSNode list = firstNamedChildOfType(bodyNode, nodeType(STATEMENT_LIST));
         TSNode container = list != null ? list : bodyNode;
         TSNode statement = firstNonCommentNamedChild(container, COMMENT_NODE_TYPES);
-        if (statement == null || !EXPRESSION_STATEMENT.equals(statement.getType())) {
+        if (statement == null || !nodeType(EXPRESSION_STATEMENT).equals(statement.getType())) {
             return false;
         }
-        TSNode call = findFirstNamedDescendant(statement, CALL_EXPRESSION);
+        TSNode call = findFirstNamedDescendant(statement, nodeType(CALL_EXPRESSION));
         if (call == null) {
             return false;
         }
@@ -2246,11 +2281,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         if (fn == null) {
             return false;
         }
-        if (IDENTIFIER.equals(fn.getType())) {
+        if (nodeType(IDENTIFIER).equals(fn.getType())) {
             String bare = sourceContent.substringFrom(fn).strip().toLowerCase(Locale.ROOT);
             return GO_LOG_METHOD_NAMES.contains(bare);
         }
-        if (!SELECTOR_EXPRESSION.equals(fn.getType())) {
+        if (!nodeType(SELECTOR_EXPRESSION).equals(fn.getType())) {
             return false;
         }
         TSNode receiver = fn.getChildByFieldName("operand");

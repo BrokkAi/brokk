@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -125,6 +126,39 @@ public class MultiAnalyzerCapabilityTest {
         assertEquals(List.of(javaFinding, pythonFinding), findings);
         assertEquals(List.of(List.of(javaFile, javaPeerFile)), javaAnalyzer.cloneFileGroups);
         assertEquals(List.of(List.of(pythonFile, pythonPeerFile)), pythonAnalyzer.cloneFileGroups);
+    }
+
+    @Test
+    void commentDensityByFqName_SkipsUnsupportedDefinitions(@TempDir Path root) {
+        var pythonFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/a.py");
+        var jsFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/z.js");
+        var pythonUnit = CodeUnit.fn(pythonFile, "", "shared.symbol");
+        var jsUnit = CodeUnit.fn(jsFile, "", "shared.symbol");
+        var jsStats = new CommentDensityStats("shared.symbol", "src/z.js", 1, 2, 3, 1, 2, 3);
+        var pythonAnalyzer = new CommentDensityAnalyzer(List.of(pythonUnit), Map.of());
+        var jsAnalyzer = new CommentDensityAnalyzer(List.of(jsUnit), Map.of(jsUnit, jsStats));
+        var multi = new MultiAnalyzer(Map.of(Languages.PYTHON, pythonAnalyzer, Languages.JAVASCRIPT, jsAnalyzer));
+
+        Optional<CommentDensityStats> stats = multi.commentDensity("shared.symbol");
+
+        assertEquals(Optional.of(jsStats), stats);
+    }
+
+    @Test
+    void commentDensityByFqName_UsesDefinitionOrderingForDuplicates(@TempDir Path root) {
+        var javaFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/A.java");
+        var jsFile = new ProjectFile(root.toAbsolutePath().normalize(), "src/B.js");
+        var javaUnit = CodeUnit.fn(javaFile, "", "shared.symbol");
+        var jsUnit = CodeUnit.fn(jsFile, "", "shared.symbol");
+        var javaStats = new CommentDensityStats("shared.symbol", "src/A.java", 1, 0, 3, 1, 0, 3);
+        var jsStats = new CommentDensityStats("shared.symbol", "src/B.js", 0, 1, 3, 0, 1, 3);
+        var javaAnalyzer = new CommentDensityAnalyzer(List.of(javaUnit), Map.of(javaUnit, javaStats));
+        var jsAnalyzer = new CommentDensityAnalyzer(List.of(jsUnit), Map.of(jsUnit, jsStats));
+        var multi = new MultiAnalyzer(Map.of(Languages.JAVA, javaAnalyzer, Languages.JAVASCRIPT, jsAnalyzer));
+
+        Optional<CommentDensityStats> stats = multi.commentDensity("shared.symbol");
+
+        assertEquals(Optional.of(javaStats), stats);
     }
 
     private abstract static class BaseStubAnalyzer implements IAnalyzer {
@@ -289,6 +323,28 @@ public class MultiAnalyzerCapabilityTest {
             return cloneFindings.stream()
                     .filter(finding -> files.contains(finding.file()) && files.contains(finding.peerFile()))
                     .toList();
+        }
+    }
+
+    private static final class CommentDensityAnalyzer extends BaseStubAnalyzer {
+        private final List<CodeUnit> definitions;
+        private final Map<CodeUnit, CommentDensityStats> statsByUnit;
+
+        CommentDensityAnalyzer(List<CodeUnit> definitions, Map<CodeUnit, CommentDensityStats> statsByUnit) {
+            this.definitions = List.copyOf(definitions);
+            this.statsByUnit = Map.copyOf(statsByUnit);
+        }
+
+        @Override
+        public java.util.SequencedSet<CodeUnit> getDefinitions(String fqName) {
+            return definitions.stream()
+                    .filter(cu -> cu.fqName().equals(fqName))
+                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        }
+
+        @Override
+        public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
+            return Optional.ofNullable(statsByUnit.get(cu));
         }
     }
 }

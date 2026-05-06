@@ -1,5 +1,7 @@
 package ai.brokk.project;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.AbstractService.ReasoningLevel;
 import ai.brokk.Service;
@@ -30,17 +32,21 @@ public final class ModelProperties {
     private static final String HAIKU_4_5 = "claude-haiku-4-5";
     public static final String GPT_5_3_CODEX = "gpt-5.3-codex";
 
-    public static final String GPT_5_1_CODEX_MINI_OAUTH = "gpt-5.1-codex-mini-oauth";
     public static final String GPT_5_3_CODEX_OAUTH = "gpt-5.3-codex-oauth";
+    public static final String GPT_5_2_OAUTH = "gpt-5.2-oauth";
+    public static final String GPT_5_4_OAUTH = "gpt-5.4-oauth";
+
+    /** Hardcoded fallback used when live model-catalog discovery returns empty (e.g., startup races). */
+    public static final List<String> BASE_MODEL_IDS = List.of(GPT_5_3_CODEX, FLASH_3);
 
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5_4NanoLow = new ModelConfig(GPT_54_NANO, ReasoningLevel.LOW);
     private static final ModelConfig gpt5_4NanoHigh = new ModelConfig(GPT_54_NANO, ReasoningLevel.HIGH);
     private static final ModelConfig codex5_3 = new ModelConfig(GPT_5_3_CODEX, ReasoningLevel.DISABLE);
 
-    private static final ModelConfig gpt5_1CodexMiniOauth =
-            new ModelConfig(GPT_5_1_CODEX_MINI_OAUTH, ReasoningLevel.LOW);
     private static final ModelConfig gpt5_3CodexOauth = new ModelConfig(GPT_5_3_CODEX_OAUTH, ReasoningLevel.DISABLE);
+    private static final ModelConfig gpt5_3CodexOauthDefault =
+            new ModelConfig(GPT_5_3_CODEX_OAUTH, ReasoningLevel.DEFAULT);
 
     private static final ModelConfig haiku4_5 = new ModelConfig(HAIKU_4_5);
     private static final ModelConfig sonnet4_6 = new ModelConfig(SONNET_4_6, ReasoningLevel.DISABLE);
@@ -68,7 +74,7 @@ public final class ModelProperties {
      * Current version for model settings. Increment this to force a reset of favorite models,
      * code model, and architect model to their current defaults on the next app upgrade.
      */
-    public static final int MODEL_SETTINGS_VERSION = 1;
+    public static final int MODEL_SETTINGS_VERSION = 3;
 
     public static final String MODEL_SETTINGS_VERSION_KEY = "modelSettingsVersion";
 
@@ -80,6 +86,22 @@ public final class ModelProperties {
             new Service.FavoriteModel("GPT-5.3 Codex", codex5_3),
             new Service.FavoriteModel("Flash 3", flash3),
             new Service.FavoriteModel("Gemini 3.1 Pro", g31p));
+
+    /** Code/Architect role configs applied when Codex OAuth is the active vendor. */
+    public static final ModelConfig CODEX_OAUTH_CODE_CONFIG =
+            new ModelConfig(GPT_5_3_CODEX_OAUTH, ReasoningLevel.DISABLE);
+
+    public static final ModelConfig CODEX_OAUTH_ARCHITECT_CONFIG =
+            new ModelConfig(GPT_5_4_OAUTH, ReasoningLevel.MEDIUM);
+
+    /** Favorites preset installed by Codex OAuth auto-setup and the OAuth-aware Defaults buttons. */
+    public static final List<Service.FavoriteModel> CODEX_OAUTH_FAVORITES = List.of(
+            new Service.FavoriteModel(
+                    "5.3 Codex instant", new ModelConfig(GPT_5_3_CODEX_OAUTH, ReasoningLevel.DISABLE)),
+            new Service.FavoriteModel("5.3 Codex low", new ModelConfig(GPT_5_3_CODEX_OAUTH, ReasoningLevel.LOW)),
+            new Service.FavoriteModel("5.3 Codex high", new ModelConfig(GPT_5_3_CODEX_OAUTH, ReasoningLevel.HIGH)),
+            new Service.FavoriteModel("5.4 medium", new ModelConfig(GPT_5_4_OAUTH, ReasoningLevel.MEDIUM)),
+            new Service.FavoriteModel("5.2 Instant", new ModelConfig(GPT_5_2_OAUTH, ReasoningLevel.DEFAULT)));
 
     /**
      * Enum representing the different model configuration slots persisted in global properties.
@@ -171,15 +193,15 @@ public final class ModelProperties {
             map.put(
                     "OpenAI - Codex",
                     Map.of(
-                            ModelType.SUMMARIZE, gpt5_1CodexMiniOauth,
-                            ModelType.USAGES, gpt5_1CodexMiniOauth,
-                            ModelType.QUICK_EDIT, gpt5_1CodexMiniOauth,
-                            ModelType.QUICKEST, gpt5_1CodexMiniOauth,
-                            ModelType.COMMIT_MESSAGE, gpt5_1CodexMiniOauth,
+                            ModelType.SUMMARIZE, gpt5_3CodexOauthDefault,
+                            ModelType.USAGES, gpt5_3CodexOauthDefault,
+                            ModelType.QUICK_EDIT, gpt5_3CodexOauthDefault,
+                            ModelType.QUICKEST, gpt5_3CodexOauthDefault,
+                            ModelType.COMMIT_MESSAGE, gpt5_3CodexOauthDefault,
                             ModelType.REFERENCES, gpt5_3CodexOauth,
                             ModelType.SCAN, gpt5_3CodexOauth,
                             ModelType.SEARCH, gpt5_3CodexOauth,
-                            ModelType.BUILD_PROCESSOR, gpt5_1CodexMiniOauth));
+                            ModelType.BUILD_PROCESSOR, gpt5_3CodexOauthDefault));
 
             // Validate that all vendors have configurations for all internal ModelTypes
             for (var entry : map.entrySet()) {
@@ -210,6 +232,10 @@ public final class ModelProperties {
      * Ensures ProcessingTier is non-null (backward compatibility against older JSON).
      */
     static ModelConfig getModelConfig(Properties props, ModelType modelType) {
+        // Codex OAuth + restrict flag substitutes role configs at read time; persisted values stay intact.
+        if (MainProject.isOpenAiCodexOauthConnected() && MainProject.isRestrictToOauthModelsWhenConnected()) {
+            return codexOauthConfigFor(modelType);
+        }
         String jsonString = props.getProperty(modelType.propertyKey);
         if (jsonString != null && !jsonString.isBlank()) {
             try {
@@ -229,6 +255,19 @@ public final class ModelProperties {
             }
         }
         return modelType.defaultConfig();
+    }
+
+    private static ModelConfig codexOauthConfigFor(ModelType modelType) {
+        return switch (modelType) {
+            case CODE -> CODEX_OAUTH_CODE_CONFIG;
+            case ARCHITECT -> CODEX_OAUTH_ARCHITECT_CONFIG;
+            default -> {
+                var codexMap =
+                        requireNonNull(getVendorModelMap().get("OpenAI - Codex"), "OpenAI - Codex vendor map missing");
+                yield requireNonNull(
+                        codexMap.get(modelType), "OpenAI - Codex vendor map missing entry for " + modelType);
+            }
+        };
     }
 
     /**

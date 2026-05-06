@@ -1020,7 +1020,7 @@ public class Context {
             StreamingChatModel model,
             String instructions) {
         var mc = AbstractService.ModelConfig.from(model, contextManager.getService());
-        var mopMarkdown = Messages.format(mopMessages);
+        var mopMarkdown = Messages.formatForDisplay(mopMessages);
         var llmMarkdown = Messages.format(llmMessages);
         return addHistoryEntryInternal(new TaskEntry(
                 getTaskHistory().size(),

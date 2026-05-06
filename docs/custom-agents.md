@@ -236,8 +236,7 @@ When you specify a `tools` list, you're choosing which capabilities the agent ha
 | `searchFileContents` | Regex search in file contents with context lines |
 | `skimFiles` | Quick overview of files showing declarations |
 | `listFiles` | Directory listing |
-| `getFileSummaries` | File summaries with top-level declarations |
-| `getClassSkeletons` | Class skeletons with fields and method signatures |
+| `getSummaries` | API surface and nearby structure for classes, files, or packages |
 | `getClassSources` | Full source of classes by fully qualified name |
 | `getMethodSources` | Source of specific methods |
 | `getFileContents` | Read full file contents |
@@ -269,11 +268,11 @@ When you specify a `tools` list, you're choosing which capabilities the agent ha
 | `runShellCommand` | Execute a shell command |
 | `importDependency` | Import a project dependency |
 | `computeCyclomaticComplexity` | Compute cyclomatic complexity for Java code when analysis data is available |
-| `reportCommentDensityForCodeUnit` | Report comment density for one Java symbol, with bounded output |
+| `reportCommentDensityForCodeUnit` | Report comment density for one symbol (Java, JavaScript, TypeScript when analyzer data is available), with bounded output |
 | `reportCommentDensityForFiles` | Report comment density tables for Java files, with bounded output |
 | `analyzeGitHotspots` | Analyze churn hotspots using bounded commit and file limits |
 
-Java comment-density tools return a short message when the analyzer has no Java snapshot. `analyzeGitHotspots` supports `sinceDays` and optional ISO `sinceIso` and `untilIso`, plus bounded `maxCommits` and `maxFiles`.
+Comment-density tools return a short message when the analyzer snapshot cannot provide those stats for a symbol or file. `analyzeGitHotspots` supports `sinceDays` and optional ISO `sinceIso` and `untilIso`, plus bounded `maxCommits` and `maxFiles`.
 
 ### Always available
 
@@ -335,8 +334,7 @@ description: Explains how a codebase or subsystem is architected
 tools:
   - searchSymbols
   - scanUsages
-  - getClassSkeletons
-  - getFileSummaries
+  - getSummaries
   - skimFiles
   - listFiles
   - findFilenames
@@ -350,7 +348,7 @@ When asked about a system or subsystem:
 1. **Discover structure**: use listFiles and findFilenames to understand the directory layout
 2. **Identify key abstractions**: use searchSymbols to find main classes, interfaces, and entry points
 3. **Trace relationships**: use scanUsages to understand how components connect
-4. **Read skeletons**: use getClassSkeletons and getFileSummaries for an overview without drowning in implementation details
+4. **Read APIs first**: use getSummaries for public APIs, adjacent types, and package-level structure before reading implementation details
 5. **Dive selectively**: only read full source when a specific pattern or algorithm needs explanation
 
 Present your analysis as:

@@ -2,7 +2,6 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
@@ -93,6 +92,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JLabel openAiStatusLabel = new JLabel();
     private MaterialButton openAiConnectButton = new MaterialButton("Connect");
     private MaterialButton openAiDisconnectButton = new MaterialButton("Disconnect");
+    private JCheckBox restrictToOauthCheckbox = new JCheckBox("Show only OAuth-compatible models");
 
     // Connections section: paid-only components and upgrade link
     private JPanel connectionsPaidPanel = new JPanel();
@@ -472,11 +472,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         connectionsPaidPanel.add(openAiPanel, paidGbc);
 
+        restrictToOauthCheckbox = new JCheckBox("Show only OAuth-compatible models");
+        restrictToOauthCheckbox.setToolTipText(
+                "When connected via ChatGPT OAuth, hide non-OAuth models from selectors. "
+                        + "Disable to also see API-key models alongside OAuth models.");
+        restrictToOauthCheckbox.setSelected(MainProject.isRestrictToOauthModelsWhenConnected());
+        restrictToOauthCheckbox.addActionListener(e -> {
+            MainProject.setRestrictToOauthModelsWhenConnected(restrictToOauthCheckbox.isSelected());
+            chrome.getContextManager().reloadService();
+        });
+        paidGbc.gridy = 1;
+        connectionsPaidPanel.add(restrictToOauthCheckbox, paidGbc);
+
         var providerKeysUrl = joinUrl(MainProject.getFrontendUrl(), "/dashboard/provider-keys");
         providerKeysLabel = new BrowserLabel(providerKeysUrl, "Set LLM Provider API Keys");
         providerKeysLabel.setToolTipText(
                 "Configure your own provider API keys for Brokk to use in upstream LLM requests.");
-        paidGbc.gridy = 1;
+        paidGbc.gridy = 2;
         connectionsPaidPanel.add(providerKeysLabel, paidGbc);
 
         gbc.gridx = 1;
@@ -2389,6 +2401,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         openAiConnectButton.setVisible(!connected);
         openAiDisconnectButton.setVisible(connected);
+        restrictToOauthCheckbox.setVisible(connected);
+        restrictToOauthCheckbox.setSelected(MainProject.isRestrictToOauthModelsWhenConnected());
     }
 
     /**
@@ -2456,52 +2470,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private void maybeRunCodexAutoSetup() {
         if (MainProject.isOpenAiCodexOauthConnected()) {
-            logger.info("Running first-time Codex auto-setup...");
+            logger.info("Codex OAuth connected; installing Codex favorites preset.");
 
-            MainProject.setOtherModelsVendorPreference("OpenAI - Codex");
-            Map<ModelProperties.ModelType, Service.ModelConfig> vendorModels =
-                    ModelProperties.getVendorModels("OpenAI - Codex");
-            var mainProject = chrome.getProject().getMainProject();
-            if (vendorModels != null) {
-                for (var entry : vendorModels.entrySet()) {
-                    mainProject.setModelConfig(entry.getKey(), entry.getValue());
-                }
-            }
-
-            var codeModelConfig = new Service.ModelConfig(
-                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.DISABLE);
-            var architectModelConfig =
-                    new Service.ModelConfig(ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW);
-
-            // Replace favorites list with only Codex OAuth models
-            var codexFavorites = List.of(
-                    new Service.FavoriteModel(
-                            "5.3 Codex instant",
-                            new Service.ModelConfig(
-                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.DISABLE)),
-                    new Service.FavoriteModel(
-                            "5.3 Codex low",
-                            new Service.ModelConfig(
-                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW)),
-                    new Service.FavoriteModel(
-                            "5.3 Codex high",
-                            new Service.ModelConfig(
-                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.HIGH)));
-            MainProject.saveFavoriteModels(codexFavorites);
+            MainProject.saveFavoriteModels(ModelProperties.CODEX_OAUTH_FAVORITES);
             logger.info("Replaced favorites list with Codex OAuth models");
-
-            mainProject.setModelConfig(ModelProperties.ModelType.CODE, codeModelConfig);
-            mainProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, architectModelConfig);
 
             chrome.getContextManager().reloadService();
 
-            // Show popup and navigate to Model Roles tab
             SwingUtilities.invokeLater(() -> {
                 String message =
                         """
-                        "OpenAI - Codex" vendor has been configured automatically.
-                        GPT-5.2 (Architect) and Codex (Coder) models were set.
-                        This can be changed at any time in Settings.
+                        Codex OAuth is connected. While the OAuth-only restriction is enabled
+                        (Settings > Global), all model roles route to Codex models automatically
+                        without overwriting your saved preferences. The favorites list has been
+                        updated with Codex presets.
                         """
                                 .stripIndent();
 

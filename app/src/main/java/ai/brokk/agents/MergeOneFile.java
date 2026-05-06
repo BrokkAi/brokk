@@ -2,7 +2,6 @@ package ai.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.ContextManager;
 import ai.brokk.IAppContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
@@ -12,6 +11,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
+import ai.brokk.io.ProjectFiles;
+import ai.brokk.tools.Destructive;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -149,13 +150,13 @@ public final class MergeOneFile {
         currentSessionMessages.add(firstUser);
 
         // Tool exposure
-        var allowed = new ArrayList<>(List.of("getClassSkeletons", "getClassSources", "getMethodSources"));
+        var allowed = new ArrayList<>(List.of("getSummaries", "getClassSources", "getMethodSources"));
 
         // Register tools
         var tr = cm.getToolRegistry()
                 .builder()
                 .register(new SearchTools(cm))
-                .register(new WorkspaceTools(((ContextManager) cm).liveContext()))
+                .register(new WorkspaceTools(cm.liveContext()))
                 .register(this)
                 .build();
 
@@ -204,15 +205,28 @@ public final class MergeOneFile {
                     return new Outcome(Status.INTERRUPTED, null);
                 }
 
-                var explanation = tr.getExplanationForToolRequest(req);
-                if (!explanation.isBlank()) {
-                    io.llmOutput("\n" + explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+                if (!io.supportsStructuredToolOutput()) {
+                    var explanation = tr.getExplanationForToolRequest(req);
+                    if (!explanation.isBlank()) {
+                        io.llmOutput("\n" + explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+                    }
                 }
 
+                boolean destructive = tr.isToolAnnotated(req.name(), Destructive.class);
+                var approval = io.beforeToolCall(req, destructive);
+                if (!approval.isApproved()) {
+                    var denied = ToolExecutionResult.requestError(
+                            req, "Tool call '%s' was denied by user.".formatted(req.name()));
+                    io.afterToolOutput(denied);
+                    currentSessionMessages.add(denied.toMessage());
+                    continue;
+                }
+                io.toolCallInProgress(req);
                 ToolExecutionResult exec = tr.executeTool(req);
+                io.afterToolOutput(exec);
 
                 currentSessionMessages.add(exec.toMessage());
-                if (!exec.resultText().isBlank()) {
+                if (!io.supportsStructuredToolOutput() && !exec.resultText().isBlank()) {
                     io.llmOutput(exec.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                 }
 
@@ -231,7 +245,7 @@ public final class MergeOneFile {
                         io.llmOutput(nudge, ChatMessageType.USER, LlmOutputMeta.DEFAULT);
                     }
 
-                    var textOpt = file.read();
+                    var textOpt = ProjectFiles.read(file);
                     if (textOpt.isPresent() && !ConflictAnnotator.containsConflictMarkers(textOpt.get())) {
                         io.llmOutput("\nConflicts resolved for " + file, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                         return new Outcome(Status.RESOLVED, null);
@@ -356,7 +370,7 @@ public final class MergeOneFile {
 
     private String readFileAsCodeBlock(ProjectFile file) {
         var ext = file.extension();
-        var text = file.read().orElse(null);
+        var text = ProjectFiles.read(file).orElse(null);
         if (text == null) {
             return "```text\n<unable to read " + file + ">\n```";
         }

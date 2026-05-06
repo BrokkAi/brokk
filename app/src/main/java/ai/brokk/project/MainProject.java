@@ -128,6 +128,7 @@ public final class MainProject extends AbstractProject {
     private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
     private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
     private static final String OPENAI_CODEX_OAUTH_CONNECTED_KEY = "openAiCodexOauthConnected";
+    private static final String RESTRICT_TO_OAUTH_MODELS_KEY = "restrictToOauthModelsWhenConnected";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -375,10 +376,13 @@ public final class MainProject extends AbstractProject {
                     storedVersion,
                     ModelProperties.MODEL_SETTINGS_VERSION);
 
-            // Remove keys to force fallback to current defaults in ModelProperties
+            // Remove keys to force fallback to current defaults in ModelProperties.
+            // Clears all role configs so any model that's been retired (e.g., 5.1-family OAuth
+            // variants) is replaced by the active vendor map on next read.
             props.remove(ModelProperties.FAVORITE_MODELS_KEY);
-            props.remove(ModelType.CODE.propertyKey);
-            props.remove(ModelType.ARCHITECT.propertyKey);
+            for (ModelType type : ModelType.values()) {
+                props.remove(type.propertyKey);
+            }
 
             props.setProperty(
                     ModelProperties.MODEL_SETTINGS_VERSION_KEY, String.valueOf(ModelProperties.MODEL_SETTINGS_VERSION));
@@ -1112,6 +1116,20 @@ public final class MainProject extends AbstractProject {
             }
             saveGlobalProperties(props);
             notifyOpenAiOauthConnectionChanged();
+        }
+    }
+
+    public static boolean isRestrictToOauthModelsWhenConnected() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(RESTRICT_TO_OAUTH_MODELS_KEY, "true"));
+    }
+
+    public static void setRestrictToOauthModelsWhenConnected(boolean restrict) {
+        var props = loadGlobalProperties();
+        boolean currentValue = Boolean.parseBoolean(props.getProperty(RESTRICT_TO_OAUTH_MODELS_KEY, "true"));
+        if (currentValue != restrict) {
+            props.setProperty(RESTRICT_TO_OAUTH_MODELS_KEY, Boolean.toString(restrict));
+            saveGlobalProperties(props);
         }
     }
 

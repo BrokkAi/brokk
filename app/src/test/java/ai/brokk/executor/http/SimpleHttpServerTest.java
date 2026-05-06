@@ -143,10 +143,10 @@ class SimpleHttpServerTest {
     void testParseJsonRequest() throws Exception {
         server.registerAuthenticatedContext("/test/json", exchange -> {
             var parsed = SimpleHttpServer.parseJsonRequest(exchange, Map.class);
-            if (parsed != null && parsed.containsKey("key")) {
+            if (parsed.containsKey("key")) {
                 SimpleHttpServer.sendJsonResponse(exchange, Map.of("received", "ok"));
             } else {
-                SimpleHttpServer.sendJsonResponse(exchange, 400, ErrorPayload.validationError("Invalid JSON"));
+                SimpleHttpServer.sendJsonResponse(exchange, 400, ErrorPayload.validationError("Missing key"));
             }
         });
 
@@ -163,6 +163,40 @@ class SimpleHttpServerTest {
         }
 
         assertEquals(200, conn.getResponseCode());
+        conn.disconnect();
+    }
+
+    @Test
+    void testParseJsonRequest_MalformedJson_Returns400() throws Exception {
+        server.registerAuthenticatedContext("/test/json-bad", exchange -> {
+            try {
+                var parsed = SimpleHttpServer.parseJsonRequest(exchange, Map.class);
+                SimpleHttpServer.sendJsonResponse(exchange, Map.of("received", "ok"));
+            } catch (Exception e) {
+                SimpleHttpServer.sendJsonResponse(
+                        exchange, 400, ErrorPayload.validationError("Invalid JSON request body"));
+            }
+        });
+
+        var url = new URI("http://127.0.0.1:" + port + "/test/json-bad").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        var malformedJson = "this is not json";
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(malformedJson.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(400, conn.getResponseCode());
+        try (InputStream is = conn.getErrorStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            var errorPayload = objectMapper.readValue(response, ErrorPayload.class);
+            assertNotNull(errorPayload);
+            assertEquals(ErrorPayload.Code.VALIDATION_ERROR, errorPayload.code());
+        }
         conn.disconnect();
     }
 

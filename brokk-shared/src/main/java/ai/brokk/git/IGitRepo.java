@@ -27,6 +27,9 @@ public interface IGitRepo {
     /** Information about a Git worktree. Branch will be null if worktree is in a detached HEAD state. */
     record WorktreeInfo(Path path, @Nullable String branch, String commitId) {}
 
+    /** Result wrapper for commit searches that need to indicate truncation separately from the returned items. */
+    record SearchCommitsResult(List<CommitInfo> commits, boolean truncated) {}
+
     Set<ProjectFile> getTrackedFiles();
 
     /**
@@ -149,6 +152,10 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
+    default List<ModifiedFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
+        throw new UnsupportedOperationException();
+    }
+
     void add(Collection<ProjectFile> files) throws GitAPIException;
 
     /**
@@ -267,6 +274,22 @@ public interface IGitRepo {
 
     default String getCurrentCommitId() throws GitAPIException {
         throw new UnsupportedOperationException("getCurrentCommitId not implemented");
+    }
+
+    default SearchCommitsResult searchCommits(String query, int limit) throws GitAPIException {
+        throw new UnsupportedOperationException("searchCommits not implemented");
+    }
+
+    default List<CommitInfo> listCommitsDetailed(String branchName, int maxResults) throws GitAPIException {
+        throw new UnsupportedOperationException("listCommitsDetailed not implemented");
+    }
+
+    default List<CommitInfo> getFileHistories(Collection<ProjectFile> files, int maxResults) throws GitAPIException {
+        throw new UnsupportedOperationException("getFileHistories not implemented");
+    }
+
+    default GitCanonicalizer buildCanonicalizer(List<CommitInfo> commits) throws GitAPIException, InterruptedException {
+        throw new UnsupportedOperationException("buildCanonicalizer not implemented");
     }
 
     default Set<ModifiedFile> getModifiedFiles() throws GitAPIException {

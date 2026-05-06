@@ -8,6 +8,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
@@ -204,7 +205,7 @@ public class WorkspaceTools {
             return output("File path `%s` is a directory; only normal files may be added.".formatted(normalized));
         }
 
-        var contentOpt = file.read();
+        var contentOpt = ProjectFiles.read(file);
         if (contentOpt.isEmpty()) {
             return output("Could not read file: " + normalized);
         }
@@ -578,6 +579,7 @@ public class WorkspaceTools {
             "searchSymbols",
             "getSymbolLocations",
             "scanUsages",
+            "getSummaries",
             "skimFiles");
 
     /**

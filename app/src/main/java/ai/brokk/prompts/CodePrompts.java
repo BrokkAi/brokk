@@ -10,6 +10,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.util.Messages;
 import com.github.jknack.handlebars.EscapingStrategy;
 import com.github.jknack.handlebars.Handlebars;
@@ -59,7 +60,7 @@ public class CodePrompts {
 
         // we'll inefficiently read the files every time this method is called but at least we won't do it twice
         var fileContents = editableFiles.stream()
-                .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
+                .collect(Collectors.toMap(f -> f, f -> ProjectFiles.read(f).orElse("")));
 
         // Enable SYNTAX_AWARE only if:
         // (a) editable set is non-empty AND

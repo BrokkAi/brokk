@@ -1,9 +1,9 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.cpp.Constants.*;
-import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cpp.CognitiveComplexityAnalysis;
 import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import java.nio.file.InvalidPathException;
@@ -14,6 +14,7 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.*;
+import org.treesitter.CppNodeType;
 
 public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
@@ -118,10 +119,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             "xor",
             "xor_eq");
 
-    private static final String CATCH_CLAUSE = "catch_clause";
-    private static final String COMPOUND_STATEMENT = "compound_statement";
-    private static final String THROW_STATEMENT = "throw_statement";
-    private static final Set<String> CPP_COMMENT_NODE_TYPES = Set.of(CommonTreeSitterNodeTypes.COMMENT);
+    private static final Set<String> CPP_COMMENT_NODE_TYPES = Set.of(nodeType(CppNodeType.COMMENT));
     private static final Set<String> LOG_IDENTIFIER_TOKENS = Set.of(
             "log",
             "logger",
@@ -136,6 +134,15 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             "qdebug",
             "qwarning",
             "qcritical");
+
+    @Override
+    public boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
+        return topLevel
+                && cu.isModule()
+                && parentOf(cu).isEmpty()
+                && languages().stream().anyMatch(language -> language.getExtensions()
+                        .contains(cu.source().extension()));
+    }
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -162,16 +169,24 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     private static final LanguageSyntaxProfile CPP_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(CLASS_SPECIFIER, STRUCT_SPECIFIER, UNION_SPECIFIER, ENUM_SPECIFIER, NAMESPACE_DEFINITION),
             Set.of(
-                    FUNCTION_DEFINITION,
+                    nodeType(CppNodeType.CLASS_SPECIFIER),
+                    nodeType(CppNodeType.STRUCT_SPECIFIER),
+                    nodeType(CppNodeType.UNION_SPECIFIER),
+                    nodeType(CppNodeType.ENUM_SPECIFIER),
+                    nodeType(CppNodeType.NAMESPACE_DEFINITION)),
+            Set.of(
+                    nodeType(CppNodeType.FUNCTION_DEFINITION),
                     METHOD_DEFINITION,
                     CONSTRUCTOR_DECLARATION,
                     DESTRUCTOR_DECLARATION,
-                    DECLARATION),
-            Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
+                    nodeType(CppNodeType.DECLARATION)),
+            Set.of(
+                    nodeType(CppNodeType.FIELD_DECLARATION),
+                    nodeType(CppNodeType.PARAMETER_DECLARATION),
+                    nodeType(CppNodeType.ENUMERATOR)),
             Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
-            Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
+            Set.of(nodeType(CppNodeType.ATTRIBUTE_SPECIFIER), nodeType(CppNodeType.ACCESS_SPECIFIER)),
             CaptureNames.IMPORT_DECLARATION,
             "name",
             "body",
@@ -180,7 +195,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             "template_parameters",
             createCaptureConfiguration(),
             "",
-            Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER));
+            Set.of(
+                    nodeType(CppNodeType.STORAGE_CLASS_SPECIFIER),
+                    nodeType(CppNodeType.TYPE_QUALIFIER),
+                    nodeType(CppNodeType.ACCESS_SPECIFIER)));
 
     public CppAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
@@ -222,6 +240,16 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return CPP_SYNTAX_PROFILE;
+    }
+
+    @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return computeCognitiveComplexity(cu, CognitiveComplexityAnalysis::compute);
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return computeCognitiveComplexities(file, CognitiveComplexityAnalysis::compute);
     }
 
     @Override
@@ -300,7 +328,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
             ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
         var catches = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(CATCH_CLAUSE), catches);
+        collectNodesByType(root, Set.of(nodeType(CppNodeType.CATCH_CLAUSE)), catches);
         return catches.stream()
                 .map(catchNode -> analyzeCatchClause(file, catchNode, sourceContent, weights))
                 .flatMap(Optional::stream)
@@ -316,7 +344,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         TSNode bodyNode = catchNode.getChildByFieldName(FIELD_BODY);
         if (bodyNode == null) {
             bodyNode = catchNode.getNamedChildren().stream()
-                    .filter(child -> COMPOUND_STATEMENT.equals(child.getType()))
+                    .filter(child -> nodeType(CppNodeType.COMPOUND_STATEMENT).equals(child.getType()))
                     .findFirst()
                     .orElse(null);
         }
@@ -326,11 +354,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         String catchType = extractCatchType(catchNode, bodyNode, sourceContent);
         int bodyStatements = countBodyStatements(bodyNode);
-        boolean hasAnyComment = hasDescendantOfType(bodyNode, CommonTreeSitterNodeTypes.COMMENT);
+        boolean hasAnyComment = hasDescendantOfType(bodyNode, nodeType(CppNodeType.COMMENT));
         boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
         boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
         boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
-        boolean throwPresent = hasDescendantOfType(bodyNode, THROW_STATEMENT);
+        boolean throwPresent = hasDescendantOfType(bodyNode, nodeType(CppNodeType.THROW_STATEMENT));
         boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !throwPresent;
 
         int score = 0;
@@ -417,7 +445,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     private static boolean isExecutableStatementNodeType(String type) {
-        if (DECLARATION.equals(type)) {
+        if (nodeType(CppNodeType.DECLARATION).equals(type)) {
             return true;
         }
         if (!type.endsWith("_statement")) {
@@ -427,7 +455,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     private static final Set<String> CPP_WRAPPER_STATEMENT_TYPES = Set.of(
-            COMPOUND_STATEMENT,
+            nodeType(CppNodeType.COMPOUND_STATEMENT),
             "if_statement",
             "for_statement",
             "while_statement",
@@ -452,7 +480,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                     continue;
                 }
                 String type = Objects.toString(child.getType(), "");
-                if (PARAMETER_DECLARATION.equals(type)) {
+                if (nodeType(CppNodeType.PARAMETER_DECLARATION).equals(type)) {
                     if (best == null || child.getStartByte() < best.getStartByte()) {
                         best = child;
                     }
@@ -482,7 +510,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return;
         }
         String type = Objects.toString(node.getType(), "");
-        if (IDENTIFIER.equals(type) || FIELD_IDENTIFIER.equals(type)) {
+        if (nodeType(CppNodeType.IDENTIFIER).equals(type)
+                || nodeType(CppNodeType.FIELD_IDENTIFIER).equals(type)) {
             String text = sourceContent.substringFrom(node).strip().toLowerCase(Locale.ROOT);
             if (!text.isEmpty()) {
                 out.add(text);
@@ -538,7 +567,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             }
             current = parent;
 
-            if (NAMESPACE_DEFINITION.equals(current.getType())) {
+            if (nodeType(CppNodeType.NAMESPACE_DEFINITION).equals(current.getType())) {
                 var nameNode = current.getChildByFieldName(FIELD_NAME);
                 if (nameNode != null) {
                     String name = sourceContent.substringFrom(nameNode).strip();
@@ -586,7 +615,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             String simpleName,
             String baseIndent,
             ProjectFile file) {
-        if (ENUMERATOR.equals(fieldNode.getType())) {
+        if (nodeType(CppNodeType.ENUMERATOR).equals(fieldNode.getType())) {
             return baseIndent + sourceContent.substringFrom(fieldNode).strip();
         }
 
@@ -603,11 +632,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         // Our query captures a nested node (often the field_identifier). We need to reconstruct just one
         // declarator + its default_value based on simpleName.
 
-        final TSNode fieldDecl = FIELD_DECLARATION.equals(fieldNode.getType())
+        final TSNode fieldDecl = nodeType(CppNodeType.FIELD_DECLARATION).equals(fieldNode.getType())
                 ? fieldNode
                 : (fieldNode.getParent() != null
-                                && FIELD_DECLARATION.equals(
-                                        fieldNode.getParent().getType()))
+                                && nodeType(CppNodeType.FIELD_DECLARATION)
+                                        .equals(fieldNode.getParent().getType()))
                         ? fieldNode.getParent()
                         : null;
 
@@ -624,7 +653,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         final String typeText = sourceContent.substringFrom(typeNode).strip();
 
         final String prefixText = getPrefixText(
-                fieldDecl, typeNode, sourceContent, Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, VIRTUAL_SPECIFIER));
+                fieldDecl,
+                typeNode,
+                sourceContent,
+                Set.of(
+                        nodeType(CppNodeType.STORAGE_CLASS_SPECIFIER),
+                        nodeType(CppNodeType.TYPE_QUALIFIER),
+                        nodeType(CppNodeType.VIRTUAL_SPECIFIER)));
 
         // Determine whether this declaration is using "type-star" formatting like:
         //   int* p = &x, q = nullptr;
@@ -636,7 +671,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (!FIELD_DECLARATOR.equals(fieldDecl.getFieldNameForChild(i))) {
                 continue;
             }
-            if (child != null && POINTER_DECLARATOR.equals(child.getType())) {
+            if (child != null && nodeType(CppNodeType.POINTER_DECLARATOR).equals(child.getType())) {
                 hasPointerDeclaratorInDeclaration = true;
                 break;
             }
@@ -811,7 +846,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         String actualParamsText = "";
         TSNode declaratorNode = funcNode.getChildByFieldName(FIELD_DECLARATOR);
-        if (declaratorNode != null && FUNCTION_DECLARATOR.equals(declaratorNode.getType())) {
+        if (declaratorNode != null && nodeType(CppNodeType.FUNCTION_DECLARATOR).equals(declaratorNode.getType())) {
             TSNode paramsNode = declaratorNode.getChildByFieldName(FIELD_PARAMETERS);
             if (paramsNode != null) {
                 actualParamsText = sourceContent.substringFrom(paramsNode);
@@ -820,7 +855,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         if (functionName.isBlank()) {
             TSNode fallbackDeclaratorNode = funcNode.getChildByFieldName(FIELD_DECLARATOR);
-            if (fallbackDeclaratorNode != null && FUNCTION_DECLARATOR.equals(fallbackDeclaratorNode.getType())) {
+            if (fallbackDeclaratorNode != null
+                    && nodeType(CppNodeType.FUNCTION_DECLARATOR).equals(fallbackDeclaratorNode.getType())) {
                 TSNode innerDeclaratorNode = fallbackDeclaratorNode.getChildByFieldName(FIELD_DECLARATOR);
                 if (innerDeclaratorNode != null) {
                     String extractedName = sourceContent.substringFrom(innerDeclaratorNode);
@@ -1138,7 +1174,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         // Find the function_declarator (descend if necessary)
         TSNode decl = funcOrDeclNode.getChildByFieldName(FIELD_DECLARATOR);
-        if (decl == null || !FUNCTION_DECLARATOR.equals(decl.getType())) {
+        if (decl == null || !nodeType(CppNodeType.FUNCTION_DECLARATOR).equals(decl.getType())) {
             decl = findFunctionDeclaratorRecursive(funcOrDeclNode);
             if (decl == null) return "";
         }
@@ -1231,7 +1267,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         // We want the actual identifier node, not an enclosing declarator like pointer_declarator.
         // Pointer/reference punctuation is handled when rendering; name matching must be done on the identifier text.
-        var fieldIdentifierTypes = Set.of(FIELD_IDENTIFIER, IDENTIFIER);
+        var fieldIdentifierTypes = Set.of(nodeType(CppNodeType.FIELD_IDENTIFIER), nodeType(CppNodeType.IDENTIFIER));
         if (fieldIdentifierTypes.contains(node.getType())) return node;
 
         for (TSNode child : node.getChildren()) {
@@ -1247,7 +1283,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
 
         // Base case: found the function_declarator
-        if (FUNCTION_DECLARATOR.equals(node.getType())) {
+        if (nodeType(CppNodeType.FUNCTION_DECLARATOR).equals(node.getType())) {
             return node;
         }
 
@@ -1264,7 +1300,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
-        if (NAMESPACE_DEFINITION.equals(decl.getType())) {
+        if (nodeType(CppNodeType.NAMESPACE_DEFINITION).equals(decl.getType())) {
             TSNode nameNode = decl.getChildByFieldName(FIELD_NAME);
             if (nameNode == null) {
                 return Optional.of("(anonymous)");
@@ -1274,10 +1310,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
 
         // Handle class-like types (struct, class, union, enum)
-        if (STRUCT_SPECIFIER.equals(decl.getType())
-                || CLASS_SPECIFIER.equals(decl.getType())
-                || UNION_SPECIFIER.equals(decl.getType())
-                || ENUM_SPECIFIER.equals(decl.getType())) {
+        if (nodeType(CppNodeType.STRUCT_SPECIFIER).equals(decl.getType())
+                || nodeType(CppNodeType.CLASS_SPECIFIER).equals(decl.getType())
+                || nodeType(CppNodeType.UNION_SPECIFIER).equals(decl.getType())
+                || nodeType(CppNodeType.ENUM_SPECIFIER).equals(decl.getType())) {
             TSNode nameNode = decl.getChildByFieldName(FIELD_NAME);
             if (nameNode == null) {
                 // Anonymous struct/class/union/enum (e.g., anonymous struct in union)
@@ -1291,9 +1327,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return Optional.of(name);
         }
 
-        if (FUNCTION_DEFINITION.equals(decl.getType())) {
+        if (nodeType(CppNodeType.FUNCTION_DEFINITION).equals(decl.getType())) {
             TSNode declaratorNode = decl.getChildByFieldName(FIELD_DECLARATOR);
-            if (declaratorNode != null && FUNCTION_DECLARATOR.equals(declaratorNode.getType())) {
+            if (declaratorNode != null
+                    && nodeType(CppNodeType.FUNCTION_DECLARATOR).equals(declaratorNode.getType())) {
                 TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName(FIELD_DECLARATOR);
                 if (innerDeclaratorNode != null) {
                     String name = sourceContent.substringFrom(innerDeclaratorNode);
@@ -1304,11 +1341,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             }
         }
 
-        if (DECLARATION.equals(decl.getType())
+        if (nodeType(CppNodeType.DECLARATION).equals(decl.getType())
                 || METHOD_DEFINITION.equals(decl.getType())
                 || CONSTRUCTOR_DECLARATION.equals(decl.getType())
                 || DESTRUCTOR_DECLARATION.equals(decl.getType())
-                || FIELD_DECLARATION.equals(decl.getType())) {
+                || nodeType(CppNodeType.FIELD_DECLARATION).equals(decl.getType())) {
             // For multi-declarator declarations, the "name" capture usually points to the specific identifier.
             // If we are here, we are trying to extract the name from the declaration node itself.
             // In C++, we need to check all children because there can be multiple declarators.
@@ -1355,7 +1392,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     @Override
     protected boolean isNullNameExpectedForExtraction(@Nullable String nodeType) {
-        if (CALL_EXPRESSION.equals(nodeType)) {
+        if (nodeType(CppNodeType.CALL_EXPRESSION).equals(nodeType)) {
             return true;
         }
         // Suppress logging for common C++ patterns where null names are expected
@@ -1364,10 +1401,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     private boolean isComplexDeclarationStructure(@Nullable String nodeType) {
         // Common C++ complex declaration patterns that may not have simple name fields
-        return DECLARATION.equals(nodeType)
-                || FUNCTION_DEFINITION.equals(nodeType)
-                || FIELD_DECLARATION.equals(nodeType)
-                || PARAMETER_DECLARATION.equals(nodeType);
+        return nodeType(CppNodeType.DECLARATION).equals(nodeType)
+                || nodeType(CppNodeType.FUNCTION_DEFINITION).equals(nodeType)
+                || nodeType(CppNodeType.FIELD_DECLARATION).equals(nodeType)
+                || nodeType(CppNodeType.PARAMETER_DECLARATION).equals(nodeType);
     }
 
     /**
@@ -1428,10 +1465,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         while (current != null) {
             String nodeType = current.getType();
             // Check if we've reached a class/struct specifier
-            if (CLASS_SPECIFIER.equals(nodeType) || STRUCT_SPECIFIER.equals(nodeType)) {
+            if (nodeType(CppNodeType.CLASS_SPECIFIER).equals(nodeType)
+                    || nodeType(CppNodeType.STRUCT_SPECIFIER).equals(nodeType)) {
                 // Check if this class is inside a template_declaration
                 TSNode parent = current.getParent();
-                if (parent != null && TEMPLATE_DECLARATION.equals(parent.getType())) {
+                if (parent != null && nodeType(CppNodeType.TEMPLATE_DECLARATION).equals(parent.getType())) {
                     TSNode paramsNode = parent.getChildByFieldName(FIELD_PARAMETERS);
                     if (paramsNode != null) {
                         String templateText =
@@ -1458,9 +1496,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         // Template parameters are usually on the parent template_declaration node
         TSNode templateDecl = node.getParent();
-        if (templateDecl == null || !TEMPLATE_DECLARATION.equals(templateDecl.getType())) {
+        if (templateDecl == null || !nodeType(CppNodeType.TEMPLATE_DECLARATION).equals(templateDecl.getType())) {
             // Check if the node itself is a template_declaration (unlikely for capture, but defensive)
-            if (TEMPLATE_DECLARATION.equals(node.getType())) {
+            if (nodeType(CppNodeType.TEMPLATE_DECLARATION).equals(node.getType())) {
                 templateDecl = node;
             } else {
                 return null;
@@ -1494,7 +1532,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         // Find the function_declarator if present
         TSNode decl = funcOrDeclNode.getChildByFieldName(FIELD_DECLARATOR);
-        if (decl == null || !FUNCTION_DECLARATOR.equals(decl.getType())) {
+        if (decl == null || !nodeType(CppNodeType.FUNCTION_DECLARATOR).equals(decl.getType())) {
             decl = findFunctionDeclaratorRecursive(funcOrDeclNode);
             if (decl == null) return "";
         }
@@ -1526,7 +1564,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         boolean nodeHasConst;
         boolean nodeHasVolatile;
 
-        // Scan both the outer node and the function_declarator node for TYPE_QUALIFIER children in the tail region
+        // Scan both the outer node and the function_declarator node for nodeType(CppNodeType.TYPE_QUALIFIER) children
+        // in the tail region
         nodeHasConst = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, sourceContent, "const");
         nodeHasVolatile = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, sourceContent, "volatile");
         nodeHasConst = nodeHasConst || scanForQualifier(decl, tailStart, tailEnd, sourceContent, "const");
@@ -1668,7 +1707,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     /**
      * Scans immediate named children of the given parent node within the [tailStart, tailEnd) byte range
-     * for TYPE_QUALIFIER nodes containing the specified qualifier token.
+     * for nodeType(CppNodeType.TYPE_QUALIFIER) nodes containing the specified qualifier token.
      */
     @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
     private boolean scanForQualifier(
@@ -1678,7 +1717,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             int sb = child.getStartByte();
             if (sb < tailStart || sb >= tailEnd) continue;
             String t = child.getType();
-            if (TYPE_QUALIFIER.equals(t)) {
+            if (nodeType(CppNodeType.TYPE_QUALIFIER).equals(t)) {
                 String q = sourceContent.substringFrom(child).strip();
                 if (q.contains(qualifier)) {
                     return true;
@@ -2052,7 +2091,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     private static void collectStructuredMarkerBlocks(
             TSNode rootNode, SourceContent sourceContent, Set<Integer> seenBodyStarts, List<CppTestBlock> blocks) {
         var identifiers = new ArrayList<TSNode>();
-        collectNodesByType(rootNode, Set.of(IDENTIFIER), identifiers);
+        collectNodesByType(rootNode, Set.of(nodeType(CppNodeType.IDENTIFIER)), identifiers);
         for (TSNode identifierNode : identifiers) {
             String markerName = sourceContent.substringFrom(identifierNode).strip();
             if (!TEST_MARKER_NAMES.contains(markerName)) {
@@ -2073,7 +2112,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     private static boolean isStructuredTestMarker(TSNode markerNode, String markerName, SourceContent sourceContent) {
-        if (hasAncestorOfType(markerNode, COMPOUND_STATEMENT)) {
+        if (hasAncestorOfType(markerNode, nodeType(CppNodeType.COMPOUND_STATEMENT))) {
             return false;
         }
         TSNode bodyNode = testBodyForMarker(markerNode);
@@ -2085,7 +2124,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             // In practice the unexpanded token stream can parse with ERROR nodes and without a reliable
             // argument-list structure we can traverse. We therefore accept TEST_METHOD only when it appears
             // in a class-like context (field_declaration_list) and when the next non-trivia token is '('.
-            if (!hasAncestorOfType(markerNode, FIELD_DECLARATION_LIST)) {
+            if (!hasAncestorOfType(markerNode, nodeType(CppNodeType.FIELD_DECLARATION_LIST))) {
                 return false;
             }
             if (!hasImmediateInvocationParen(markerNode, sourceContent)) {
@@ -2104,7 +2143,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (parent == null) {
                 break;
             }
-            if (CALL_EXPRESSION.equals(parent.getType()) && parent.getChildByFieldName(FIELD_ARGUMENTS) != null) {
+            if (nodeType(CppNodeType.CALL_EXPRESSION).equals(parent.getType())
+                    && parent.getChildByFieldName(FIELD_ARGUMENTS) != null) {
                 return true;
             }
             current = parent;
@@ -2112,7 +2152,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         TSNode functionDef = markerNode;
         while (functionDef != null) {
-            if (FUNCTION_DEFINITION.equals(functionDef.getType()) && containsNode(functionDef, bodyNode)) {
+            if (nodeType(CppNodeType.FUNCTION_DEFINITION).equals(functionDef.getType())
+                    && containsNode(functionDef, bodyNode)) {
                 break;
             }
             functionDef = functionDef.getParent();
@@ -2134,7 +2175,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (!node.equals(bodyNode) && containsNode(bodyNode, node)) {
                 continue;
             }
-            if (PARAMETER_LIST.equals(node.getType())) {
+            if (nodeType(CppNodeType.PARAMETER_LIST).equals(node.getType())) {
                 int start = node.getStartByte();
                 if (start >= markerEnd && start < bodyStart) {
                     return true;
@@ -2209,16 +2250,16 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (containsNode(current, bodyNode)) {
                 TSNode parent = current.getParent();
                 if (parent == null) {
-                    return TRANSLATION_UNIT.equals(current.getType());
+                    return nodeType(CppNodeType.TRANSLATION_UNIT).equals(current.getType());
                 }
                 String parentType = parent.getType();
-                return TRANSLATION_UNIT.equals(parentType)
-                        || DECLARATION_LIST.equals(parentType)
-                        || NAMESPACE_DEFINITION.equals(parentType)
-                        || FIELD_DECLARATION_LIST.equals(parentType)
-                        || CLASS_SPECIFIER.equals(parentType)
-                        || STRUCT_SPECIFIER.equals(parentType)
-                        || UNION_SPECIFIER.equals(parentType);
+                return nodeType(CppNodeType.TRANSLATION_UNIT).equals(parentType)
+                        || nodeType(CppNodeType.DECLARATION_LIST).equals(parentType)
+                        || nodeType(CppNodeType.NAMESPACE_DEFINITION).equals(parentType)
+                        || nodeType(CppNodeType.FIELD_DECLARATION_LIST).equals(parentType)
+                        || nodeType(CppNodeType.CLASS_SPECIFIER).equals(parentType)
+                        || nodeType(CppNodeType.STRUCT_SPECIFIER).equals(parentType)
+                        || nodeType(CppNodeType.UNION_SPECIFIER).equals(parentType);
             }
             current = current.getParent();
         }
@@ -2230,8 +2271,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         while (current != null) {
             TSNode bodyNode = current.getChildByFieldName(FIELD_BODY);
             if (bodyNode != null
-                    && (COMPOUND_STATEMENT.equals(bodyNode.getType())
-                            || FIELD_DECLARATION_LIST.equals(bodyNode.getType()))
+                    && (nodeType(CppNodeType.COMPOUND_STATEMENT).equals(bodyNode.getType())
+                            || nodeType(CppNodeType.FIELD_DECLARATION_LIST).equals(bodyNode.getType()))
                     && bodyNode.getStartByte() >= markerNode.getStartByte()) {
                 return bodyNode;
             }
@@ -2274,7 +2315,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 }
                 continue;
             }
-            if (COMPOUND_STATEMENT.equals(child.getType())) {
+            if (nodeType(CppNodeType.COMPOUND_STATEMENT).equals(child.getType())) {
                 return child;
             }
             TSNode nested = firstCompoundDescendant(child);
@@ -2292,7 +2333,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         while (!stack.isEmpty()) {
             TSNode current = stack.pop();
             if (!current.equals(node)
-                    && COMPOUND_STATEMENT.equals(current.getType())
+                    && nodeType(CppNodeType.COMPOUND_STATEMENT).equals(current.getType())
                     && current.getStartByte() > startByte) {
                 if (best == null || current.getStartByte() < best.getStartByte()) {
                     best = current;
@@ -2314,7 +2355,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     private static @Nullable TSNode firstCompoundDescendant(TSNode node) {
-        if (COMPOUND_STATEMENT.equals(node.getType())) {
+        if (nodeType(CppNodeType.COMPOUND_STATEMENT).equals(node.getType())) {
             return node;
         }
         for (int i = 0; i < node.getNamedChildCount(); i++) {
@@ -2476,7 +2517,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     private static List<AssertionCall> extractAssertionCalls(TSNode scopeNode, SourceContent sourceContent) {
         var callNodes = new ArrayList<TSNode>();
-        collectNodesByType(scopeNode, Set.of(CALL_EXPRESSION), callNodes);
+        collectNodesByType(scopeNode, Set.of(nodeType(CppNodeType.CALL_EXPRESSION)), callNodes);
         callNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
 
         var assertionCalls = new ArrayList<AssertionCall>();

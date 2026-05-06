@@ -189,6 +189,7 @@ public class ParallelSearch {
     private SearchTaskResult executeSearchRequest(
             ToolExecutionRequest request, Context searchStartContext, ToolRegistry tr, IConsoleIO io) {
         io.beforeToolCall(request, false);
+        io.toolCallInProgress(request);
 
         ToolExecutionResult toolResult;
         TaskResult taskResult;

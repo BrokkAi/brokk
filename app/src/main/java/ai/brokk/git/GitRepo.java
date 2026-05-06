@@ -62,6 +62,7 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Supplier<String> tokenSupplier; // Supplier for GitHub token
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
     private @Nullable Set<Path> trackedPathsCache = null;
+    private final GitRepoCaches caches = new GitRepoCaches();
 
     // New field holding remote-related helpers
     private final GitRepoRemote remote;
@@ -497,6 +498,7 @@ public class GitRepo implements Closeable, IGitRepo {
         repository.getRefDatabase().refresh();
         trackedFilesCache = null;
         trackedPathsCache = null;
+        caches.invalidateHeadScopedCaches();
     }
 
     /** Adds files to staging. */
@@ -1660,7 +1662,14 @@ public class GitRepo implements Closeable, IGitRepo {
     public record RemoteInfo(String url, List<String> branches, List<String> tags, @Nullable String defaultBranch) {}
 
     /** List commits with detailed information for a specific branch */
+    @Override
     public List<CommitInfo> listCommitsDetailed(String branchName, int maxResults) throws GitAPIException {
+        var headCommitId = getCurrentCommitId();
+        var cached = caches.getCommitList(headCommitId, branchName, maxResults);
+        if (cached != null) {
+            return cached;
+        }
+
         var commits = new ArrayList<CommitInfo>();
         var logCommand = git.log();
 
@@ -1680,7 +1689,9 @@ public class GitRepo implements Closeable, IGitRepo {
         for (var commit : logCommand.call()) {
             commits.add(this.fromRevCommit(commit));
         }
-        return commits;
+        var result = List.copyOf(commits);
+        caches.putCommitList(headCommitId, branchName, maxResults, result);
+        return result;
     }
 
     public List<CommitInfo> listCommitsDetailed(String branchName) throws GitAPIException {
@@ -1690,8 +1701,20 @@ public class GitRepo implements Closeable, IGitRepo {
      * Lists files changed in a specific commit compared to its primary parent. For an initial commit, lists all files
      * in that commit.
      */
+    @Override
     public List<ModifiedFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
-        return data.listFilesChangedInCommit(commitId);
+        if ("WORKING".equals(commitId)) {
+            return List.copyOf(data.listFilesChangedInCommit(commitId));
+        }
+
+        var cached = caches.getChangedFilesByCommit(commitId);
+        if (cached != null) {
+            return cached;
+        }
+
+        var result = List.copyOf(data.listFilesChangedInCommit(commitId));
+        caches.putChangedFilesByCommit(commitId, result);
+        return result;
     }
 
     /** Lists files changed between two commit SHAs (from oldCommitId to newCommitId). */
@@ -2138,8 +2161,35 @@ public class GitRepo implements Closeable, IGitRepo {
      *    (slower) or make it a toggle.
      *  - Bodies are not retained (RevWalk#setRetainBody(false)).
      */
+    @Override
     public List<CommitInfo> getFileHistories(Collection<ProjectFile> files, int maxResults) throws GitAPIException {
         if (files.isEmpty() || maxResults <= 0) return List.of();
+
+        var headCommitId = getCurrentCommitId();
+        var lookup = caches.lookupFileHistories(headCommitId, files, maxResults);
+        var cachedResults = new LinkedHashMap<>(lookup.cachedResults());
+        var missingFiles = lookup.missingFiles();
+
+        if (!missingFiles.isEmpty()) {
+            var computedResults = collectFileHistories(missingFiles, maxResults);
+            caches.putFileHistories(headCommitId, computedResults, maxResults);
+            computedResults.forEach((file, commits) -> cachedResults.put(file, List.copyOf(commits)));
+        }
+
+        return files.stream()
+                .map(cachedResults::get)
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .distinct()
+                .sorted((a, b) -> b.date().compareTo(a.date()))
+                .toList();
+    }
+
+    private Map<ProjectFile, List<CommitInfo>> collectFileHistories(Collection<ProjectFile> files, int maxResults)
+            throws GitAPIException {
+        if (files.isEmpty() || maxResults <= 0) {
+            return Map.of();
+        }
 
         final Map<ProjectFile, String> trackedPath = new LinkedHashMap<>();
         for (var f : files) trackedPath.put(f, toRepoRelativePath(f));
@@ -2220,15 +2270,12 @@ public class GitRepo implements Closeable, IGitRepo {
                 df.setDetectRenames(wasDetectRenames);
             }
 
-            return results.values().stream()
-                    .flatMap(List::stream)
-                    .distinct()
-                    .sorted((a, b) -> b.date().compareTo(a.date()))
-                    .toList();
-
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
         }
+
+        return results.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> List.copyOf(entry.getValue())));
     }
 
     /**
@@ -2260,8 +2307,6 @@ public class GitRepo implements Closeable, IGitRepo {
         remote().fetchPrRef(prNumber, "origin");
     }
 
-    public record SearchCommitsResult(List<CommitInfo> commits, boolean truncated) {}
-
     /**
      * Search commits whose full message, author name, or author e-mail match the supplied regular expression
      * (case-insensitive).
@@ -2275,11 +2320,12 @@ public class GitRepo implements Closeable, IGitRepo {
         return searchCommitsWithTruncation(query, Integer.MAX_VALUE).commits();
     }
 
-    public SearchCommitsResult searchCommits(String query, int limit) throws GitAPIException {
+    @Override
+    public IGitRepo.SearchCommitsResult searchCommits(String query, int limit) throws GitAPIException {
         return searchCommitsWithTruncation(query, limit);
     }
 
-    private SearchCommitsResult searchCommitsWithTruncation(String query, int limit) throws GitAPIException {
+    private IGitRepo.SearchCommitsResult searchCommitsWithTruncation(String query, int limit) throws GitAPIException {
         var matches = new ArrayList<CommitInfo>();
 
         Pattern pattern = null;
@@ -2335,7 +2381,7 @@ public class GitRepo implements Closeable, IGitRepo {
         if (truncated) {
             matches.remove(matches.size() - 1);
         }
-        return new SearchCommitsResult(List.copyOf(matches), truncated);
+        return new IGitRepo.SearchCommitsResult(List.copyOf(matches), truncated);
     }
 
     @Override
@@ -2826,46 +2872,6 @@ public class GitRepo implements Closeable, IGitRepo {
         return false;
     }
 
-    // Add near other small helper types/records
-    public static final class Canonicalizer {
-        private final Map<String, Integer> indexByCommit; // commitId -> index in window (0 = newest)
-        private final NavigableMap<Integer, List<RenameEdge>> renamesByIndex; // commitIndex -> renames at that commit
-
-        private Canonicalizer(
-                Map<String, Integer> indexByCommit, NavigableMap<Integer, List<RenameEdge>> renamesByIndex) {
-            this.indexByCommit = indexByCommit;
-            this.renamesByIndex = renamesByIndex;
-        }
-
-        /**
-         * Returns the canonical (current-as-of-HEAD) ProjectFile for {@code pathAtCommit},
-         * by applying any renames that occur AFTER {@code commitId} within the window.
-         */
-        public ProjectFile canonicalize(String commitId, ProjectFile pathAtCommit) {
-            Integer startIdx = indexByCommit.get(commitId);
-            if (startIdx == null) {
-                // Commit not in window (should not happen for our PMI caller); return as-is
-                return pathAtCommit;
-            }
-
-            var current = pathAtCommit;
-            // Iterate renames from oldest to newest (highest to lowest index within the range)
-            // to correctly follow the rename chain in chronological order
-            for (var entry :
-                    renamesByIndex.headMap(startIdx, false).descendingMap().entrySet()) {
-                for (var edge : entry.getValue()) {
-                    if (edge.old().equals(current)) {
-                        current = edge.newPath();
-                    }
-                }
-            }
-            return current;
-        }
-
-        // A single rename observed in a commit's diff (old -> new)
-        public record RenameEdge(ProjectFile old, ProjectFile newPath) {}
-    }
-
     /**
      * Builds a per-commit rename canonicalizer scoped to the minimal window that covers all
      * {@code commits} (i.e., the PMI sample). We walk from HEAD back until we have encountered
@@ -2876,14 +2882,21 @@ public class GitRepo implements Closeable, IGitRepo {
      * by walking forward through renames that occur AFTER X in this window, avoiding path-recycling
      * ambiguities.
      */
-    public Canonicalizer buildCanonicalizer(List<CommitInfo> commits) throws GitAPIException, InterruptedException {
+    @Override
+    public GitCanonicalizer buildCanonicalizer(List<CommitInfo> commits) throws GitAPIException, InterruptedException {
         if (commits.isEmpty()) {
-            return new Canonicalizer(Map.of(), new TreeMap<>());
+            return new GitCanonicalizer(Map.of(), new TreeMap<>());
+        }
+
+        var headCommitId = getCurrentCommitId();
+        var cached = caches.getCanonicalizer(headCommitId, commits);
+        if (cached != null) {
+            return cached;
         }
 
         var remaining = commits.stream().map(CommitInfo::id).collect(Collectors.toCollection(HashSet::new));
         var indexByCommit = new HashMap<String, Integer>();
-        var renamesByIndex = new HashMap<Integer, List<Canonicalizer.RenameEdge>>();
+        var renamesByIndex = new HashMap<Integer, List<GitCanonicalizer.RenameEdge>>();
 
         try (var revWalk = new RevWalk(repository);
                 var df = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
@@ -2897,7 +2910,6 @@ public class GitRepo implements Closeable, IGitRepo {
             revWalk.markStart(head);
 
             int idx = -1;
-            boolean foundAllCommits = false;
             for (var commit : revWalk) {
                 if (Thread.interrupted()) {
                     throw new InterruptedException();
@@ -2932,7 +2944,7 @@ public class GitRepo implements Closeable, IGitRepo {
                                 },
                                 "buildCanonicalizer");
 
-                        List<Canonicalizer.RenameEdge> edgesForThisCommit = null;
+                        List<GitCanonicalizer.RenameEdge> edgesForThisCommit = null;
                         for (var de : diffs) {
                             if (de.getChangeType() != DiffEntry.ChangeType.RENAME) continue;
 
@@ -2943,7 +2955,7 @@ public class GitRepo implements Closeable, IGitRepo {
                             if (edgesForThisCommit == null) {
                                 edgesForThisCommit = new ArrayList<>();
                             }
-                            edgesForThisCommit.add(new Canonicalizer.RenameEdge(oldOpt.get(), newOpt.get()));
+                            edgesForThisCommit.add(new GitCanonicalizer.RenameEdge(oldOpt.get(), newOpt.get()));
                         }
                         if (edgesForThisCommit != null && !edgesForThisCommit.isEmpty()) {
                             renamesByIndex.put(idx, edgesForThisCommit);
@@ -2953,11 +2965,10 @@ public class GitRepo implements Closeable, IGitRepo {
                     df.setDetectRenames(wasDetectRenames);
                 }
 
-                // Check if we've found all the required commits
+                // Older commits cannot affect canonicalization for the sampled window.
                 remaining.remove(commitId);
-                if (remaining.isEmpty() && !foundAllCommits) {
-                    foundAllCommits = true;
-                    // Continue walking to record any renames that occur after the sampled commits
+                if (remaining.isEmpty()) {
+                    break;
                 }
             }
         } catch (IOException e) {
@@ -2966,6 +2977,8 @@ public class GitRepo implements Closeable, IGitRepo {
 
         // Sort rename indices for efficient forward walking
         var sorted = new TreeMap<>(renamesByIndex);
-        return new Canonicalizer(indexByCommit, sorted);
+        var result = new GitCanonicalizer(indexByCommit, sorted);
+        caches.putCanonicalizer(headCommitId, commits, result);
+        return result;
     }
 }

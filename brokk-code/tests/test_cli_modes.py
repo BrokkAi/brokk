@@ -278,15 +278,13 @@ def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["vendor"] == "OpenAI"
 
 
-def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
+def test_main_acp_routes_to_native_launcher(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {}
-    fake_acp_module = ModuleType("brokk_code.acp_server")
 
-    async def fake_run_acp_server(**kwargs: Any) -> None:
+    def fake_run_native_acp_server(**kwargs: Any) -> None:
         captured["kwargs"] = kwargs
 
-    fake_acp_module.run_acp_server = fake_run_acp_server
-    monkeypatch.setitem(sys.modules, "brokk_code.acp_server", fake_acp_module)
+    monkeypatch.setattr(main_module, "run_native_acp_server", fake_run_native_acp_server)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -304,8 +302,86 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
     main_module.main()
 
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
-    assert captured["kwargs"]["executor_snapshot"] is False
-    assert captured["kwargs"]["vendor"] == "Gemini"
+    assert "--workspace-dir" in captured["kwargs"]["passthrough_args"]
+    assert "--vendor" in captured["kwargs"]["passthrough_args"]
+    assert "Gemini" in captured["kwargs"]["passthrough_args"]
+
+
+def test_main_acp_native_alias_warns_and_routes(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_run_native_acp_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(main_module, "run_native_acp_server", fake_run_native_acp_server)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk", "acp-native", "--workspace", str(tmp_path)],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert "deprecated" in capsys.readouterr().err.lower()
+
+
+def test_main_acp_with_jar_forwards_jar_and_skips_jbang(monkeypatch, tmp_path) -> None:
+    """`brokk acp --jar <path>` must forward jar_path verbatim and never touch jbang.
+
+    End-to-end dispatch contract: the only thing main() does on the acp branch
+    is call run_native_acp_server with the resolved jar_path. No ensure_jbang_ready,
+    no install prefetch, no release-jar URL machinery.
+    """
+    captured: dict[str, Any] = {}
+    jar_path = tmp_path / "brokk.jar"
+    jar_path.write_text("dummy")
+
+    def fake_run_native_acp_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    def boom_jbang() -> str:
+        raise AssertionError("ensure_jbang_ready must not be called on the acp dispatch path")
+
+    def boom_resolve_jbang() -> str | None:
+        raise AssertionError("resolve_jbang_binary must not be called on the acp dispatch path")
+
+    def boom_prefetch(_commands: list) -> None:
+        raise AssertionError("_run_install_prefetch must not be called on the acp dispatch path")
+
+    monkeypatch.setattr(main_module, "run_native_acp_server", fake_run_native_acp_server)
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", boom_jbang)
+    monkeypatch.setattr(main_module, "resolve_jbang_binary", boom_resolve_jbang)
+    monkeypatch.setattr(main_module, "_run_install_prefetch", boom_prefetch)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "acp",
+            "--workspace",
+            str(tmp_path),
+            "--jar",
+            str(jar_path),
+            "--executor-version",
+            "9.9.9",
+        ],
+    )
+
+    main_module.main()
+
+    kwargs = captured["kwargs"]
+    assert kwargs["workspace_dir"] == tmp_path.resolve()
+    assert kwargs["jar_path"] == jar_path.resolve()
+    assert kwargs["executor_version"] == "9.9.9"
+    passthrough = kwargs["passthrough_args"]
+    assert "--workspace-dir" in passthrough
+    assert str(tmp_path.resolve()) in passthrough
+    # Nothing in the forwarded kwargs should reference jbang or the release CDN.
+    for value in kwargs.values():
+        rendered = str(value)
+        assert "jbang" not in rendered.lower()
+        assert "brokk-releases" not in rendered
 
 
 def test_main_mcp_routes_to_launcher(monkeypatch, tmp_path) -> None:
@@ -339,6 +415,38 @@ def test_main_mcp_routes_to_launcher(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["executor_version"] == "0.99.0"
     # Ensure no residual ide parameter is passed from CLI to run_acp_server
     assert "ide" not in captured["kwargs"]
+
+
+def test_main_bifrost_routes_to_launcher(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {}
+    binary = tmp_path / "bifrost"
+    binary.write_text("stub")
+
+    from brokk_code import bifrost_launcher as bifrost_launcher_module
+
+    def fake_run_bifrost_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(bifrost_launcher_module, "run_bifrost_server", fake_run_bifrost_server)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "bifrost",
+            "--workspace",
+            str(tmp_path),
+            "--bifrost-binary",
+            str(binary),
+            "--debug",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["binary_override"] == binary
+    assert captured["kwargs"]["passthrough_args"] == ["--debug"]
 
 
 def test_main_mcp_forwards_unknown_args_as_passthrough(monkeypatch, tmp_path) -> None:
@@ -421,13 +529,11 @@ def test_main_exec_resolves_workspace_to_repo_root(monkeypatch, tmp_path) -> Non
 
 def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {}
-    fake_acp_module = ModuleType("brokk_code.acp_server")
 
-    async def fake_run_acp_server(**kwargs: Any) -> None:
+    def fake_run_native_acp_server(**kwargs: Any) -> None:
         captured["kwargs"] = kwargs
 
-    fake_acp_module.run_acp_server = fake_run_acp_server
-    monkeypatch.setitem(sys.modules, "brokk_code.acp_server", fake_acp_module)
+    monkeypatch.setattr(main_module, "run_native_acp_server", fake_run_native_acp_server)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -436,9 +542,6 @@ def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) 
             "acp",
             "--workspace",
             str(tmp_path),
-            "--executor-stable",
-            "--vendor",
-            "Gemini",
             "--ide",
             "zed",
         ],
@@ -446,12 +549,9 @@ def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) 
 
     main_module.main()
 
-    # Still routes correctly
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
-    assert captured["kwargs"]["executor_snapshot"] is False
-    assert captured["kwargs"]["vendor"] == "Gemini"
-    # Critically: ide is not forwarded to run_acp_server
-    assert "ide" not in captured["kwargs"]
+    assert "--ide" not in captured["kwargs"]["passthrough_args"]
+    assert "zed" not in captured["kwargs"]["passthrough_args"]
 
 
 def test_main_acp_rejects_extra_positional(monkeypatch, tmp_path) -> None:
@@ -471,7 +571,7 @@ def test_main_install_zed_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     captured: dict[str, Any] = {}
 
     def fake_configure_zed_acp_settings(
-        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None
+        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None, **_kw
     ):
         captured["force"] = force
         return tmp_path / ".config" / "zed" / "settings.json"
@@ -489,7 +589,7 @@ def test_main_install_zed_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
 
 def test_main_install_zed_conflict_exits_nonzero(monkeypatch) -> None:
     def fake_configure_zed_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path=None, uvx_command=None, **_kw
     ):
         raise main_module.ExistingBrokkCodeEntryError("exists")
 
@@ -505,7 +605,7 @@ def test_main_install_zed_conflict_exits_nonzero(monkeypatch) -> None:
 
 def test_main_install_zed_invalid_json_exits_nonzero(monkeypatch) -> None:
     def fake_configure_zed_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path=None, uvx_command=None, **_kw
     ):
         raise ValueError("Could not parse as JSON/JSONC")
 
@@ -523,7 +623,7 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
     captured: dict[str, Any] = {}
 
     def fake_configure_intellij_acp_settings(
-        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None
+        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None, **_kw
     ):
         captured["force"] = force
         return tmp_path / "intellij-config"
@@ -533,6 +633,30 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
         main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings
     )
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "intellij", "--force"])
+
+    main_module.main()
+
+    output = capsys.readouterr().out
+    assert captured["force"] is True
+    assert "Configured IntelliJ ACP integration" in output
+
+
+def test_main_install_jetbrains_alias_routes_to_intellij_installer(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_configure_intellij_acp_settings(
+        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None, **_kw
+    ):
+        captured["force"] = force
+        return tmp_path / "intellij-config"
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings
+    )
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "jetbrains", "--force"])
 
     main_module.main()
 
@@ -767,7 +891,7 @@ def test_main_install_verbose_prints_prefetch_command(monkeypatch, tmp_path, cap
     monkeypatch.setattr(main_module, "_run_install_prefetch", fake_run_install_prefetch)
 
     def fake_configure_zed_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path=None, uvx_command=None, **_kw
     ):
         return tmp_path / ".config" / "zed" / "settings.json"
 
@@ -785,7 +909,7 @@ def test_main_install_verbose_prints_prefetch_command(monkeypatch, tmp_path, cap
 
 def test_main_install_intellij_conflict_exits_nonzero(monkeypatch) -> None:
     def fake_configure_intellij_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path=None, uvx_command=None, **_kw
     ):
         raise main_module.ExistingBrokkCodeEntryError("exists")
 
@@ -803,7 +927,7 @@ def test_main_install_intellij_conflict_exits_nonzero(monkeypatch) -> None:
 
 def test_main_install_intellij_invalid_json_exits_nonzero(monkeypatch) -> None:
     def fake_configure_intellij_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path=None, uvx_command=None, **_kw
     ):
         raise ValueError("Could not parse as JSON")
 
@@ -850,13 +974,13 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
         return tmp_path / ".codex" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
 
     def fake_install_codex_mcp_summaries_skill(*, skills_path: Any = None):
-        return tmp_path / ".codex" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+        return tmp_path / ".codex" / "skills" / "brokk-get-summaries" / "SKILL.md"
 
     def fake_install_claude_mcp_workspace_skill(*, skills_path: Any = None):
         return tmp_path / ".claude" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
 
     def fake_install_claude_mcp_summaries_skill(*, skills_path: Any = None):
-        return tmp_path / ".claude" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+        return tmp_path / ".claude" / "skills" / "brokk-get-summaries" / "SKILL.md"
 
     monkeypatch.setattr(
         main_module,
@@ -3229,7 +3353,9 @@ def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
         ensure_called["n"] += 1
         return "/usr/bin/jbang"
 
-    def fake_configure_zed_acp_settings(*, force: bool = False, uvx_command: str | None = None):
+    def fake_configure_zed_acp_settings(
+        *, force: bool = False, uvx_command: str | None = None, **_kwargs
+    ):
         return tmp_path / "zed.json"
 
     monkeypatch.setattr(main_module, "ensure_jbang_ready", fake_ensure_jbang_ready)
@@ -3268,7 +3394,7 @@ def test_install_zed_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(
         main_module,
         "configure_zed_acp_settings",
-        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "zed.json",
+        lambda *, force=False, settings_path=None, uvx_command=None, **_kw: tmp_path / "zed.json",
     )
 
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
@@ -3292,12 +3418,12 @@ def test_install_mcp_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(
         main_module,
         "configure_claude_code_mcp_settings",
-        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "c.json",
+        lambda *, force=False, settings_path=None, uvx_command=None, **_kw: tmp_path / "c.json",
     )
     monkeypatch.setattr(
         main_module,
         "configure_codex_mcp_settings",
-        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "cx.toml",
+        lambda *, force=False, settings_path=None, uvx_command=None, **_kw: tmp_path / "cx.toml",
     )
     monkeypatch.setattr(
         main_module,
@@ -3449,7 +3575,7 @@ def test_install_continues_when_key_already_configured(monkeypatch, tmp_path, ca
     monkeypatch.setattr(
         main_module,
         "configure_zed_acp_settings",
-        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "z",
+        lambda *, force=False, settings_path=None, uvx_command=None, **_kw: tmp_path / "z",
     )
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
 

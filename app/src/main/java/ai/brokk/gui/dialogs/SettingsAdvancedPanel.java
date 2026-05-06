@@ -212,10 +212,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     public boolean applySettings() {
         AdvancedValues values = collectAdvancedValues();
 
-        String previousVendorPref = MainProject.getOtherModelsVendorPreference();
-        String previousVendorSelection =
-                previousVendorPref.isBlank() ? ModelProperties.DEFAULT_VENDOR : previousVendorPref;
-
         // JVM memory
         MainProject.setJvmMemorySettings(values.jvmMemorySettings());
         JDeploySettingsUtil.updateJvmMemorySettings(values.jvmMemorySettings());
@@ -272,11 +268,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         }
         MainProject.setOtherModelsVendorPreference(normalizedVendorPref);
 
-        String currentVendorSelection =
-                normalizedVendorPref.isBlank() ? ModelProperties.DEFAULT_VENDOR : normalizedVendorPref;
-        if (!previousVendorSelection.equals(currentVendorSelection)) {
-            chrome.getContextManager().reloadService();
-        }
+        // Reload so freshly persisted role configs and favorites are picked up by the live Service;
+        // any model selected via getModelConfig(ModelType.*) above won't otherwise refresh in-memory.
+        chrome.getContextManager().reloadService();
 
         // Watch service implementation preference
         MainProject.setWatchServiceImplPreference(values.watchServiceImplPreference());
@@ -767,7 +761,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 quickModelsTable.getCellEditor().stopCellEditing();
             }
 
-            var defaultFavorites = new ArrayList<>(MainProject.DEFAULT_FAVORITE_MODELS);
+            var defaultFavorites = MainProject.isOpenAiCodexOauthConnected()
+                    ? new ArrayList<>(ModelProperties.CODEX_OAUTH_FAVORITES)
+                    : new ArrayList<>(MainProject.DEFAULT_FAVORITE_MODELS);
 
             quickModelsTableModel.setFavorites(defaultFavorites);
             if (!defaultFavorites.isEmpty()) {
@@ -898,11 +894,17 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         rolesPanel.add(rolesButtonsPanel, gbcRoles);
 
         defaultsRolesButton.addActionListener(e -> {
-            otherModelsVendorCombo.setSelectedItem(ModelProperties.DEFAULT_VENDOR);
+            boolean codexConnected = MainProject.isOpenAiCodexOauthConnected();
 
-            // Get preferred defaults from ModelProperties
-            var architectConfig = ModelProperties.ModelType.ARCHITECT.defaultConfig();
-            var codeConfig = ModelProperties.ModelType.CODE.defaultConfig();
+            otherModelsVendorCombo.setSelectedItem(codexConnected ? "OpenAI - Codex" : ModelProperties.DEFAULT_VENDOR);
+
+            // OAuth-connected: use the Codex OAuth preset; else fall back to ModelProperties defaults.
+            var architectConfig = codexConnected
+                    ? ModelProperties.CODEX_OAUTH_ARCHITECT_CONFIG
+                    : ModelProperties.ModelType.ARCHITECT.defaultConfig();
+            var codeConfig = codexConnected
+                    ? ModelProperties.CODEX_OAUTH_CODE_CONFIG
+                    : ModelProperties.ModelType.CODE.defaultConfig();
 
             // Restore primary model to ARCHITECT default
             boolean foundPrimary = false;

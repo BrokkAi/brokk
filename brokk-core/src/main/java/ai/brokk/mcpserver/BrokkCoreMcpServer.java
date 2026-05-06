@@ -30,8 +30,10 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Standalone MCP server providing pure code intelligence tools.
@@ -40,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 public class BrokkCoreMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkCoreMcpServer.class);
     private static final String VERSION = "0.1.0";
+    private static final String MCP_HISTORY_PATH_FLAG = "--mcp-history-path";
 
     private final ReentrantReadWriteLock workspaceLock = new ReentrantReadWriteLock(true);
     private CoreProject project;
@@ -47,24 +50,57 @@ public class BrokkCoreMcpServer {
     private SearchTools searchTools;
     private CodeQualityToolsMcp codeQualityTools;
     private Path activeWorkspaceRoot;
+    private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
 
     public BrokkCoreMcpServer(CoreProject project, ICodeIntelligence intelligence, SearchTools searchTools) {
+        this(project, intelligence, searchTools, null);
+    }
+
+    public BrokkCoreMcpServer(
+            CoreProject project,
+            ICodeIntelligence intelligence,
+            SearchTools searchTools,
+            @Nullable Path mcpHistoryPath) {
         this.project = project;
         this.intelligence = intelligence;
         this.searchTools = searchTools;
         this.codeQualityTools = new CodeQualityToolsMcp(intelligence);
         this.activeWorkspaceRoot = project.getRoot();
+        this.mcpToolCallHistoryWriter = mcpHistoryPath != null ? createMcpToolCallHistoryWriter(mcpHistoryPath) : null;
+    }
+
+    private static @Nullable McpToolCallHistoryWriter createMcpToolCallHistoryWriter(Path historyRootDirectory) {
+        try {
+            return new McpToolCallHistoryWriter(historyRootDirectory);
+        } catch (IOException e) {
+            logger.warn("Failed to initialize MCP tool call history logging", e);
+            return null;
+        }
     }
 
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
+        @Nullable Path mcpHistoryPath = null;
 
-        for (String arg : args) {
+        for (int i = 0; i < args.length; i++) {
+            var arg = args[i];
             if ("--help".equals(arg) || "-h".equals(arg)) {
                 System.out.println("Brokk Core MCP Server v" + VERSION);
                 System.out.println("Provides code intelligence tools via Model Context Protocol.");
                 System.out.println("No LLM dependencies - pure tree-sitter analysis.");
+                System.out.println("Options:");
+                System.out.println("  " + MCP_HISTORY_PATH_FLAG
+                        + " <path>  Write MCP request/response logs under the given directory.");
                 System.exit(0);
+            } else if (MCP_HISTORY_PATH_FLAG.equals(arg)) {
+                if (i + 1 >= args.length) {
+                    throw new IllegalArgumentException(MCP_HISTORY_PATH_FLAG + " requires a path argument");
+                }
+                mcpHistoryPath = Path.of(args[++i]).toAbsolutePath().normalize();
+            } else if (arg.startsWith(MCP_HISTORY_PATH_FLAG + "=")) {
+                mcpHistoryPath = Path.of(arg.substring((MCP_HISTORY_PATH_FLAG + "=").length()))
+                        .toAbsolutePath()
+                        .normalize();
             }
         }
 
@@ -99,7 +135,7 @@ public class BrokkCoreMcpServer {
 
             var coreIntelligence = new StandaloneCodeIntelligence(coreProject, analyzer);
             var coreSearchTools = new SearchTools(coreIntelligence);
-            var server = new BrokkCoreMcpServer(coreProject, coreIntelligence, coreSearchTools);
+            var server = new BrokkCoreMcpServer(coreProject, coreIntelligence, coreSearchTools, mcpHistoryPath);
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
@@ -245,6 +281,7 @@ public class BrokkCoreMcpServer {
         specs.add(tool(
                 "searchSymbols",
                 "Find where classes, functions, fields, and modules are defined. "
+                        + "Returns human-readable declaration signatures with line numbers grouped by file and kind. "
                         + "Patterns are case-insensitive regex with implicit ^ and $, so use wildcarding: "
                         + ".*Foo.*, Abstract.*, [a-z]*DAO.",
                 schema(
@@ -263,7 +300,8 @@ public class BrokkCoreMcpServer {
         specs.add(tool(
                 "scanUsages",
                 "Find where and how a symbol is used/called/accessed across the codebase. "
-                        + "Requires fully qualified symbol names -- call searchSymbols first if you only have a partial name.",
+                        + "Requires exact symbol names, usually fully qualified. "
+                        + "Use searchSymbols to identify candidate declarations when you only have a partial name.",
                 schema(
                         Map.of(
                                 "symbols", arrayProp("Fully qualified symbol names to find usages for."),
@@ -276,24 +314,23 @@ public class BrokkCoreMcpServer {
                 })));
 
         specs.add(tool(
-                "getFileSummaries",
-                "Returns per-file summaries for the specified paths. For ordinary source files: class skeletons "
-                        + "(fields + method signatures, no bodies). For supported framework template DSLs "
-                        + "(e.g. Angular .component.html): structured template summaries listing components, bindings, "
-                        + "pipes, events, control flow, directives, and related symbols. "
-                        + "Supports glob patterns: '*' matches one directory, '**' matches recursively.",
-                schema(
-                        Map.of("filePaths", arrayProp("File paths relative to project root. Supports glob patterns.")),
-                        List.of("filePaths")),
+                "getSummaries",
+                "Understand the API surface and nearby structure of classes or files without reading full implementations. "
+                        + "Accepts fully qualified class names, workspace-relative file paths, and file globs in one call. "
+                        + "File targets for supported framework template DSLs may return structured template summaries. "
+                        + "Use this to inspect fields, signatures, neighboring types, and package-level structure before deciding which classes or methods need full source. "
+                        + "Do not use it for concrete method-body behavior, control flow, or line-level evidence; switch to getMethodSources or getFileContents for that. "
+                        + "Example output: public class BillingService { Payment authorize(Order order); }",
+                schema(Map.of("targets", arrayProp("Class names, file paths, or glob patterns.")), List.of("targets")),
                 (exchange, request) -> withReadLock(() -> {
-                    var filePaths = stringListArg(request, "filePaths");
-                    return textResult(searchTools.getFileSummaries(filePaths));
+                    var targets = stringListArg(request, "targets");
+                    return textResult(searchTools.getSummaries(targets));
                 })));
 
         specs.add(tool(
                 "getClassSources",
                 "Returns full source code of classes. Max 10 classes. "
-                        + "Prefer getFileSummaries or getMethodSources when possible.",
+                        + "Prefer getSummaries or getMethodSources when possible.",
                 schema(
                         Map.of("classNames", arrayProp("Fully qualified class names to retrieve source for; max 10.")),
                         List.of("classNames")),
@@ -312,17 +349,6 @@ public class BrokkCoreMcpServer {
                 (exchange, request) -> withReadLock(() -> {
                     var methodNames = stringListArg(request, "methodNames");
                     return textResult(searchTools.getMethodSources(methodNames));
-                })));
-
-        specs.add(tool(
-                "getClassSkeletons",
-                "Returns class skeletons (fields + method signatures) for specific classes by fully qualified name.",
-                schema(
-                        Map.of("classNames", arrayProp("Fully qualified class names to retrieve skeletons for.")),
-                        List.of("classNames")),
-                (exchange, request) -> withReadLock(() -> {
-                    var classNames = stringListArg(request, "classNames");
-                    return textResult(searchTools.getClassSkeletons(classNames));
                 })));
 
         specs.add(tool(
@@ -365,25 +391,39 @@ public class BrokkCoreMcpServer {
 
         specs.add(tool(
                 "searchFileContents",
-                "Search for patterns in file contents with context lines. Accepts regex or literal strings; invalid regex is automatically treated as a literal match.",
+                "Search for patterns in file contents with optional filtering to declarations, usages, or all. "
+                        + "Accepts regex or literal strings; invalid regex is automatically treated as a literal match. "
+                        + "In analyzed files, searchType=all also shows lower-signal related lines such as imports; "
+                        + "usage hits are grouped beneath their enclosing symbol with bounded symbol-local context; "
+                        + "searchType=declarations or usages hides related lines. Un-analyzed files always behave as all.",
                 schema(
                         Map.of(
-                                "patterns", arrayProp("Patterns to search for (regex or literal string)."),
-                                "filepath", stringProp("File path or glob pattern to restrict search to."),
-                                "caseInsensitive", boolProp("Case-insensitive matching."),
-                                "multiline", boolProp("Enable multiline matching."),
-                                "contextLines", intProp("Number of context lines around each match."),
-                                "maxFiles", intProp("Maximum number of files to search.")),
+                                "patterns",
+                                arrayProp("Patterns to search for (regex or literal string)."),
+                                "filepath",
+                                stringProp("File path or glob pattern to restrict search to."),
+                                "searchType",
+                                stringProp(
+                                        "Which analyzed-code hits to show: declarations, usages, or all. Imports and other related lines only appear with all, and usage hits are grouped under their enclosing symbol."),
+                                "caseInsensitive",
+                                boolProp("Case-insensitive matching."),
+                                "multiline",
+                                boolProp("Enable multiline matching."),
+                                "contextLines",
+                                intProp("Number of context lines around each match."),
+                                "maxFiles",
+                                intProp("Maximum number of files to search.")),
                         List.of("patterns", "filepath")),
                 (exchange, request) -> withReadLock(() -> {
                     var patterns = stringListArg(request, "patterns");
                     var filepath = stringArg(request, "filepath");
+                    var searchType = stringArgOrDefault(request, "searchType", "all");
                     var caseInsensitive = boolArg(request, "caseInsensitive", false);
                     var multiline = boolArg(request, "multiline", false);
                     var contextLines = intArg(request, "contextLines", 2);
                     var maxFiles = intArg(request, "maxFiles", 20);
                     return textResult(searchTools.searchFileContents(
-                            patterns, filepath, caseInsensitive, multiline, contextLines, maxFiles));
+                            patterns, filepath, searchType, caseInsensitive, multiline, contextLines, maxFiles));
                 })));
 
         specs.add(tool(
@@ -682,7 +722,7 @@ public class BrokkCoreMcpServer {
                 throws Exception;
     }
 
-    private static McpServerFeatures.SyncToolSpecification tool(
+    private McpServerFeatures.SyncToolSpecification tool(
             String name, String description, McpSchema.JsonSchema inputSchema, ToolHandler handler) {
         var mcpTool = McpSchema.Tool.builder()
                 .name(name)
@@ -692,17 +732,53 @@ public class BrokkCoreMcpServer {
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(mcpTool)
                 .callHandler((exchange, request) -> {
+                    var historyWriter = mcpToolCallHistoryWriter;
+                    var logFile =
+                            historyWriter != null ? historyWriter.writeRequest(name, serializeRequest(request)) : null;
                     try {
-                        return handler.handle(exchange, request);
+                        if (historyWriter != null && logFile != null) {
+                            historyWriter.appendProgress(logFile, 0.0, "Starting " + name);
+                        }
+                        var result = handler.handle(exchange, request);
+                        appendLoggedResult(historyWriter, logFile, result);
+                        return result;
                     } catch (Exception e) {
                         logger.error("Error executing tool {}", name, e);
-                        return McpSchema.CallToolResult.builder()
+                        var errorResult = McpSchema.CallToolResult.builder()
                                 .addTextContent("Error: " + e.getMessage())
                                 .isError(true)
                                 .build();
+                        appendLoggedResult(historyWriter, logFile, errorResult);
+                        return errorResult;
                     }
                 })
                 .build();
+    }
+
+    private static String serializeRequest(McpSchema.CallToolRequest request) {
+        try {
+            return McpJsonDefaults.getMapper().writeValueAsString(request);
+        } catch (IOException e) {
+            return "{}";
+        }
+    }
+
+    private static void appendLoggedResult(
+            @Nullable McpToolCallHistoryWriter historyWriter, @Nullable Path logFile, McpSchema.CallToolResult result) {
+        if (historyWriter == null || logFile == null) {
+            return;
+        }
+        String status = result.isError() != null && result.isError() ? "ERROR" : "SUCCESS";
+        historyWriter.appendProgress(logFile, 1.0, "Completed");
+        historyWriter.appendResult(logFile, status, renderTextContent(result));
+    }
+
+    private static String renderTextContent(McpSchema.CallToolResult result) {
+        return result.content().stream()
+                .filter(McpSchema.TextContent.class::isInstance)
+                .map(McpSchema.TextContent.class::cast)
+                .map(McpSchema.TextContent::text)
+                .collect(Collectors.joining("\n"));
     }
 
     private static McpSchema.JsonSchema schema(Map<String, Object> properties, List<String> required) {

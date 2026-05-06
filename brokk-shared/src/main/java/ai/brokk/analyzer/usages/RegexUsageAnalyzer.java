@@ -1,14 +1,15 @@
 package ai.brokk.analyzer.usages;
 
+import ai.brokk.analyzer.ASTTraversalUtils;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.FileUtil;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
@@ -81,24 +82,31 @@ public final class RegexUsageAnalyzer implements UsageAnalyzer {
                 var content = contentOpt.get();
                 if (content.isEmpty()) return;
 
-                var lines = content.split("\\R", -1);
-                var lineStarts = FileUtil.computeLineStarts(content);
+                String[] lines = null;
+                int[] lineStarts = null;
 
                 for (var pattern : patterns) {
                     var matcher = pattern.matcher(content);
                     while (matcher.find()) {
                         int start = matcher.start();
                         int end = matcher.end();
-                        int startByte = content.substring(0, start).getBytes(StandardCharsets.UTF_8).length;
-                        int endByte = startByte + matcher.group().getBytes(StandardCharsets.UTF_8).length;
+                        int startByte = ASTTraversalUtils.charPositionToUtf8ByteOffset(content, start);
+                        int endByte = ASTTraversalUtils.charPositionToUtf8ByteOffset(content, end);
 
                         if (!analyzer.isAccessExpression(file, startByte, endByte)) continue;
 
-                        int lineIdx = FileUtil.findLineIndexForOffset(lineStarts, start);
+                        if (lines == null) {
+                            lines = content.split("\\R", -1);
+                            lineStarts = FileUtil.computeLineStarts(content);
+                        }
+                        int[] starts = Objects.requireNonNull(lineStarts);
+
+                        int lineIdx = FileUtil.findLineIndexForOffset(starts, start);
                         int startLine = Math.max(0, lineIdx - 3);
                         int endLine = Math.min(lines.length - 1, lineIdx + 3);
+                        String[] snippetLines = lines;
                         var snippet = IntStream.rangeClosed(startLine, endLine)
-                                .mapToObj(i -> lines[i])
+                                .mapToObj(i -> snippetLines[i])
                                 .collect(Collectors.joining("\n"));
 
                         var range = new IAnalyzer.Range(startByte, endByte, lineIdx, lineIdx, lineIdx);

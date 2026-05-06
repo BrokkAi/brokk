@@ -32,9 +32,6 @@ public final class Constants {
             "BOOST_DATA_TEST_CASE",
             "TEST_CLASS",
             "TEST_METHOD");
-    public static final String ARGUMENT_LIST = nodeType(CppNodeType.ARGUMENT_LIST);
-    public static final String CALL_EXPRESSION = nodeType(CppNodeType.CALL_EXPRESSION);
-    public static final String DECLARATION_LIST = nodeType(CppNodeType.DECLARATION_LIST);
     public static final String FIELD_ARGUMENTS = fieldName(CppNodeField.ARGUMENTS);
     public static final String FIELD_BODY = fieldName(CppNodeField.BODY);
     public static final String FIELD_DECLARATOR = fieldName(CppNodeField.DECLARATOR);
@@ -43,7 +40,11 @@ public final class Constants {
     public static final String FIELD_NAME = fieldName(CppNodeField.NAME);
     public static final String FIELD_PARAMETERS = fieldName(CppNodeField.PARAMETERS);
     public static final String FIELD_TYPE = fieldName(CppNodeField.TYPE);
-    public static final String TRANSLATION_UNIT = nodeType(CppNodeType.TRANSLATION_UNIT);
+    public static final String CONSTRUCTOR_DECLARATION = "constructor_declaration";
+    public static final String DESTRUCTOR_DECLARATION = "destructor_declaration";
+    public static final String METHOD_DEFINITION = "method_definition";
+    public static final String NOEXCEPT_SPECIFIER = "noexcept_specifier";
+    public static final String TYPEDEF_DECLARATION = "typedef_declaration";
 
     public static final Pattern CPP_CONSTANT_PATTERN =
             Pattern.compile("^(?:true|false|nullptr|[-+]?\\d+(?:\\.\\d+)?|'.*'|\".*\")$");

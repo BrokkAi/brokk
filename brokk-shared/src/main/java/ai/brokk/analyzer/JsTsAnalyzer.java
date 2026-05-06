@@ -1,17 +1,24 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
+import static ai.brokk.analyzer.javascript.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
-import ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes;
+import ai.brokk.analyzer.javascript.CognitiveComplexityAnalysis;
+import ai.brokk.analyzer.javascript.JsTsExportUsageExtractor;
+import ai.brokk.analyzer.javascript.TsConfigPathsResolver;
+import ai.brokk.analyzer.usages.ExportIndex;
+import ai.brokk.analyzer.usages.ImportBinder;
+import ai.brokk.analyzer.usages.ReferenceCandidate;
+import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import ai.brokk.project.ICoreProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -23,9 +30,11 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
+import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSTree;
 import org.treesitter.TSTreeCursor;
+import org.treesitter.TsxNodeType;
 
 /**
  * Shared base class for JavaScript and TypeScript analyzers.
@@ -35,6 +44,17 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     protected record ModulePathKey(ProjectFile importingFile, String modulePath) {}
 
+    public record MemberLookupKey(String ownerClassName, String memberName, boolean instanceReceiver) {}
+
+    public record ExportResolutionKey(ProjectFile definingFile, String exportName, int maxReexportDepth) {}
+
+    public record ExportSeed(ProjectFile file, String exportName) {}
+
+    public record ReverseExportSeedKey(ProjectFile sourceFile, String sourceExportName) {}
+
+    public record ExportResolutionData(
+            Set<CodeUnit> targets, Set<ProjectFile> frontier, Set<String> externalFrontier) {}
+
     protected static final List<String> KNOWN_EXTENSIONS = List.of(".js", ".jsx", ".ts", ".tsx");
 
     private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
@@ -43,22 +63,14 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static final Set<String> JS_LOG_BARE_NAMES = Set.of("log", "warn", "error", "exception");
     private static final Set<String> JS_LOG_RECEIVER_NAMES = Set.of("log", "logger", "console");
     private static final Set<String> JS_LOG_METHOD_NAMES = Set.of("log", "warn", "error", "exception");
-    private static final Set<String> CLONE_AST_IDENTIFIER_TYPES = Set.copyOf(new HashSet<>(List.of(
-            IDENTIFIER, TypeScriptTreeSitterNodeTypes.IDENTIFIER, TypeScriptTreeSitterNodeTypes.PROPERTY_IDENTIFIER)));
-    private static final Set<String> CLONE_AST_STRING_TYPES = Set.copyOf(new HashSet<>(List.of(
-            STRING,
-            TEMPLATE_STRING,
-            TypeScriptTreeSitterNodeTypes.STRING,
-            TypeScriptTreeSitterNodeTypes.TEMPLATE_STRING)));
-    private static final Set<String> CLONE_AST_NUMBER_TYPES =
-            Set.copyOf(new HashSet<>(List.of(NUMBER, TypeScriptTreeSitterNodeTypes.NUMBER)));
-    private static final Set<String> CLONE_AST_IGNORED_TYPES = Set.of(
-            TypeScriptTreeSitterNodeTypes.ACCESSIBILITY_MODIFIER,
-            TypeScriptTreeSitterNodeTypes.MODIFIERS,
-            TypeScriptTreeSitterNodeTypes.TYPE_PARAMETERS);
 
     private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
+
+    private final Cache<Path, TsConfigPathsResolver> tsConfigResolverCache =
+            Caffeine.newBuilder().maximumSize(64).build();
+
+    private volatile @Nullable Set<Path> absoluteProjectPathsCache;
 
     protected JsTsAnalyzer(ICoreProject project, Language language) {
         super(project, language);
@@ -82,13 +94,279 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     @Override
+    public boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
+        return topLevel
+                && cu.isModule()
+                && parentOf(cu).isEmpty()
+                && languages().stream().anyMatch(language -> language.getExtensions()
+                        .contains(cu.source().extension()));
+    }
+
+    public TSLanguage tsLanguage() {
+        return getTSLanguage();
+    }
+
+    @Override
+    public List<ImportInfo> importInfoOf(ProjectFile file) {
+        return super.importInfoOf(file);
+    }
+
+    /**
+     * Computes and caches an index of exports for the given file, including ESM re-exports.
+     */
+    public ExportIndex exportIndexOf(ProjectFile file) {
+        ExportIndex cached = cache().exportIndex().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        ExportIndex computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return ExportIndex.empty();
+                    }
+                    return withSource(
+                            file,
+                            sc -> JsTsExportUsageExtractor.computeExportIndex(this, root, sc),
+                            ExportIndex.empty());
+                },
+                ExportIndex.empty());
+
+        cache().exportIndex().put(file, computed);
+        return computed;
+    }
+
+    /**
+     * Computes and caches a mapping of local import bindings for the given file.
+     */
+    public ImportBinder importBinderOf(ProjectFile file) {
+        ImportBinder cached = cache().importBinder().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        ImportBinder computed = JsTsExportUsageExtractor.computeImportBinder(importInfoOf(file));
+        cache().importBinder().put(file, computed);
+        return computed;
+    }
+
+    /**
+     * Extracts flow-insensitive candidates for exported-symbol usage analysis, based on the given import binder.
+     */
+    public Set<ReferenceCandidate> exportUsageCandidatesOf(ProjectFile file, ImportBinder binder) {
+        Set<ReferenceCandidate> cached = cache().references().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        Set<ReferenceCandidate> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) return Set.<ReferenceCandidate>of();
+                    return withSource(
+                            file,
+                            sc -> JsTsExportUsageExtractor.computeExportUsageCandidates(this, file, root, sc, binder),
+                            Set.<ReferenceCandidate>of());
+                },
+                Set.<ReferenceCandidate>of());
+
+        cache().references().put(file, computed);
+        return computed;
+    }
+
+    public Set<ResolvedReceiverCandidate> resolvedReceiverCandidatesOf(ProjectFile file, ImportBinder binder) {
+        Set<ResolvedReceiverCandidate> cached = cache().receiverCandidates().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        Set<ResolvedReceiverCandidate> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Set.<ResolvedReceiverCandidate>of();
+                    }
+                    return withSource(
+                            file,
+                            sc -> JsTsExportUsageExtractor.computeResolvedReceiverCandidates(
+                                    this, file, root, sc, binder),
+                            Set.<ResolvedReceiverCandidate>of());
+                },
+                Set.<ResolvedReceiverCandidate>of());
+        cache().receiverCandidates().put(file, computed);
+        return computed;
+    }
+
+    public Map<MemberLookupKey, CodeUnit> memberResolutionIndex(ProjectFile file) {
+        Map<MemberLookupKey, CodeUnit> cached = cache().memberResolutionIndex().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        Map<MemberLookupKey, CodeUnit> computed = buildMemberResolutionIndex(file);
+        cache().memberResolutionIndex().put(file, computed);
+        return computed;
+    }
+
+    public ExportResolutionData cachedExportResolution(
+            ProjectFile definingFile,
+            String exportName,
+            int maxReexportDepth,
+            java.util.function.Supplier<ExportResolutionData> supplier) {
+        ExportResolutionKey key = new ExportResolutionKey(definingFile, exportName, maxReexportDepth);
+        ExportResolutionData cached = cache().exportResolution().get(key);
+        if (cached != null) {
+            return cached;
+        }
+        ExportResolutionData computed = supplier.get();
+        cache().exportResolution().put(key, computed);
+        return computed;
+    }
+
+    public Map<ProjectFile, Set<ProjectFile>> reverseReexportIndex() {
+        Map<ProjectFile, Set<ProjectFile>> cached = cache().reverseReexportIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = JsTsExportUsageExtractor.buildReverseReexportIndex(this);
+        cache().reverseReexportIndex(computed);
+        return computed;
+    }
+
+    public Map<ReverseExportSeedKey, Set<ExportSeed>> reverseExportSeedIndex() {
+        Map<ReverseExportSeedKey, Set<ExportSeed>> cached = cache().reverseExportSeedIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = JsTsExportUsageExtractor.buildReverseExportSeedIndex(this);
+        cache().reverseExportSeedIndex(computed);
+        return computed;
+    }
+
+    public Map<String, Set<String>> heritageIndex() {
+        Map<String, Set<String>> cached = cache().heritageIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = JsTsExportUsageExtractor.buildHeritageIndex(this);
+        cache().heritageIndex(computed);
+        return computed;
+    }
+
+    public void ensureImportReverseIndexPopulated() throws InterruptedException {
+        if (cache().importReverseIndexPrimed()) {
+            return;
+        }
+        var providerOpt = as(ImportAnalysisProvider.class);
+        if (providerOpt.isEmpty()) {
+            cache().importReverseIndexPrimed(true);
+            return;
+        }
+        JsTsExportUsageExtractor.ensureImportReverseIndexPopulated(this, providerOpt.orElseThrow());
+        cache().importReverseIndexPrimed(true);
+    }
+
+    public boolean hasCachedReceiverCandidates(ProjectFile file) {
+        return cache().receiverCandidates().get(file) != null;
+    }
+
+    private Map<MemberLookupKey, CodeUnit> buildMemberResolutionIndex(ProjectFile file) {
+        var index = new java.util.HashMap<MemberLookupKey, CodeUnit>();
+        for (CodeUnit declaration : getAllDeclarations()) {
+            if (!declaration.source().equals(file)) {
+                continue;
+            }
+            if (declaration.kind() != CodeUnitType.FIELD && declaration.kind() != CodeUnitType.FUNCTION) {
+                continue;
+            }
+            String ownerName = ownerNameOf(declaration);
+            if (ownerName.isEmpty()) {
+                continue;
+            }
+            index.putIfAbsent(
+                    new MemberLookupKey(ownerName, normalizedMemberName(declaration), !isStaticMember(declaration)),
+                    declaration);
+        }
+        return Map.copyOf(index);
+    }
+
+    private static String ownerNameOf(CodeUnit codeUnit) {
+        String shortName = codeUnit.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return "";
+        }
+        return shortName.substring(0, lastDot);
+    }
+
+    private static String normalizedMemberName(CodeUnit codeUnit) {
+        String identifier = codeUnit.identifier();
+        int marker = identifier.indexOf('$');
+        return marker >= 0 ? identifier.substring(0, marker) : identifier;
+    }
+
+    private static boolean isStaticMember(CodeUnit codeUnit) {
+        return codeUnit.fqName().contains("$static");
+    }
+
+    /**
+     * Best-effort module resolution for JS/TS ESM specifiers.
+     */
+    public Optional<ProjectFile> resolveEsmModule(ProjectFile importingFile, String moduleSpecifier) {
+        return resolveEsmModuleOutcome(importingFile, moduleSpecifier).resolved();
+    }
+
+    public record ResolutionOutcome(Optional<ProjectFile> resolved, Optional<String> externalFrontier) {
+        public static ResolutionOutcome resolved(ProjectFile file) {
+            return new ResolutionOutcome(Optional.of(file), Optional.empty());
+        }
+
+        public static ResolutionOutcome external(String specifier) {
+            return new ResolutionOutcome(Optional.empty(), Optional.of(specifier));
+        }
+
+        public static ResolutionOutcome empty() {
+            return new ResolutionOutcome(Optional.empty(), Optional.empty());
+        }
+    }
+
+    public ResolutionOutcome resolveEsmModuleOutcome(ProjectFile importingFile, String moduleSpecifier) {
+        Path root = getProject().getRoot().normalize();
+        Set<Path> absolutePaths = absoluteProjectPaths();
+
+        if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
+            Path parentDir = importingFile.absPath().getParent();
+            ProjectFile pf = resolveModulePathFromBase(root, absolutePaths, parentDir, moduleSpecifier);
+            return pf != null ? ResolutionOutcome.resolved(pf) : ResolutionOutcome.empty();
+        }
+
+        TsConfigPathsResolver resolver = tsConfigResolverCache.get(root, TsConfigPathsResolver::new);
+        TsConfigPathsResolver.Expansion expansion = resolver.expand(importingFile, moduleSpecifier);
+        if (!expansion.hadAnyMapping()) {
+            return ResolutionOutcome.external(moduleSpecifier);
+        }
+
+        for (String candidate : expansion.candidates()) {
+            ProjectFile pf = resolveModulePathFromBase(root, absolutePaths, root, candidate);
+            if (pf != null) {
+                return ResolutionOutcome.resolved(pf);
+            }
+        }
+
+        return ResolutionOutcome.external(moduleSpecifier);
+    }
+
+    @Override
     public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
         checkStale("commentDensity");
         String ext = cu.source().extension();
         if (!"js".equals(ext) && !"jsx".equals(ext) && !"ts".equals(ext) && !"tsx".equals(ext)) {
             return Optional.empty();
         }
-        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(cu.source(), COMMENT_NODE_TYPES);
+        Map<String, CommentLineBreakdown> counts = collectJsTsCommentLineBreakdown(cu.source());
         return Optional.of(buildRollUpStats(cu, counts));
     }
 
@@ -99,7 +377,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (!"js".equals(ext) && !"jsx".equals(ext) && !"ts".equals(ext) && !"tsx".equals(ext)) {
             return List.of();
         }
-        Map<String, CommentLineBreakdown> counts = collectCommentLineBreakdown(file, COMMENT_NODE_TYPES);
+        Map<String, CommentLineBreakdown> counts = collectJsTsCommentLineBreakdown(file);
         List<CommentDensityStats> rows = new ArrayList<>();
         for (CodeUnit top : getTopLevelDeclarations(file)) {
             rows.add(buildRollUpStats(top, counts));
@@ -151,22 +429,20 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static String normalizeJsTsAstLabel(TSNode node, SourceContent sourceContent) {
         String type = Objects.toString(node.getType(), "");
         String text = sourceContent.substringFrom(node).strip();
-        if (CLONE_AST_IDENTIFIER_TYPES.contains(type)) {
+        if (JS_TS_IDENTIFIER_TYPES.contains(type)) {
             return "ID";
         }
-        if (CLONE_AST_STRING_TYPES.contains(type)) {
+        if (JS_TS_STRING_TYPES.contains(type)) {
             return "STR";
         }
-        if (CLONE_AST_NUMBER_TYPES.contains(type)) {
+        if (JS_TS_NUMBER_TYPES.contains(type)) {
             return "NUM";
         }
-        if (TypeScriptTreeSitterNodeTypes.TRUE.equals(text)
-                || TypeScriptTreeSitterNodeTypes.FALSE.equals(text)
-                || TRUE.equals(text)
-                || FALSE.equals(text)) {
+        if (nodeType(TsxNodeType.TRUE).equals(text)
+                || nodeType(TsxNodeType.FALSE).equals(text)) {
             return "BOOL";
         }
-        if (CLONE_AST_IGNORED_TYPES.contains(type)) {
+        if (JS_TS_CLONE_AST_IGNORED_TYPES.contains(type)) {
             return "IGN";
         }
         return "N:" + type;
@@ -198,7 +474,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             return false;
         }
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(root, Set.of(nodeType(TsxNodeType.CALL_EXPRESSION)), calls);
         return calls.stream().anyMatch(call -> {
             String name = callExpressionName(call, sourceContent);
             return TEST_FUNCTION_NAMES.contains(name) && testCallback(call).isPresent();
@@ -228,7 +504,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private List<TestAssertionSmell> detectTestAssertionSmells(
             ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(root, Set.of(nodeType(TsxNodeType.CALL_EXPRESSION)), calls);
         var findings = new ArrayList<TestSmellCandidate>();
         calls.stream()
                 .filter(call -> Set.of(TEST_FN_TEST, TEST_FN_IT).contains(callExpressionName(call, sourceContent)))
@@ -253,7 +529,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             body = callback;
         }
         var calls = new ArrayList<TSNode>();
-        collectNodesByType(body, Set.of(CALL_EXPRESSION), calls);
+        collectNodesByType(body, Set.of(nodeType(TsxNodeType.CALL_EXPRESSION)), calls);
         List<AssertionSignal> assertions = calls.stream()
                 .map(call -> assertionSignal(call, sourceContent, weights))
                 .flatMap(Optional::stream)
@@ -315,7 +591,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (function == null) {
             return Optional.empty();
         }
-        if (MEMBER_EXPRESSION.equals(function.getType())) {
+        if (nodeType(TsxNodeType.MEMBER_EXPRESSION).equals(function.getType())) {
             String property = memberPropertyName(function, sourceContent);
             Optional<TSNode> expectArg = expectArgument(function, sourceContent);
             if (expectArg.isPresent() && EXPECT_TERMINAL_NAMES.contains(property)) {
@@ -422,7 +698,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private static Optional<TSNode> testCallback(TSNode call) {
         return argumentNodes(call).stream()
-                .filter(arg -> ARROW_FUNCTION.equals(arg.getType()) || FUNCTION_EXPRESSION.equals(arg.getType()))
+                .filter(arg -> nodeType(TsxNodeType.ARROW_FUNCTION).equals(arg.getType())
+                        || nodeType(TsxNodeType.FUNCTION_EXPRESSION).equals(arg.getType()))
                 .findFirst();
     }
 
@@ -431,10 +708,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (function == null) {
             return "";
         }
-        if (IDENTIFIER.equals(function.getType())) {
+        if (nodeType(TsxNodeType.IDENTIFIER).equals(function.getType())) {
             return sourceContent.substringFrom(function).strip();
         }
-        if (MEMBER_EXPRESSION.equals(function.getType())) {
+        if (nodeType(TsxNodeType.MEMBER_EXPRESSION).equals(function.getType())) {
             return memberPropertyName(function, sourceContent);
         }
         return "";
@@ -452,7 +729,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private static Optional<TSNode> expectArgument(TSNode member, SourceContent sourceContent) {
         TSNode object = member.getChildByFieldName(FIELD_OBJECT);
-        if (object == null || !CALL_EXPRESSION.equals(object.getType())) {
+        if (object == null || !nodeType(TsxNodeType.CALL_EXPRESSION).equals(object.getType())) {
             return Optional.empty();
         }
         TSNode function = object.getChildByFieldName(FIELD_FUNCTION);
@@ -466,7 +743,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static List<TSNode> argumentNodes(TSNode call) {
         TSNode arguments = call.getChildByFieldName(FIELD_ARGUMENTS);
         if (arguments == null) {
-            arguments = firstNamedChildOfType(call, ARGUMENTS);
+            arguments = firstNamedChildOfType(call, nodeType(TsxNodeType.ARGUMENTS));
         }
         if (arguments == null) {
             return List.of();
@@ -495,7 +772,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static boolean containsOverspecifiedLiteral(
             List<TSNode> args, SourceContent sourceContent, TestAssertionWeights weights) {
         return args.stream()
-                .anyMatch(arg -> Set.of(STRING, TEMPLATE_STRING).contains(arg.getType())
+                .anyMatch(arg -> Set.of(nodeType(TsxNodeType.STRING), nodeType(TsxNodeType.TEMPLATE_STRING))
+                                .contains(arg.getType())
                         && sourceContent.substringFrom(arg).length() >= weights.largeLiteralLengthThreshold());
     }
 
@@ -534,24 +812,26 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private Optional<ExceptionHandlingSmell> analyzeCatchClause(
             ProjectFile file, TSNode catchClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
-        TSNode bodyNode = catchClause.getChildByFieldName("body");
+        TSNode bodyNode = catchClause.getChildByFieldName(FIELD_BODY);
         if (bodyNode == null) {
-            bodyNode = catchClause.getNamedChildren().stream()
-                    .filter(child -> STATEMENT_BLOCK.equals(child.getType()))
-                    .findFirst()
-                    .orElse(null);
+            for (int i = 0; i < catchClause.getNamedChildCount(); i++) {
+                TSNode child = catchClause.getNamedChild(i);
+                if (child != null && nodeType(TsxNodeType.STATEMENT_BLOCK).equals(child.getType())) {
+                    bodyNode = child;
+                    break;
+                }
+            }
         }
         if (bodyNode == null) {
             return Optional.empty();
         }
 
         int bodyStatements = countBodyExpressions(bodyNode);
-        String bodyText = sourceContent.substringFrom(bodyNode);
-        boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
+        boolean hasAnyComment = hasDescendantOfAnyTypeInclusive(bodyNode, COMMENT_NODE_TYPES);
         boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
         boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
         boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
-        boolean throwPresent = hasDescendantOfType(bodyNode, THROW_STATEMENT);
+        boolean throwPresent = hasDescendantOfType(bodyNode, nodeType(TsxNodeType.THROW_STATEMENT));
         boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !throwPresent;
 
         String catchType = extractCatchType(catchClause, sourceContent);
@@ -604,7 +884,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 score,
                 bodyStatements,
                 List.copyOf(reasons),
-                compactCatchExcerpt(sourceContent.substringFrom(catchClause))));
+                compactExcerptForTable(sourceContent.substringFrom(catchClause))));
     }
 
     private static int countBodyExpressions(TSNode bodyNode) {
@@ -619,7 +899,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     private static String extractCatchType(TSNode catchClause, SourceContent sourceContent) {
-        TSNode parameterNode = catchClause.getChildByFieldName("parameter");
+        TSNode parameterNode = catchClause.getChildByFieldName(FIELD_PARAMETER);
         if (parameterNode == null) {
             return "<untyped>";
         }
@@ -634,26 +914,26 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
         TSNode statement = firstNonCommentNamedChild(bodyNode, COMMENT_NODE_TYPES);
-        if (statement == null || !EXPRESSION_STATEMENT.equals(statement.getType())) {
+        if (statement == null || !nodeType(TsxNodeType.EXPRESSION_STATEMENT).equals(statement.getType())) {
             return false;
         }
-        TSNode call = findFirstNamedDescendant(statement, CALL_EXPRESSION);
+        TSNode call = findFirstNamedDescendant(statement, nodeType(TsxNodeType.CALL_EXPRESSION));
         if (call == null) {
             return false;
         }
-        TSNode functionNode = call.getChildByFieldName("function");
+        TSNode functionNode = call.getChildByFieldName(FIELD_FUNCTION);
         if (functionNode == null) {
             return false;
         }
-        if (IDENTIFIER.equals(functionNode.getType())) {
+        if (nodeType(TsxNodeType.IDENTIFIER).equals(functionNode.getType())) {
             String bare = sourceContent.substringFrom(functionNode).strip().toLowerCase(Locale.ROOT);
             return JS_LOG_BARE_NAMES.contains(bare);
         }
-        if (!MEMBER_EXPRESSION.equals(functionNode.getType())) {
+        if (!nodeType(TsxNodeType.MEMBER_EXPRESSION).equals(functionNode.getType())) {
             return false;
         }
-        TSNode objectNode = functionNode.getChildByFieldName("object");
-        TSNode propertyNode = functionNode.getChildByFieldName("property");
+        TSNode objectNode = functionNode.getChildByFieldName(FIELD_OBJECT);
+        TSNode propertyNode = functionNode.getChildByFieldName(FIELD_PROPERTY);
         if (objectNode == null || propertyNode == null) {
             return false;
         }
@@ -665,12 +945,53 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         return loggerLikeReceiver && loggerLikeMethod;
     }
 
-    private static String compactCatchExcerpt(String text) {
-        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
-        if (compact.length() <= 180) {
-            return compact;
-        }
-        return compact.substring(0, 180) + "...";
+    /**
+     * Walks the JavaScript/TypeScript parse tree for comment nodes, associates each comment with the smallest
+     * comment-expanded declaration range that owns it, and classifies leading comments as header lines.
+     */
+    private Map<String, CommentLineBreakdown> collectJsTsCommentLineBreakdown(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Map.of();
+                    }
+                    List<TSNode> comments = new ArrayList<>();
+                    collectNodesByType(root, COMMENT_NODE_TYPES, comments);
+
+                    Map<String, int[]> counts = new HashMap<>();
+                    for (TSNode comment : comments) {
+                        int startByte = comment.getStartByte();
+                        int endByte = comment.getEndByte();
+                        var cuOpt = enclosingCodeUnitByCommentBytes(file, startByte, endByte);
+                        if (cuOpt.isEmpty()) {
+                            continue;
+                        }
+                        var cu = cuOpt.get();
+                        var rangeOpt = rangesOf(cu).stream()
+                                .filter(r -> startByte >= r.commentStartByte() && endByte <= r.endByte())
+                                .min(Comparator.comparingInt(r -> r.endByte() - r.commentStartByte()));
+                        if (rangeOpt.isEmpty()) {
+                            continue;
+                        }
+                        var range = rangeOpt.get();
+                        int[] entry = counts.computeIfAbsent(cu.fqName(), ignored -> new int[2]);
+                        int lines = comment.getEndPoint().getRow()
+                                - comment.getStartPoint().getRow()
+                                + 1;
+                        if (endByte <= range.startByte()) {
+                            entry[0] += lines;
+                        } else {
+                            entry[1] += lines;
+                        }
+                    }
+                    return counts.entrySet().stream()
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> new CommentLineBreakdown(e.getValue()[0], e.getValue()[1])));
+                },
+                Map.of());
     }
 
     private CommentDensityStats buildRollUpStats(CodeUnit cu, Map<String, CommentLineBreakdown> counts) {
@@ -746,10 +1067,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         TSNode importNode = capturedNodesForMatch.get(CaptureNames.IMPORT_DECLARATION);
 
         if (importNode != null) {
-            String rawSnippet = sourceContent.substringFrom(importNode).strip();
-            if (!rawSnippet.isEmpty()) {
-                localImportInfos.add(new ImportInfo(rawSnippet, false, null, null));
-            }
+            localImportInfos.addAll(JsTsExportUsageExtractor.extractImportInfos(this, importNode, sourceContent));
         }
 
         // CommonJS require extraction
@@ -793,23 +1111,42 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        Path root = getProject().getRoot();
-        Set<Path> absolutePaths =
-                getProject().getAllFiles().stream().map(ProjectFile::absPath).collect(Collectors.toSet());
+        Path root = getProject().getRoot().normalize();
+        Set<Path> absolutePaths = absoluteProjectPaths();
 
-        return importStatements.stream()
+        var resolved = importStatements.stream()
                 .map(JsTsAnalyzer::extractModulePathFromImport)
                 .flatMap(Optional::stream)
-                .map(path -> moduleResolutionCache.get(
-                        new ModulePathKey(file, path),
-                        key -> Optional.ofNullable(resolveJavaScriptLikeModulePath(root, absolutePaths, file, path))))
-                .flatMap(Optional::stream)
-                .flatMap(resolvedFile -> getDeclarations(resolvedFile).stream())
+                .flatMap(path -> resolveImportModule(file, path, root, absolutePaths).stream())
+                .flatMap(resolvedFile -> {
+                    Set<CodeUnit> decls = getDeclarations(resolvedFile);
+                    if (!decls.isEmpty()) {
+                        return decls.stream();
+                    }
+                    // Preserve module dependency edges for barrel files / re-export-only modules.
+                    return Stream.of(CodeUnit.module(resolvedFile, "", resolvedFile.getFileName())
+                            .withSynthetic(true));
+                })
                 .collect(Collectors.toSet());
+
+        return Set.copyOf(resolved);
+    }
+
+    private Optional<ProjectFile> resolveImportModule(
+            ProjectFile importingFile, String moduleSpecifier, Path root, Set<Path> absolutePaths) {
+        if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
+            return moduleResolutionCache.get(
+                    new ModulePathKey(importingFile, moduleSpecifier),
+                    key -> Optional.ofNullable(
+                            resolveJavaScriptLikeModulePath(root, absolutePaths, importingFile, moduleSpecifier)));
+        }
+
+        ResolutionOutcome out = resolveEsmModuleOutcome(importingFile, moduleSpecifier);
+        return out.resolved();
     }
 
     @Override
-    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
         for (ImportInfo imp : imports) {
             Optional<String> modulePathOpt = extractModulePathFromImport(imp.rawSnippet());
             if (modulePathOpt.isEmpty()) {
@@ -818,13 +1155,52 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
             String modulePath = modulePathOpt.get();
 
-            // External/node_modules imports (not starting with . or ..) cannot be project files
-            if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
+            if (modulePath.startsWith("./") || modulePath.startsWith("../")) {
+                if (couldModulePathMatchTarget(modulePath, target)) {
+                    return true;
+                }
                 continue;
             }
 
-            if (couldModulePathMatchTarget(modulePath, target)) {
+            // TSConfig paths/baseUrl expansion: use actual module resolution to avoid false negatives.
+            ResolutionOutcome out = resolveEsmModuleOutcome(sourceFile, modulePath);
+            if (out.resolved().isPresent() && out.resolved().get().equals(target)) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<Path> absoluteProjectPaths() {
+        Set<Path> cached = absoluteProjectPathsCache;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (this) {
+            cached = absoluteProjectPathsCache;
+            if (cached == null) {
+                cached = getProject().getAllFiles().stream()
+                        .map(ProjectFile::absPath)
+                        .collect(Collectors.toSet());
+                absoluteProjectPathsCache = cached;
+            }
+            return cached;
+        }
+    }
+
+    @Override
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        // Prefer the 3-arg variant so we can use TSConfig context; keep this as a conservative fallback.
+        for (ImportInfo imp : imports) {
+            Optional<String> modulePathOpt = extractModulePathFromImport(imp.rawSnippet());
+            if (modulePathOpt.isEmpty()) {
+                continue;
+            }
+            String modulePath = modulePathOpt.get();
+            if (modulePath.startsWith("./") || modulePath.startsWith("../")) {
+                if (couldModulePathMatchTarget(modulePath, target)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -903,7 +1279,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         return false;
     }
 
-    protected static Optional<String> extractModulePathFromImport(String importStatement) {
+    public static Optional<String> extractModulePathFromImport(String importStatement) {
         Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
         if (es6Matcher.find()) return Optional.of(es6Matcher.group(1));
 
@@ -921,11 +1297,17 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
             return null;
         }
-
         Path parentDir = importingFile.absPath().getParent();
-        if (parentDir == null) return null;
+        return resolveModulePathFromBase(projectRoot, absolutePaths, parentDir, modulePath);
+    }
 
-        Path resolvedPath = parentDir.resolve(modulePath).normalize();
+    protected static @Nullable ProjectFile resolveModulePathFromBase(
+            Path projectRoot, Set<Path> absolutePaths, @Nullable Path baseDir, String modulePath) {
+        if (baseDir == null) {
+            return null;
+        }
+
+        Path resolvedPath = baseDir.resolve(modulePath).normalize();
         String fileName = resolvedPath.getFileName().toString();
 
         if (KNOWN_EXTENSIONS.stream().anyMatch(fileName::endsWith)) {
@@ -968,7 +1350,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         // Check for both legacy and new split-query capture names
         TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
         if (requireCallNode == null) {
-            requireCallNode = capturedNodesForMatch.get("module.require_call");
+            requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
         }
 
         if (requireCallNode == null) {
@@ -978,19 +1360,19 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         // Identify the require function identifier to verify it's a 'require' call
         TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
         if (requireFuncNode == null) {
-            requireFuncNode = capturedNodesForMatch.get("_require_func");
+            requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
         }
         if (requireFuncNode == null) {
-            requireFuncNode = capturedNodesForMatch.get("require_func");
+            requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME_FALLBACK);
         }
 
         boolean isRequire = false;
         if (requireFuncNode != null) {
             String funcName = sourceContent.substringFrom(requireFuncNode).strip();
-            isRequire = "require".equals(funcName);
+            isRequire = REQUIRE.equals(funcName);
         } else {
             String text = sourceContent.substringFrom(requireCallNode).trim();
-            isRequire = text.startsWith("require") || text.contains("require(");
+            isRequire = text.startsWith(REQUIRE) || text.contains(REQUIRE + "(");
         }
 
         if (isRequire) {
@@ -1000,10 +1382,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             TSNode current = requireCallNode;
             while (current != null) {
                 String type = current.getType();
-                if ("lexical_declaration".equals(type)
-                        || "variable_declaration".equals(type)
-                        || "expression_statement".equals(type)
-                        || "variable_declarator".equals(type)) {
+                if (nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(type)
+                        || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(type)
+                        || nodeType(TsxNodeType.EXPRESSION_STATEMENT).equals(type)
+                        || nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(type)) {
                     nodeToCapture = current;
                     // If we found a declarator, try one more step for the full declaration
                     TSNode parent = current.getParent();
@@ -1029,7 +1411,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     @Override
     protected boolean isConstructor(
             CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
-        return "constructor".equals(candidate.identifier());
+        return CONSTRUCTOR.equals(candidate.identifier());
     }
 
     @Override
@@ -1066,12 +1448,12 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                                         TERNARY_EXPRESSION -> complexity++;
                                 case SWITCH_CASE -> {
                                     // Increment for 'case ...:', but not for 'default:'
-                                    if (node.getChildByFieldName("value") != null) {
+                                    if (node.getChildByFieldName(FIELD_VALUE) != null) {
                                         complexity++;
                                     }
                                 }
                                 case BINARY_EXPRESSION -> {
-                                    TSNode operatorNode = node.getChildByFieldName("operator");
+                                    TSNode operatorNode = node.getChildByFieldName(FIELD_OPERATOR);
                                     if (operatorNode != null) {
                                         String operator = operatorNode.getType(); // In JS/TS grammar,
                                         // operators are often
@@ -1100,5 +1482,15 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 },
                 1);
         return result != null ? result : 1;
+    }
+
+    @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return computeCognitiveComplexity(cu, (node, content) -> CognitiveComplexityAnalysis.compute(node));
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return computeCognitiveComplexities(file, (node, content) -> CognitiveComplexityAnalysis.compute(node));
     }
 }

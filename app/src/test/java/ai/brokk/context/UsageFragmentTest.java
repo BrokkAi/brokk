@@ -435,4 +435,52 @@ public class UsageFragmentTest {
             assertFalse(after.contains("veryLongCallSiteExample"), "long call site should not be in examples section");
         }
     }
+
+    @Test
+    void typescriptClassUsageFragment_findsConstructorParameterPropertyTypeUsageThroughBarrel() throws Exception {
+        String service = """
+                export class LayoutService {}
+                """;
+        String index =
+                """
+                import { LayoutService } from "./layout.service";
+                export { LayoutService };
+                """;
+        String consumer =
+                """
+                import { LayoutService } from "../services";
+
+                export class HeaderComponent {
+                    constructor(private layoutService: LayoutService) {}
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "services/layout.service.ts")
+                .addFileContents(index, "services/index.ts")
+                .addFileContents(consumer, "feature/header.component.ts")
+                .build()) {
+            var analyzer = Languages.TYPESCRIPT.createAnalyzer(project);
+            var cm = new TestContextManager(project.getRoot(), new TestConsoleIO(), analyzer);
+            var target = analyzer.searchDefinitions("LayoutService").stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst()
+                    .orElseThrow();
+
+            var fragment = new ContextFragments.UsageFragment(cm, target.fqName(), true);
+            String text = fragment.text().join();
+            String normalizedText = text.replace('\\', '/');
+
+            assertFalse(text.contains("No relevant usages found"), "should resolve TypeScript usage fragment");
+            assertTrue(normalizedText.contains("feature/header.component.ts"), "should list header component file");
+            assertTrue(text.contains("HeaderComponent.constructor"), "should include constructor call site");
+            assertEquals(
+                    ContextFragments.SYNTAX_STYLE_NONE,
+                    fragment.syntaxStyle().join(),
+                    "usage fragments should use plain-text syntax style");
+            assertTrue(
+                    fragment.sourceFiles().join().stream()
+                            .noneMatch(pf -> pf.getRelPath().toString().equals("_unknown_")),
+                    "usage fragment should not synthesize _unknown_ source files");
+        }
+    }
 }

@@ -224,8 +224,30 @@ public class MultiAnalyzer
     }
 
     @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return delegateFor(cu)
+                .map(delegate -> delegate.computeCognitiveComplexity(cu))
+                .orElse(0);
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return delegateFor(file)
+                .map(delegate -> delegate.computeCognitiveComplexities(file))
+                .orElse(Map.of());
+    }
+
+    @Override
     public Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
         return delegateFor(cu).flatMap(delegate -> delegate.commentDensity(cu));
+    }
+
+    @Override
+    public Optional<CommentDensityStats> commentDensity(String fqName) {
+        return getDefinitions(fqName).stream()
+                .map(cu -> delegateFor(cu).flatMap(delegate -> delegate.commentDensity(cu)))
+                .flatMap(Optional::stream)
+                .findFirst();
     }
 
     @Override

@@ -34,7 +34,7 @@ public class ExplanationRenderer {
      * @param details Map to render
      * @return YAML-formatted string
      */
-    private static String toYaml(Map<String, Object> details) {
+    public static String toYaml(Map<String, Object> details) {
         var sb = new StringBuilder();
         for (var entry : details.entrySet()) {
             var key = entry.getKey();

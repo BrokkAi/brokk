@@ -87,11 +87,11 @@ def test_configure_claude_code_mcp_settings_appends_to_claude_md(tmp_path, monke
     content = instructions.read_text()
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" in content
     assert "# Brokk" in content
-    assert "getFileSummaries" in content
+    assert "getSummaries" in content
     assert "searchSymbols" not in content
     assert "scanUsages" not in content
     assert "scan" not in content
-    assert "getMethodSources" not in content
+    assert "getMethodSources" in content
     assert "getClassSources" not in content
     assert "callCodeAgent" in content
     assert "activateWorkspace" not in content
@@ -129,12 +129,12 @@ def test_configure_codex_mcp_settings_appends_to_codex_agents(tmp_path, monkeypa
     content = agents_md.read_text()
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" in content
     assert "# Brokk" in content
-    assert "getFileSummaries" in content
+    assert "getSummaries" in content
     assert "activateWorkspace" in content
     assert "searchSymbols" not in content
     assert "scanUsages" not in content
     assert "scan" not in content
-    assert "getMethodSources" not in content
+    assert "getMethodSources" in content
     assert "getClassSources" not in content
     assert "callCodeAgent" in content
     assert "getActiveWorkspace" not in content
@@ -281,15 +281,20 @@ def test_install_codex_mcp_workspace_skill_creates_expected_skill(monkeypatch, t
 
 def test_install_codex_mcp_summaries_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
+    removed_tool_name = "get" + "FileSummaries"
 
     skill_path = install_codex_mcp_summaries_skill()
 
-    assert skill_path == tmp_path / ".codex" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+    assert skill_path == tmp_path / ".codex" / "skills" / "brokk-get-summaries" / "SKILL.md"
     assert skill_path.exists()
     content = skill_path.read_text(encoding="utf-8")
-    assert "name: brokk-get-file-summaries" in content
-    assert "getFileSummaries" in content
+    assert "name: brokk-get-summaries" in content
+    assert "getSummaries" in content
+    assert removed_tool_name not in content
     assert "class skeletons" in content
+    assert "After `searchSymbols`" in content
+    assert "display signatures grouped by file" in content
+    assert "qualified symbol names" in content
 
 
 def test_install_claude_mcp_workspace_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
@@ -307,15 +312,20 @@ def test_install_claude_mcp_workspace_skill_creates_expected_skill(monkeypatch, 
 
 def test_install_claude_mcp_summaries_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
+    removed_tool_name = "get" + "FileSummaries"
 
     skill_path = install_claude_mcp_summaries_skill()
 
-    assert skill_path == tmp_path / ".claude" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+    assert skill_path == tmp_path / ".claude" / "skills" / "brokk-get-summaries" / "SKILL.md"
     assert skill_path.exists()
     content = skill_path.read_text(encoding="utf-8")
-    assert "name: brokk-get-file-summaries" in content
-    assert "getFileSummaries" in content
+    assert "name: brokk-get-summaries" in content
+    assert "getSummaries" in content
+    assert removed_tool_name not in content
     assert "class skeletons" in content
+    assert "After `searchSymbols`" in content
+    assert "display signatures grouped by file" in content
+    assert "qualified symbol names" in content
 
 
 @patch("brokk_code.mcp_config._fetch_github_file", side_effect=_mock_fetch_github_file)
@@ -347,14 +357,14 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(
 
     mcp_data = json.loads(mcp_path.read_text(encoding="utf-8"))
     assert mcp_data["mcpServers"]["brokk"]["command"] == "uvx"
-    assert mcp_data["mcpServers"]["brokk"]["args"] == ["brokk", "mcp-core"]
+    assert mcp_data["mcpServers"]["brokk"]["args"] == ["brokk", "bifrost"]
 
     config_toml_path = tmp_path / ".codex" / "config.toml"
     assert config_toml_path.exists()
     config_data = tomllib.loads(config_toml_path.read_text(encoding="utf-8"))
     brokk_server = config_data["mcp_servers"]["brokk"]
     assert brokk_server["command"] == "uvx"
-    assert brokk_server["args"] == ["brokk", "mcp-core"]
+    assert brokk_server["args"] == ["brokk", "bifrost"]
     assert brokk_server["default_tools_approval_mode"] == "approve"
 
     marketplace_data = json.loads(marketplace_path.read_text(encoding="utf-8"))
@@ -378,6 +388,14 @@ def test_install_codex_local_plugin_creates_plugin_and_marketplace(
     assert "issue-planner" in guided_content
     assert "security-reviewer" in guided_content
     assert "Embedded Agent Prompts" in guided_content
+
+    guided_review_skill = plugin_dir / "skills" / "guided-review" / "SKILL.md"
+    assert guided_review_skill.exists()
+    guided_review_content = guided_review_skill.read_text(encoding="utf-8")
+    assert "name: brokk-guided-review" in guided_review_content
+    assert "security-reviewer" in guided_review_content
+    assert "architect-reviewer" in guided_review_content
+    assert "Embedded Agent Prompts" in guided_review_content
 
 
 @patch("brokk_code.mcp_config._fetch_github_file", side_effect=_mock_fetch_github_file)

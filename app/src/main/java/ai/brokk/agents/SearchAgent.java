@@ -60,6 +60,7 @@ public class SearchAgent {
             "searchSymbols",
             "scanUsages",
             "getSymbolLocations",
+            "getSummaries",
             "skimFiles",
             "findFilesContaining",
             "findFilenames",
@@ -379,6 +380,7 @@ public class SearchAgent {
         names.add("searchSymbols");
         names.add("scanUsages");
         names.add("getSymbolLocations");
+        names.add("getSummaries");
         names.add("skimFiles");
         names.add("findFilesContaining");
         names.add("findFilenames");
@@ -535,7 +537,9 @@ public class SearchAgent {
 
         var details = jsonWithFragmentIds(List.copyOf(acceptedIds));
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, details);
-        io.llmOutput(details, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        // The wrapping workspaceComplete tool_call_update already produces a compact
+        // "Workspace ready" card via displayTitle — emitting an extra banner here just
+        // duplicates the entry with a verbose body.
         return new TerminalStopOutput(details, stopDetails);
     }
 

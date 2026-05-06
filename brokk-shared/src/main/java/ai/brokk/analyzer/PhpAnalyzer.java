@@ -1,29 +1,39 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
+import static ai.brokk.analyzer.php.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.PhpAnalyzerCache;
+import ai.brokk.analyzer.php.CognitiveComplexityAnalysis;
 import ai.brokk.project.ICoreProject;
 import java.util.*;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
+import org.treesitter.PhpNodeType;
 
 public final class PhpAnalyzer extends TreeSitterAnalyzer {
     // PHP_LANGUAGE field removed, createTSLanguage will provide new instances.
 
     private static final LanguageSyntaxProfile PHP_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, TRAIT_DECLARATION), // classLikeNodeTypes
-            Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION), // functionLikeNodeTypes
-            Set.of(PROPERTY_DECLARATION, CONST_DECLARATION), // fieldLikeNodeTypes (capturing the whole declaration)
+            Set.of(
+                    nodeType(PhpNodeType.CLASS_DECLARATION),
+                    nodeType(PhpNodeType.INTERFACE_DECLARATION),
+                    nodeType(PhpNodeType.TRAIT_DECLARATION)), // classLikeNodeTypes
+            Set.of(
+                    nodeType(PhpNodeType.FUNCTION_DEFINITION),
+                    nodeType(PhpNodeType.METHOD_DECLARATION)), // functionLikeNodeTypes
+            Set.of(
+                    nodeType(PhpNodeType.PROPERTY_DECLARATION),
+                    nodeType(PhpNodeType.CONST_DECLARATION)), // fieldLikeNodeTypes (capturing the whole declaration)
             Set.of(), // constructorNodeTypes are just `function.definition` so we need to check name
-            Set.of(ATTRIBUTE_LIST), // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
+            Set.of(nodeType(
+                    PhpNodeType.ATTRIBUTE_LIST)), // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
             IMPORT_DECLARATION,
-            "name", // identifierFieldName
-            "body", // bodyFieldName (applies to functions/methods, class body is declaration_list)
-            "parameters", // parametersFieldName
-            "return_type", // returnTypeFieldName (for return type declaration)
+            FIELD_NAME, // identifierFieldName
+            FIELD_BODY, // bodyFieldName (applies to functions/methods, class body is declaration_list)
+            FIELD_PARAMETERS, // parametersFieldName
+            FIELD_RETURN_TYPE, // returnTypeFieldName (for return type declaration)
             "", // typeParametersFieldName (PHP doesn't have generics)
             Map.of( // captureConfiguration
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
@@ -36,11 +46,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     ),
             "", // asyncKeywordNodeType (PHP has no async/await keywords for functions)
             Set.of(
-                    VISIBILITY_MODIFIER,
-                    STATIC_MODIFIER,
-                    ABSTRACT_MODIFIER,
-                    FINAL_MODIFIER,
-                    READONLY_MODIFIER) // modifierNodeTypes
+                    nodeType(PhpNodeType.VISIBILITY_MODIFIER),
+                    nodeType(PhpNodeType.STATIC_MODIFIER),
+                    nodeType(PhpNodeType.ABSTRACT_MODIFIER),
+                    nodeType(PhpNodeType.FINAL_MODIFIER),
+                    nodeType(PhpNodeType.READONLY_MODIFIER)) // modifierNodeTypes
             );
 
     private static final String NAMESPACE_QUERY_STR = "(namespace_definition name: (namespace_name) @nsname)";
@@ -101,6 +111,16 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return computeCognitiveComplexity(cu, CognitiveComplexityAnalysis::compute);
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return computeCognitiveComplexities(file, CognitiveComplexityAnalysis::compute);
+    }
+
+    @Override
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file,
             String captureName,
@@ -136,7 +156,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 if (!CaptureNames.ATTRIBUTE_DEFINITION.equals(captureName)
                         && !CaptureNames.NAMESPACE_DEFINITION.equals(captureName)
                         && // Main query's namespace.definition
-                        !"namespace.name".equals(captureName)) { // Main query's namespace.name
+                        !CAPTURE_NAMESPACE_NAME.equals(captureName)) { // Main query's namespace.name
                     log.debug(
                             "Ignoring capture in PhpAnalyzer: {} with name: {} and classChain: {}",
                             captureName,
@@ -168,7 +188,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
             if (cursor.nextMatch(match)) {
                 for (TSQueryCapture capture : match.getCaptures()) {
-                    if ("nsname".equals(query.getCaptureNameForId(capture.getIndex()))) {
+                    if (CAPTURE_NSNAME.equals(query.getCaptureNameForId(capture.getIndex()))) {
                         TSNode nameNode = capture.getNode();
                         if (nameNode != null) {
                             return sourceContent.substringFrom(nameNode).replace('\\', '.');
@@ -180,15 +200,15 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // Fallback to manual scan if query fails or no match, though query is preferred
         int i = 0;
         for (TSNode current : rootNode.getChildren()) {
-            if (NAMESPACE_DEFINITION.equals(current.getType())) {
-                TSNode nameNode = current.getChildByFieldName("name");
+            if (nodeType(PhpNodeType.NAMESPACE_DEFINITION).equals(current.getType())) {
+                TSNode nameNode = current.getChildByFieldName(FIELD_NAME);
                 if (nameNode != null) {
                     return sourceContent.substringFrom(nameNode).replace('\\', '.');
                 }
             }
-            if (!PHP_TAG.equals(current.getType())
-                    && !NAMESPACE_DEFINITION.equals(current.getType())
-                    && !DECLARE_STATEMENT.equals(current.getType())
+            if (!nodeType(PhpNodeType.PHP_TAG).equals(current.getType())
+                    && !nodeType(PhpNodeType.NAMESPACE_DEFINITION).equals(current.getType())
+                    && !nodeType(PhpNodeType.DECLARE_STATEMENT).equals(current.getType())
                     && i > 5) {
                 break; // Stop searching after a few top-level elements
             }
@@ -244,7 +264,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 List.of());
     }
 
-    private static final Set<String> PHP_COMMENT_NODE_TYPES = Set.of(COMMENT);
+    private static final Set<String> PHP_COMMENT_NODE_TYPES = Set.of(nodeType(PhpNodeType.COMMENT));
     private static final Pattern PHP_LOG_ONLY_PATTERN = Pattern.compile(
             "(?i)(?:\\$this\\s*->\\s*(?:logger|log)|\\$(?:logger|log))\\s*->\\s*(?:error|warn|warning|info|debug|trace)\\b"
                     + "|\\bLog\\s*::\\s*(?:error|warn|warning|info|debug|trace)\\b"
@@ -269,7 +289,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         if (node == null) {
             return;
         }
-        if (CATCH_CLAUSE.equals(node.getType())) {
+        if (nodeType(PhpNodeType.CATCH_CLAUSE).equals(node.getType())) {
             analyzeCatchClause(file, node, sourceContent, weights).ifPresent(out::add);
         }
         for (int i = 0; i < node.getChildCount(); i++) {
@@ -282,16 +302,16 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     private Optional<SmellCandidate> analyzeCatchClause(
             ProjectFile file, TSNode catchClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
-        TSNode bodyNode = catchClause.getChildByFieldName("body");
+        TSNode bodyNode = catchClause.getChildByFieldName(FIELD_BODY);
         if (bodyNode == null) {
-            bodyNode = firstNamedChildOfType(catchClause, COMPOUND_STATEMENT);
+            bodyNode = firstNamedChildOfType(catchClause, nodeType(PhpNodeType.COMPOUND_STATEMENT));
         }
         if (bodyNode == null) {
             return Optional.empty();
         }
 
         int bodyStatements = countBodyStatements(bodyNode);
-        boolean hasAnyComment = hasDescendantOfType(bodyNode, COMMENT);
+        boolean hasAnyComment = hasDescendantOfType(bodyNode, nodeType(PhpNodeType.COMMENT));
         boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
         boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
         boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
@@ -385,7 +405,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static String extractCatchType(TSNode catchClause, SourceContent sourceContent) {
-        TSNode typeNode = catchClause.getChildByFieldName("type");
+        TSNode typeNode = catchClause.getChildByFieldName(FIELD_TYPE);
         if (typeNode != null) {
             String type = sourceContent.substringFrom(typeNode).strip();
             if (!type.isEmpty()) {
@@ -399,7 +419,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 continue;
             }
             String type = Objects.toString(child.getType(), "");
-            if (COMPOUND_STATEMENT.equals(type) || VARIABLE_NAME.equals(type) || COMMENT.equals(type)) {
+            if (nodeType(PhpNodeType.COMPOUND_STATEMENT).equals(type)
+                    || nodeType(PhpNodeType.VARIABLE_NAME).equals(type)
+                    || nodeType(PhpNodeType.COMMENT).equals(type)) {
                 continue;
             }
             String text = sourceContent.substringFrom(child).strip();
@@ -472,8 +494,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             String baseIndent,
             ProjectFile file) {
 
-        boolean isConstant = CONST_DECLARATION.equals(fieldNode.getType());
-        boolean isProperty = PROPERTY_DECLARATION.equals(fieldNode.getType());
+        boolean isConstant = nodeType(PhpNodeType.CONST_DECLARATION).equals(fieldNode.getType());
+        boolean isProperty = nodeType(PhpNodeType.PROPERTY_DECLARATION).equals(fieldNode.getType());
 
         if (!isConstant && !isProperty) {
             return super.formatFieldSignature(
@@ -483,7 +505,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         TSNode elementNode = null;
         if (isProperty) {
             for (TSNode child : fieldNode.getNamedChildren()) {
-                if (PROPERTY_ELEMENT.equals(child.getType())) {
+                if (nodeType(PhpNodeType.PROPERTY_ELEMENT).equals(child.getType())) {
                     TSNode nameNode = findNameNodeRecursive(child);
                     if (nameNode != null) {
                         String nameText = sourceContent.substringFrom(nameNode).strip();
@@ -497,7 +519,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             }
         } else {
             for (TSNode child : fieldNode.getNamedChildren()) {
-                if (CONST_ELEMENT.equals(child.getType())) {
+                if (nodeType(PhpNodeType.CONST_ELEMENT).equals(child.getType())) {
                     TSNode nameNode = findNameNodeRecursive(child);
                     if (nameNode != null) {
                         String nameText = sourceContent.substringFrom(nameNode).strip();
@@ -517,7 +539,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
         // Look for type information
         String typeText = "";
-        TSNode typeNode = fieldNode.getChildByFieldName("type");
+        TSNode typeNode = fieldNode.getChildByFieldName(FIELD_TYPE);
         if (typeNode != null) {
             typeText = sourceContent.substringFrom(typeNode).strip() + " ";
         }
@@ -525,14 +547,14 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // Look for initializers
         TSNode valueNode = null;
         if (isProperty) {
-            valueNode = elementNode.getChildByFieldName("default_value");
+            valueNode = elementNode.getChildByFieldName(FIELD_DEFAULT_VALUE);
             if (valueNode == null) {
                 if (elementNode.getNamedChildCount() > 1) {
                     valueNode = elementNode.getNamedChild(elementNode.getNamedChildCount() - 1);
                 }
             }
         } else {
-            valueNode = elementNode.getChildByFieldName("value");
+            valueNode = elementNode.getChildByFieldName(FIELD_VALUE);
             if (valueNode == null) {
                 if (elementNode.getNamedChildCount() > 1) {
                     valueNode = elementNode.getNamedChild(elementNode.getNamedChildCount() - 1);
@@ -578,7 +600,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     private @Nullable TSNode findNameNodeRecursive(@Nullable TSNode node) {
         if (node == null) return null;
-        if (NAME.equals(node.getType())) return node;
+        if (nodeType(PhpNodeType.NAME).equals(node.getType())) return node;
         for (TSNode child : node.getNamedChildren()) {
             TSNode found = findNameNodeRecursive(child);
             if (found != null) return found;
@@ -589,14 +611,14 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     private boolean isLiteralType(@Nullable String type) {
         if (type == null) return false;
         return type.endsWith("_literal")
-                || INTEGER.equals(type)
+                || nodeType(PhpNodeType.INTEGER).equals(type)
                 || FLOAT.equals(type)
-                || STRING.equals(type)
+                || nodeType(PhpNodeType.STRING).equals(type)
                 || ENCAPSED_STRING.equals(type)
-                || STRING_VALUE.equals(type)
-                || BOOLEAN.equals(type)
+                || nodeType(PhpNodeType.STRING_CONTENT).equals(type)
+                || nodeType(PhpNodeType.BOOLEAN_).equals(type)
                 || BOOLEAN_LITERAL.equals(type)
-                || NULL.equals(type)
+                || NULL_LITERAL.equals(type)
                 || NULL_LITERAL.equals(type);
     }
 
@@ -635,7 +657,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         TSNode referenceModifierNode = null;
         // Iterate children to find reference_modifier, as its position can vary slightly.
         for (TSNode child : funcNode.getChildren()) {
-            if (REFERENCE_MODIFIER.equals(child.getType())) {
+            if (nodeType(PhpNodeType.REFERENCE_MODIFIER).equals(child.getType())) {
                 referenceModifierNode = child;
                 break;
             }
@@ -658,7 +680,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
         TSNode bodyNode = funcNode.getChildByFieldName(PHP_SYNTAX_PROFILE.bodyFieldName());
         // If bodyNode is null or not a compound statement, it's an abstract/interface method.
-        if (bodyNode != null && COMPOUND_STATEMENT.equals(bodyNode.getType())) {
+        if (bodyNode != null && nodeType(PhpNodeType.COMPOUND_STATEMENT).equals(bodyNode.getType())) {
             return mainSignaturePart + " { " + bodyPlaceholder() + " }";
         } else {
             // Abstract method or interface method (no body, ends with ';')
@@ -681,7 +703,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // namespace.definition and namespace.name from the main query are ignored
         // as namespace processing is now handled by computeFilePackageName.
         // attribute.definition is handled by decorator logic in base class.
-        return Set.of(CaptureNames.NAMESPACE_DEFINITION, "namespace.name", CaptureNames.ATTRIBUTE_DEFINITION);
+        return Set.of(CaptureNames.NAMESPACE_DEFINITION, CAPTURE_NAMESPACE_NAME, CaptureNames.ATTRIBUTE_DEFINITION);
     }
 
     @Override
@@ -710,15 +732,17 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                                 String nodeType = node.getType();
 
                                 // Name-based detection: @test_marker is captured on the function/method name node.
-                                if (NAME.equals(nodeType)) {
+                                if (nodeType(PhpNodeType.NAME).equals(nodeType)) {
                                     TSNode parent = node.getParent();
                                     if (parent == null) {
                                         continue;
                                     }
 
                                     String parentType = parent.getType();
-                                    if (!FUNCTION_DEFINITION.equals(parentType)
-                                            && !METHOD_DECLARATION.equals(parentType)) {
+                                    if (!nodeType(PhpNodeType.FUNCTION_DEFINITION)
+                                                    .equals(parentType)
+                                            && !nodeType(PhpNodeType.METHOD_DECLARATION)
+                                                    .equals(parentType)) {
                                         continue;
                                     }
 
@@ -730,7 +754,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                                 }
 
                                 // Docblock/Comment-based detection: @test_marker is also captured on comment nodes.
-                                if (COMMENT.equals(nodeType)) {
+                                if (nodeType(PhpNodeType.COMMENT).equals(nodeType)) {
                                     String commentText = sourceContent.substringFrom(node);
                                     if (!commentText.contains(TEST_TAG_AT_TEST)) {
                                         continue;
@@ -748,7 +772,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                                     }
 
                                     String nextType = next.getType();
-                                    if (FUNCTION_DEFINITION.equals(nextType) || METHOD_DECLARATION.equals(nextType)) {
+                                    if (nodeType(PhpNodeType.FUNCTION_DEFINITION)
+                                                    .equals(nextType)
+                                            || nodeType(PhpNodeType.METHOD_DECLARATION)
+                                                    .equals(nextType)) {
                                         return true;
                                     }
                                 }
@@ -797,7 +824,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     private List<TestAssertionSmell> detectTestAssertionSmells(
             ProjectFile file, TSNode root, SourceContent sourceContent, TestAssertionWeights weights) {
         var candidates = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION), candidates);
+        collectNodesByType(
+                root,
+                Set.of(nodeType(PhpNodeType.FUNCTION_DEFINITION), nodeType(PhpNodeType.METHOD_DECLARATION)),
+                candidates);
         var findings = new ArrayList<TestSmellCandidate>();
         for (TSNode fn : candidates) {
             if (!isTestFunction(fn, sourceContent)) {
@@ -812,7 +842,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     private boolean isTestFunction(TSNode functionNode, SourceContent sourceContent) {
-        TSNode nameNode = functionNode.getChildByFieldName(NAME);
+        TSNode nameNode = functionNode.getChildByFieldName(FIELD_NAME);
         if (nameNode != null) {
             String nameText = sourceContent.substringFrom(nameNode).strip();
             if (nameText.toLowerCase(Locale.ROOT).startsWith("test")) {
@@ -905,9 +935,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     private Optional<AssertionSignal> assertionSignal(
             TSNode call, SourceContent sourceContent, TestAssertionWeights weights) {
-        TSNode functionNode = call.getChildByFieldName("function");
+        TSNode functionNode = call.getChildByFieldName(FIELD_FUNCTION);
         if (functionNode == null) {
-            functionNode = call.getChildByFieldName("name");
+            functionNode = call.getChildByFieldName(FIELD_NAME);
         }
         if (functionNode == null && call.getNamedChildCount() > 0) {
             functionNode = call.getNamedChild(0);
@@ -1010,21 +1040,21 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             return "";
         }
 
-        if (NAME.equals(functionNode.getType())) {
+        if (nodeType(PhpNodeType.NAME).equals(functionNode.getType())) {
             return sourceContent.substringFrom(functionNode).strip();
         }
 
-        TSNode nameNode = functionNode.getChildByFieldName(NAME);
+        TSNode nameNode = functionNode.getChildByFieldName(FIELD_NAME);
         if (nameNode != null) {
             return sourceContent.substringFrom(nameNode).strip();
         }
 
-        TSNode memberNode = functionNode.getChildByFieldName("member");
+        TSNode memberNode = functionNode.getChildByFieldName(FIELD_MEMBER);
         if (memberNode != null) {
             return sourceContent.substringFrom(memberNode).strip();
         }
 
-        TSNode propertyNode = functionNode.getChildByFieldName("property");
+        TSNode propertyNode = functionNode.getChildByFieldName(FIELD_PROPERTY);
         if (propertyNode != null) {
             return sourceContent.substringFrom(propertyNode).strip();
         }
@@ -1033,11 +1063,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static List<TSNode> callArgumentNodes(TSNode call) {
-        TSNode args = call.getChildByFieldName("arguments");
+        TSNode args = call.getChildByFieldName(FIELD_ARGUMENTS);
         if (args == null) {
             for (int i = 0; i < call.getNamedChildCount(); i++) {
                 TSNode child = call.getNamedChild(i);
-                if (child != null && ARGUMENTS.equals(child.getType())) {
+                if (child != null && nodeType(PhpNodeType.ARGUMENTS).equals(child.getType())) {
                     args = child;
                     break;
                 }
@@ -1065,11 +1095,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     private static boolean isSelfComparison(TSNode node, SourceContent sourceContent) {
         String type = Objects.toString(node.getType(), "");
-        if (!type.endsWith(BINARY_EXPRESSION)) {
+        if (!type.endsWith(nodeType(PhpNodeType.BINARY_EXPRESSION))) {
             return false;
         }
-        TSNode left = node.getChildByFieldName("left");
-        TSNode right = node.getChildByFieldName("right");
+        TSNode left = node.getChildByFieldName(FIELD_LEFT);
+        TSNode right = node.getChildByFieldName(FIELD_RIGHT);
         if ((left == null || right == null) && node.getNamedChildCount() >= 2) {
             left = node.getNamedChild(0);
             right = node.getNamedChild(1);
@@ -1084,8 +1114,14 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 .equals(sourceContent.substringFrom(right).strip());
     }
 
-    private static final Set<String> CONSTANT_LITERAL_TYPES =
-            Set.of(INTEGER, FLOAT, STRING, ENCAPSED_STRING, BOOLEAN, BOOLEAN_LITERAL, NULL, NULL_LITERAL);
+    private static final Set<String> CONSTANT_LITERAL_TYPES = Set.of(
+            nodeType(PhpNodeType.INTEGER),
+            FLOAT,
+            nodeType(PhpNodeType.STRING),
+            ENCAPSED_STRING,
+            nodeType(PhpNodeType.BOOLEAN_),
+            BOOLEAN_LITERAL,
+            NULL_LITERAL);
 
     private static boolean isConstantExpression(TSNode node, SourceContent sourceContent) {
         if (CONSTANT_LITERAL_TYPES.contains(node.getType())) {
@@ -1099,7 +1135,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             List<TSNode> args, SourceContent sourceContent, TestAssertionWeights weights) {
         return args.stream().anyMatch(arg -> {
             String type = Objects.toString(arg.getType(), "");
-            if (!STRING.equals(type) && !ENCAPSED_STRING.equals(type)) {
+            if (!nodeType(PhpNodeType.STRING).equals(type) && !ENCAPSED_STRING.equals(type)) {
                 return false;
             }
             return sourceContent.substringFrom(arg).length() >= weights.largeLiteralLengthThreshold();

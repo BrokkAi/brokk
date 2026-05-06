@@ -3,7 +3,6 @@ package ai.brokk.git;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.git.GitRepo.Canonicalizer;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -121,7 +120,7 @@ public class GitCanonicalizerTest {
             assertTrue(counted.stream().anyMatch(ci -> ci.id().equals(c2)), "Expect c2 in the sample");
 
             // Build canonicalizer for the PMI sample and resolve "A.java as of C2"
-            Canonicalizer rc = repo.buildCanonicalizer(counted);
+            GitCanonicalizer rc = repo.buildCanonicalizer(counted);
 
             var aAtC2 = new ProjectFile(tempDir, Path.of("A.java"));
             var expectC = new ProjectFile(tempDir, Path.of("C.java"));

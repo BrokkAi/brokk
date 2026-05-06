@@ -39,6 +39,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -62,6 +63,9 @@ import org.treesitter.*;
 public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider, TestDetectionProvider {
 
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
+    private static final Set<String> COMMENT_NODE_TYPES =
+            Set.of("comment", "line_comment", "block_comment", "doc_comment", "documentation_comment");
+    private static final Set<String> WHITESPACE_NODE_TYPES = Set.of("whitespace", "newline");
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
     /**
@@ -77,11 +81,101 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected static String compactExcerptForTable(String text) {
-        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        String compact = compactWhitespaceForExcerpt(text);
         if (compact.length() <= 180) {
             return compact;
         }
         return compact.substring(0, 180) + "...";
+    }
+
+    protected static String compactWhitespaceForExcerpt(String text) {
+        char[] out = new char[text.length()];
+        int outLen = 0;
+        boolean seenNonWhitespace = false;
+        boolean pendingSpace = false;
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (Character.isWhitespace(ch)) {
+                if (seenNonWhitespace) {
+                    pendingSpace = true;
+                }
+                continue;
+            }
+            if (pendingSpace && outLen > 0) {
+                out[outLen++] = ' ';
+            }
+            out[outLen++] = ch;
+            pendingSpace = false;
+            seenNonWhitespace = true;
+        }
+        if (outLen > 0 && out[outLen - 1] == ' ') {
+            outLen--;
+        }
+        return new String(out, 0, outLen);
+    }
+
+    protected int computeCognitiveComplexity(CodeUnit cu, BiFunction<TSNode, SourceContent, Integer> scorer) {
+        if (!cu.isFunction()) return 0;
+        return computeCognitiveComplexities(cu.source(), scorer).getOrDefault(cu, 0);
+    }
+
+    protected Map<CodeUnit, Integer> computeCognitiveComplexities(
+            ProjectFile file, BiFunction<TSNode, SourceContent, Integer> scorer) {
+        Map<CodeUnit, Integer> result = withTreeOf(
+                file,
+                tree -> withSource(
+                        file,
+                        content -> {
+                            var complexities = new LinkedHashMap<CodeUnit, Integer>();
+                            for (CodeUnit cu : functionCodeUnitsInFile(file)) {
+                                TSNode cuNode = primaryNodeForCodeUnit(tree, cu);
+                                if (cuNode != null) {
+                                    complexities.put(cu, scorer.apply(cuNode, content));
+                                }
+                            }
+                            return complexities;
+                        },
+                        Map.of()),
+                Map.of());
+        return result != null ? result : Map.of();
+    }
+
+    private List<CodeUnit> functionCodeUnitsInFile(ProjectFile file) {
+        var functions = new ArrayList<CodeUnit>();
+        var work = new ArrayDeque<>(getTopLevelDeclarations(file));
+        while (!work.isEmpty()) {
+            CodeUnit cu = work.pop();
+            if (cu.isFunction()) {
+                functions.add(cu);
+            }
+            work.addAll(getDirectChildren(cu));
+        }
+        return functions;
+    }
+
+    protected static boolean hasDescendantOfAnyTypeInclusive(TSNode root, Set<String> targetTypes) {
+        String rootType = root.getType();
+        if (rootType != null && targetTypes.contains(rootType)) {
+            return true;
+        }
+        try (var cursor = new TSTreeCursor(root)) {
+            if (!gotoNextDepthFirst(cursor, true)) {
+                return false;
+            }
+            while (true) {
+                TSNode current = cursor.currentNode();
+                if (current == null) {
+                    return false;
+                }
+                String type = current.getType();
+                if (type != null && targetTypes.contains(type)) {
+                    return true;
+                }
+                if (!gotoNextDepthFirst(cursor, true)) {
+                    return false;
+                }
+            }
+        }
     }
 
     protected static <T> int testMeaningfulAssertionCredit(
@@ -366,14 +460,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     List.copyOf(ranges));
         }
 
+        private static final CodeUnitProperties EMPTY = new CodeUnitProperties(
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                false,
+                false);
+
         public static CodeUnitProperties empty() {
-            return new CodeUnitProperties(
-                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
-                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
-                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
-                    false,
-                    false,
-                    Map.of());
+            return EMPTY;
         }
     }
 
@@ -755,6 +850,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         lastUpdateEpochNanos.set(initNowNanos);
     }
 
+    protected final AnalyzerCache cache() {
+        return cache;
+    }
+
     protected TreeSitterAnalyzer(ICoreProject project, Language language, AnalyzerState prebuiltState) {
         this(project, language, prebuiltState, ProgressListener.NOOP, null);
     }
@@ -846,6 +945,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected List<String> signaturesOf(CodeUnit codeUnit) {
         return codeUnitProperties(codeUnit).signaturesList();
+    }
+
+    @Override
+    public List<String> getDisplaySignatures(CodeUnit codeUnit) {
+        var displaySignatures = signaturesOf(codeUnit).stream()
+                .map(TreeSitterAnalyzer::normalizeDisplaySignature)
+                .filter(signature -> !signature.isBlank())
+                .distinct()
+                .toList();
+        return displaySignatures.isEmpty() ? IAnalyzer.super.getDisplaySignatures(codeUnit) : displaySignatures;
+    }
+
+    private static String normalizeDisplaySignature(String signature) {
+        String normalized = signature
+                .lines()
+                .map(String::trim)
+                .filter(line -> !line.isBlank())
+                .collect(Collectors.joining(" "))
+                .replaceAll("\\s+", " ")
+                .strip();
+        while (normalized.endsWith("{")) {
+            normalized = normalized.substring(0, normalized.length() - 1).stripTrailing();
+        }
+        return normalized;
     }
 
     @Override
@@ -2547,6 +2670,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
                         List<String> localImportStatements = localImportInfos.stream()
                                 .map(ImportInfo::rawSnippet)
+                                .distinct()
                                 .toList();
 
                         // Register modules from imports
@@ -4195,11 +4319,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         String nodeType = node.getType();
         if (nodeType == null) return false;
-        return nodeType.equals(CommonTreeSitterNodeTypes.COMMENT)
-                || nodeType.equals(CommonTreeSitterNodeTypes.LINE_COMMENT)
-                || nodeType.equals(CommonTreeSitterNodeTypes.BLOCK_COMMENT)
-                || nodeType.equals(CommonTreeSitterNodeTypes.DOC_COMMENT)
-                || nodeType.equals(CommonTreeSitterNodeTypes.DOCUMENTATION_COMMENT);
+        return COMMENT_NODE_TYPES.contains(nodeType);
     }
 
     /**
@@ -4254,10 +4374,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Common whitespace node types in Tree-Sitter grammars
         String nodeType = node.getType();
         if (nodeType == null) return false;
-        return nodeType.equals(CommonTreeSitterNodeTypes.WHITESPACE)
-                || nodeType.equals(CommonTreeSitterNodeTypes.NEWLINE)
-                || nodeType.equals("\n")
-                || nodeType.equals(" ");
+        return WHITESPACE_NODE_TYPES.contains(nodeType) || nodeType.equals("\n") || nodeType.equals(" ");
     }
 
     /**
@@ -4710,49 +4827,55 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (requestedFiles.isEmpty()) {
             return List.of();
         }
-        List<CloneCandidateData> allCandidates = getAllDeclarations().stream()
+        List<CloneCandidateProfile> allCandidates = getAllDeclarations().stream()
                 .filter(CodeUnit::isFunction)
                 .filter(cu -> isRelevantFile(cu.source()))
                 .map(cu -> buildCloneCandidateData(cu, resolved))
                 .flatMap(Optional::stream)
+                .map(candidate -> new CloneCandidateProfile(
+                        candidate, hashedShingles(candidate.normalizedTokens(), resolved.shingleSize())))
                 .toList();
         if (allCandidates.isEmpty()) {
             return List.of();
         }
-        List<CloneCandidateData> requestedCandidates = allCandidates.stream()
-                .filter(c -> requestedFiles.contains(c.unit().source()))
+        List<CloneCandidateProfile> requestedCandidates = allCandidates.stream()
+                .filter(c -> requestedFiles.contains(c.data().unit().source()))
                 .toList();
         if (requestedCandidates.isEmpty()) {
             return List.of();
         }
 
         var findings = new ArrayList<CloneSmell>();
-        for (CloneCandidateData left : requestedCandidates) {
-            for (CloneCandidateData right : allCandidates) {
-                if (left.unit().equals(right.unit())) {
+        for (CloneCandidateProfile left : requestedCandidates) {
+            for (CloneCandidateProfile right : allCandidates) {
+                CloneCandidateData leftData = left.data();
+                CloneCandidateData rightData = right.data();
+                if (leftData.unit().equals(rightData.unit())) {
                     continue;
                 }
-                int tokenSimilarity =
-                        computeCloneTokenSimilarity(left.normalizedTokens(), right.normalizedTokens(), resolved);
+                if (requestedFiles.contains(rightData.unit().source()) && compareCloneUnits(leftData, rightData) > 0) {
+                    continue;
+                }
+                int tokenSimilarity = computeCloneTokenSimilarity(left.shingles(), right.shingles(), resolved);
                 if (tokenSimilarity < resolved.minSimilarityPercent()) {
                     continue;
                 }
-                int refinedSimilarity = refineCloneSimilarityPercent(left, right, tokenSimilarity, resolved);
+                int refinedSimilarity = refineCloneSimilarityPercent(leftData, rightData, tokenSimilarity, resolved);
                 if (refinedSimilarity < resolved.minSimilarityPercent()) {
                     continue;
                 }
                 findings.add(new CloneSmell(
-                        left.unit().source(),
-                        left.unit().fqName(),
-                        right.unit().source(),
-                        right.unit().fqName(),
+                        leftData.unit().source(),
+                        leftData.unit().fqName(),
+                        rightData.unit().source(),
+                        rightData.unit().fqName(),
                         refinedSimilarity,
                         Math.min(
-                                left.normalizedTokens().size(),
-                                right.normalizedTokens().size()),
+                                leftData.normalizedTokens().size(),
+                                rightData.normalizedTokens().size()),
                         List.of(buildReason(tokenSimilarity, refinedSimilarity)),
-                        left.excerpt(),
-                        right.excerpt()));
+                        leftData.excerpt(),
+                        rightData.excerpt()));
             }
         }
         return findings.stream()
@@ -4802,22 +4925,51 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected int computeCloneTokenSimilarity(
             List<String> leftTokens, List<String> rightTokens, CloneSmellWeights weights) {
-        Set<String> leftShingles = shingles(leftTokens, weights.shingleSize());
-        Set<String> rightShingles = shingles(rightTokens, weights.shingleSize());
+        Set<Long> leftShingles = hashedShingles(leftTokens, weights.shingleSize());
+        Set<Long> rightShingles = hashedShingles(rightTokens, weights.shingleSize());
+        return computeCloneTokenSimilarity(leftShingles, rightShingles, weights);
+    }
+
+    static int computeCloneTokenSimilarity(Set<Long> leftShingles, Set<Long> rightShingles, CloneSmellWeights weights) {
         if (leftShingles.size() < weights.minSharedShingles() || rightShingles.size() < weights.minSharedShingles()) {
             return 0;
         }
-        Set<String> intersection = new HashSet<>(leftShingles);
-        intersection.retainAll(rightShingles);
-        if (intersection.size() < weights.minSharedShingles()) {
+        int smallerSize = Math.min(leftShingles.size(), rightShingles.size());
+        int largerSize = Math.max(leftShingles.size(), rightShingles.size());
+        int maxPossibleSimilarity = (int) Math.round((smallerSize * 100.0) / largerSize);
+        if (maxPossibleSimilarity < weights.minSimilarityPercent()) {
             return 0;
         }
-        Set<String> union = new HashSet<>(leftShingles);
-        union.addAll(rightShingles);
-        if (union.isEmpty()) {
+        int intersectionSize = intersectionSize(leftShingles, rightShingles);
+        if (intersectionSize < weights.minSharedShingles()) {
             return 0;
         }
-        return (int) Math.round((intersection.size() * 100.0) / union.size());
+        int unionSize = leftShingles.size() + rightShingles.size() - intersectionSize;
+        if (unionSize == 0) {
+            return 0;
+        }
+        return (int) Math.round((intersectionSize * 100.0) / unionSize);
+    }
+
+    private static int compareCloneUnits(CloneCandidateData left, CloneCandidateData right) {
+        int fileComparison =
+                left.unit().source().toString().compareTo(right.unit().source().toString());
+        if (fileComparison != 0) {
+            return fileComparison;
+        }
+        return left.unit().fqName().compareTo(right.unit().fqName());
+    }
+
+    private static int intersectionSize(Set<Long> left, Set<Long> right) {
+        Set<Long> smaller = left.size() <= right.size() ? left : right;
+        Set<Long> larger = left.size() <= right.size() ? right : left;
+        int count = 0;
+        for (Long shingle : smaller) {
+            if (larger.contains(shingle)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     protected int computeAstLabelMultisetSimilarityPercent(String leftAstSignature, String rightAstSignature) {
@@ -4903,16 +5055,32 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 || label.contains("continue");
     }
 
-    protected static Set<String> shingles(List<String> tokens, int shingleSize) {
+    static Set<Long> hashedShingles(List<String> tokens, int shingleSize) {
         int k = Math.max(1, shingleSize);
         if (tokens.size() < k) {
             return Set.of();
         }
-        var shingles = new LinkedHashSet<String>();
+        var shingles = new LinkedHashSet<Long>();
         for (int i = 0; i <= tokens.size() - k; i++) {
-            shingles.add(String.join("|", tokens.subList(i, i + k)));
+            shingles.add(hashShingle(tokens, i, k));
         }
         return shingles;
+    }
+
+    private static long hashShingle(List<String> tokens, int start, int length) {
+        long hash = 0xcbf29ce484222325L;
+        for (int i = start; i < start + length; i++) {
+            String token = tokens.get(i);
+            hash = fnv1a(hash, token.length());
+            for (int j = 0; j < token.length(); j++) {
+                hash = fnv1a(hash, token.charAt(j));
+            }
+        }
+        return hash;
+    }
+
+    private static long fnv1a(long hash, int value) {
+        return (hash ^ value) * 0x100000001b3L;
     }
 
     protected String normalizeCloneLeafToken(TSNode node, SourceContent sourceContent) {
@@ -4986,6 +5154,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected record CloneCandidateData(
             CodeUnit unit, List<String> normalizedTokens, String astSignature, String excerpt) {}
+
+    private record CloneCandidateProfile(CloneCandidateData data, Set<Long> shingles) {}
 
     /**
      * Extracts potential type identifiers from source code.

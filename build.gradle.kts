@@ -143,6 +143,90 @@ tasks.register("deployMcpShadowJar") {
     }
 }
 
+// Resolves an executable on PATH so the JetBrains/Zed-spawned subprocess (which doesn't inherit
+// the user's shell PATH on macOS) gets an absolute command. Cross-platform: tries .exe/.cmd/.bat
+// extensions on Windows.
+fun findExecutableOnPath(name: String): String? {
+    val pathEnv = System.getenv("PATH") ?: return null
+    val isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows
+    val sep = if (isWindows) ";" else ":"
+    val exts = if (isWindows) listOf("", ".exe", ".cmd", ".bat") else listOf("")
+    for (dir in pathEnv.split(sep)) {
+        if (dir.isBlank()) continue
+        for (ext in exts) {
+            val candidate = File(dir, name + ext)
+            if (candidate.canExecute()) return candidate.absolutePath
+        }
+    }
+    return null
+}
+
+// Writes the given JSON model to the config file, replacing any existing
+// agent_servers["Brokk Code (Local Jar)"] entry while leaving every other key intact.
+@Suppress("UNCHECKED_CAST")
+fun writeLocalJarAcpEntry(configFile: File, jar: File, uvxPath: String, includeZedTypeField: Boolean) {
+    val parsed: MutableMap<String, Any> = if (configFile.exists() && configFile.length() > 0L) {
+        JsonSlurper().parseText(configFile.readText()) as? MutableMap<String, Any>
+            ?: throw GradleException("Existing config at ${configFile.absolutePath} is not a JSON object.")
+    } else {
+        mutableMapOf()
+    }
+    val agentServers = (parsed["agent_servers"] as? MutableMap<String, Any>) ?: mutableMapOf<String, Any>().also {
+        parsed["agent_servers"] = it
+    }
+    val entry = linkedMapOf<String, Any>()
+    if (includeZedTypeField) entry["type"] = "custom"
+    entry["command"] = uvxPath
+    entry["args"] = listOf("brokk", "acp", "--jar", jar.absolutePath)
+    entry["env"] = emptyMap<String, String>()
+    agentServers["Brokk Code (Local Jar)"] = entry
+
+    configFile.parentFile.mkdirs()
+    configFile.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(parsed)) + "\n")
+}
+
+tasks.register("buildAcpServerJarForJetbrains") {
+    description = "Builds :app:shadowJar and rewrites the 'Brokk Code (Local Jar)' entry in ~/.jetbrains/acp.json to point at the just-built jar."
+    group = "distribution"
+
+    dependsOn(":app:shadowJar")
+
+    doLast {
+        val jar = rootDir.resolve("app/build/libs/brokk-${project.version}.jar")
+        if (!jar.exists()) {
+            throw GradleException("Expected shadow jar not found: ${jar.absolutePath}")
+        }
+        val uvxPath = findExecutableOnPath("uvx")
+            ?: throw GradleException("uvx not found on PATH. Install via 'pipx install brokk' or 'pip install --user brokk' and retry.")
+
+        val configFile = (findProperty("acpJetbrainsConfig") as String?)?.let(::File)
+            ?: File(System.getProperty("user.home"), ".jetbrains/acp.json")
+        writeLocalJarAcpEntry(configFile, jar, uvxPath, includeZedTypeField = false)
+        println("Updated 'Brokk Code (Local Jar)' in ${configFile.absolutePath} -> ${jar.absolutePath}")
+    }
+}
+
+tasks.register("buildAcpServerJarForZed") {
+    description = "Builds :app:shadowJar and rewrites the 'Brokk Code (Local Jar)' entry in ~/.config/zed/settings.json to point at the just-built jar."
+    group = "distribution"
+
+    dependsOn(":app:shadowJar")
+
+    doLast {
+        val jar = rootDir.resolve("app/build/libs/brokk-${project.version}.jar")
+        if (!jar.exists()) {
+            throw GradleException("Expected shadow jar not found: ${jar.absolutePath}")
+        }
+        val uvxPath = findExecutableOnPath("uvx")
+            ?: throw GradleException("uvx not found on PATH. Install via 'pipx install brokk' or 'pip install --user brokk' and retry.")
+
+        val configFile = (findProperty("acpZedConfig") as String?)?.let(::File)
+            ?: File(System.getProperty("user.home"), ".config/zed/settings.json")
+        writeLocalJarAcpEntry(configFile, jar, uvxPath, includeZedTypeField = true)
+        println("Updated 'Brokk Code (Local Jar)' in ${configFile.absolutePath} -> ${jar.absolutePath}")
+    }
+}
+
 tasks.register("deployCoreMcpShadowJar") {
     description = "Builds :brokk-core:shadowJar and copies it to a stable MCP jar path."
     group = "distribution"
@@ -252,123 +336,7 @@ tasks.register("tidy") {
     dependsOn(
         subprojects.map { it.tasks.matching { t -> t.name == "spotlessApply" } }
     )
-    dependsOn("brokkCodeRuffFormat")
 }
-
-fun findUvExecutable(): String? {
-    val userHome = System.getProperty("user.home")
-    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
-
-    // Try to find uv in PATH and resolve its absolute path
-    try {
-        val whichCommand = if (isWindows) listOf("where", "uv") else listOf("which", "uv")
-        val whichProcess = ProcessBuilder(whichCommand)
-            .directory(rootDir)
-            .start()
-        whichProcess.waitFor()
-        if (whichProcess.exitValue() == 0) {
-            val resolvedPath = whichProcess.inputStream.bufferedReader().readText().trim()
-                .lines().firstOrNull()?.trim() // 'where' on Windows may return multiple lines
-            if (!resolvedPath.isNullOrBlank()) {
-                val file = File(resolvedPath)
-                if (file.exists() && file.canExecute()) {
-                    return file.absolutePath
-                }
-            }
-        }
-    } catch (e: Exception) {
-        // which/where failed, fall through to manual search
-    }
-
-    // Common Homebrew, standalone installer, and Windows locations
-    val candidates = listOf(
-        "/opt/homebrew/bin/uv", // Apple Silicon Homebrew
-        "/usr/local/bin/uv", // Intel Mac / Linux Homebrew
-        "$userHome/.local/bin/uv", // Standalone installer (Unix default)
-        "$userHome/.cargo/bin/uv", // Cargo install
-        "$userHome/Library/Application Support/uv/bin/uv", // macOS alternative
-        "/usr/bin/uv", // Linux package managers
-        "$userHome/.local/bin/uv.exe", // Windows standalone (common)
-        "$userHome/AppData/Roaming/uv/bin/uv.exe" // Windows alternative
-    )
-
-    for (candidate in candidates) {
-        val file = File(candidate).absoluteFile
-        if (file.exists() && file.canExecute()) {
-            return file.absolutePath
-        }
-    }
-
-    return null
-}
-
-val uvExecutable: String? by lazy { findUvExecutable() }
-
-fun isUvAvailable(): Boolean = uvExecutable != null
-
-val skipPythonTasks = project.hasProperty("skipPython")
-
-tasks.register<Exec>("brokkCodeRuffFormat") {
-    description = "Formats brokk-code using ruff"
-    group = "formatting"
-    workingDir = file("brokk-code")
-
-    executable = uvExecutable
-    args("run", "--group", "dev", "python", "-m", "ruff", "format")
-
-    inputs.dir("brokk-code/brokk_code")
-    inputs.file("brokk-code/pyproject.toml")
-    outputs.upToDateWhen { true } // Ruff format modifies in place
-
-    onlyIf {
-        val available = isUvAvailable()
-        if (!available) logger.warn("Skipping brokkCodeRuffFormat: 'uv' not found in PATH or common locations")
-        if (skipPythonTasks) logger.info("Skipping brokkCodeRuffFormat: skipPython property is set")
-        available && !skipPythonTasks
-    }
-}
-
-tasks.register<Exec>("brokkCodeRuffCheck") {
-    description = "Lints brokk-code using ruff"
-    group = "verification"
-    workingDir = file("brokk-code")
-
-    executable = uvExecutable
-    args("run", "--group", "dev", "python", "-m", "ruff", "check")
-
-    inputs.dir("brokk-code/brokk_code")
-    inputs.file("brokk-code/pyproject.toml")
-    outputs.upToDateWhen { true }
-
-    onlyIf {
-        val available = isUvAvailable()
-        if (!available) logger.warn("Skipping brokkCodeRuffCheck: 'uv' not found in PATH or common locations")
-        if (skipPythonTasks) logger.info("Skipping brokkCodeRuffCheck: skipPython property is set")
-        available && !skipPythonTasks
-    }
-}
-
-tasks.register<Exec>("pytest") {
-    description = "Runs brokk-code tests using pytest"
-    group = "verification"
-    workingDir = file("brokk-code")
-
-    executable = uvExecutable
-    args("run", "--group", "dev", "python", "-m", "pytest", "-q", "-q", "-n", "auto", "--no-header")
-
-    inputs.dir("brokk-code/brokk_code")
-    inputs.dir("brokk-code/tests")
-    inputs.file("brokk-code/pyproject.toml")
-    outputs.upToDateWhen { false }
-
-    onlyIf {
-        val available = isUvAvailable()
-        if (!available) logger.warn("Skipping brokkCodePytest: 'uv' not found in PATH or common locations")
-        if (skipPythonTasks) logger.info("Skipping brokkCodePytest: skipPython property is set")
-        available && !skipPythonTasks
-    }
-}
-
 
 subprojects {
     apply(plugin = "java-library")

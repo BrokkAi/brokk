@@ -1,11 +1,9 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
 import static ai.brokk.analyzer.csharp.Constants.*;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
-import ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes;
 import ai.brokk.project.ICoreProject;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -33,7 +31,8 @@ import org.treesitter.TreeSitterCSharp;
 public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     static final Logger log = LoggerFactory.getLogger(CSharpAnalyzer.class);
 
-    private static final Set<String> CSHARP_COMMENT_NODE_TYPES = Set.of(LINE_COMMENT, BLOCK_COMMENT, COMMENT);
+    private static final Set<String> CSHARP_COMMENT_NODE_TYPES =
+            Set.of(LINE_COMMENT, BLOCK_COMMENT, nodeType(CSharpNodeType.COMMENT));
     private static final Set<String> LOG_RECEIVER_NAMES = Set.of("console", "trace", "debug", "logger", "log");
     private static final Set<String> LOG_METHOD_NAMES = Set.of(
             "writeline",
@@ -49,13 +48,19 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             "logcritical");
     private static final LanguageSyntaxProfile CS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(
-                    CLASS_DECLARATION,
-                    INTERFACE_DECLARATION,
-                    STRUCT_DECLARATION,
-                    RECORD_DECLARATION,
+                    nodeType(CSharpNodeType.CLASS_DECLARATION),
+                    nodeType(CSharpNodeType.INTERFACE_DECLARATION),
+                    nodeType(CSharpNodeType.STRUCT_DECLARATION),
+                    nodeType(CSharpNodeType.RECORD_DECLARATION),
                     RECORD_STRUCT_DECLARATION),
-            Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION, LOCAL_FUNCTION_STATEMENT),
-            Set.of(FIELD_DECLARATION, PROPERTY_DECLARATION, EVENT_FIELD_DECLARATION),
+            Set.of(
+                    nodeType(CSharpNodeType.METHOD_DECLARATION),
+                    nodeType(CSharpNodeType.CONSTRUCTOR_DECLARATION),
+                    nodeType(CSharpNodeType.LOCAL_FUNCTION_STATEMENT)),
+            Set.of(
+                    nodeType(CSharpNodeType.FIELD_DECLARATION),
+                    nodeType(CSharpNodeType.PROPERTY_DECLARATION),
+                    nodeType(CSharpNodeType.EVENT_FIELD_DECLARATION)),
             Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of("attribute_list"),
             IMPORT_DECLARATION,
@@ -190,7 +195,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             String returnTypeText,
             String indent) {
         // The 'indent' parameter is now "" when called from buildSignatureString.
-        TSNode body = funcNode.getChildByFieldName("body");
+        TSNode body = funcNode.getChildByFieldName(FIELD_BODY);
         String signature;
 
         if (body != null) {
@@ -198,7 +203,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             int endByte = body.getStartByte();
             signature = sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
         } else {
-            TSNode paramsNode = funcNode.getChildByFieldName("parameters");
+            TSNode paramsNode = funcNode.getChildByFieldName(FIELD_PARAMETERS);
             if (paramsNode != null) {
                 int startByte = funcNode.getStartByte();
                 int endByte = paramsNode.getEndByte();
@@ -244,7 +249,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         TSNode current = definitionNode.getParent();
 
         while (current != null && !current.equals(rootNode)) {
-            if (NAMESPACE_DECLARATION.equals(current.getType())) {
+            if (nodeType(CSharpNodeType.NAMESPACE_DECLARATION).equals(current.getType())) {
                 // Find the identifier or qualified_name child as the name
                 for (TSNode child : current.getChildren()) {
                     String type = child.getType();
@@ -494,7 +499,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     private List<ExceptionHandlingSmell> detectExceptionHandlingSmells(
             ProjectFile file, TSNode root, SourceContent sourceContent, ExceptionSmellWeights weights) {
         var catches = new ArrayList<TSNode>();
-        collectNodesByType(root, Set.of(CATCH_CLAUSE), catches);
+        collectNodesByType(root, Set.of(nodeType(CSharpNodeType.CATCH_CLAUSE)), catches);
         var findings = new ArrayList<SmellCandidate>();
         for (TSNode catchNode : catches) {
             analyzeCatchClause(file, catchNode, sourceContent, weights).ifPresent(findings::add);
@@ -507,10 +512,10 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     private Optional<SmellCandidate> analyzeCatchClause(
             ProjectFile file, TSNode catchNode, SourceContent sourceContent, ExceptionSmellWeights weights) {
-        TSNode bodyNode = catchNode.getChildByFieldName("body");
+        TSNode bodyNode = catchNode.getChildByFieldName(FIELD_BODY);
         if (bodyNode == null) {
             bodyNode = catchNode.getNamedChildren().stream()
-                    .filter(child -> BLOCK.equals(child.getType()))
+                    .filter(child -> nodeType(CSharpNodeType.BLOCK).equals(child.getType()))
                     .findFirst()
                     .orElse(null);
         }
@@ -528,8 +533,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
         boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
         boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
-        boolean throwPresent =
-                hasDescendantOfType(bodyNode, THROW_STATEMENT) || hasDescendantOfType(bodyNode, THROW_EXPRESSION);
+        boolean throwPresent = hasDescendantOfType(bodyNode, nodeType(CSharpNodeType.THROW_STATEMENT))
+                || hasDescendantOfType(bodyNode, nodeType(CSharpNodeType.THROW_EXPRESSION));
         boolean logOnly = bodyStatements == 1 && isLikelyLogOnlyBody(bodyNode, sourceContent) && !throwPresent;
 
         int score = 0;
@@ -583,19 +588,24 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static String extractCatchType(TSNode catchNode, SourceContent sourceContent) {
-        var decl = findFirstNamedDescendant(catchNode, CATCH_DECLARATION);
+        var decl = findFirstNamedDescendant(catchNode, nodeType(CSharpNodeType.CATCH_DECLARATION));
         if (decl == null) {
             // C# catch-all: `catch { ... }`
             return "Exception";
         }
-        TSNode typeNode = decl.getChildByFieldName("type");
+        TSNode typeNode = decl.getChildByFieldName(FIELD_TYPE);
         if (typeNode != null) {
             String typeText = sourceContent.substringFrom(typeNode).strip();
             if (!typeText.isEmpty()) {
                 return typeText;
             }
         }
-        TSNode fallback = firstNamedChildOfType(decl, Set.of(QUALIFIED_NAME, GENERIC_NAME, IDENTIFIER_NAME));
+        TSNode fallback = firstNamedChildOfType(
+                decl,
+                Set.of(
+                        nodeType(CSharpNodeType.QUALIFIED_NAME),
+                        nodeType(CSharpNodeType.GENERIC_NAME),
+                        nodeType(CSharpNodeType.IDENTIFIER)));
         if (fallback != null) {
             String typeText = sourceContent.substringFrom(fallback).strip();
             if (!typeText.isEmpty()) {
@@ -628,17 +638,17 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     private static boolean isLikelyLogOnlyBody(TSNode bodyNode, SourceContent sourceContent) {
         TSNode statement = firstNonCommentNamedChild(bodyNode, CSHARP_COMMENT_NODE_TYPES);
-        if (statement == null || !EXPRESSION_STATEMENT.equals(statement.getType())) {
+        if (statement == null || !nodeType(CSharpNodeType.EXPRESSION_STATEMENT).equals(statement.getType())) {
             return false;
         }
-        TSNode invocation = findFirstNamedDescendant(statement, INVOCATION_EXPRESSION);
+        TSNode invocation = findFirstNamedDescendant(statement, nodeType(CSharpNodeType.INVOCATION_EXPRESSION));
         if (invocation == null) {
             return false;
         }
 
-        TSNode expression = invocation.getChildByFieldName("expression");
+        TSNode expression = invocation.getChildByFieldName(FIELD_EXPRESSION);
         if (expression == null) {
-            expression = invocation.getChildByFieldName("function");
+            expression = invocation.getChildByFieldName(FIELD_FUNCTION);
         }
         if (expression == null) {
             return false;
@@ -646,9 +656,9 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
         String receiverText = "";
         String methodName = "";
-        if (MEMBER_ACCESS_EXPRESSION.equals(expression.getType())) {
-            TSNode receiverNode = expression.getChildByFieldName("expression");
-            TSNode nameNode = expression.getChildByFieldName("name");
+        if (nodeType(CSharpNodeType.MEMBER_ACCESS_EXPRESSION).equals(expression.getType())) {
+            TSNode receiverNode = expression.getChildByFieldName(FIELD_EXPRESSION);
+            TSNode nameNode = expression.getChildByFieldName(FIELD_NAME);
             if (receiverNode != null) {
                 receiverText = sourceContent.substringFrom(receiverNode).strip().toLowerCase(Locale.ROOT);
             }
@@ -778,7 +788,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         for (int i = 0; i < args.getNamedChildCount(); i++) {
             TSNode child = args.getNamedChild(i);
             if (child != null) {
-                TSNode value = child.getChildByFieldName("expression");
+                TSNode value = child.getChildByFieldName(FIELD_EXPRESSION);
                 out.add(value != null ? value : child);
             }
         }
@@ -860,13 +870,14 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         TSNode declarator = null;
 
         // If we captured the whole field_declaration, try to locate the variable_declaration child.
-        if (FIELD_DECLARATION.equals(nodeType) || EVENT_FIELD_DECLARATION.equals(nodeType)) {
+        if (nodeType(CSharpNodeType.FIELD_DECLARATION).equals(nodeType)
+                || nodeType(CSharpNodeType.EVENT_FIELD_DECLARATION).equals(nodeType)) {
             fieldDecl = fieldNode;
             // Some grammars expose the variable_declaration via a field name, others as a plain child.
             varDecl = fieldNode.getChildByFieldName("declaration");
             if (varDecl == null) {
                 for (TSNode child : fieldNode.getChildren()) {
-                    if (CSharpTreeSitterNodeTypes.VARIABLE_DECLARATION.equals(child.getType())) {
+                    if (nodeType(CSharpNodeType.VARIABLE_DECLARATION).equals(child.getType())) {
                         varDecl = child;
                         break;
                     }
@@ -877,21 +888,21 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                                 varDecl,
                                 simpleName,
                                 sourceContent,
-                                CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR,
+                                nodeType(CSharpNodeType.VARIABLE_DECLARATOR),
                                 "name")
                         .orElse(null);
             }
-        } else if (CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR.equals(nodeType)) {
+        } else if (nodeType(CSharpNodeType.VARIABLE_DECLARATOR).equals(nodeType)) {
             // If the capture was the declarator itself, walk up to its variable_declaration and field_declaration
             declarator = fieldNode;
             varDecl = fieldNode.getParent();
-            if (varDecl != null && CSharpTreeSitterNodeTypes.VARIABLE_DECLARATION.equals(varDecl.getType())) {
+            if (varDecl != null && nodeType(CSharpNodeType.VARIABLE_DECLARATION).equals(varDecl.getType())) {
                 fieldDecl = varDecl.getParent();
             }
         }
 
         if (fieldDecl != null && varDecl != null && declarator != null) {
-            TSNode typeNode = varDecl.getChildByFieldName("type");
+            TSNode typeNode = varDecl.getChildByFieldName(FIELD_TYPE);
             if (typeNode != null) {
                 StringBuilder modifiersBuilder = new StringBuilder();
                 for (TSNode child : fieldDecl.getChildren()) {
@@ -910,7 +921,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 String modifiers = modifiersBuilder.toString();
                 String typeStr = sourceContent.substringFrom(typeNode).strip();
 
-                TSNode nameNode = declarator.getChildByFieldName("name");
+                TSNode nameNode = declarator.getChildByFieldName(FIELD_NAME);
                 String nameStr =
                         nameNode != null ? sourceContent.substringFrom(nameNode).strip() : simpleName;
 
@@ -931,7 +942,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 }
 
                 if (valueClause != null) {
-                    expression = valueClause.getChildByFieldName("value");
+                    expression = valueClause.getChildByFieldName(FIELD_VALUE);
                     if (expression == null) {
                         // Fallback: first named child in the clause that isn't the '=' operator
                         expression = valueClause.getChildren().stream()
@@ -957,7 +968,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
         // Fallback: use provided signatureText
         String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
-        if ((FIELD_DECLARATION.equals(nodeType) || EVENT_FIELD_DECLARATION.equals(nodeType))
+        if ((nodeType(CSharpNodeType.FIELD_DECLARATION).equals(nodeType)
+                        || nodeType(CSharpNodeType.EVENT_FIELD_DECLARATION).equals(nodeType))
                 && !fullSignature.endsWith(";")) {
             fullSignature += ";";
         }
@@ -967,12 +979,12 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     private boolean isLiteralType(@Nullable String type) {
         if (type == null) return false;
         return type.endsWith("_literal")
-                || BOOLEAN_LITERAL.equals(type)
-                || INTEGER_LITERAL.equals(type)
-                || REAL_LITERAL.equals(type)
-                || CHARACTER_LITERAL.equals(type)
-                || STRING_LITERAL.equals(type)
-                || NULL_LITERAL.equals(type)
+                || nodeType(CSharpNodeType.BOOLEAN_LITERAL).equals(type)
+                || nodeType(CSharpNodeType.INTEGER_LITERAL).equals(type)
+                || nodeType(CSharpNodeType.REAL_LITERAL).equals(type)
+                || nodeType(CSharpNodeType.CHARACTER_LITERAL).equals(type)
+                || nodeType(CSharpNodeType.STRING_LITERAL).equals(type)
+                || nodeType(CSharpNodeType.NULL_LITERAL).equals(type)
                 || TRUE_KEYWORD.equals(type)
                 || FALSE_KEYWORD.equals(type)
                 || NULL_KEYWORD.equals(type);
@@ -986,7 +998,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         if (isLiteralType(type)) return node;
 
         // 2. Only descend into specific wrapper nodes to avoid finding literals inside complex expressions
-        if (PARENTHESIZED_EXPRESSION.equals(type) || LITERAL.equals(type)) {
+        if (nodeType(CSharpNodeType.PARENTHESIZED_EXPRESSION).equals(type)
+                || nodeType(CSharpNodeType.LITERAL).equals(type)) {
             for (TSNode child : node.getNamedChildren()) {
                 TSNode found = findLiteralNode(child);
                 if (found != null) return found;

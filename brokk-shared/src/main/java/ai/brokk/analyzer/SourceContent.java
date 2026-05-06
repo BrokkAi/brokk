@@ -96,12 +96,7 @@ public final class SourceContent {
      * If charPosition <= 0 returns 0. If charPosition >= source.length() returns byteLength.
      */
     public int charPositionToByteOffset(int charPosition) {
-        if (charPosition <= 0) return 0;
-        if (charPosition >= text.length()) return utf8Bytes.length;
-
-        // Build prefix substring and measure UTF-8 byte length.
-        String prefix = text.substring(0, charPosition);
-        return prefix.getBytes(StandardCharsets.UTF_8).length;
+        return ASTTraversalUtils.charPositionToUtf8ByteOffset(text, charPosition);
     }
 
     public String text() {

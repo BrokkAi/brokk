@@ -1,15 +1,18 @@
 package ai.brokk;
 
 import ai.brokk.agents.BlitzForge;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.tools.ApprovalResult;
+import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.util.List;
+import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
 public interface IConsoleIO {
@@ -64,6 +67,29 @@ public interface IConsoleIO {
     }
 
     void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta);
+
+    /**
+     * Emit a structured status banner — a headline plus key/value details — to the user. The
+     * default implementation renders the banner via {@link ExplanationRenderer} and emits it
+     * through {@link #llmOutput} as an AI-typed chunk, preserving the legacy text-stream shape
+     * for GUI consoles. Consoles that support structured tool calls may override to emit a
+     * synthetic tool call directly, which avoids relying on downstream pattern matching of
+     * banner-shaped prose.
+     */
+    default void showStatusBanner(String headline, Map<String, Object> details) {
+        var formatted = ExplanationRenderer.renderExplanation(headline, details);
+        llmOutput(formatted, ChatMessageType.AI, LlmOutputMeta.newMessage());
+    }
+
+    /**
+     * Emit a compact, single-line status update (e.g. {@code "Code Agent finished — message"}).
+     * Default implementation forwards through {@link #llmOutput} as a CUSTOM chunk so the GUI
+     * keeps its existing rendering. Consoles that support structured tool calls may override
+     * to emit a title-only tool_call with empty content for an unobtrusive single-line display.
+     */
+    default void showStatusLine(String message) {
+        llmOutput("\n" + message + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
+    }
 
     /**
      * default implementation just forwards to systemOutput but the Chrome GUI implementation wraps JOptionPane;
@@ -165,6 +191,18 @@ public interface IConsoleIO {
     }
 
     /**
+     * Returns true if this console emits structured tool-call updates (e.g. ACP {@code tool_call}
+     * and {@code tool_call_update} notifications) via {@link #beforeToolCall} / {@link #afterToolOutput}.
+     * <p>
+     * When true, callers should avoid echoing tool call explanations and results as plain text
+     * via {@link #llmOutput}, since that information is already delivered through the structured
+     * channel and would otherwise appear duplicated in the output.
+     */
+    default boolean supportsStructuredToolOutput() {
+        return false;
+    }
+
+    /**
      * Signals that a shell command has finished executing.
      * Default implementation is a no-op (Swing already saw output via commandOutput).
      * Headless consoles override to emit a COMMAND_RESULT event.
@@ -213,10 +251,27 @@ public interface IConsoleIO {
     }
 
     /**
+     * Notifies the console that an approved tool call has begun executing.
+     * Default implementation is a no-op.
+     */
+    default void toolCallInProgress(ToolExecutionRequest request) {
+        // no-op
+    }
+
+    /**
      * Notifies the console that a tool call has completed.
      * Default implementation is a no-op.
      */
     default void afterToolOutput(ToolExecutionResult result) {
+        // no-op
+    }
+
+    /**
+     * Notifies the console that a batch of file edits has been applied. Maps from {@code ProjectFile} to
+     * its content before and after the edit; only keys for files that successfully changed are present.
+     * Default implementation is a no-op.
+     */
+    default void afterFileEdits(Map<ProjectFile, String> originalContents, Map<ProjectFile, String> newContents) {
         // no-op
     }
 

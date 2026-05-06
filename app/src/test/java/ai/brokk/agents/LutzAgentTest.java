@@ -3,6 +3,8 @@ package ai.brokk.agents;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AbstractService.OfflineStreamingModel;
@@ -290,6 +292,71 @@ class LutzAgentTest {
         assertTrue(noAppend.autoScan(), "noAppend() should have autoScan=true");
         assertNull(noAppend.scanModel(), "noAppend() should have scanModel=null");
         assertFalse(noAppend.appendToScope(), "noAppend() should have appendToScope=false");
+    }
+
+    @Test
+    void callCodeAgent_withoutExplicitCodeModel_fallsBackToCmGetCodeModel() throws InterruptedException {
+        // GUI/CLI/legacy callers (IssueExecutor.runReviewFixTasks, BprCli, InstructionsPanel,
+        // IssueRewriterAgent) construct LutzAgent without an explicit codeModel; callCodeAgent
+        // must then consult cm.getCodeModel() so the user's project-level CODE setting is honored.
+        // We prove the fallback path by making cm.getCodeModel() throw a sentinel and observing
+        // the throw propagate out of callCodeAgent. Eager left-to-right arg evaluation in
+        //     new ArchitectAgent(cm, model, effectiveCodeModel(), instructions, scope, currentState.context())
+        // means the third-arg throw fires before ArchitectAgent's body or the heavier args run.
+        //
+        // Pairs with callCodeAgent_withExplicitCodeModel_doesNotConsultCm_regressesBug3429,
+        // which verifies the JobSpec-driven path bypasses cm.getCodeModel().
+        var sentinel = new RuntimeException("FALLBACK_PROBE");
+        var cm = new TestContextManager(tempDir, new NoOpConsoleIO()) {
+            @Override
+            public StreamingChatModel getCodeModel() {
+                throw sentinel;
+            }
+        };
+
+        LutzAgent agent = newAgent(cm, new OfflineStreamingModel());
+
+        var thrown = assertThrows(RuntimeException.class, () -> agent.callCodeAgent("test instructions"));
+        assertSame(
+                sentinel, thrown, "Without an explicit codeModel, callCodeAgent must fall back to cm.getCodeModel().");
+    }
+
+    @Test
+    void callCodeAgent_withExplicitCodeModel_doesNotConsultCm_regressesBug3429() throws InterruptedException {
+        // Bug #3429 regression: when LutzAgent receives an explicit codeModel via constructor
+        // (e.g. from JobSpec.codeModel() threaded by JobRunner -> LutzExecutor for the ACP
+        // path), callCodeAgent must use that model and must NOT consult cm.getCodeModel().
+        // We prove the bypass by making cm.getCodeModel() throw an AssertionError; if the
+        // bug regresses, the AssertionError propagates and fails the test. Whatever happens
+        // after (ArchitectAgent execute against an OfflineStreamingModel typically fails) is
+        // outside the scope of this contract -- swallow Exceptions so only AssertionError
+        // (an Error, not an Exception) signals failure.
+        var explicitCodeModel = new OfflineStreamingModel();
+        var cm = new TestContextManager(tempDir, new NoOpConsoleIO()) {
+            @Override
+            public StreamingChatModel getCodeModel() {
+                throw new AssertionError(
+                        "Regression #3429: cm.getCodeModel() must not be consulted when an explicit codeModel is supplied");
+            }
+        };
+
+        LutzAgent agent = new LutzAgent(
+                cm.liveContext(),
+                "goal",
+                new OfflineStreamingModel(),
+                explicitCodeModel,
+                ai.brokk.prompts.SearchPrompts.Objective.WORKSPACE_ONLY,
+                null,
+                new NoOpConsoleIO(),
+                LutzAgent.ScanConfig.disabled());
+
+        try {
+            agent.callCodeAgent("test instructions");
+        } catch (Exception expected) {
+            // ArchitectAgent setup/execute legitimately fails with OfflineStreamingModel + no scope; ignore.
+        }
+        // If cm.getCodeModel() was wrongly consulted, the AssertionError it threw will have
+        // already failed the test (AssertionError is an Error and bypasses the catch above).
     }
 
     @Test

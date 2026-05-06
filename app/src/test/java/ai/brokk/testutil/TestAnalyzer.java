@@ -23,8 +23,11 @@ public class TestAnalyzer
     private final Map<String, List<CodeUnit>> methodsMap;
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
     private final Map<CodeUnit, Integer> complexityMap = new HashMap<>();
+    private final Map<CodeUnit, Integer> cognitiveComplexityMap = new HashMap<>();
+    private final Map<CodeUnit, List<String>> displaySignatures = new HashMap<>();
     private final Map<CodeUnit, String> skeletons = new HashMap<>();
     private final Map<CodeUnit, String> sources = new HashMap<>();
+    private final Map<CodeUnit, List<Range>> rangesByCodeUnit = new HashMap<>();
     private final Map<ProjectFile, List<ImportInfo>> importInfoByFile = new HashMap<>();
     private final Map<CodeUnit, Set<String>> relevantImportsByCodeUnit = new LinkedHashMap<>();
     private @Nullable IProject testProject;
@@ -63,7 +66,7 @@ public class TestAnalyzer
 
     @Override
     public List<Range> rangesOf(CodeUnit codeUnit) {
-        throw new UnsupportedOperationException();
+        return List.copyOf(rangesByCodeUnit.getOrDefault(codeUnit, List.of()));
     }
 
     @Override
@@ -137,12 +140,19 @@ public class TestAnalyzer
 
     @Override
     public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
-        return Optional.empty();
+        return enclosingCodeUnit(file, range.startLine(), range.endLine());
     }
 
     @Override
     public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
-        return Optional.empty();
+        return allClasses.stream()
+                .filter(cu -> cu.source().equals(file))
+                .filter(cu -> rangesOf(cu).stream().anyMatch(r -> startLine >= r.startLine() && endLine <= r.endLine()))
+                .min(Comparator.comparingInt(cu -> rangesOf(cu).stream()
+                        .filter(r -> startLine >= r.startLine() && endLine <= r.endLine())
+                        .mapToInt(r -> r.endLine() - r.startLine())
+                        .min()
+                        .orElse(Integer.MAX_VALUE)));
     }
 
     @Override
@@ -183,8 +193,21 @@ public class TestAnalyzer
         return Optional.empty();
     }
 
+    @Override
+    public List<String> getDisplaySignatures(CodeUnit codeUnit) {
+        return List.copyOf(displaySignatures.getOrDefault(codeUnit, IAnalyzer.super.getDisplaySignatures(codeUnit)));
+    }
+
+    public void setDisplaySignatures(CodeUnit cu, List<String> signatures) {
+        this.displaySignatures.put(cu, List.copyOf(signatures));
+    }
+
     public void setSkeleton(CodeUnit cu, String skeleton) {
         this.skeletons.put(cu, skeleton);
+    }
+
+    public void setRanges(CodeUnit cu, List<Range> ranges) {
+        this.rangesByCodeUnit.put(cu, List.copyOf(ranges));
     }
 
     public void setSource(CodeUnit cu, String source) {
@@ -245,6 +268,20 @@ public class TestAnalyzer
 
     public void setComplexity(CodeUnit cu, int complexity) {
         this.complexityMap.put(cu, complexity);
+    }
+
+    @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return cognitiveComplexityMap.getOrDefault(cu, IAnalyzer.super.computeCognitiveComplexity(cu));
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return IAnalyzer.super.computeCognitiveComplexities(file);
+    }
+
+    public void setCognitiveComplexity(CodeUnit cu, int complexity) {
+        this.cognitiveComplexityMap.put(cu, complexity);
     }
 
     @Override

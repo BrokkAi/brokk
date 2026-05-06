@@ -148,6 +148,30 @@ public class McpUtils {
         }
     }
 
+    /**
+     * Returns a copy of {@code server} with its {@code tools} field populated from a tool-discovery
+     * call. On discovery failure (network error, unreachable process, …) returns the original
+     * {@code server} unchanged and logs a warning.
+     */
+    @Blocking
+    public static McpServer withDiscoveredTools(McpServer server) {
+        List<McpSchema.Tool> discovered;
+        try {
+            discovered = fetchTools(server);
+        } catch (Exception e) {
+            logger.warn("MCP tool discovery failed for {}: {}", server, e.getMessage());
+            return server;
+        }
+        var toolNames = discovered.stream().map(McpSchema.Tool::name).toList();
+        if (server instanceof HttpMcpServer http) {
+            return new HttpMcpServer(http.name(), http.url(), toolNames, http.bearerToken());
+        }
+        if (server instanceof StdioMcpServer stdio) {
+            return new StdioMcpServer(stdio.name(), stdio.command(), stdio.args(), stdio.env(), toolNames);
+        }
+        return server;
+    }
+
     @Blocking
     public static List<McpSchema.Tool> fetchTools(URL url, @Nullable String bearerToken) throws IOException {
         return fetchTools(url, bearerToken, null);

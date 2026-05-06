@@ -14,12 +14,11 @@ from urllib.parse import quote
 
 import httpx
 
-from brokk_code.runtime_utils import find_dev_jar
 from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.3.beta11"
+BUNDLED_EXECUTOR_VERSION = "0.23.6"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
@@ -296,12 +295,6 @@ class ExecutorManager:
     def _main_class(self) -> str:
         return _EXECUTOR_MAIN_CLASS
 
-    def set_environment_type(self, env_type: str) -> None:
-        """Set the environment type (tui, zed, or intellij)."""
-        if env_type not in ("tui", "zed", "intellij"):
-            raise ValueError(f"Invalid environment type: {env_type}")
-        self.environment_type = env_type
-
     def _get_environment_flag(self) -> str:
         """Return the appropriate environment JVM flag based on environment_type."""
         if self.environment_type == "zed":
@@ -408,10 +401,6 @@ class ExecutorManager:
         cmd.extend(self._get_executor_args(exec_id))
         return cmd
 
-    def _find_dev_jar(self) -> Optional[Path]:
-        """Searches for a local development JAR in the project structure."""
-        return find_dev_jar(self.workspace_dir)
-
     async def start(self):
         """Starts the Java HeadlessExecutorMain subprocess."""
         exec_id = str(uuid.uuid4())
@@ -421,13 +410,7 @@ class ExecutorManager:
             print(f"Running in dev mode with JAR: {self.jar_override}")
             cmd = self._get_direct_java_command(self.jar_override, exec_id)
         else:
-            dev_jar = self._find_dev_jar()
-            if dev_jar:
-                self.resolved_jar_path = dev_jar
-                print(f"Running in dev mode with local JAR: {dev_jar}")
-                cmd = self._get_direct_java_command(dev_jar, exec_id)
-            else:
-                cmd = await self._get_jbang_command(exec_id)
+            cmd = await self._get_jbang_command(exec_id)
 
         logger.info(f"Starting executor: {' '.join(cmd)}")
 

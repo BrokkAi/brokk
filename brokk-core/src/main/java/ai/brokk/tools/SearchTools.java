@@ -4,6 +4,7 @@ import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static ai.brokk.util.Lines.truncateLine;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
+import static java.util.Objects.requireNonNull;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ICodeIntelligence;
@@ -12,14 +13,22 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.RelaxedSourceLookupResolver;
+import ai.brokk.analyzer.RelaxedSourceLookupResolver.RelaxedSourceLookup;
 import ai.brokk.analyzer.TestDetectionProvider;
+import ai.brokk.analyzer.usages.UsageAnalyzerSelector;
+import ai.brokk.analyzer.usages.UsageRenderer;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.util.AlmostGrep;
+import ai.brokk.util.FileTargetHeuristic;
 import ai.brokk.util.Lines;
+import ai.brokk.util.Messages;
 import ai.brokk.util.PathExpander;
+import ai.brokk.util.SearchToolSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -35,10 +44,10 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -47,6 +56,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -88,12 +98,14 @@ public class SearchTools {
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
 
-    static final int FILE_SEARCH_LIMIT = 100;
+    private record SymbolSearchHit(
+            String signature, String fqName, @Nullable String codeUnitSignature, int lineNumber) {}
+
     private static final int FILE_SKIM_LIMIT = 20;
     private static final int CLASS_COUNT_LIMIT = 10;
+    private static final int RELATED_CONTENT_LIMIT = 5;
 
     private static final int FILE_CONTENTS_CONTEXT_LINES_LIMIT = 5;
-    static final int FILE_CONTENTS_MATCHES_PER_FILE = 20;
     static final int FILE_CONTENTS_TOTAL_MATCH_LIMIT = 500;
 
     private static final int SEARCH_TOOLS_PARALLELISM =
@@ -173,23 +185,33 @@ public class SearchTools {
                     .maximumSize(4L * Runtime.getRuntime().availableProcessors())
                     .build());
 
-    static final class RegexMatchOverflowException extends RuntimeException {
-        private final String pattern;
-
-        RegexMatchOverflowException(String pattern, StackOverflowError cause) {
-            super("Regex '%s' caused StackOverflowError during matching".formatted(pattern), cause);
-            this.pattern = pattern;
-        }
-
-        String pattern() {
-            return pattern;
-        }
-    }
-
     private final ICodeIntelligence codeIntelligence;
+    private final AtomicLong researchTokens = new AtomicLong(0);
+    private final SearchToolSupport searchToolSupport = new SearchToolSupport(logger);
 
     public SearchTools(ICodeIntelligence codeIntelligence) {
         this.codeIntelligence = codeIntelligence;
+    }
+
+    /**
+     * Returns the number of research tokens accumulated since the last call to this method, and resets the counter to zero.
+     */
+    public long getAndClearResearchTokens() {
+        return researchTokens.getAndSet(0);
+    }
+
+    private String recordResearchTokens(String output) {
+        researchTokens.addAndGet(Messages.getApproximateTokens(output));
+        return output;
+    }
+
+    private String appendRelatedContent(String output, Collection<ProjectFile> resultFiles) {
+        var repo = codeIntelligence.getRepo();
+        if (repo != null) {
+            return searchToolSupport.appendRelatedContent(
+                    output, resultFiles, RELATED_CONTENT_LIMIT, getAnalyzer(), repo);
+        }
+        return searchToolSupport.appendRelatedContent(output, resultFiles, RELATED_CONTENT_LIMIT, getAnalyzer(), null);
     }
 
     // --- Sanitization Helper Methods
@@ -765,47 +787,153 @@ public class SearchTools {
         return List.copyOf(compiled);
     }
 
-    public String getFileSummaries(List<String> filePaths) {
-        if (filePaths.isEmpty()) {
-            return "Cannot get summaries: file paths list is empty";
+    private record SummaryTargets(
+            List<ProjectFile> fileTargets, List<String> unmatchedFileTargets, List<String> classTargets) {}
+
+    private record SummaryOutput(List<String> skeletons, Set<ProjectFile> sourceFiles) {}
+
+    public String getSummaries(List<String> targets) {
+        if (targets.isEmpty()) {
+            throw new IllegalArgumentException("Cannot get summaries: targets list is empty");
         }
 
+        var summaryTargets = routeSummaryTargets(targets);
+        if (summaryTargets.fileTargets().isEmpty()
+                && summaryTargets.classTargets().isEmpty()) {
+            return "No project files found matching the provided patterns: "
+                    + String.join(", ", summaryTargets.unmatchedFileTargets());
+        }
+
+        var fileOutput = summarizeFiles(summaryTargets.fileTargets());
+        var classOutput = summarizeClasses(summaryTargets.classTargets());
+
+        var skeletons = new LinkedHashSet<String>();
+        skeletons.addAll(fileOutput.skeletons());
+        skeletons.addAll(classOutput.skeletons());
+
+        if (skeletons.isEmpty()) {
+            return buildNoSummariesFoundMessage(summaryTargets);
+        }
+
+        var prefix = summaryTargets.unmatchedFileTargets().isEmpty()
+                ? ""
+                : "No project files found matching: " + String.join(", ", summaryTargets.unmatchedFileTargets())
+                        + "\n\n";
+        return recordResearchTokens(prefix + String.join("\n\n", skeletons));
+    }
+
+    private SummaryTargets routeSummaryTargets(List<String> targets) {
         var project = codeIntelligence.getProject();
-        List<ProjectFile> projectFiles = filePaths.stream()
-                .flatMap(pattern -> PathExpander.expandPath(project, pattern).stream())
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .distinct()
-                .sorted() // Sort for deterministic output order
-                .toList();
+        var fileTargets = new LinkedHashSet<ProjectFile>();
+        var unmatchedFileTargets = new ArrayList<String>();
+        var classTargets = new LinkedHashSet<String>();
 
-        if (projectFiles.isEmpty()) {
-            return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
+        for (var target : stripParams(targets).stream()
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList()) {
+            var matchingFiles = PathExpander.expandPath(project, target).stream()
+                    .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
+                    .distinct()
+                    .toList();
+            if (!matchingFiles.isEmpty()) {
+                fileTargets.addAll(matchingFiles);
+                continue;
+            }
+
+            if (FileTargetHeuristic.looksLikeFileTarget(target)) {
+                unmatchedFileTargets.add(target);
+                continue;
+            }
+
+            classTargets.add(target);
         }
+
+        return new SummaryTargets(
+                List.copyOf(fileTargets), List.copyOf(unmatchedFileTargets), List.copyOf(classTargets));
+    }
+
+    private SummaryOutput summarizeFiles(List<ProjectFile> projectFiles) {
+        var analyzer = getAnalyzer();
+        record FileSummaries(ProjectFile file, Map<CodeUnit, String> skeletons) {}
 
         List<String> allSkeletons = new ArrayList<>();
-        List<String> filesProcessed = new ArrayList<>(); // Still useful for the "not found" message
-        for (var file : projectFiles) {
-            var skeletonsInFile = getAnalyzer().getSkeletons(file);
-            if (!skeletonsInFile.isEmpty()) {
-                // Add all skeleton strings from this file to the list
-                allSkeletons.addAll(skeletonsInFile.values());
-                filesProcessed.add(file.toString());
-            } else {
-                logger.debug("No skeletons found in file: {}", file);
+        Set<ProjectFile> filesWithSummaries = new LinkedHashSet<>();
+
+        for (int start = 0; start < projectFiles.size(); ) {
+            int batchSize = min(projectFiles.size() - start, SEARCH_TOOLS_PARALLELISM);
+            var batch = projectFiles.subList(start, start + batchSize);
+            start += batchSize;
+
+            List<CompletableFuture<FileSummaries>> futures = batch.stream()
+                    .map(file ->
+                            LoggingFuture.supplyVirtual(() -> new FileSummaries(file, analyzer.getSkeletons(file))))
+                    .toList();
+
+            try {
+                LoggingFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+            } catch (InterruptedException e) {
+                futures.forEach(future -> future.cancel(true));
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while computing summaries", e);
+            } catch (ExecutionException e) {
+                futures.forEach(future -> future.cancel(true));
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException re) {
+                    throw re;
+                }
+                if (cause instanceof Error er) {
+                    throw er;
+                }
+                throw new RuntimeException("Error computing summaries", cause);
+            }
+
+            for (var future : futures) {
+                var fileSummaries = future.join();
+                if (!fileSummaries.skeletons().isEmpty()) {
+                    allSkeletons.addAll(fileSummaries.skeletons().values());
+                    filesWithSummaries.add(fileSummaries.file());
+                } else {
+                    logger.debug("No skeletons found in file: {}", fileSummaries.file());
+                }
             }
         }
+        return new SummaryOutput(List.copyOf(allSkeletons), filesWithSummaries);
+    }
 
-        if (allSkeletons.isEmpty()) {
-            // filesProcessed will be empty if no skeletons were found in any matched file
-            var processedFilesString = filesProcessed.isEmpty()
-                    ? projectFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", "))
-                    : String.join(", ", filesProcessed);
-            return "No class summaries found in the matched files: " + processedFilesString;
+    private SummaryOutput summarizeClasses(List<String> classNames) {
+        var analyzer = getAnalyzer();
+        List<String> skeletons = new ArrayList<>();
+        Set<ProjectFile> resultFiles = new LinkedHashSet<>();
+        classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(fqcn -> {
+            AnalyzerUtil.getSkeleton(analyzer, fqcn).ifPresent(skeleton -> {
+                skeletons.add(skeleton);
+                analyzer.getDefinitions(fqcn).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst()
+                        .map(CodeUnit::source)
+                        .ifPresent(resultFiles::add);
+            });
+        });
+        return new SummaryOutput(List.copyOf(skeletons), resultFiles);
+    }
+
+    private static String buildNoSummariesFoundMessage(SummaryTargets summaryTargets) {
+        List<String> parts = new ArrayList<>();
+        if (!summaryTargets.fileTargets().isEmpty()) {
+            parts.add("No class summaries found in the matched files: "
+                    + summaryTargets.fileTargets().stream()
+                            .map(ProjectFile::toString)
+                            .collect(Collectors.joining(", ")));
         }
-
-        // Return the combined skeleton strings directly, joined by newlines
-        return String.join("\n\n", allSkeletons);
+        if (!summaryTargets.unmatchedFileTargets().isEmpty()) {
+            parts.add("No project files found matching: " + String.join(", ", summaryTargets.unmatchedFileTargets()));
+        }
+        if (!summaryTargets.classTargets().isEmpty()) {
+            parts.add("No classes found for: " + String.join(", ", summaryTargets.classTargets()));
+        }
+        return String.join("; ", parts);
     }
 
     // --- Tool Methods requiring analyzer
@@ -855,35 +983,31 @@ public class SearchTools {
             return "No definitions found for patterns: " + String.join(", ", patterns);
         }
 
-        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
+        int effectiveLimit = min(max(1, limit), AlmostGrep.FILE_SEARCH_LIMIT);
 
         // Group by file, then by kind within each file
         var fileGroups = allDefinitions.stream()
                 .collect(Collectors.groupingBy(
-                        cu -> toUnixPath(cu.source().toString()),
-                        Collectors.groupingBy(cu -> cu.kind().name())));
+                        CodeUnit::source, Collectors.groupingBy(cu -> cu.kind().name())));
 
-        // Build output: sorted files (limited), sorted kinds per file, sorted symbols per kind
+        // Build output: select by Git importance, then render the selected files alphabetically.
         var result = new StringBuilder();
-        var sortedFileEntries = fileGroups.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .toList();
-
-        boolean truncated = sortedFileEntries.size() > effectiveLimit;
-        var limitedFileEntries =
-                sortedFileEntries.stream().limit(effectiveLimit).toList();
+        boolean truncated = fileGroups.size() > effectiveLimit;
+        var filesToRender = selectFilesForDisplay(fileGroups.keySet(), effectiveLimit);
 
         if (truncated) {
             result.append("### WARNING: Result limit reached (max ")
                     .append(effectiveLimit)
-                    .append(" files). Showing first ")
+                    .append(" files). Showing ")
                     .append(effectiveLimit)
-                    .append(" files. Retrying the same tool call will return the same results.\n\n");
+                    .append(" of ")
+                    .append(fileGroups.size())
+                    .append(" files selected by recent activity when available. Results are displayed alphabetically. "
+                            + "Retrying the same tool call will return the same results.\n\n");
         }
 
-        limitedFileEntries.forEach(fileEntry -> {
-            var filePath = fileEntry.getKey();
-            var kindGroups = fileEntry.getValue();
+        filesToRender.forEach(file -> {
+            var kindGroups = requireNonNull(fileGroups.get(file));
 
             int loc = kindGroups.values().stream()
                     .flatMap(List::stream)
@@ -892,7 +1016,7 @@ public class SearchTools {
                     .map(Lines::count)
                     .orElse(0);
             result.append("<file path=\"")
-                    .append(filePath)
+                    .append(toUnixPath(file.toString()))
                     .append("\" loc=\"")
                     .append(loc)
                     .append("\">\n");
@@ -903,19 +1027,48 @@ public class SearchTools {
                 var symbols = kindGroups.get(kind);
                 if (symbols != null && !symbols.isEmpty()) {
                     result.append("[").append(kind).append("]\n");
-                    symbols.stream().map(CodeUnit::fqName).distinct().sorted().forEach(fqn -> result.append("- ")
-                            .append(fqn)
-                            .append("\n"));
+                    symbols.stream()
+                            .flatMap(cu -> analyzer.getDisplaySignatures(cu).stream()
+                                    .map(signature -> new SymbolSearchHit(
+                                            signature, cu.fqName(), cu.signature(), displayLineNumber(analyzer, cu))))
+                            .distinct()
+                            .sorted(SearchTools::compareSymbolSearchHits)
+                            .forEach(hit -> result.append("- ")
+                                    .append(formatSymbolSearchHit(hit))
+                                    .append("\n"));
                 }
             });
 
             result.append("</file>\n");
         });
 
-        return result.toString();
+        return recordResearchTokens(appendRelatedContent(result.toString(), filesToRender));
     }
 
-    public String scanUsages(List<String> symbols, boolean includeTests) {
+    private static int displayLineNumber(IAnalyzer analyzer, CodeUnit codeUnit) {
+        return analyzer.rangesOf(codeUnit).stream()
+                .mapToInt(range -> range.startLine() + 1)
+                .min()
+                .orElse(0);
+    }
+
+    private static int compareSymbolSearchHits(SymbolSearchHit left, SymbolSearchHit right) {
+        int signatureComparison = String.CASE_INSENSITIVE_ORDER.compare(left.signature(), right.signature());
+        if (signatureComparison != 0) {
+            return signatureComparison;
+        }
+        return Integer.compare(normalizedLineNumber(left.lineNumber()), normalizedLineNumber(right.lineNumber()));
+    }
+
+    private static int normalizedLineNumber(int lineNumber) {
+        return lineNumber > 0 ? lineNumber : Integer.MAX_VALUE;
+    }
+
+    private static String formatSymbolSearchHit(SymbolSearchHit hit) {
+        return hit.lineNumber() > 0 ? "%d: %s".formatted(hit.lineNumber(), hit.signature()) : hit.signature();
+    }
+
+    public String scanUsages(List<String> symbols, boolean includeTests) throws InterruptedException {
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -923,6 +1076,7 @@ public class SearchTools {
         }
 
         var analyzer = getAnalyzer();
+        @Nullable Set<ProjectFile> candidates = null;
         List<String> results = new ArrayList<>();
         for (String symbol : symbols) {
             if (symbol.isBlank()) continue;
@@ -934,39 +1088,29 @@ public class SearchTools {
             var filteredDefs = definitions.stream()
                     .filter(cu -> includeTests || !isTestFile(cu.source(), analyzer))
                     .toList();
+            if (filteredDefs.isEmpty()) continue;
 
-            var processed = AnalyzerUtil.processUsages(analyzer, filteredDefs);
-            String text = AnalyzerUtil.CodeWithSource.text(analyzer, processed);
-            if (!text.isEmpty()) {
-                results.add(text);
+            if (candidates == null) {
+                candidates = codeIntelligence.getProject().getAllFiles().stream()
+                        .filter(file -> includeTests || !isTestFile(file, analyzer))
+                        .collect(Collectors.toSet());
+            }
+
+            var usageAnalyzer =
+                    UsageAnalyzerSelector.forTarget(filteredDefs.getFirst(), analyzer, codeIntelligence.getProject());
+            var usageResult = UsageAnalyzerSelector.findUsages(usageAnalyzer, analyzer, filteredDefs, candidates);
+            var rendered = UsageRenderer.render(analyzer, symbol, filteredDefs, usageResult, UsageRenderer.Mode.SAMPLE);
+            if (rendered.hasUsages()
+                    && rendered.hitCount() > 0
+                    && !rendered.text().isEmpty()) {
+                results.add(rendered.text());
             }
         }
 
         if (results.isEmpty()) {
             return "No usages found for: " + String.join(", ", symbols);
         }
-        return String.join("\n\n", results);
-    }
-
-    public String getClassSkeletons(List<String> classNames) {
-        // Sanitize classNames: remove potential `(params)` suffix from LLM.
-        classNames = stripParams(classNames);
-        if (classNames.isEmpty()) {
-            throw new IllegalArgumentException("Cannot get skeletons: class names list is empty");
-        }
-
-        var result = classNames.stream()
-                .distinct()
-                .map(fqcn -> AnalyzerUtil.getSkeleton(getAnalyzer(), fqcn))
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .collect(Collectors.joining("\n\n"));
-
-        if (result.isEmpty()) {
-            return "No classes found in: " + String.join(", ", classNames);
-        }
-
-        return result;
+        return recordResearchTokens(String.join("\n\n", results));
     }
 
     public String getClassSources(List<String> classNames) {
@@ -980,50 +1124,63 @@ public class SearchTools {
         Set<String> added = new HashSet<>();
         int processedCount = 0;
         boolean truncated = false;
+        List<String> ambiguousMatches = new ArrayList<>();
 
         var analyzer = getAnalyzer();
         List<String> distinctNames =
                 classNames.stream().distinct().filter(s -> !s.isBlank()).toList();
+        Map<String, RelaxedSourceLookup> lookups =
+                RelaxedSourceLookupResolver.resolveLookups(analyzer, distinctNames, CodeUnit::isClass);
 
         for (String className : distinctNames) {
             if (processedCount >= CLASS_COUNT_LIMIT) {
                 truncated = true;
                 break;
             }
-            var cuOpt = analyzer.getDefinitions(className).stream()
-                    .filter(CodeUnit::isClass)
-                    .findFirst();
-            if (cuOpt.isPresent()) {
-                var cu = cuOpt.get();
-                if (added.add(cu.fqName())) {
-                    processedCount++;
-                    var sourceOpt = analyzer.getSource(cu, true);
-                    var text = sourceOpt
-                            .map(src -> "<class file=\"%s\">\n%s\n</class>"
-                                    .formatted(cu.source().toString(), src))
-                            .orElse("");
-                    if (!text.isEmpty()) {
-                        if (!result.isEmpty()) {
-                            result.append("\n\n");
-                        }
-                        result.append(text);
+            var lookup = requireNonNull(lookups.get(className));
+            if (lookup.isAmbiguous()) {
+                ambiguousMatches.add(lookup.ambiguityMessage("class", className));
+                continue;
+            }
+            if (!lookup.isResolved()) {
+                continue;
+            }
+
+            var cu = requireNonNull(lookup.codeUnit());
+            if (added.add(cu.fqName())) {
+                processedCount++;
+                var sourceOpt = analyzer.getSource(cu, true);
+                var text = sourceOpt
+                        .map(src -> "<class file=\"%s\">\n%s\n</class>"
+                                .formatted(cu.source().toString(), src))
+                        .orElse("");
+                if (!text.isEmpty()) {
+                    if (!result.isEmpty()) {
+                        result.append("\n\n");
                     }
+                    result.append(text);
                 }
             }
         }
 
         if (result.isEmpty()) {
+            if (!ambiguousMatches.isEmpty()) {
+                return recordResearchTokens(String.join("\n\n", ambiguousMatches));
+            }
             return "No sources found for classes: " + String.join(", ", classNames);
         }
 
         String output = result.toString();
+        if (!ambiguousMatches.isEmpty()) {
+            output += "\n\n" + String.join("\n\n", ambiguousMatches);
+        }
         if (truncated) {
             output = "### WARNING: Result limit reached (max " + CLASS_COUNT_LIMIT + " classes). Showing first "
                     + CLASS_COUNT_LIMIT + " class sources. "
                     + "Retrying the same tool call will return the same results.\n\n" + output;
         }
 
-        return output;
+        return recordResearchTokens(output);
     }
 
     public String getSymbolLocations(List<String> symbols) {
@@ -1060,7 +1217,7 @@ public class SearchTools {
             result.append("\n\nNot found: ").append(String.join(", ", notFound));
         }
 
-        return result.toString();
+        return recordResearchTokens(result.toString());
     }
 
     public String getMethodSources(List<String> methodNames) {
@@ -1072,31 +1229,47 @@ public class SearchTools {
 
         StringBuilder result = new StringBuilder();
         Set<String> added = new HashSet<>();
+        List<String> ambiguousMatches = new ArrayList<>();
 
         var analyzer = getAnalyzer();
-        methodNames.stream().distinct().filter(s -> !s.isBlank()).forEach(methodName -> {
-            var cuOpt = analyzer.getDefinitions(methodName).stream()
-                    .filter(CodeUnit::isFunction)
-                    .findFirst();
-            if (cuOpt.isPresent()) {
-                var cu = cuOpt.get();
-                if (added.add(cu.fqName())) {
-                    Set<String> sources = analyzer.getSources(cu, true);
-                    if (!sources.isEmpty()) {
-                        if (!result.isEmpty()) {
-                            result.append("\n\n");
-                        }
-                        result.append(String.join("\n\n", sources));
+        List<String> distinctNames =
+                methodNames.stream().distinct().filter(s -> !s.isBlank()).toList();
+        Map<String, RelaxedSourceLookup> lookups =
+                RelaxedSourceLookupResolver.resolveLookups(analyzer, distinctNames, CodeUnit::isFunction);
+        distinctNames.forEach(methodName -> {
+            var lookup = requireNonNull(lookups.get(methodName));
+            if (lookup.isAmbiguous()) {
+                ambiguousMatches.add(lookup.ambiguityMessage("method", methodName));
+                return;
+            }
+            if (!lookup.isResolved()) {
+                return;
+            }
+
+            var cu = requireNonNull(lookup.codeUnit());
+            if (added.add(cu.fqName())) {
+                Set<String> sources = analyzer.getSources(cu, true);
+                if (!sources.isEmpty()) {
+                    if (!result.isEmpty()) {
+                        result.append("\n\n");
                     }
+                    result.append(String.join("\n\n", sources));
                 }
             }
         });
 
         if (result.isEmpty()) {
+            if (!ambiguousMatches.isEmpty()) {
+                return recordResearchTokens(String.join("\n\n", ambiguousMatches));
+            }
             return "No sources found for methods: " + String.join(", ", methodNames);
         }
 
-        return result.toString();
+        String output = result.toString();
+        if (!ambiguousMatches.isEmpty()) {
+            output += "\n\n" + String.join("\n\n", ambiguousMatches);
+        }
+        return recordResearchTokens(output);
     }
 
     public String getGitLog(String path, int limit) {
@@ -1161,7 +1334,7 @@ public class SearchTools {
             }
 
             sb.append("</git_log>");
-            return sb.toString();
+            return recordResearchTokens(sb.toString());
         } catch (GitAPIException e) {
             logger.error("Error retrieving git log for path '{}': {}", path, e.getMessage(), e);
             return "Error retrieving git log: " + e.getMessage();
@@ -1245,11 +1418,11 @@ public class SearchTools {
                     + repo.getClass().getName() + ").";
         }
 
-        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
+        int effectiveLimit = min(max(1, limit), AlmostGrep.FILE_SEARCH_LIMIT);
 
-        GitRepo.SearchCommitsResult searchResult;
+        IGitRepo.SearchCommitsResult searchResult;
         try {
-            searchResult = gitRepo.searchCommits(pattern, effectiveLimit);
+            searchResult = getCachedCommitSearchResult(gitRepo, pattern, effectiveLimit);
         } catch (GitAPIException e) {
             logger.error("Error searching commit messages", e);
             return "Error searching commit messages: " + e.getMessage();
@@ -1263,6 +1436,7 @@ public class SearchTools {
         boolean truncated = searchResult.truncated();
 
         StringBuilder resultBuilder = new StringBuilder();
+        Set<ProjectFile> resultFiles = new LinkedHashSet<>();
         if (truncated) {
             resultBuilder
                     .append("### WARNING: Result limit reached (max ")
@@ -1289,13 +1463,12 @@ public class SearchTools {
                 try {
                     List<ProjectFile> changedFilesList;
                     try {
-                        changedFilesList = gitRepo.listFilesChangedInCommit(commit.id()).stream()
-                                .map(IGitRepo.ModifiedFile::file)
-                                .toList();
+                        changedFilesList = getCachedChangedFilesForCommit(gitRepo, commit.id());
                     } catch (Exception e) {
                         logger.error("Error retrieving changed files for commit {}", commit.id(), e);
                         changedFilesList = List.of();
                     }
+                    resultFiles.addAll(changedFilesList);
                     var changedFiles =
                             changedFilesList.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
                     resultBuilder.append(changedFiles).append("\n");
@@ -1307,7 +1480,7 @@ public class SearchTools {
             }
         }
 
-        return resultBuilder.toString();
+        return recordResearchTokens(appendRelatedContent(resultBuilder.toString(), resultFiles));
     }
 
     // --- Text search tools
@@ -1332,12 +1505,9 @@ public class SearchTools {
 
         var searchResult = findFilesContainingPatterns(
                 compiledPatterns, codeIntelligence.getProject().getAllFiles());
-        // sort to provide deterministic results because getAllFiles() is an unordered Set
-        var allMatches = searchResult.matches().stream().sorted().toList();
-
-        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
-        boolean truncated = allMatches.size() > effectiveLimit;
-        var matchingFilenames = allMatches.stream().limit(effectiveLimit).toList();
+        int effectiveLimit = min(max(1, limit), AlmostGrep.FILE_SEARCH_LIMIT);
+        boolean truncated = searchResult.matches().size() > effectiveLimit;
+        var matchingFilenames = selectFilesForDisplay(searchResult.matches(), effectiveLimit);
 
         if (matchingFilenames.isEmpty()) {
             if (!searchResult.errors().isEmpty()) {
@@ -1351,8 +1521,10 @@ public class SearchTools {
         }
         String prefix = "";
         if (truncated) {
-            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " files). Showing first "
-                    + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
+            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " files). Showing "
+                    + effectiveLimit + " of " + searchResult.matches().size()
+                    + " matches selected by recent activity when available. Results are displayed alphabetically. "
+                    + "Retrying the same tool call will return the same results.\n\n";
         }
 
         var matchingStrings = matchingFilenames.stream()
@@ -1369,19 +1541,40 @@ public class SearchTools {
                             searchResult.errors().size(), searchResult.errors().getFirst());
         }
         logger.debug(msg);
-        return msg;
+        return recordResearchTokens(msg);
     }
 
-    public record FindFilesContainingResult(Set<ProjectFile> matches, List<String> errors) {}
-
-    public static FindFilesContainingResult findFilesContainingPatterns(
+    public static AlmostGrep.FindFilesContainingResult findFilesContainingPatterns(
             List<Pattern> patterns, Set<ProjectFile> filesToSearch) throws InterruptedException {
         return AlmostGrep.findFilesContainingPatterns(patterns, filesToSearch);
     }
 
     private record BatchResult<T>(List<T> results, List<String> errors, boolean truncatedByMaxFiles) {}
 
+    private record FileOutput(ProjectFile file, String output) {}
+
     private record IndexedResult<T>(int index, @Nullable T value, @Nullable String error) {}
+
+    private List<ProjectFile> prioritizeFilesForSelection(Collection<ProjectFile> files) {
+        var repo = codeIntelligence.getRepo();
+        if (repo == null) {
+            return searchToolSupport.prioritizeFilesForSelection(files, null);
+        }
+        return searchToolSupport.prioritizeFilesForSelection(files, repo);
+    }
+
+    private List<ProjectFile> selectFilesForDisplay(Collection<ProjectFile> files, int limit) {
+        return searchToolSupport.selectFilesForDisplay(files, limit, codeIntelligence.getRepo());
+    }
+
+    private IGitRepo.SearchCommitsResult getCachedCommitSearchResult(IGitRepo gitRepo, String pattern, int limit)
+            throws GitAPIException {
+        return searchToolSupport.getCachedCommitSearchResult(gitRepo, pattern, limit);
+    }
+
+    private List<ProjectFile> getCachedChangedFilesForCommit(IGitRepo gitRepo, String commitId) throws GitAPIException {
+        return searchToolSupport.getCachedChangedFilesForCommit(gitRepo, commitId);
+    }
 
     private <T> BatchResult<T> batchProcessFiles(
             List<ProjectFile> files, int maxFiles, BiFunction<ProjectFile, Integer, IndexedResult<T>> processor)
@@ -1391,10 +1584,8 @@ public class SearchTools {
         List<String> errors = new ArrayList<>();
         boolean truncated = false;
 
-        int batchSize = 2 * FILE_SEARCH_LIMIT;
-
         outer:
-        for (int start = 0; start < files.size(); start += batchSize) {
+        for (int start = 0; start < files.size(); ) {
             if (Thread.interrupted()) {
                 throw new InterruptedException("Interrupted during batch processing");
             }
@@ -1403,8 +1594,11 @@ public class SearchTools {
                 break;
             }
 
+            int remainingNeeded = maxFiles - results.size();
+            int batchSize = min(files.size() - start, max(SEARCH_TOOLS_PARALLELISM, remainingNeeded));
             var batch = files.subList(start, min(start + batchSize, files.size()));
             final int batchOffset = start;
+            start += batchSize;
 
             List<CompletableFuture<IndexedResult<T>>> batchFutures = IntStream.range(0, batch.size())
                     .mapToObj(idx ->
@@ -1457,13 +1651,32 @@ public class SearchTools {
             int contextLines,
             int maxFiles)
             throws InterruptedException {
+        return searchFileContents(patterns, filepath, "all", caseInsensitive, multiline, contextLines, maxFiles);
+    }
+
+    public String searchFileContents(
+            List<String> patterns,
+            String filepath,
+            String searchType,
+            boolean caseInsensitive,
+            boolean multiline,
+            int contextLines,
+            int maxFiles)
+            throws InterruptedException {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search file contents: patterns list is empty");
         }
 
+        final AlmostGrep.FileContentSearchType effectiveSearchType;
+        try {
+            effectiveSearchType = AlmostGrep.FileContentSearchType.fromWireValue(searchType);
+        } catch (IllegalArgumentException e) {
+            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        }
+
         int clampedContext = max(0, min(contextLines, FILE_CONTENTS_CONTEXT_LINES_LIMIT));
 
-        int effectiveMaxFiles = min(max(1, maxFiles), FILE_SEARCH_LIMIT);
+        int effectiveMaxFiles = min(max(1, maxFiles), AlmostGrep.FILE_SEARCH_LIMIT);
 
         int flags = 0;
         if (caseInsensitive) {
@@ -1495,17 +1708,21 @@ public class SearchTools {
             return "No text files found matching: " + filepath;
         }
 
-        record FileHit(ProjectFile file, List<AlmostGrep.FileContentSearchResult> blocks) {}
+        var analyzer = getAnalyzer();
+        record FileHit(ProjectFile file, AlmostGrep.FileContentSearchResult block) {}
 
         String patternsLabel = String.join(", ", patterns);
+        List<String> processingErrors = new ArrayList<>();
         BatchResult<FileHit> batchResult;
         try {
-            batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
+            var filesToSearch = files.stream().sorted().toList();
+            batchResult = batchProcessFiles(filesToSearch, effectiveMaxFiles, (file, idx) -> {
                 try {
-                    var res = AlmostGrep.searchFileContentsInFile(file, compiledPatterns, clampedContext);
-                    if (res.isEmpty()) return new IndexedResult<>(idx, null, null);
+                    var res = AlmostGrep.searchFileContentsInFile(
+                            file, compiledPatterns, clampedContext, analyzer, effectiveSearchType);
+                    if (res == null) return new IndexedResult<>(idx, null, null);
                     return new IndexedResult<>(idx, new FileHit(file, res), null);
-                } catch (RegexMatchOverflowException e) {
+                } catch (AlmostGrep.RegexMatchOverflowException e) {
                     String message = "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
                     logger.warn("Regex stack overflow while searching file contents in {}", file, e);
                     return new IndexedResult<>(idx, null, message);
@@ -1516,29 +1733,37 @@ public class SearchTools {
             return "Error searching file contents: " + (e.getMessage() == null ? e.toString() : e.getMessage());
         }
 
-        List<String> processingErrors = new ArrayList<>(batchResult.errors());
-        List<String> fileBlocks = new ArrayList<>();
-        int totalMatches = 0;
+        processingErrors.addAll(batchResult.errors());
         boolean truncatedByTotalMatches = false;
-
+        List<FileHit> selectedHits = new ArrayList<>();
+        int totalMatches = 0;
         for (var hit : batchResult.results()) {
             if (totalMatches >= FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
                 truncatedByTotalMatches = true;
                 break;
             }
 
-            for (var block : hit.blocks()) {
-                fileBlocks.add(block.output());
-                totalMatches += block.matches();
-            }
+            selectedHits.add(hit);
+            totalMatches += hit.block().matches();
         }
+
+        List<String> fileBlocks = selectedHits.stream()
+                .sorted((a, b) -> a.file().compareTo(b.file()))
+                .map(hit -> hit.block().output())
+                .toList();
 
         if (fileBlocks.isEmpty()) {
             if (!processingErrors.isEmpty()) {
-                return "No matches found for pattern(s) '%s' in files matching '%s' (errors occurred in %d files; first: %s)"
-                        .formatted(patternsLabel, filepath, processingErrors.size(), processingErrors.getFirst());
+                return "No matches found for pattern(s) '%s' in files matching '%s' with searchType='%s' (errors occurred in %d files; first: %s)"
+                        .formatted(
+                                patternsLabel,
+                                filepath,
+                                effectiveSearchType.wireName(),
+                                processingErrors.size(),
+                                processingErrors.getFirst());
             }
-            return "No matches found for pattern(s) '" + patternsLabel + "' in files matching '" + filepath + "'";
+            return "No matches found for pattern(s) '%s' in files matching '%s' with searchType='%s'"
+                    .formatted(patternsLabel, filepath, effectiveSearchType.wireName());
         }
 
         var suffixLines = new ArrayList<String>(3);
@@ -1559,15 +1784,16 @@ public class SearchTools {
             output += "\n\n" + String.join("\n", suffixLines);
         }
 
-        return output;
+        return recordResearchTokens(appendRelatedContent(
+                output, selectedHits.stream().map(FileHit::file).toList()));
     }
 
     private record EffectiveLimits(int maxFiles, int matchesPerFile) {}
 
     private static EffectiveLimits clampMaxFilesAndMatchesPerFile(int maxFiles, int matchesPerFile) {
-        int effectiveMaxFiles = min(max(1, maxFiles), FILE_SEARCH_LIMIT);
+        int effectiveMaxFiles = min(max(1, maxFiles), AlmostGrep.FILE_SEARCH_LIMIT);
 
-        int effectiveMatchesPerFile = min(max(1, matchesPerFile), FILE_SEARCH_LIMIT);
+        int effectiveMatchesPerFile = min(max(1, matchesPerFile), AlmostGrep.FILE_SEARCH_LIMIT);
 
         long product = (long) effectiveMaxFiles * (long) effectiveMatchesPerFile;
         if (product > FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
@@ -1579,12 +1805,11 @@ public class SearchTools {
 
     public String jq(String filepath, String filter, int maxFiles, int matchesPerFile) throws InterruptedException {
         var project = codeIntelligence.getProject();
-        var files = PathExpander.expandPath(project, filepath).stream()
+        var files = prioritizeFilesForSelection(PathExpander.expandPath(project, filepath).stream()
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .filter(pf -> pf.isText() && "json".equalsIgnoreCase(pf.extension()))
-                .sorted()
-                .toList();
+                .toList());
 
         if (files.isEmpty()) {
             return "No JSON files found matching: " + filepath;
@@ -1612,7 +1837,7 @@ public class SearchTools {
             return "Invalid jq filter: " + e.getMessage();
         }
 
-        BatchResult<String> batchResult;
+        BatchResult<FileOutput> batchResult;
         try {
             batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
                 try {
@@ -1649,7 +1874,7 @@ public class SearchTools {
                             outLines.add(truncateLine(rendered, 0, rendered.length()));
                         }
                     }
-                    return new IndexedResult<>(idx, String.join("\n", outLines) + "\n", null);
+                    return new IndexedResult<>(idx, new FileOutput(file, String.join("\n", outLines) + "\n"), null);
                 } catch (Exception e) {
                     String message = e.getMessage() == null ? e.toString() : e.getMessage();
                     return new IndexedResult<>(idx, null, file + ": " + message);
@@ -1672,41 +1897,43 @@ public class SearchTools {
             return "No results for jq filter.";
         }
 
-        String output = String.join("\n", batchResult.results()).trim();
+        String output = batchResult.results().stream()
+                .sorted((a, b) -> a.file().compareTo(b.file()))
+                .map(FileOutput::output)
+                .collect(Collectors.joining("\n"))
+                .trim();
         if (batchResult.truncatedByMaxFiles()) {
             output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
         }
 
-        return output;
+        return recordResearchTokens(output);
     }
 
     public String xmlSkim(String filepath, int maxFiles) throws InterruptedException {
         var project = codeIntelligence.getProject();
-        var files = PathExpander.expandPath(project, filepath).stream()
+        var files = prioritizeFilesForSelection(PathExpander.expandPath(project, filepath).stream()
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .filter(ProjectFile::isText)
                 .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                .sorted()
-                .toList();
+                .toList());
 
         if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
-            files = PathExpander.expandPath(project, filepath.substring(3)).stream()
+            files = prioritizeFilesForSelection(PathExpander.expandPath(project, filepath.substring(3)).stream()
                     .filter(ProjectFile.class::isInstance)
                     .map(ProjectFile.class::cast)
                     .filter(ProjectFile::isText)
                     .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                    .sorted()
-                    .toList();
+                    .toList());
         }
 
         if (files.isEmpty()) {
             return "No XML files found matching: " + filepath;
         }
 
-        int effectiveMaxFiles = min(max(1, maxFiles), FILE_SEARCH_LIMIT);
+        int effectiveMaxFiles = min(max(1, maxFiles), AlmostGrep.FILE_SEARCH_LIMIT);
 
-        BatchResult<String> batchResult;
+        BatchResult<FileOutput> batchResult;
         try {
             batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
                 try {
@@ -1720,7 +1947,7 @@ public class SearchTools {
                     String skim = xmlSkimBfs(root, XML_SKIM_TOTAL_BUDGET_CHARS);
                     String block = "<file path=\"%s\">\n%s\n</file>"
                             .formatted(file.toString().replace('\\', '/'), skim);
-                    return new IndexedResult<>(idx, block, null);
+                    return new IndexedResult<>(idx, new FileOutput(file, block), null);
                 } catch (Exception e) {
                     String message = e.getMessage() == null ? e.toString() : e.getMessage();
                     return new IndexedResult<>(idx, null, file + ": " + message);
@@ -1743,7 +1970,11 @@ public class SearchTools {
             return "No results for xmlSkim.";
         }
 
-        String output = String.join("\n\n", batchResult.results()).trim();
+        String output = batchResult.results().stream()
+                .sorted((a, b) -> a.file().compareTo(b.file()))
+                .map(FileOutput::output)
+                .collect(Collectors.joining("\n\n"))
+                .trim();
         if (batchResult.truncatedByMaxFiles()) {
             output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles);
         }
@@ -1752,29 +1983,28 @@ public class SearchTools {
                     .formatted(batchResult.errors().size(), batchResult.errors().getFirst());
         }
 
-        return output;
+        return recordResearchTokens(appendRelatedContent(
+                output, batchResult.results().stream().map(FileOutput::file).toList()));
     }
 
     public String xmlSelect(
             String filepath, String xpath, String output, String attrName, int maxFiles, int matchesPerFile)
             throws InterruptedException {
         var project = codeIntelligence.getProject();
-        var files = PathExpander.expandPath(project, filepath).stream()
+        var files = prioritizeFilesForSelection(PathExpander.expandPath(project, filepath).stream()
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .filter(ProjectFile::isText)
                 .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                .sorted()
-                .toList();
+                .toList());
 
         if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
-            files = PathExpander.expandPath(project, filepath.substring(3)).stream()
+            files = prioritizeFilesForSelection(PathExpander.expandPath(project, filepath.substring(3)).stream()
                     .filter(ProjectFile.class::isInstance)
                     .map(ProjectFile.class::cast)
                     .filter(ProjectFile::isText)
                     .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                    .sorted()
-                    .toList();
+                    .toList());
         }
 
         if (files.isEmpty()) {
@@ -1801,7 +2031,7 @@ public class SearchTools {
             return "Invalid XPath: " + message;
         }
 
-        BatchResult<String> batchResult;
+        BatchResult<FileOutput> batchResult;
         try {
             batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
                 try {
@@ -1885,7 +2115,7 @@ public class SearchTools {
                         }
                     }
 
-                    return new IndexedResult<>(idx, String.join("\n", outLines) + "\n", null);
+                    return new IndexedResult<>(idx, new FileOutput(file, String.join("\n", outLines) + "\n"), null);
                 } catch (Exception e) {
                     String message = e.getMessage() == null ? e.toString() : e.getMessage();
                     return new IndexedResult<>(idx, null, file + ": " + message);
@@ -1908,7 +2138,11 @@ public class SearchTools {
             return "No results for xmlSelect.";
         }
 
-        String outResult = String.join("\n", batchResult.results()).trim();
+        String outResult = batchResult.results().stream()
+                .sorted((a, b) -> a.file().compareTo(b.file()))
+                .map(FileOutput::output)
+                .collect(Collectors.joining("\n"))
+                .trim();
         if (batchResult.truncatedByMaxFiles()) {
             outResult += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
         }
@@ -1917,7 +2151,7 @@ public class SearchTools {
                     .formatted(batchResult.errors().size(), batchResult.errors().getFirst());
         }
 
-        return outResult;
+        return recordResearchTokens(outResult);
     }
 
     public String findFilenames(List<String> patterns, int limit) {
@@ -1982,23 +2216,22 @@ public class SearchTools {
                     .filter(pf -> {
                         String filePath = toUnixPath(pf.toString());
                         for (Pattern pattern : compiledPatterns) {
-                            if (findWithOverflowGuard(pattern, filePath)) {
+                            if (AlmostGrep.findWithOverflowGuard(pattern, filePath)) {
                                 return true;
                             }
                         }
                         return false;
                     })
                     .distinct()
-                    .sorted()
                     .toList();
-        } catch (RegexMatchOverflowException e) {
+        } catch (AlmostGrep.RegexMatchOverflowException e) {
             logger.warn("Regex stack overflow while searching filenames with pattern {}", e.pattern(), e);
             return "Regex pattern '%s' caused StackOverflowError during filename search".formatted(e.pattern());
         }
 
-        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
+        int effectiveLimit = min(max(1, limit), AlmostGrep.FILE_SEARCH_LIMIT);
         boolean truncated = allMatches.size() > effectiveLimit;
-        var matchingFiles = allMatches.stream().limit(effectiveLimit).toList();
+        var matchingFiles = selectFilesForDisplay(allMatches, effectiveLimit);
 
         if (matchingFiles.isEmpty()) {
             return "No filenames found matching patterns: " + String.join(", ", patterns);
@@ -2006,11 +2239,14 @@ public class SearchTools {
 
         String prefix = "";
         if (truncated) {
-            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " filenames). Showing first "
-                    + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
+            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " filenames). Showing "
+                    + effectiveLimit + " of " + allMatches.size()
+                    + " matches selected by recent activity when available. Results are displayed alphabetically. "
+                    + "Retrying the same tool call will return the same results.\n\n";
         }
 
-        return prefix + "Matching filenames by common prefix:\n" + formatFilenamesByPrefix(matchingFiles);
+        return recordResearchTokens(
+                prefix + "Matching filenames by common prefix:\n" + formatFilenamesByPrefix(matchingFiles));
     }
 
     private String formatFilenamesByPrefix(List<ProjectFile> matchingFiles) {
@@ -2035,14 +2271,6 @@ public class SearchTools {
                     return "# " + groupPrefix + "\n" + groupFiles;
                 })
                 .collect(Collectors.joining("\n\n"));
-    }
-
-    private static boolean findWithOverflowGuard(Pattern pattern, String input) {
-        try {
-            return pattern.matcher(input).find();
-        } catch (StackOverflowError e) {
-            throw new RegexMatchOverflowException(pattern.pattern(), e);
-        }
     }
 
     private static String directoryPrefix(String path) {
@@ -2099,7 +2327,7 @@ public class SearchTools {
             return "None of the requested files could be read: " + String.join(", ", filenames);
         }
 
-        return result.toString();
+        return recordResearchTokens(result.toString());
     }
 
     /**
@@ -2162,7 +2390,12 @@ public class SearchTools {
 
         logger.debug("Listing files for directory path: '{}' (normalized to `{}`)", directoryPath, normalizedPath);
 
-        return formatFilesInDirectory(codeIntelligence.getProject().getAllFiles(), normalizedPath, directoryPath);
+        var allFiles = codeIntelligence.getProject().getAllFiles();
+        var result = formatFilesInDirectory(allFiles, normalizedPath, directoryPath);
+        if (result.startsWith("No files or subdirectories found")) {
+            return result;
+        }
+        return recordResearchTokens(result);
     }
 
     public String skimFiles(List<String> filePaths) {
@@ -2173,29 +2406,28 @@ public class SearchTools {
         var project = codeIntelligence.getProject();
         var analyzer = getAnalyzer();
 
-        List<ProjectFile> projectFiles = filePaths.stream()
+        List<ProjectFile> projectFiles = prioritizeFilesForSelection(filePaths.stream()
                 .flatMap(pattern -> PathExpander.expandPath(project, pattern).stream())
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .distinct()
-                .sorted()
-                .toList();
+                .toList());
 
         if (projectFiles.isEmpty()) {
             return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
         }
 
         boolean truncatedByFileLimit = projectFiles.size() > FILE_SKIM_LIMIT;
-        List<ProjectFile> filesToSkim =
+        List<ProjectFile> candidateFiles =
                 projectFiles.stream().limit(FILE_SKIM_LIMIT).toList();
 
         int maxTokens = 12_800;
 
-        StringBuilder fullSkim = new StringBuilder();
         int fullTokens = 0;
         boolean fullTruncated = false;
+        List<FileOutput> selectedBlocks = new ArrayList<>();
 
-        for (var file : filesToSkim) {
+        for (var file : candidateFiles) {
             String identifiers = analyzer.summarizeSymbols(file);
             String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
             String fileContent = file.read().orElse("");
@@ -2208,7 +2440,7 @@ public class SearchTools {
                 break;
             }
 
-            fullSkim.append(fileBlock);
+            selectedBlocks.add(new FileOutput(file, fileBlock));
             fullTokens += blockTokens;
         }
 
@@ -2216,16 +2448,26 @@ public class SearchTools {
         if (truncatedByFileLimit) {
             prefix.append("### WARNING: Result limit reached (max ")
                     .append(FILE_SKIM_LIMIT)
-                    .append(" files). Showing first ")
+                    .append(" files). Showing ")
                     .append(FILE_SKIM_LIMIT)
-                    .append(" files. Retrying the same tool call will return the same results.\n\n");
+                    .append(" of ")
+                    .append(projectFiles.size())
+                    .append(" files selected by recent activity when available. Results are displayed alphabetically. "
+                            + "Retrying the same tool call will return the same results.\n\n");
         }
+
+        String fullSkim = selectedBlocks.stream()
+                .sorted((a, b) -> a.file().compareTo(b.file()))
+                .map(FileOutput::output)
+                .collect(Collectors.joining());
 
         if (!fullTruncated) {
-            return prefix + fullSkim.toString();
+            return recordResearchTokens(prefix + fullSkim);
         }
 
-        String filesCdl = filesToSkim.stream()
+        String filesCdl = selectedBlocks.stream()
+                .map(FileOutput::file)
+                .sorted()
                 .map(file -> {
                     String content = file.read().orElse("");
                     return "%s (%d loc)".formatted(file.toString(), Lines.count(content));
@@ -2240,7 +2482,7 @@ public class SearchTools {
                 """
                         .formatted(filesCdl);
 
-        return prefix + filenamesResult;
+        return recordResearchTokens(prefix + filenamesResult);
     }
 
     /**

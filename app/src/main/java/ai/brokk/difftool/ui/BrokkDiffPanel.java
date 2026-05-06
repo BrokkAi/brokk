@@ -697,7 +697,8 @@ public class BrokkDiffPanel extends JPanel
         var resultingCtx = currentContext
                 .addFragments(contextManager.toPathFragments(changedFiles))
                 .addHistoryEntry(
-                        new ContextOutputFragments.TaskOutputFragment(actionDescription, Messages.format(messages)),
+                        new ContextOutputFragments.TaskOutputFragment(
+                                actionDescription, Messages.formatForDisplay(messages)),
                         null);
 
         var result = TaskResult.from(resultingCtx, TaskResult.StopReason.SUCCESS);

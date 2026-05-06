@@ -1,0 +1,98 @@
+name: Rust ACP Release
+
+on:
+  push:
+    tags:
+      - 'brokk-acp-rust-*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset_name: brokk-acp-linux-x86_64
+            binary_name: brokk-acp
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset_name: brokk-acp-macos-aarch64
+            binary_name: brokk-acp
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_name: brokk-acp-windows-x86_64.exe
+            binary_name: brokk-acp.exe
+    runs-on: ${{ matrix.os }}
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            brokk-acp-rust/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('brokk-acp-rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Verify tag matches Cargo.toml version
+        if: github.event_name == 'push'
+        shell: bash
+        working-directory: brokk-acp-rust
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          EXPECTED_VERSION="${TAG#brokk-acp-rust-}"
+          CARGO_VERSION=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          if [ "$EXPECTED_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag version ($EXPECTED_VERSION) does not match brokk-acp-rust/Cargo.toml version ($CARGO_VERSION). Bump Cargo.toml before tagging."
+            exit 1
+          fi
+          echo "Tag and Cargo.toml versions match: $CARGO_VERSION"
+
+      - name: Build release binary
+        working-directory: brokk-acp-rust
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p staging
+          cp "brokk-acp-rust/target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "staging/${{ matrix.asset_name }}"
+
+      - name: Smoke-test --version
+        shell: bash
+        run: |
+          "./staging/${{ matrix.asset_name }}" --version
+
+      - name: Upload to GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: staging/${{ matrix.asset_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifact (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: staging/${{ matrix.asset_name }}
+          if-no-files-found: error

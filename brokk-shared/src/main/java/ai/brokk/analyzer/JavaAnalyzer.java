@@ -5,6 +5,7 @@ import static org.treesitter.JavaNodeType.*;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.java.CognitiveComplexityAnalysis;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import ai.brokk.project.ICoreProject;
 import java.util.*;
@@ -1615,6 +1616,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     @Override
+    public int computeCognitiveComplexity(CodeUnit cu) {
+        return computeCognitiveComplexity(cu, CognitiveComplexityAnalysis::compute);
+    }
+
+    @Override
+    public Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        return computeCognitiveComplexities(file, CognitiveComplexityAnalysis::compute);
+    }
+
+    @Override
     public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
         checkStale("findExceptionHandlingSmells");
         ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();
@@ -2173,17 +2184,19 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
         TSNode bodyNode = catchNode.getChildByFieldName(nodeField(JavaNodeField.BODY));
         if (bodyNode == null) {
-            bodyNode = catchNode.getNamedChildren().stream()
-                    .filter(child -> nodeType(BLOCK).equals(child.getType()))
-                    .findFirst()
-                    .orElse(null);
+            for (int i = 0; i < catchNode.getNamedChildCount(); i++) {
+                TSNode child = catchNode.getNamedChild(i);
+                if (child != null && nodeType(BLOCK).equals(child.getType())) {
+                    bodyNode = child;
+                    break;
+                }
+            }
         }
         if (bodyNode == null) {
             return Optional.empty();
         }
-        String bodyText = sourceContent.substringFrom(bodyNode);
         int bodyStatements = countBodyExpressions(bodyNode);
-        boolean hasAnyComment = bodyText.contains("//") || bodyText.contains("/*");
+        boolean hasAnyComment = hasDescendantOfAnyTypeInclusive(bodyNode, JAVA_COMMENT_NODE_TYPES);
         boolean emptyBody = bodyStatements == 0 && !hasAnyComment;
         boolean commentOnlyBody = bodyStatements == 0 && hasAnyComment;
         boolean smallBody = bodyStatements <= weights.smallBodyMaxStatements();
@@ -2284,7 +2297,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     private static String compactCatchExcerpt(String text) {
-        String compact = text.replace('\n', ' ').replace('\r', ' ').trim().replaceAll("\\s+", " ");
+        String compact = compactWhitespaceForExcerpt(text);
         if (compact.length() <= 180) {
             return compact;
         }

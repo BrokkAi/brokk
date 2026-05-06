@@ -1057,6 +1057,21 @@ public class UsageFinderJavaTest {
         assertEquals(0, text.callCount);
     }
 
+    @Test
+    public void testExplicitProviderBypassesDefaultJavaCandidateDiscovery() throws InterruptedException {
+        var target = analyzer.getDefinitions("A.method2").getFirst();
+        RecordingProvider explicit = new RecordingProvider(Set.of());
+        var finder = UsageFinderTestUtil.createForTest(testProject, analyzer);
+
+        var result =
+                finder.queryUsages(target, explicit, UsageFinder.DEFAULT_MAX_FILES, UsageFinder.DEFAULT_MAX_USAGES);
+
+        assertEquals(1, explicit.callCount);
+        assertTrue(result.candidateFiles().isEmpty());
+        assertFalse(result.candidateFilesTruncated());
+        assertInstanceOf(FuzzyResult.Success.class, result.result());
+    }
+
     private static class RecordingProvider implements CandidateFileProvider {
         private final Set<ProjectFile> result;
         int callCount = 0;

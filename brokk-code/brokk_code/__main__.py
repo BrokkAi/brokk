@@ -34,7 +34,13 @@ from brokk_code.mcp_config import (
     install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
-from brokk_code.mcp_launcher import run_mcp_core_server, run_mcp_server
+from brokk_code.mcp_launcher import (
+    run_acp_server as run_native_acp_server,
+)
+from brokk_code.mcp_launcher import (
+    run_mcp_core_server,
+    run_mcp_server,
+)
 from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
 from brokk_code.nvim_init_patch import wire_nvim_plugin_setup
 from brokk_code.settings import (
@@ -889,17 +895,24 @@ def _build_parser() -> argparse.ArgumentParser:
     sessions_parser = subparsers.add_parser("sessions", help="List and switch between sessions")
     _add_common_runtime_args(sessions_parser)
 
-    acp_parser = subparsers.add_parser("acp", help="Run in ACP server mode")
+    acp_parser = subparsers.add_parser(
+        "acp", help="Run in ACP server mode (native Java agent over stdio JSON-RPC)"
+    )
     _add_common_runtime_args(acp_parser)
     acp_parser.add_argument(
         "--ide",
         choices=["intellij", "zed"],
         default=None,
         help=(
-            "[Deprecated] Legacy IDE hint (no-op). "
-            "ACP behavior is now derived from client capabilities and client_info."
+            "[Deprecated] Legacy IDE hint (silently ignored). "
+            "Kept for backward compatibility with stale editor configs."
         ),
     )
+
+    acp_native_parser = subparsers.add_parser(
+        "acp-native", help="[Deprecated alias for 'acp'] Run native Java ACP server"
+    )
+    _add_common_runtime_args(acp_native_parser)
 
     mcp_parser = subparsers.add_parser("mcp", help="Run in MCP server mode", add_help=False)
     _add_common_runtime_args(mcp_parser)
@@ -909,11 +922,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_common_runtime_args(mcp_core_parser)
 
+    bifrost_parser = subparsers.add_parser(
+        "bifrost",
+        help="Run the bifrost (Rust) MCP server (downloads the bundled binary on first use)",
+        add_help=False,
+    )
+    _add_common_runtime_args(bifrost_parser)
+    bifrost_parser.add_argument(
+        "--bifrost-binary",
+        type=str,
+        default=None,
+        help="Path to a bifrost binary (default: $PATH bifrost, else cached release binary)",
+    )
+
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
-        choices=["zed", "intellij", "nvim", "neovim", "mcp", "codex-plugin"],
-        help="Install target for integration settings",
+        choices=["zed", "intellij", "jetbrains", "nvim", "neovim", "mcp", "codex-plugin"],
+        help="Install target for integration settings (jetbrains is an alias for intellij)",
     )
     install_parser.add_argument(
         "--plugin",
@@ -923,6 +949,37 @@ def _build_parser() -> argparse.ArgumentParser:
             "Neovim plugin integration to install (codecompanion or avante). "
             "Only used for install targets nvim/neovim; when omitted, an interactive "
             "selection menu is shown in TTY sessions."
+        ),
+    )
+    install_parser.add_argument(
+        "--native",
+        action="store_true",
+        default=False,
+        help=(
+            "[Deprecated] Native is now the default; this flag is a no-op alias "
+            "kept for compatibility."
+        ),
+    )
+    install_parser.add_argument(
+        "--rust",
+        action="store_true",
+        default=False,
+        help=(
+            "Wire the editor at the Rust ACP server (brokk-acp) instead of the Python or "
+            "Java implementations. Writes the literal commands `brokk-acp` and `bifrost` "
+            "into the editor's agent_servers config; both must be on the PATH the editor "
+            "inherits at agent-launch time (use --brokk-acp-binary to write an explicit "
+            "path instead). Requires --provider-model. Mutually exclusive with --native. "
+            "zed/intellij only."
+        ),
+    )
+    install_parser.add_argument(
+        "--brokk-acp-binary",
+        type=Path,
+        default=None,
+        help=(
+            "Write this brokk-acp path verbatim into the editor's agent_servers args "
+            "instead of the literal `brokk-acp`. Path must exist. Dev use only."
         ),
     )
     install_parser.add_argument(
@@ -1897,7 +1954,7 @@ def main():
     parser = _build_parser()
     args, unknown = parser.parse_known_args()
 
-    if unknown and args.command not in ("mcp", "mcp-core"):
+    if unknown and args.command not in ("mcp", "mcp-core", "bifrost"):
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     # Resolve paths early so they are available to all commands
@@ -1931,6 +1988,8 @@ def _main_dispatch(
 ) -> None:
     """Core command dispatch, extracted to support optional worktree wrapping."""
     if args.command == "install":
+        if args.target == "jetbrains":
+            args.target = "intellij"
         # Fast-fail validation before prompting for API keys
         if args.plugin and args.target not in {"nvim", "neovim"}:
             print("Error: --plugin is only valid for install targets nvim/neovim", file=sys.stderr)
@@ -1941,20 +2000,96 @@ def _main_dispatch(
         if args.provider_url and args.provider != "custom":
             print("Error: --provider-url requires --provider custom", file=sys.stderr)
             sys.exit(1)
-
-        # Apply provider settings if specified
-        if args.provider == "custom":
-            write_brokk_properties(
-                {
-                    "llmProxySetting": "CUSTOM",
-                    "customEndpointUrl": args.provider_url,
-                    "customEndpointApiKey": args.provider_api_key or "",
-                    "customEndpointModel": args.provider_model or "",
-                }
+        if args.rust and args.native:
+            print(
+                "Error: --rust and --native are mutually exclusive; pass only one.",
+                file=sys.stderr,
             )
-            print(f"Provider set to custom endpoint: {args.provider_url}")
-        elif args.provider == "brokk":
-            write_brokk_properties({"llmProxySetting": "BROKK"})
+            sys.exit(1)
+        if args.native:
+            print(
+                "Warning: --native is deprecated; the Java native ACP server is now the default.",
+                file=sys.stderr,
+            )
+        if args.rust and args.target not in {"zed", "intellij"}:
+            print(
+                "Error: --rust is only supported for install targets zed/intellij.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if args.rust and not args.provider_model:
+            print(
+                "Error: --rust requires --provider-model (passed to brokk-acp as --default-model).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if args.brokk_acp_binary and not args.rust:
+            print(
+                "Error: --brokk-acp-binary requires --rust.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Apply provider settings if specified. Skipped for --rust because the
+        # Rust ACP binary doesn't read brokk.properties; its provider settings
+        # are baked into the editor's agent_servers args instead.
+        if not args.rust:
+            if args.provider == "custom":
+                write_brokk_properties(
+                    {
+                        "llmProxySetting": "CUSTOM",
+                        "customEndpointUrl": args.provider_url,
+                        "customEndpointApiKey": args.provider_api_key or "",
+                        "customEndpointModel": args.provider_model or "",
+                    }
+                )
+                print(f"Provider set to custom endpoint: {args.provider_url}")
+            elif args.provider == "brokk":
+                write_brokk_properties({"llmProxySetting": "BROKK"})
+
+        # Rust ACP path: self-contained. Skips the Brokk API key, GitHub token,
+        # jbang/uv prefetch -- the Rust binary connects directly to the user's
+        # chosen LLM endpoint and never talks to Brokk's service.
+        # brokk-code does NOT build or fetch brokk-acp/bifrost; the user is
+        # responsible for installing them. We just resolve their paths.
+        if args.rust:
+            from brokk_code.rust_acp_install import (
+                RustAcpInstallError,
+                RustAcpPaths,
+                resolve_rust_paths,
+            )
+
+            try:
+                brokk_acp_path, bifrost_path = resolve_rust_paths(
+                    brokk_acp_override=args.brokk_acp_binary,
+                )
+            except RustAcpInstallError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(1)
+            rust_paths = RustAcpPaths(
+                brokk_acp=brokk_acp_path,
+                bifrost=bifrost_path,
+                model=args.provider_model,
+                endpoint_url=args.provider_url,
+                api_key=args.provider_api_key,
+            )
+            try:
+                if args.target == "zed":
+                    settings_path = configure_zed_acp_settings(
+                        force=args.force, rust_paths=rust_paths
+                    )
+                    integration = "Zed"
+                else:
+                    settings_path = configure_intellij_acp_settings(
+                        force=args.force, rust_paths=rust_paths
+                    )
+                    integration = "IntelliJ"
+            except (ExistingBrokkCodeEntryError, ValueError) as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(1)
+            print(f"Wired editor at brokk-acp=`{brokk_acp_path}` bifrost=`{bifrost_path}`")
+            print(f"Configured {integration} ACP integration in {settings_path}")
+            return
 
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
@@ -1968,6 +2103,7 @@ def _main_dispatch(
                 jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
                 if args.verbose and not jbang_binary:
                     jbang_binary = "jbang"
+
             if args.target == "zed":
                 _ensure_install_api_key()
                 _ensure_install_github_token(
@@ -1977,7 +2113,9 @@ def _main_dispatch(
                     executor_snapshot=args.executor_snapshot,
                 )
                 settings_path = configure_zed_acp_settings(
-                    force=args.force, uvx_command=uvx_command
+                    force=args.force,
+                    uvx_command=uvx_command,
+                    native=args.native,
                 )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
@@ -1994,7 +2132,9 @@ def _main_dispatch(
                     executor_snapshot=args.executor_snapshot,
                 )
                 settings_path = configure_intellij_acp_settings(
-                    force=args.force, uvx_command=uvx_command
+                    force=args.force,
+                    uvx_command=uvx_command,
+                    native=args.native,
                 )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
@@ -2298,21 +2438,20 @@ def _main_dispatch(
         )
         return
 
-    if args.command == "acp":
-        try:
-            from brokk_code.acp_server import run_acp_server
-        except ImportError:
-            print("Error: Could not import ACP server module.", file=sys.stderr)
-            sys.exit(1)
-
-        asyncio.run(
-            run_acp_server(
-                workspace_dir=workspace_path,
-                jar_path=jar_path,
-                executor_version=args.executor_version,
-                executor_snapshot=args.executor_snapshot,
-                vendor=args.vendor,
+    if args.command in ("acp", "acp-native"):
+        if args.command == "acp-native":
+            print(
+                "Warning: 'brokk acp-native' is deprecated; use 'brokk acp' instead.",
+                file=sys.stderr,
             )
+        passthrough = ["--workspace-dir", str(workspace_path)]
+        if args.vendor:
+            passthrough.extend(["--vendor", args.vendor])
+        run_native_acp_server(
+            workspace_dir=workspace_path,
+            jar_path=jar_path,
+            executor_version=args.executor_version,
+            passthrough_args=passthrough,
         )
         return
 
@@ -2330,6 +2469,19 @@ def _main_dispatch(
             workspace_dir=workspace_path,
             jar_path=jar_path,
             executor_version=args.executor_version,
+            passthrough_args=unknown,
+        )
+        return
+
+    if args.command == "bifrost":
+        from brokk_code.bifrost_launcher import run_bifrost_server
+
+        bifrost_override = (
+            Path(args.bifrost_binary) if getattr(args, "bifrost_binary", None) else None
+        )
+        run_bifrost_server(
+            workspace_dir=workspace_path,
+            binary_override=bifrost_override,
             passthrough_args=unknown,
         )
         return

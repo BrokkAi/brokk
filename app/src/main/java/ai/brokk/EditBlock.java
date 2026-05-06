@@ -5,6 +5,7 @@ import static ai.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 import ai.brokk.analyzer.*;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.io.ProjectFiles;
 import ai.brokk.util.IndentUtil;
 import ai.brokk.util.WhitespaceMatch;
 import com.google.common.base.Splitter;
@@ -143,6 +144,8 @@ public class EditBlock {
         List<ApplyResult> blockResults = new ArrayList<>();
         // Track original file contents before any changes
         Map<ProjectFile, String> originalContentsThisBatch = new HashMap<>();
+        // Track post-edit contents per file as we go, so afterFileEdits doesn't have to re-read.
+        Map<ProjectFile, String> newContentsThisBatch = new HashMap<>();
 
         // Map to store plans for blocks that passed resolution
         record ApplyPlan(ProjectFile file, SearchReplaceBlock block, String effectiveBefore) {}
@@ -209,7 +212,7 @@ public class EditBlock {
                             Map.of(
                                     "sourcefile", file.getFileName(),
                                     "marker", marker,
-                                    "sourceContents", file.read().orElse(""),
+                                    "sourceContents", ProjectFiles.read(file).orElse(""),
                                     "sourceDeclarations",
                                             analyzer.getDeclarations(file).stream()
                                                     .map(CodeUnit::shortName)
@@ -239,10 +242,11 @@ public class EditBlock {
             try {
                 if (!originalContentsThisBatch.containsKey(file)) {
                     originalContentsThisBatch.put(
-                            file, file.exists() ? file.read().orElse("") : "");
+                            file, file.exists() ? ProjectFiles.read(file).orElse("") : "");
                 }
 
-                replaceInFile(file, effectiveBefore, block.afterText(), ctx);
+                var written = replaceInFile(file, effectiveBefore, block.afterText(), ctx);
+                written.ifPresent(content -> newContentsThisBatch.put(file, content));
                 blockResults.add(ApplyResult.success(block, file));
             } catch (NoMatchException | AmbiguousMatchException e) {
                 assert originalContentsThisBatch.containsKey(file);
@@ -277,7 +281,7 @@ public class EditBlock {
                             .flatMap(cf -> cf.sourceFiles().join().stream())
                             .filter(f -> !f.equals(file))
                             .filter(f -> {
-                                String otherContent = f.read().orElse("");
+                                String otherContent = ProjectFiles.read(f).orElse("");
                                 return existsIgnoringWhitespace(
                                         otherContent.lines().toArray(String[]::new),
                                         effectiveBefore.trim().lines().toArray(String[]::new));
@@ -317,6 +321,15 @@ public class EditBlock {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
         originalContentsThisBatch.keySet().retainAll(successfulFiles);
+        // Restrict newContents to files we actually wrote (keep deletions out — they have no
+        // post-image to ship as a diff content block).
+        newContentsThisBatch.keySet().retainAll(originalContentsThisBatch.keySet());
+        if (!newContentsThisBatch.isEmpty()) {
+            // Use the keys from newContentsThisBatch so the original/new maps line up exactly.
+            var originalsForDiff = newContentsThisBatch.keySet().stream()
+                    .collect(Collectors.toMap(f -> f, originalContentsThisBatch::get));
+            io.afterFileEdits(originalsForDiff, newContentsThisBatch);
+        }
         return new EditResult(originalContentsThisBatch, blockResults);
     }
 
@@ -423,20 +436,26 @@ public class EditBlock {
      * via the contextManager. Throws NoMatchException if `beforeText` is not found in the file content. Throws
      * AmbiguousMatchException if more than one match is found.
      */
-    public static void replaceInFile(ProjectFile file, String beforeText, String afterText, Context ctx)
+    /**
+     * Applies a SEARCH/REPLACE block to {@code file} and returns the new content actually written,
+     * or {@link Optional#empty()} if the edit produced a deletion (in which case the file is
+     * removed and staged for deletion in Git instead).
+     */
+    public static Optional<String> replaceInFile(ProjectFile file, String beforeText, String afterText, Context ctx)
             throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException, InterruptedException {
         IAppContextManager contextManager = ctx.getContextManager();
-        String original = file.exists() ? file.read().orElse("") : "";
+        String original = file.exists() ? ProjectFiles.read(file).orElse("") : "";
         String updated = replaceMostSimilarChunk(original, beforeText, afterText);
 
         if (isDeletion(original, updated)) {
             logger.info("Detected deletion for file {}", file);
             Files.deleteIfExists(file.absPath()); // remove from disk
             contextManager.getRepo().remove(file); // stage deletion
-            return; // Do not write the blank content
+            return Optional.empty(); // Do not write the blank content
         }
 
-        file.write(updated);
+        ProjectFiles.write(file, updated);
+        return Optional.of(updated);
     }
 
     /** Custom exception thrown when no matching location is found in the file. */

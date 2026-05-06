@@ -103,7 +103,7 @@ public final class ToolExecutionResult {
         return request.name();
     }
 
-    public String toolId() {
+    public @Nullable String toolId() {
         return request.id();
     }
 

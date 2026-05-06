@@ -1,9 +1,8 @@
 package ai.brokk.executor;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
+import ai.brokk.cli.CliArgParser;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.executor.agents.AgentDefinition;
 import ai.brokk.executor.agents.AgentStore;
@@ -27,8 +26,8 @@ import ai.brokk.executor.routers.ReviewRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.executor.routers.SettingsRouter;
+import ai.brokk.executor.routers.StaticAnalysisRouter;
 import ai.brokk.project.MainProject;
-import ai.brokk.project.ModelProperties;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -74,63 +73,14 @@ public final class HeadlessExecutorMain {
     private final Thread initThread;
     private final CompletableFuture<Void> headlessInit = new CompletableFuture<>();
 
-    /**
-     * Result of parsing command-line arguments, including both parsed args and invalid keys.
-     */
-    private record ParseArgsResult(Map<String, String> args, Set<String> invalidKeys) {}
-
-    /*
-     * Parse command-line arguments into a map of normalized keys to values.
-     * Supports both --key value and --key=value forms.
-     * Returns both valid parsed args and any unrecognized keys found.
-     */
-    private static ParseArgsResult parseArgs(String[] args) {
-        var result = new HashMap<String, String>();
-        var invalidKeys = new HashSet<String>();
-        for (int i = 0; i < args.length; i++) {
-            var arg = args[i];
-            if (arg.startsWith("--")) {
-                var withoutPrefix = arg.substring(2);
-                String key;
-                String value;
-
-                if (withoutPrefix.contains("=")) {
-                    // Form: --key=value
-                    var parts = withoutPrefix.split("=", 2);
-                    key = parts[0];
-                    value = parts.length > 1 ? parts[1] : "";
-                } else {
-                    // Form: --key value
-                    key = withoutPrefix;
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        value = args[++i];
-                    } else {
-                        value = "";
-                    }
-                }
-
-                // Track invalid keys
-                if (!VALID_ARGS.contains(key)) {
-                    invalidKeys.add(key);
-                } else {
-                    result.put(key, value);
-                }
-            }
-        }
-        return new ParseArgsResult(result, invalidKeys);
+    /** Delegates to shared {@link CliArgParser}. */
+    private static CliArgParser.ParseResult parseArgs(String[] args) {
+        return CliArgParser.parse(args, VALID_ARGS);
     }
 
-    /*
-     * Get configuration value from either parsed args or environment variable.
-     * Returns null/blank only if both are absent.
-     */
     @Nullable
     private static String getConfigValue(Map<String, String> parsedArgs, String argKey, String envVarName) {
-        var argValue = parsedArgs.get(argKey);
-        if (argValue != null && !argValue.isBlank()) {
-            return argValue;
-        }
-        return System.getenv(envVarName);
+        return CliArgParser.getConfigValue(parsedArgs, argKey, envVarName);
     }
 
     private static boolean parseBooleanValue(String rawValue, String sourceName) {
@@ -158,22 +108,10 @@ public final class HeadlessExecutorMain {
         return defaultValue;
     }
 
-    /**
-     * Create a copy of the parsed arguments map with sensitive values redacted.
-     * Sensitive keys include: auth-token, brokk-api-key
-     *
-     * @param parsedArgs the original parsed arguments map
-     * @return a new map with sensitive values replaced with [REDACTED]
-     */
+    private static final Set<String> SENSITIVE_ARGS = Set.of("auth-token", "brokk-api-key");
+
     private static Map<String, String> redactSensitiveArgs(Map<String, String> parsedArgs) {
-        var redacted = new HashMap<>(parsedArgs);
-        if (redacted.containsKey("auth-token")) {
-            redacted.put("auth-token", "[REDACTED]");
-        }
-        if (redacted.containsKey("brokk-api-key")) {
-            redacted.put("brokk-api-key", "[REDACTED]");
-        }
-        return redacted;
+        return CliArgParser.redactSensitiveArgs(parsedArgs, SENSITIVE_ARGS);
     }
 
     /**
@@ -305,6 +243,9 @@ public final class HeadlessExecutorMain {
 
         var modelConfigRouter = new ModelConfigRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/model-config", modelConfigRouter);
+
+        var staticAnalysisRouter = new StaticAnalysisRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/static-analysis", staticAnalysisRouter);
 
         var activityRouter = new ActivityRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/activity", activityRouter);
@@ -497,9 +438,7 @@ public final class HeadlessExecutorMain {
 
             // Log parsed arguments (with sensitive values redacted) early for debugging
             var redactedArgs = redactSensitiveArgs(parsedArgs);
-            var argsDisplay = redactedArgs.entrySet().stream()
-                    .map(e -> e.getKey() + "=" + e.getValue())
-                    .collect(Collectors.joining(", "));
+            var argsDisplay = CliArgParser.formatForLogging(redactedArgs);
             logger.info("Parsed arguments: {}", argsDisplay);
             System.out.println("Parsed arguments: {" + argsDisplay + "}");
 
@@ -532,22 +471,6 @@ public final class HeadlessExecutorMain {
                         "AUTH_TOKEN must be provided via --auth-token argument or AUTH_TOKEN environment variable");
             }
 
-            var brokkApiKey = getConfigValue(parsedArgs, "brokk-api-key", "BROKK_API_KEY");
-
-            var proxySettingStr = getConfigValue(parsedArgs, "proxy-setting", "PROXY_SETTING");
-            @Nullable MainProject.LlmProxySetting proxySetting = null;
-            if (proxySettingStr != null && !proxySettingStr.isBlank()) {
-                try {
-                    proxySetting = MainProject.LlmProxySetting.valueOf(proxySettingStr.toUpperCase(Locale.ROOT));
-                } catch (IllegalArgumentException e) {
-                    throw new IllegalArgumentException(
-                            "Invalid proxy setting: '"
-                                    + proxySettingStr
-                                    + "'. Must be one of: BROKK, LOCALHOST, STAGING",
-                            e);
-                }
-            }
-
             var workspaceDirStr = getConfigValue(parsedArgs, "workspace-dir", "WORKSPACE_DIR");
             if (workspaceDirStr == null || workspaceDirStr.isBlank()) {
                 throw new IllegalArgumentException(
@@ -560,58 +483,11 @@ public final class HeadlessExecutorMain {
             // Build ContextManager from workspace
             var project = new MainProject(workspaceDir);
 
-            // Apply vendor preference and role mappings (if requested)
-            String vendorArg = parsedArgs.get("vendor");
-            if (vendorArg != null && !vendorArg.isBlank()) {
-                String requestedVendor = vendorArg.trim();
-                String canonicalVendor;
-                if (ModelProperties.DEFAULT_VENDOR.equalsIgnoreCase(requestedVendor)) {
-                    canonicalVendor = ModelProperties.DEFAULT_VENDOR;
-                } else {
-                    canonicalVendor = ModelProperties.getAvailableVendors().stream()
-                            .filter(v -> v.equalsIgnoreCase(requestedVendor))
-                            .findFirst()
-                            .orElseThrow(() -> new IllegalArgumentException(
-                                    "Invalid vendor: '" + requestedVendor + "'. Must be one of: "
-                                            + ModelProperties.DEFAULT_VENDOR + ", "
-                                            + String.join(", ", ModelProperties.getAvailableVendors())));
-                }
-
-                if (ModelProperties.DEFAULT_VENDOR.equals(canonicalVendor)) {
-                    for (ModelProperties.ModelType type : ModelProperties.ModelType.values()) {
-                        if (type != ModelProperties.ModelType.CODE && type != ModelProperties.ModelType.ARCHITECT) {
-                            project.removeModelConfig(type);
-                        }
-                    }
-                    MainProject.setOtherModelsVendorPreference("");
-                    logger.info("Cleared other-models vendor preference and internal role overrides");
-                } else {
-                    if ("OpenAI - Codex".equals(canonicalVendor) && !MainProject.isOpenAiCodexOauthConnected()) {
-                        throw new IllegalArgumentException(
-                                "OpenAI - Codex selected but Codex OAuth is not connected; connect/login first.");
-                    }
-                    var vendorModels = requireNonNull(
-                            ModelProperties.getVendorModels(canonicalVendor),
-                            "Vendor models unexpectedly null for " + canonicalVendor);
-                    vendorModels.forEach(project::setModelConfig);
-                    MainProject.setOtherModelsVendorPreference(canonicalVendor);
-                    logger.info("Applied other-models vendor preference: {}", canonicalVendor);
-                }
-            }
+            // Apply vendor preference, API key, and proxy overrides via shared utility
+            CliArgParser.applyVendorPreference(parsedArgs.get("vendor"), project);
+            CliArgParser.applyHeadlessOverrides(parsedArgs);
 
             var contextManager = new ContextManager(project);
-
-            // Set per-executor Brokk API key override if provided
-            if (brokkApiKey != null && !brokkApiKey.isBlank()) {
-                MainProject.setHeadlessBrokkApiKeyOverride(brokkApiKey);
-                logger.info("Using executor-specific Brokk API key (length={})", brokkApiKey.length());
-            }
-
-            // Set per-executor proxy setting override if provided
-            if (proxySetting != null) {
-                MainProject.setHeadlessProxySettingOverride(proxySetting);
-                logger.info("Using executor-specific proxy setting: {}", proxySetting);
-            }
 
             var derivedSessionsDir = workspaceDir.resolve(".brokk").resolve("sessions");
 
@@ -628,10 +504,12 @@ public final class HeadlessExecutorMain {
             System.out.println("  execId:      " + execId);
             System.out.println("  listenAddr:  " + listenAddr);
             System.out.println("  workspaceDir: " + workspaceDir);
-            System.out.println("  brokkApiKey:  "
-                    + (brokkApiKey != null && !brokkApiKey.isBlank() ? "(provided)" : "(using global config)"));
+            var brokkApiKeyArg = getConfigValue(parsedArgs, "brokk-api-key", "BROKK_API_KEY");
+            System.out.println("  brokkApiKey:  " + (brokkApiKeyArg != null ? "(provided)" : "(using global config)"));
+            var proxySettingArg = getConfigValue(parsedArgs, "proxy-setting", "PROXY_SETTING");
             System.out.println(
-                    "  proxySetting: " + (proxySetting != null ? proxySetting.name() : "(using global config)"));
+                    "  proxySetting: " + (proxySettingArg != null ? proxySettingArg : "(using global config)"));
+            var vendorArg = parsedArgs.get("vendor");
             if (vendorArg != null && !vendorArg.isBlank()) {
                 System.out.println("  vendor:      " + vendorArg.trim());
             }

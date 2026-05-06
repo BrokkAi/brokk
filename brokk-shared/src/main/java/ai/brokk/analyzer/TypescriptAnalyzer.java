@@ -1,6 +1,9 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
+import static ai.brokk.analyzer.javascript.Constants.*;
+import static ai.brokk.analyzer.typescript.Constants.CLASS_KEYWORDS;
+import static ai.brokk.analyzer.typescript.Constants.FUNCTION_NODE_TYPES;
+import static ai.brokk.analyzer.typescript.Constants.TS_SYNTAX_PROFILE;
 
 import ai.brokk.analyzer.TreeSitterAnalyzer.AnalyzerState;
 import ai.brokk.analyzer.cache.AnalyzerCache;
@@ -24,95 +27,6 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     private static final Pattern TRAILING_SEMICOLON = Pattern.compile(";\\s*$");
     private static final Pattern ENUM_COMMA_CLEANUP = Pattern.compile(",\\s*\\r?\\n(\\s*})");
     private static final Pattern TYPE_ALIAS_LINE = Pattern.compile("(type |export type ).*=.*");
-
-    // Fast lookups for type checks
-    private static final Set<String> FUNCTION_NODE_TYPES =
-            Set.of(FUNCTION_DECLARATION, GENERATOR_FUNCTION_DECLARATION, FUNCTION_SIGNATURE);
-
-    // Class keyword mapping for fast lookup
-    private static final Map<String, String> CLASS_KEYWORDS = Map.of(
-            INTERFACE_DECLARATION, INTERFACE,
-            ENUM_DECLARATION, ENUM,
-            MODULE, NAMESPACE,
-            INTERNAL_MODULE, NAMESPACE,
-            AMBIENT_DECLARATION, NAMESPACE,
-            ABSTRACT_CLASS_DECLARATION, ABSTRACT_CLASS);
-
-    private static final LanguageSyntaxProfile TS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            // classLikeNodeTypes
-            Set.of(
-                    CLASS_DECLARATION,
-                    INTERFACE_DECLARATION,
-                    ENUM_DECLARATION,
-                    ABSTRACT_CLASS_DECLARATION,
-                    MODULE,
-                    INTERNAL_MODULE),
-            // functionLikeNodeTypes
-            Set.of(
-                    FUNCTION_DECLARATION,
-                    METHOD_DEFINITION,
-                    ARROW_FUNCTION,
-                    GENERATOR_FUNCTION_DECLARATION,
-                    FUNCTION_SIGNATURE,
-                    METHOD_SIGNATURE,
-                    ABSTRACT_METHOD_SIGNATURE), // function_signature for overloads, method_signature for interfaces,
-            // abstract_method_signature for abstract classes
-            // fieldLikeNodeTypes
-            Set.of(
-                    VARIABLE_DECLARATOR,
-                    PUBLIC_FIELD_DEFINITION,
-                    PROPERTY_SIGNATURE,
-                    ENUM_MEMBER,
-                    LEXICAL_DECLARATION,
-                    VARIABLE_DECLARATION), // type_alias_declaration will be ALIAS_LIKE
-            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
-            // decoratorNodeTypes
-            Set.of(DECORATOR),
-            // imports
-            CaptureNames.IMPORT_DECLARATION,
-            // identifierFieldName
-            "name",
-            // bodyFieldName
-            "body",
-            // parametersFieldName
-            "parameters",
-            // returnTypeFieldName
-            "return_type", // TypeScript has explicit return types
-            // typeParametersFieldName
-            "type_parameters", // Standard field name for type parameters in TS
-            // captureConfiguration - using unified naming convention
-            Map.ofEntries(
-                    Map.entry(
-                            CaptureNames.TYPE_DEFINITION,
-                            SkeletonType.CLASS_LIKE), // Classes, interfaces, enums, namespaces
-                    Map.entry(CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE),
-                    Map.entry(CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE),
-                    Map.entry(CaptureNames.VALUE_DEFINITION, SkeletonType.FIELD_LIKE),
-                    Map.entry(CaptureNames.TYPEALIAS_DEFINITION, SkeletonType.ALIAS_LIKE),
-                    Map.entry(CaptureNames.DECORATOR_DEFINITION, SkeletonType.UNSUPPORTED),
-                    Map.entry("keyword.modifier", SkeletonType.UNSUPPORTED)),
-            // asyncKeywordNodeType
-            "async", // TS uses 'async' keyword
-            // modifierNodeTypes: Contains node types of keywords/constructs that act as modifiers.
-            // Used in TreeSitterAnalyzer.buildSignatureString to gather modifiers by inspecting children.
-            Set.of(
-                    "export",
-                    "default",
-                    "declare",
-                    "abstract",
-                    "static",
-                    "readonly",
-                    "accessibility_modifier", // for public, private, protected
-                    "async",
-                    "const",
-                    "let",
-                    "var",
-                    "override" // "override" might be via override_modifier
-                    // Note: "public", "private", "protected" themselves are not node types here,
-                    // but "accessibility_modifier" is the node type whose text content is one of these.
-                    // "const", "let" are token types for the `kind` of a lexical_declaration, often its first child.
-                    // "var" is a token type, often first child of variable_declaration.
-                    ));
 
     public TypescriptAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
@@ -197,7 +111,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             case FUNCTION_LIKE -> {
                 if (definitionNode != null) {
                     String nodeType = definitionNode.getType();
-                    if ("call_signature".equals(nodeType)) {
+                    if (nodeType(TsxNodeType.CALL_SIGNATURE).equals(nodeType)) {
                         finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                         return CodeUnit.fn(file, packageName, finalShortName);
                     }
@@ -215,7 +129,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             case FIELD_LIKE -> {
                 if (definitionNode != null) {
                     String nodeType = definitionNode.getType();
-                    if ("index_signature".equals(nodeType)) {
+                    if (nodeType(TsxNodeType.INDEX_SIGNATURE).equals(nodeType)) {
                         // Fields require "Container.field" format; use filename when no class container
                         finalShortName = adjustedClassChain.isEmpty()
                                 ? file.getFileName() + "." + simpleName
@@ -292,13 +206,14 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         while (current != null) {
             String nodeType = current.getType();
 
-            if (classLikeTypes.contains(nodeType) && !"internal_module".equals(nodeType)) {
+            if (classLikeTypes.contains(nodeType)
+                    && !nodeType(TsxNodeType.INTERNAL_MODULE).equals(nodeType)) {
                 insideClass = true;
                 break;
             }
 
-            if ("internal_module".equals(nodeType)) {
-                TSNode nameNode = current.getChildByFieldName("name");
+            if (nodeType(TsxNodeType.INTERNAL_MODULE).equals(nodeType)) {
+                TSNode nameNode = current.getChildByFieldName(FIELD_NAME);
                 if (nameNode != null) {
                     String name = sourceContent.substringFrom(nameNode).strip();
                     // Manual dot-splitting instead of Splitter (faster, less overhead)
@@ -369,7 +284,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                 funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         boolean hasBody = bodyNode != null && bodyNode.getEndByte() > bodyNode.getStartByte();
 
-        if (ARROW_FUNCTION.equals(funcNode.getType())) {
+        if (nodeType(TsxNodeType.ARROW_FUNCTION).equals(funcNode.getType())) {
             String prefix = exportAndModifierPrefix.stripTrailing();
             String asyncPart = ignoredAsyncPrefix.isEmpty() ? "" : ignoredAsyncPrefix + " ";
             String returnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText.strip() : "";
@@ -414,7 +329,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // For construct signatures, keyword is "new" and functionName is also "new", so skip functionName
         if (!functionName.isEmpty() && !keyword.equals(functionName)) {
             parts.add(functionName + typeParamsText);
-        } else if (keyword.equals("constructor")) {
+        } else if (keyword.equals(CONSTRUCTOR)) {
             parts.add(functionName + typeParamsText);
         } else if (keyword.isEmpty() && !functionName.isEmpty()) {
             parts.add(functionName + typeParamsText);
@@ -424,7 +339,8 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         }
 
         // For construct signatures, we need a space before params
-        boolean needsSpaceBeforeParams = CONSTRUCT_SIGNATURE.equals(funcNode.getType());
+        boolean needsSpaceBeforeParams =
+                nodeType(TsxNodeType.CONSTRUCT_SIGNATURE).equals(funcNode.getType());
 
         String signature = String.join(" ", parts);
         if (!paramsText.isEmpty()) {
@@ -436,11 +352,11 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // - function signatures inside namespaces (but not those that start with "declare")
         // - ambient function declarations (those with "declare")
         // But NOT for export function overloads
-        if ("function_signature".equals(funcNode.getType())) {
-            if (prefix.contains("declare")
+        if (nodeType(TsxNodeType.FUNCTION_SIGNATURE).equals(funcNode.getType())) {
+            if (prefix.contains(DECLARE)
                     || // ambient declarations need semicolons
                     (isInNamespaceContext(funcNode)
-                            && !prefix.contains("declare"))) { // namespace functions need semicolons
+                            && !prefix.contains(DECLARE))) { // namespace functions need semicolons
                 signature += ";";
             }
             // Export function overloads don't need semicolons
@@ -452,13 +368,13 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     private String getKeywordForFunction(TSNode funcNode, String functionName) {
         String nodeType = funcNode.getType();
         if (FUNCTION_NODE_TYPES.contains(nodeType)) {
-            if ("function_signature".equals(nodeType) && isInNamespaceContext(funcNode)) {
+            if (nodeType(TsxNodeType.FUNCTION_SIGNATURE).equals(nodeType) && isInNamespaceContext(funcNode)) {
                 return "";
             }
-            return "function";
+            return FUNCTION;
         }
-        if ("constructor".equals(functionName)) return "constructor";
-        if ("construct_signature".equals(nodeType)) return "new";
+        if (CONSTRUCTOR.equals(functionName)) return CONSTRUCTOR;
+        if (nodeType(TsxNodeType.CONSTRUCT_SIGNATURE).equals(nodeType)) return NEW;
         return "";
     }
 
@@ -487,8 +403,9 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
 
-        if (VARIABLE_DECLARATOR.equals(nodeType) || PUBLIC_FIELD_DEFINITION.equals(nodeType)) {
-            TSNode valueNode = fieldNode.getChildByFieldName("value");
+        if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(nodeType)
+                || nodeType(TsxNodeType.PUBLIC_FIELD_DEFINITION).equals(nodeType)) {
+            TSNode valueNode = fieldNode.getChildByFieldName(FIELD_VALUE);
             if (valueNode != null && !isLiteralType(valueNode.getType())) {
                 String valueText = sourceContent.substringFrom(valueNode).strip();
                 int idx = fullSignature.lastIndexOf(valueText);
@@ -510,9 +427,9 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // Special handling for enum members - add comma instead of semicolon
         String suffix = "";
         if (fieldNode.getParent() != null
-                && "enum_body".equals(fieldNode.getParent().getType())
-                && ("property_identifier".equals(fieldNode.getType())
-                        || "enum_assignment".equals(fieldNode.getType()))) {
+                && nodeType(TsxNodeType.ENUM_BODY).equals(fieldNode.getParent().getType())
+                && (nodeType(TsxNodeType.PROPERTY_IDENTIFIER).equals(fieldNode.getType())
+                        || nodeType(TsxNodeType.ENUM_ASSIGNMENT).equals(fieldNode.getType()))) {
             // Enum members get commas, not semicolons
             suffix = ",";
         }
@@ -556,12 +473,12 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         }
 
         // Fallback for classes without bodies
-        String classKeyword = CLASS_KEYWORDS.getOrDefault(classNode.getType(), "class");
+        String classKeyword = CLASS_KEYWORDS.getOrDefault(classNode.getType(), CLASS);
         String prefix = exportAndModifierPrefix.stripTrailing();
 
         // For abstract classes, avoid duplicate "abstract" keyword
-        if ("abstract class".equals(classKeyword)) {
-            prefix = prefix.replaceAll("\\babstract\\b\\s*", "").strip();
+        if (ABSTRACT_CLASS.equals(classKeyword)) {
+            prefix = prefix.replaceAll("\\b" + ABSTRACT + "\\b\\s*", "").strip();
         }
 
         String finalPrefix = prefix.isEmpty() ? "" : prefix + " ";
@@ -580,10 +497,10 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
         // Check if the node or its unwrapped form is a variable declarator, check the parent declaration (lexical/var)
         TSNode parentDecl = nodeToCheck.getParent();
-        if ("variable_declarator".equals(nodeToCheck.getType())
+        if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(nodeToCheck.getType())
                 && parentDecl != null
-                && ("lexical_declaration".equals(parentDecl.getType())
-                        || "variable_declaration".equals(parentDecl.getType()))) {
+                && (nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(parentDecl.getType())
+                        || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(parentDecl.getType()))) {
             nodeToCheck = parentDecl;
         }
 
@@ -591,10 +508,9 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         int i = 0;
         for (TSNode child : nodeToCheck.getChildren()) {
             String childText = sourceContent.substringFrom(child).strip();
-            if (Set.of("abstract", "static", "readonly", "async", "const", "let", "var")
-                    .contains(childText)) {
+            if (Set.of(ABSTRACT, STATIC, READONLY, ASYNC, CONST, LET, VAR).contains(childText)) {
                 modifiers.append(childText).append(" ");
-            } else if ("accessibility_modifier".equals(child.getType())) {
+            } else if (nodeType(TsxNodeType.ACCESSIBILITY_MODIFIER).equals(child.getType())) {
                 modifiers.append(childText).append(" ");
             }
             if (i >= 5) break;
@@ -616,8 +532,8 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         TSNode nodeForContent = definitionNode;
 
         // 1. Unwrap export statement
-        if ("export_statement".equals(definitionNode.getType())) {
-            TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
+        if (nodeType(TsxNodeType.EXPORT_STATEMENT).equals(definitionNode.getType())) {
+            TSNode declarationInExport = definitionNode.getChildByFieldName(FIELD_DECLARATION);
             if (declarationInExport != null) {
                 nodeForSignature = declarationInExport;
                 nodeForContent = declarationInExport;
@@ -627,10 +543,11 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // 2. Unwrap variable declaration to specific declarator for content/body extraction
         if (refined == SkeletonType.FIELD_LIKE || refined == SkeletonType.FUNCTION_LIKE) {
             String nodeType = nodeForContent.getType();
-            if ("lexical_declaration".equals(nodeType) || "variable_declaration".equals(nodeType)) {
+            if (nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(nodeType)
+                    || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(nodeType)) {
                 // Find the variable_declarator child that matches the simpleName
                 for (TSNode child : nodeForContent.getChildren()) {
-                    if ("variable_declarator".equals(child.getType())) {
+                    if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(child.getType())) {
                         TSNode nameNode = child.getChildByFieldName(
                                 getLanguageSyntaxProfile().identifierFieldName());
                         if (nameNode != null
@@ -663,15 +580,16 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             if (parent != null) {
                 String parentType = parent.getType();
                 // Check if parent is class_body (methods/fields are children of class_body)
-                if ("class_body".equals(parentType)) {
+                if (nodeType(TsxNodeType.CLASS_BODY).equals(parentType)) {
                     // Check for accessor keywords (get/set) first, as they're more specific
                     // Handle both concrete methods (method_definition) and abstract methods (abstract_method_signature)
                     String nodeType = definitionNode.getType();
-                    if ("method_definition".equals(nodeType) || "abstract_method_signature".equals(nodeType)) {
+                    if (nodeType(TsxNodeType.METHOD_DEFINITION).equals(nodeType)
+                            || nodeType(TsxNodeType.ABSTRACT_METHOD_SIGNATURE).equals(nodeType)) {
                         String accessorType = getAccessorType(definitionNode);
-                        if ("get".equals(accessorType)) {
+                        if (GET.equals(accessorType)) {
                             return fqName + "$get";
-                        } else if ("set".equals(accessorType)) {
+                        } else if (SET.equals(accessorType)) {
                             return fqName + "$set";
                         }
                     }
@@ -698,7 +616,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         for (int i = 0; i < childCount; i++) {
             TSNode child = node.getChild(i);
             if (child != null) {
-                if ("static".equals(child.getType())) {
+                if (STATIC.equals(child.getType())) {
                     return true;
                 }
             }
@@ -718,10 +636,10 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             TSNode child = node.getChild(i);
             if (child != null) {
                 String childType = child.getType();
-                if ("get".equals(childType)) {
-                    return "get";
-                } else if ("set".equals(childType)) {
-                    return "set";
+                if (GET.equals(childType)) {
+                    return GET;
+                } else if (SET.equals(childType)) {
+                    return SET;
                 }
             }
         }
@@ -735,13 +653,14 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // - construct_signature: intentionally has no name, uses default "new"
         // - call_signature: intentionally has no name, uses default "[call]"
         if (CaptureNames.FUNCTION_DEFINITION.equals(captureName)
-                && ("function_declaration".equals(nodeType)
-                        || "construct_signature".equals(nodeType)
-                        || "call_signature".equals(nodeType))) {
+                && (nodeType(TsxNodeType.FUNCTION_DECLARATION).equals(nodeType)
+                        || nodeType(TsxNodeType.CONSTRUCT_SIGNATURE).equals(nodeType)
+                        || nodeType(TsxNodeType.CALL_SIGNATURE).equals(nodeType))) {
             return true;
         }
         // - index_signature: intentionally has no name, uses default "[index]"
-        if (CaptureNames.VALUE_DEFINITION.equals(captureName) && "index_signature".equals(nodeType)) {
+        if (CaptureNames.VALUE_DEFINITION.equals(captureName)
+                && nodeType(TsxNodeType.INDEX_SIGNATURE).equals(nodeType)) {
             return true;
         }
         return false;
@@ -751,19 +670,19 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     protected boolean shouldSkipNode(TSNode node, String captureName, SourceContent sourceContent) {
         // Skip method_definition nodes inside object literals to prevent duplicate FQNames.
         // Example: class field "shellIntegration" vs getter in object literal value.
-        if ("method_definition".equals(node.getType())) {
+        if (nodeType(TsxNodeType.METHOD_DEFINITION).equals(node.getType())) {
             // Walk up the AST to see if we're inside an object literal
             TSNode parent = node.getParent();
             while (parent != null) {
                 String parentType = parent.getType();
 
                 // If we hit class_body first, we're a class method - keep it
-                if ("class_body".equals(parentType)) {
+                if (nodeType(TsxNodeType.CLASS_BODY).equals(parentType)) {
                     return false;
                 }
 
                 // If we hit an object literal, we're inside an object - skip it
-                if ("object".equals(parentType)) {
+                if (nodeType(TsxNodeType.OBJECT).equals(parentType)) {
                     return true;
                 }
 
@@ -871,14 +790,14 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             String parentType = parent.getType();
 
             // If we find an internal_module (namespace), the function is inside a namespace
-            if ("internal_module".equals(parentType)) {
+            if (nodeType(TsxNodeType.INTERNAL_MODULE).equals(parentType)) {
                 return true;
             }
 
             // If we find a statement_block that's inside an internal_module, we're in a namespace
-            if ("statement_block".equals(parentType)) {
+            if (nodeType(TsxNodeType.STATEMENT_BLOCK).equals(parentType)) {
                 TSNode grandParent = parent.getParent();
-                if (grandParent != null && "internal_module".equals(grandParent.getType())) {
+                if (grandParent != null && nodeType(TsxNodeType.INTERNAL_MODULE).equals(grandParent.getType())) {
                     return true;
                 }
             }
@@ -980,13 +899,13 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         // Provide default names for special TypeScript constructs that don't have explicit names
         String nodeType = decl.getType();
-        if ("construct_signature".equals(nodeType)) {
-            return Optional.of("new");
+        if (nodeType(TsxNodeType.CONSTRUCT_SIGNATURE).equals(nodeType)) {
+            return Optional.of(NEW);
         }
-        if ("index_signature".equals(nodeType)) {
+        if (nodeType(TsxNodeType.INDEX_SIGNATURE).equals(nodeType)) {
             return Optional.of("[index]");
         }
-        if ("call_signature".equals(nodeType)) {
+        if (nodeType(TsxNodeType.CALL_SIGNATURE).equals(nodeType)) {
             return Optional.of("[call]");
         }
         return super.extractSimpleName(decl, sourceContent);
@@ -1001,14 +920,14 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             List<String> lines,
             String exportPrefix) {
         // Handle variable_declarator containing arrow function
-        if ("variable_declarator".equals(funcNode.getType())) {
-            TSNode valueNode = funcNode.getChildByFieldName("value");
-            if (valueNode != null && "arrow_function".equals(valueNode.getType())) {
+        if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(funcNode.getType())) {
+            TSNode valueNode = funcNode.getChildByFieldName(FIELD_VALUE);
+            if (valueNode != null && nodeType(TsxNodeType.ARROW_FUNCTION).equals(valueNode.getType())) {
                 // Build the const/let declaration with arrow function
                 String fullDeclaration = sourceContent.substringFrom(funcNode).strip();
 
                 // Replace function body with placeholder
-                TSNode bodyNode = valueNode.getChildByFieldName("body");
+                TSNode bodyNode = valueNode.getChildByFieldName(FIELD_BODY);
                 if (bodyNode != null) {
                     int startByte = funcNode.getStartByte();
                     int endByte = bodyNode.getStartByte();
@@ -1024,15 +943,15 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         }
 
         // Handle constructor signatures specially
-        if ("construct_signature".equals(funcNode.getType())) {
-            TSNode typeNode = funcNode.getChildByFieldName("type");
+        if (nodeType(TsxNodeType.CONSTRUCT_SIGNATURE).equals(funcNode.getType())) {
+            TSNode typeNode = funcNode.getChildByFieldName(FIELD_TYPE);
             if (typeNode != null) {
                 String typeText = sourceContent.substringFrom(typeNode);
                 String returnTypeText =
                         typeText.startsWith(":") ? typeText.substring(1).strip() : typeText;
 
                 var profile = getLanguageSyntaxProfile();
-                String functionName = extractSimpleName(funcNode, sourceContent).orElse("new");
+                String functionName = extractSimpleName(funcNode, sourceContent).orElse(NEW);
                 TSNode paramsNode = funcNode.getChildByFieldName(profile.parametersFieldName());
                 String paramsText = formatParameterList(paramsNode, sourceContent);
 
@@ -1098,7 +1017,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             } else {
                 for (int i = 0; i < decorator.getChildCount(); i++) {
                     TSNode child = decorator.getChild(i);
-                    if (child != null && "call_expression".equals(child.getType())) {
+                    if (child != null && nodeType(TsxNodeType.CALL_EXPRESSION).equals(child.getType())) {
                         callExpr = child;
                         break;
                     }
@@ -1107,7 +1026,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
             if (callExpr == null) continue;
 
-            TSNode decoratorNameNode = callExpr.getChildByFieldName("function");
+            TSNode decoratorNameNode = callExpr.getChildByFieldName(FIELD_FUNCTION);
             if (decoratorNameNode == null) {
                 // Fallback: use first child of call_expression if "function" field is missing
                 decoratorNameNode = callExpr.getChild(0);
@@ -1120,12 +1039,12 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             String cleanName = decoratorName.startsWith("@") ? decoratorName.substring(1) : decoratorName;
 
             if (cleanName.equals("Component") || cleanName.endsWith(".Component")) {
-                TSNode arguments = callExpr.getChildByFieldName("arguments");
+                TSNode arguments = callExpr.getChildByFieldName(FIELD_ARGUMENTS);
                 if (arguments != null) {
                     // TS grammar: arguments is often (arguments "(" (object ...) ")")
                     for (int i = 0; i < arguments.getChildCount(); i++) {
                         TSNode arg = arguments.getChild(i);
-                        if (arg != null && "object".equals(arg.getType())) {
+                        if (arg != null && nodeType(TsxNodeType.OBJECT).equals(arg.getType())) {
                             processComponentDecorator(cu, arg, sourceContent, acc);
                         }
                     }
@@ -1140,10 +1059,10 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
         for (int i = 0; i < objectNode.getChildCount(); i++) {
             TSNode pair = Objects.requireNonNull(objectNode.getChild(i));
-            if (!"pair".equals(pair.getType())) continue;
+            if (!nodeType(TsxNodeType.PAIR).equals(pair.getType())) continue;
 
-            TSNode keyNode = pair.getChildByFieldName("key");
-            TSNode valueNode = pair.getChildByFieldName("value");
+            TSNode keyNode = pair.getChildByFieldName(FIELD_KEY);
+            TSNode valueNode = pair.getChildByFieldName(FIELD_VALUE);
             if (keyNode == null) {
                 // Fallback for key: use first child of pair
                 keyNode = pair.getChild(0);
@@ -1169,10 +1088,28 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         }
 
         if (componentInfo.containsKey("templateUrl") || componentInfo.containsKey("template")) {
-            log.debug("Found Angular component metadata for {}: {}", hostClass.fqName(), componentInfo);
+            log.debug(
+                    "Found Angular component metadata for {}: {}",
+                    hostClass.fqName(),
+                    summarizeAngularComponentInfo(componentInfo));
             // Attributes are stored in CodeUnitProperties via the accumulator in analyzeFileContent
             acc.setAttribute(hostClass, "angular.component", Map.copyOf(componentInfo));
         }
+    }
+
+    private static Map<String, Object> summarizeAngularComponentInfo(Map<String, Object> componentInfo) {
+        var summary = new HashMap<String, Object>();
+        Object templateUrl = componentInfo.get("templateUrl");
+        if (templateUrl instanceof String url) {
+            summary.put("templateSource", "external");
+            summary.put("templateUrl", url);
+        }
+        Object template = componentInfo.get("template");
+        if (template instanceof String inlineTemplate) {
+            summary.put("templateSource", "inline");
+            summary.put("templateLength", inlineTemplate.length());
+        }
+        return Map.copyOf(summary);
     }
 
     @Override

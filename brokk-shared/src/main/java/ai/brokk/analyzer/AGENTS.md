@@ -8,6 +8,7 @@
      private static final Pattern WILDCARD_IMPORT_PATTERN = Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
      ```
 1. **CST and TSNode over string splicing**: Prefer traversing the concrete syntax tree with `TSNode` (child relationships, `getChildByFieldName`, `getNamedChild`, `getPrevSibling` / `getNextSibling` when appropriate, and helpers like `collectNodesByType`) instead of parsing or classifying code by stitching, normalizing, or scanning raw source text. Reserve `SourceContent.substringFrom(TSNode)` for **leaf** or token-shaped nodes (identifiers, literals, small spans) where the grammar does not expose a finer structure, not as a substitute for structural analysis of expressions or statements.
+1. **Shared Tree-sitter helpers**: Use `ASTTraversalUtils.typeOf`, `ASTTraversalUtils.isValid`, and `ASTTraversalUtils.sameRange` when code needs to handle Java `null` nodes or Tree-sitter null-node wrappers. Do not add one-off local `getType()` try/catch wrappers or byte-range comparison helpers in language analyzers.
 
 ### 2. Tree-sitter Query Predicates
 1. **Predicates supported**: Our Tree-sitter Java binding supports query predicates such as `#eq?`, `#any-of?`, `#match?`, and `#is?`.
@@ -27,6 +28,7 @@
 ### 5. Expanding Analyzer Capabilities
 1. **Default Implementations**: When adding a new `IAnalyzer` API or capability, add it with a default implementation so that the project compiles.
 1. **Incremental Implementation**: Plan tasks to handle each subclass one at a time. Bringing all subclasses into the context at once will fill up the context and result in either exceeding model context or general context confusion.
+1. **Static Language Helpers**: Keep analyzer subclasses focused on project/analyzer orchestration: snapshot access, `CodeUnit` lookup, `ProjectFile` routing, tree parsing, and capability wiring. Move substantial language-specific analysis logic into static helper classes under that language's package, for example `ai.brokk.analyzer.java.CognitiveComplexityAnalysis` or `ai.brokk.analyzer.python.CognitiveComplexityAnalysis`. Prefer helpers that depend on `TSNode`, `SourceContent`, and language constants rather than analyzer instance state.
 
 ### 6. Tree-sitter Query Architecture
 1. **Multi-Query Structure**: Monolithic `.scm` files (e.g., `treesitter/java.scm`) are being deprecated in favor of a directory-based multi-query structure:
@@ -45,7 +47,7 @@ The `tree-sitter-ng` Java bindings now generate strongly-typed per-language cons
 - field names: `org.treesitter.<Language>NodeField` (e.g., `JavaNodeField`)
 - schema helpers: `org.treesitter.<Language>NodeSchema` (e.g., `JavaNodeSchema`)
 
-Prefer these generated constants over hard-coded strings and over our hand-maintained `*TreeSitterNodeTypes` files when they exist for the language you are working on.
+Prefer these generated constants over hard-coded strings. If a generated constant is missing for the language you are working on, add a narrowly scoped fallback to that language's `Constants` file instead of using a hand-maintained legacy node-type file.
 
 1. **Node type comparisons**: Use `nodeType(<Language>NodeType.X)` (or `X.getType()` directly) instead of string literals like `"method_declaration"`.
 2. **Field name access**: Use `nodeField(<Language>NodeField.X)` (or `X.getName()` directly) instead of string literals like `"name"`, `"body"`, etc.
@@ -74,6 +76,5 @@ TSNode nameNode = methodNode.getChildByFieldName(nodeField(JavaNodeField.NAME));
 
 **Migration guidance**
 1. When editing analyzers, replace string node type checks (`"foo_bar".equals(node.getType())`) with the generated `*NodeType` / `*NodeField` constants where available.
-2. If the language does not have generated schema/constants yet, use the existing `*TreeSitterNodeTypes` / `CommonTreeSitterNodeTypes` constants as a fallback (still avoid raw strings).
+2. If the language does not expose a generated schema/field/type constant yet, use the local language `Constants` file as the fallback (still avoid scattering raw strings).
 3. Query capture names (the names in `.scm` files like `import.declaration` or `test_marker`) are not node types. Keep those as explicit string constants (e.g., `IMPORT_DECLARATION_CAPTURE`), do not try to model them as `NodeType`s.
-

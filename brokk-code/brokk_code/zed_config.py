@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from brokk_code.rust_acp_install import RustAcpPaths
+
 
 class ExistingBrokkCodeEntryError(Exception):
     """Raised when an IDE configuration already has a Brokk Code agent server entry."""
@@ -185,7 +187,46 @@ def loads_json_or_jsonc(text: str) -> Any:
         return json.loads(cleaned)
 
 
-def _brokk_code_agent_server_config(uvx_command: str = "uvx") -> dict[str, Any]:
+def brokk_code_entry_name(*, native: bool = False, rust_paths: RustAcpPaths | None = None) -> str:
+    """Returns the agent_servers key for a given install variant.
+
+    Distinct keys per variant let the default, --native, and --rust installs
+    coexist in the same editor config instead of overwriting each other.
+    """
+    if rust_paths is not None:
+        return "Brokk Code (Rust)"
+    if native:
+        return "Brokk Code (Native)"
+    return "Brokk Code"
+
+
+def _brokk_code_agent_server_config(
+    uvx_command: str = "uvx",
+    native: bool = False,
+    rust_paths: RustAcpPaths | None = None,
+) -> dict[str, Any]:
+    if rust_paths is not None:
+        args: list[str] = [
+            "--default-model",
+            rust_paths.model,
+            "--bifrost-binary",
+            rust_paths.bifrost.as_posix(),
+        ]
+        if rust_paths.endpoint_url:
+            args += ["--endpoint-url", rust_paths.endpoint_url]
+        if rust_paths.api_key:
+            args += ["--api-key", rust_paths.api_key]
+        return {
+            "favorite_config_option_values": {
+                "reasoning": ["medium"],
+                "mode": ["LUTZ"],
+                "model": [rust_paths.model],
+            },
+            "type": "custom",
+            "command": rust_paths.brokk_acp.as_posix(),
+            "args": args,
+            "env": {},
+        }
     return {
         "favorite_config_option_values": {
             "reasoning": ["medium"],
@@ -194,7 +235,7 @@ def _brokk_code_agent_server_config(uvx_command: str = "uvx") -> dict[str, Any]:
         },
         "type": "custom",
         "command": uvx_command,
-        "args": ["brokk", "acp"],
+        "args": ["brokk", "acp-native" if native else "acp"],
         "env": {},
     }
 
@@ -241,7 +282,12 @@ def _default_zed_settings_path() -> Path:
 
 
 def configure_zed_acp_settings(
-    *, force: bool = False, settings_path: Path | None = None, uvx_command: str = "uvx"
+    *,
+    force: bool = False,
+    settings_path: Path | None = None,
+    uvx_command: str = "uvx",
+    native: bool = False,
+    rust_paths: RustAcpPaths | None = None,
 ) -> Path:
     path = settings_path or _default_zed_settings_path()
     prefix = ""
@@ -269,12 +315,15 @@ def configure_zed_acp_settings(
     if not isinstance(agent_servers, dict):
         raise ValueError("Expected 'agent_servers' to be a JSON object")
 
-    if "Brokk Code" in agent_servers and not force:
+    entry_name = brokk_code_entry_name(native=native, rust_paths=rust_paths)
+    if entry_name in agent_servers and not force:
         raise ExistingBrokkCodeEntryError(
-            "agent_servers['Brokk Code'] already exists; use --force to overwrite it"
+            f"agent_servers['{entry_name}'] already exists; use --force to overwrite it"
         )
 
-    agent_servers["Brokk Code"] = _brokk_code_agent_server_config(uvx_command)
+    agent_servers[entry_name] = _brokk_code_agent_server_config(
+        uvx_command, native=native, rust_paths=rust_paths
+    )
 
     path.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write_zed_settings(path, settings, prefix=prefix)

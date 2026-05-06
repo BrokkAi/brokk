@@ -1,0 +1,63 @@
+[workspace]
+members = ["xtask"]
+# Keep `cargo build` / `cargo test` from the workspace root focused on the
+# root crate. The xtask sub-crate is dev-only and is invoked through the
+# `cargo xtask` alias (see .cargo/config.toml), which builds it on demand.
+default-members = ["."]
+
+[package]
+name = "brokk-acp-rust"
+version = "0.1.0"
+edition = "2024"
+description = "Rust ACP server for Brokk with Ollama/OpenAI-compatible LLM backend"
+license = "LGPL-3.0"
+
+[[bin]]
+name = "brokk-acp"
+path = "src/main.rs"
+
+[dependencies]
+agent-client-protocol = { version = "0.11", features = ["unstable_session_resume"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+zip = "2"
+futures = "0.3"
+regex = "1"
+reqwest = { version = "0.12", features = ["stream", "json", "cookies"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["compat", "rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+walkdir = "2"
+# Codex login. We deliberately avoid single-maintainer credential crates:
+# `oauth2` is the de-facto Rust OAuth2 implementation (~32M downloads,
+# depended on by Servo etc.) and gives us PKCE + refresh. The RFC 8693
+# Token Exchange step that converts the id_token into the OPENAI_API_KEY
+# is one POST written by hand in `codex_auth.rs`. JWT decoding for the
+# account_id is also inline (no `jsonwebtoken` dep) since we trust the
+# issuer over HTTPS and only need the unverified `chatgpt_account_id`
+# claim. `tiny_http` runs the loopback callback for ~30s during login.
+oauth2 = { version = "5", features = ["reqwest"], default-features = false }
+tiny_http = "0.12"
+webbrowser = "1"
+base64 = "0.22"
+dirs = "5"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Unix-only: `setrlimit` via `Command::pre_exec` for per-process resource caps
+# applied to `runShellCommand`. See `tools/shell.rs::apply_rlimits`.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+# `test-util` enables `tokio::time::pause()` and `#[tokio::test(start_paused = true)]`,
+# used by the LLM stream idle-timeout test to avoid waiting wall-clock seconds.
+tokio = { version = "1", features = ["test-util"] }
+# Used by the bifrost test fixture (`bifrost_client::tests`) to verify
+# the downloaded release archive against its `.sha256` sidecar before
+# extraction, mirroring what `brokk-code/brokk_code/rust_acp_install.py`
+# already does for the production install path.
+sha2 = "0.10"

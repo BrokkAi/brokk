@@ -91,4 +91,69 @@ public class JavaUsagesTest {
                     "Snippet should contain the method call");
         }
     }
+
+    @Test
+    public void testUsageAfterNonAsciiPrefixResolvesEnclosingCodeUnit() throws Exception {
+        String targetCode =
+                """
+                package com.example;
+                public class Target {}
+                """;
+
+        String consumerCode =
+                """
+                package com.example;
+                public class Consumer {
+                    String label = "caf\u00e9 \uD83D\uDE80";
+                    private Target target;
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(targetCode, "com/example/Target.java")
+                .addFileContents(consumerCode, "com/example/Consumer.java")
+                .build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            var finder = new UsageFinder(project, analyzer, new RegexUsageAnalyzer(analyzer));
+            List<CodeUnit> classOverloads = List.copyOf(analyzer.getDefinitions("com.example.Target"));
+
+            FuzzyResult result = finder.findUsages(classOverloads);
+            assertTrue(result instanceof FuzzyResult.Success);
+            Set<UsageHit> hits = ((FuzzyResult.Success) result).hits();
+
+            assertEquals(1, hits.size());
+            UsageHit hit = hits.iterator().next();
+            assertTrue(hit.snippet().contains("private Target target"));
+            assertEquals("target", hit.enclosing().identifier());
+        }
+    }
+
+    @Test
+    public void testNoTextualMatchProducesNoUsages() throws Exception {
+        String targetCode =
+                """
+                package com.example;
+                public class Missing {}
+                """;
+
+        String consumerCode =
+                """
+                package com.example;
+                public class Consumer {
+                    private String value;
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(targetCode, "com/example/Missing.java")
+                .addFileContents(consumerCode, "com/example/Consumer.java")
+                .build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            var finder = new UsageFinder(project, analyzer, new RegexUsageAnalyzer(analyzer));
+            List<CodeUnit> classOverloads = List.copyOf(analyzer.getDefinitions("com.example.Missing"));
+
+            FuzzyResult result = finder.findUsages(classOverloads);
+            assertTrue(result instanceof FuzzyResult.Success);
+
+            assertEquals(0, ((FuzzyResult.Success) result).hits().size());
+        }
+    }
 }

@@ -139,6 +139,37 @@ public final class PythonTypeHierarchyTest {
     }
 
     @Test
+    void decoratedClassDirectAncestorsResolveFromLocalSuperclassList() throws Exception {
+        String source =
+                """
+                def marker(cls):
+                    return cls
+
+                class Base:
+                    pass
+
+                @marker
+                class Child(Base):
+                    pass
+                """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(source, "decorated.py").build()) {
+            var testAnalyzer = new PythonAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "decorated.py");
+            CodeUnit child = testAnalyzer.getDeclarations(file).stream()
+                    .filter(cu -> cu.identifier().equals("Child"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var ancestors = testAnalyzer.getDirectAncestors(child);
+
+            assertEquals(1, ancestors.size());
+            assertEquals("Base", ancestors.getFirst().identifier());
+        }
+    }
+
+    @Test
     void testRelativeImportParentDirectory() throws Exception {
         var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
                 .addFileContents("# Subpackage marker\n", "mypackage/subdir/__init__.py")

@@ -1,30 +1,39 @@
 ---
 name: brokk-code-reading
 description: >-
-  Read implementation details and file structure using Brokk's getClassSources,
-  getMethodSources, getFileContents, skimFiles, and getFileSummaries tools.
+  Read implementation details and file structure using Brokk's
+  get_symbol_sources, get_symbol_summaries, get_summaries, and list_symbols
+  tools.
 ---
 
 # Code Reading
 
 Use these Brokk MCP tools to read source code at the right level of detail.
+For raw file contents (non-source files, configs, etc.) use the built-in
+`Read` tool instead -- bifrost does not expose a file-contents tool.
 
 ## Tools
 
 | Tool | Purpose |
 |---|---|
-| `getClassSources` | Full source of one or more classes |
-| `getMethodSources` | Source of specific methods (by FQN) |
-| `getFileContents` | Raw file contents (any file type) |
-| `skimFiles` | Quick structural overview of files |
-| `getFileSummaries` | Class skeletons (fields + signatures) for packages/directories |
+| `get_symbol_sources` | Full source blocks for one or more named symbols (classes, functions, fields) |
+| `get_symbol_summaries` | Ranged summaries (signatures + structure, no bodies) for named symbols |
+| `get_summaries` | API surface for files, glob patterns, or class names |
+| `list_symbols` | Compact recursive symbol outline for matching files |
 
 ## Tips
 
-- Start with `skimFiles` or `getFileSummaries` for an overview before
-  diving into full source.
-- Use `getFileSummaries` with glob patterns to survey a whole package.
-- Use `getMethodSources` when you only need a specific method -- it is
-  much cheaper than `getClassSources`.
-- Only fall back to `getClassSources` when you need the complete
-  implementation.
+- Start with `get_summaries` (or `list_symbols` for a more compact
+  output) when you need API shape, adjacent types, or package-level
+  structure before reading concrete bodies.
+- `get_symbol_sources` and `get_symbol_summaries` both accept an optional
+  `kind_filter` (`class`, `function`, `field`, `module`, `any`) to
+  disambiguate when a short name resolves in multiple kinds.
+- Use `get_symbol_sources` when you only need a specific symbol's body --
+  it is much cheaper than reading the whole file. The `kind_filter`
+  replaces the old separate "method sources" vs. "class sources" tools.
+- Use `list_symbols` when you need a quick declaration-level file outline
+  across a glob.
+- For raw file contents (build files, configs, READMEs, generated code),
+  use the built-in `Read` tool, since bifrost only exposes structured
+  symbol-aware accessors.

@@ -4,6 +4,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -11,6 +12,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SequencedSet;
@@ -40,6 +42,59 @@ public interface IAnalyzer {
         public int compareTo(FileRelevance other) {
             int scoreComparison = Double.compare(other.score, this.score);
             return scoreComparison != 0 ? scoreComparison : this.file.absPath().compareTo(other.file.absPath());
+        }
+    }
+
+    enum SourcePathKind {
+        FILE,
+        DIRECTORY
+    }
+
+    record SourceLookupAlias(String lookupName, String sourcePathSuffix, SourcePathKind sourcePathKind) {
+        public SourceLookupAlias {
+            sourcePathSuffix = normalizePath(sourcePathSuffix);
+        }
+
+        public static SourceLookupAlias anySource(String lookupName) {
+            return new SourceLookupAlias(lookupName, "", SourcePathKind.FILE);
+        }
+
+        public static SourceLookupAlias sourceFile(String lookupName, String sourcePathSuffix) {
+            return new SourceLookupAlias(lookupName, sourcePathSuffix, SourcePathKind.FILE);
+        }
+
+        public static SourceLookupAlias sourceDirectory(String lookupName, String sourcePathSuffix) {
+            return new SourceLookupAlias(lookupName, sourcePathSuffix, SourcePathKind.DIRECTORY);
+        }
+
+        public SourceLookupAlias withLookupName(String newLookupName) {
+            return new SourceLookupAlias(newLookupName, sourcePathSuffix, sourcePathKind);
+        }
+
+        public boolean matchesSource(CodeUnit candidate) {
+            if (sourcePathSuffix.isBlank()) {
+                return true;
+            }
+
+            String candidatePath =
+                    switch (sourcePathKind) {
+                        case FILE ->
+                            normalizePath(candidate.source().getRelPath().toString());
+                        case DIRECTORY ->
+                            normalizePath(candidate.source().getParent().toString());
+                    };
+            return candidatePath.equals(sourcePathSuffix) || candidatePath.endsWith("/" + sourcePathSuffix);
+        }
+
+        private static String normalizePath(String path) {
+            var normalized = path.replace('\\', '/');
+            while (normalized.startsWith("/")) {
+                normalized = normalized.substring(1);
+            }
+            while (normalized.endsWith("/")) {
+                normalized = normalized.substring(0, normalized.length() - 1);
+            }
+            return normalized;
         }
     }
 
@@ -157,6 +212,10 @@ public interface IAnalyzer {
      * @return SequencedSet of all matching CodeUnits in priority order (may be empty)
      */
     SequencedSet<CodeUnit> getDefinitions(String fqName);
+
+    default Collection<SourceLookupAlias> sourceLookupAliases(String requestedName) {
+        return List.of(SourceLookupAlias.anySource(requestedName));
+    }
 
     /**
      * Returns the enclosing class or module for the given CodeUnit.
@@ -404,6 +463,43 @@ public interface IAnalyzer {
             List<String> reasons,
             String excerpt) {}
 
+    record MaintainabilitySizeSmellWeights(
+            int longMethodSpanLines,
+            int highComplexityThreshold,
+            int godObjectSpanLines,
+            int godObjectDirectChildren,
+            int godObjectFunctions,
+            int helperSprawlFunctions,
+            int helperSprawlWorkflowLines,
+            int fileModuleLeewayMultiplier) {
+
+        public static MaintainabilitySizeSmellWeights defaults() {
+            return new MaintainabilitySizeSmellWeights(
+                    80, // Long generated workflows become difficult to review.
+                    10, // Matches the default cyclomatic complexity review threshold.
+                    300, // Large class/module bodies are worth triage even before counting members.
+                    20, // Many direct members suggest mixed responsibilities.
+                    15, // Many functions under one parent suggest a god object/module.
+                    10, // Helper sprawl threshold around a larger workflow.
+                    60, // Workflow size large enough to make surrounding helpers suspicious.
+                    2 // JS/TS modules and Python files are expected to be broader than class-like units.
+                    );
+        }
+    }
+
+    record MaintainabilitySizeSmell(
+            CodeUnit codeUnit,
+            Range range,
+            int score,
+            int ownSpanLines,
+            int descendantSpanLines,
+            int directChildCount,
+            int functionCount,
+            int nestedTypeCount,
+            int maxFunctionSpanLines,
+            int maxCyclomaticComplexity,
+            List<String> reasons) {}
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
@@ -599,6 +695,25 @@ public interface IAnalyzer {
             work.addAll(getDirectChildren(cu));
         }
         return symbols;
+    }
+
+    /**
+     * Returns human-readable declaration signatures for a code unit, intended for display in search results.
+     *
+     * <p>Implementations with syntax-aware skeleton support should override this to return declaration text from
+     * source. The default fallback is intentionally lightweight and may omit modifiers or inheritance details.
+     */
+    default List<String> getDisplaySignatures(CodeUnit codeUnit) {
+        String functionDisplay = codeUnit.signature() != null
+                ? codeUnit.identifier() + codeUnit.signature()
+                : codeUnit.identifier() + "()";
+        return List.of(
+                switch (codeUnit.kind()) {
+                    case CLASS -> "class " + codeUnit.identifier();
+                    case FUNCTION -> functionDisplay;
+                    case FIELD -> codeUnit.identifier();
+                    case MODULE -> codeUnit.shortName();
+                });
     }
 
     /**
@@ -827,10 +942,201 @@ public interface IAnalyzer {
     }
 
     /**
+     * Finds oversized functions, classes, and modules that are likely to carry generated-code maintainability debt.
+     */
+    default List<MaintainabilitySizeSmell> findLongMethodAndGodObjectSmells(ProjectFile file) {
+        return findLongMethodAndGodObjectSmells(file, MaintainabilitySizeSmellWeights.defaults());
+    }
+
+    /**
+     * Finds oversized functions, classes, and modules using configurable maintainability-size thresholds.
+     */
+    default List<MaintainabilitySizeSmell> findLongMethodAndGodObjectSmells(
+            ProjectFile file, MaintainabilitySizeSmellWeights weights) {
+        var findings = new ArrayList<MaintainabilitySizeSmell>();
+        var visited = new HashSet<CodeUnit>();
+        for (CodeUnit cu : getTopLevelDeclarations(file)) {
+            collectMaintainabilitySizeSmells(cu, weights, true, visited, findings);
+        }
+        return findings.stream().sorted(maintainabilitySizeSmellComparator()).toList();
+    }
+
+    static Comparator<MaintainabilitySizeSmell> maintainabilitySizeSmellComparator() {
+        return Comparator.comparingInt(MaintainabilitySizeSmell::score)
+                .reversed()
+                .thenComparing(smell -> smell.codeUnit().source().toString(), String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(smell -> smell.codeUnit().fqName(), String.CASE_INSENSITIVE_ORDER);
+    }
+
+    private MaintainabilitySizeMetrics collectMaintainabilitySizeSmells(
+            CodeUnit cu,
+            MaintainabilitySizeSmellWeights weights,
+            boolean topLevel,
+            Set<CodeUnit> visited,
+            List<MaintainabilitySizeSmell> findings) {
+        if (!visited.add(cu)) {
+            return MaintainabilitySizeMetrics.empty();
+        }
+
+        var range = primaryRangeOf(cu);
+        boolean synthetic = cu.isSynthetic();
+        int ownSpanLines = synthetic ? 0 : spanLines(range);
+        int maxFunctionSpanLines = !synthetic && cu.isFunction() ? ownSpanLines : 0;
+        int maxCyclomaticComplexity = !synthetic && cu.isFunction() ? computeCyclomaticComplexity(cu) : 0;
+        int functionCount = !synthetic && cu.isFunction() ? 1 : 0;
+        int nestedTypeCount = !synthetic && (cu.isClass() || cu.isModule()) ? 1 : 0;
+        int descendantSpanLines = ownSpanLines;
+        var children = getDirectChildren(cu);
+        var nonSyntheticChildren =
+                children.stream().filter(child -> !child.isSynthetic()).toList();
+
+        for (CodeUnit child : children) {
+            var childMetrics = collectMaintainabilitySizeSmells(child, weights, false, visited, findings);
+            functionCount += childMetrics.functionCount();
+            nestedTypeCount += childMetrics.nestedTypeCount();
+            descendantSpanLines += childMetrics.descendantSpanLines();
+            maxFunctionSpanLines = Math.max(maxFunctionSpanLines, childMetrics.maxFunctionSpanLines());
+            maxCyclomaticComplexity = Math.max(maxCyclomaticComplexity, childMetrics.maxCyclomaticComplexity());
+        }
+
+        if (!synthetic && !range.isEmpty()) {
+            var reasons = new ArrayList<String>();
+            int score = 0;
+            if (cu.isFunction()) {
+                if (ownSpanLines >= weights.longMethodSpanLines()) {
+                    score += ownSpanLines - weights.longMethodSpanLines() + 25;
+                    reasons.add("long function spans " + ownSpanLines + " lines");
+                }
+                if (maxCyclomaticComplexity > weights.highComplexityThreshold()) {
+                    score += (maxCyclomaticComplexity - weights.highComplexityThreshold()) * 5;
+                    reasons.add("high cyclomatic complexity " + maxCyclomaticComplexity);
+                }
+            } else if (cu.isClass() || cu.isModule()) {
+                int moduleLeewayMultiplier = isFileLevelModule(cu, topLevel) ? weights.fileModuleLeewayMultiplier() : 1;
+                int godObjectSpanLines = weights.godObjectSpanLines() * moduleLeewayMultiplier;
+                int godObjectDirectChildren = weights.godObjectDirectChildren() * moduleLeewayMultiplier;
+                int godObjectFunctions = weights.godObjectFunctions() * moduleLeewayMultiplier;
+                int helperSprawlFunctions = weights.helperSprawlFunctions() * moduleLeewayMultiplier;
+                boolean responsibilityCluster = cu.isClass() || nonSyntheticChildren.size() > 1;
+                if (ownSpanLines >= godObjectSpanLines) {
+                    score += (ownSpanLines - godObjectSpanLines) / 4 + 20;
+                    reasons.add(
+                            "large " + cu.kind().name().toLowerCase(Locale.ROOT) + " spans " + ownSpanLines + " lines");
+                }
+                if (responsibilityCluster && nonSyntheticChildren.size() >= godObjectDirectChildren) {
+                    score += (nonSyntheticChildren.size() - godObjectDirectChildren) * 2 + 15;
+                    reasons.add("many direct members (" + nonSyntheticChildren.size() + ")");
+                }
+                if (responsibilityCluster && functionCount >= godObjectFunctions) {
+                    score += (functionCount - godObjectFunctions) * 2 + 15;
+                    reasons.add("many functions in one responsibility cluster (" + functionCount + ")");
+                }
+                if (responsibilityCluster
+                        && functionCount >= helperSprawlFunctions
+                        && maxFunctionSpanLines >= weights.helperSprawlWorkflowLines()) {
+                    score += functionCount + maxFunctionSpanLines / 4;
+                    reasons.add("helper sprawl around a " + maxFunctionSpanLines + "-line workflow");
+                }
+                if (maxCyclomaticComplexity > weights.highComplexityThreshold()) {
+                    score += (maxCyclomaticComplexity - weights.highComplexityThreshold()) * 3;
+                    reasons.add("contains high-complexity workflow (CC " + maxCyclomaticComplexity + ")");
+                }
+                if (score > 0 && nestedTypeCount > 1) {
+                    reasons.add("nested type/module cluster (" + nestedTypeCount + ")");
+                }
+            }
+
+            if (score > 0) {
+                findings.add(new MaintainabilitySizeSmell(
+                        cu,
+                        range,
+                        score,
+                        ownSpanLines,
+                        descendantSpanLines,
+                        nonSyntheticChildren.size(),
+                        functionCount,
+                        nestedTypeCount,
+                        maxFunctionSpanLines,
+                        maxCyclomaticComplexity,
+                        List.copyOf(reasons)));
+            }
+        }
+
+        return new MaintainabilitySizeMetrics(
+                descendantSpanLines, functionCount, nestedTypeCount, maxFunctionSpanLines, maxCyclomaticComplexity);
+    }
+
+    default boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
+        return false;
+    }
+
+    private Range primaryRangeOf(CodeUnit cu) {
+        return rangesOf(cu).stream()
+                .filter(range -> !range.isEmpty())
+                .max(Comparator.comparingInt(IAnalyzer::spanLines))
+                .orElse(new Range(0, 0, 0, 0, 0));
+    }
+
+    private static int spanLines(Range range) {
+        if (range.isEmpty()) {
+            return 0;
+        }
+        return Math.max(1, range.endLine() - range.startLine() + 1);
+    }
+
+    record MaintainabilitySizeMetrics(
+            int descendantSpanLines,
+            int functionCount,
+            int nestedTypeCount,
+            int maxFunctionSpanLines,
+            int maxCyclomaticComplexity) {
+        static MaintainabilitySizeMetrics empty() {
+            return new MaintainabilitySizeMetrics(0, 0, 0, 0, 0);
+        }
+    }
+
+    /**
+     * Computes the heuristic cognitive complexity for the given code unit.
+     *
+     * <p>Cognitive complexity starts at zero and grows with control-flow breaks and nested control flow. Language
+     * analyzers should override this when they can use syntax trees; the default is unsupported.
+     */
+    default int computeCognitiveComplexity(CodeUnit cu) {
+        return 0;
+    }
+
+    /**
+     * Computes cognitive complexity for all functions in the given file. Implementations may override this to share
+     * parse state across all functions in the file.
+     */
+    default Map<CodeUnit, Integer> computeCognitiveComplexities(ProjectFile file) {
+        var complexities = new LinkedHashMap<CodeUnit, Integer>();
+        var work = new ArrayDeque<>(getTopLevelDeclarations(file));
+        while (!work.isEmpty()) {
+            CodeUnit cu = work.pop();
+            if (cu.isFunction()) {
+                complexities.put(cu, computeCognitiveComplexity(cu));
+            }
+            work.addAll(getDirectChildren(cu));
+        }
+        return complexities;
+    }
+
+    /**
      * Comment density for a single declaration. Language-specific analyzers may override; default is unsupported.
      */
     default Optional<CommentDensityStats> commentDensity(CodeUnit cu) {
         return Optional.empty();
+    }
+
+    /**
+     * Comment density for the first resolved declaration that supports it.
+     */
+    default Optional<CommentDensityStats> commentDensity(String fqName) {
+        return getDefinitions(fqName).stream()
+                .map(this::commentDensity)
+                .flatMap(Optional::stream)
+                .findFirst();
     }
 
     /**
