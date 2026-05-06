@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::codex_auth::{AuthDotJson, read_auth_dot_json, refresh_if_stale, write_auth_dot_json};
+use crate::codex_auth::{AuthDotJson, is_stale, read_auth_dot_json, refresh_if_stale, urlencode};
 use crate::llm_client::{
     ChatMessage, FunctionCall, LlmBackend, LlmResponse, ToolCall, ToolDefinition,
 };
@@ -151,12 +151,14 @@ impl CodexClient {
     }
 
     /// Load fresh credentials from disk, refreshing the OAuth tokens if
-    /// they're past Codex's 8-day staleness window. Held under
-    /// `refresh_lock` so concurrent prompts don't race on the refresh
-    /// endpoint.
+    /// they're past Codex's 8-day staleness window. The fast path
+    /// (credentials still fresh) bypasses `refresh_lock` so unrelated
+    /// prompts don't queue up behind each other on a no-op disk read;
+    /// the lock is only acquired when an actual refresh is warranted,
+    /// at which point we re-read under the lock to avoid duplicate
+    /// refreshes if another worker beat us to it.
     async fn load_credentials(&self) -> Result<ChatGptCredentials> {
-        let _guard = self.refresh_lock.lock().await;
-        let mut auth = read_auth_dot_json()?.ok_or_else(|| {
+        let auth = read_auth_dot_json()?.ok_or_else(|| {
             anyhow!("~/.codex/auth.json not found; run /codex-login to authenticate")
         })?;
         if !is_chatgpt_mode(&auth) {
@@ -166,7 +168,25 @@ impl CodexClient {
                 auth.auth_mode
             );
         }
-        if let Err(e) = refresh_if_stale(&mut auth).await {
+        if !is_stale(&auth) {
+            return ChatGptCredentials::from_auth(&auth);
+        }
+
+        // Stale -- serialize the refresh so concurrent prompts don't
+        // race each other into the refresh endpoint and invalidate one
+        // of the resulting refresh_token rotations.
+        let _guard = self.refresh_lock.lock().await;
+        // Re-read under the lock: another worker might have refreshed
+        // while we waited. Skip the refresh if so.
+        let mut auth = read_auth_dot_json()?.ok_or_else(|| {
+            anyhow!("~/.codex/auth.json disappeared while waiting for refresh lock")
+        })?;
+        if !is_chatgpt_mode(&auth) {
+            anyhow::bail!("auth.json switched out of chatgpt mode while waiting for refresh lock");
+        }
+        if is_stale(&auth)
+            && let Err(e) = refresh_if_stale(&mut auth).await
+        {
             tracing::warn!("proactive token refresh failed (will retry on 401): {e:#}");
         }
         ChatGptCredentials::from_auth(&auth)
@@ -182,11 +202,12 @@ impl CodexClient {
             anyhow::bail!("auth.json no longer in chatgpt mode");
         }
         // Pretend the credentials are old enough to need refresh by
-        // backdating last_refresh past Codex's 8-day window. We avoid
-        // calling the refresh endpoint directly here so the staleness
-        // policy stays in one place (`codex_auth::refresh_if_stale`).
+        // backdating last_refresh past Codex's 8-day window. We mutate
+        // this in memory only -- writing the backdated marker to disk
+        // would let other workers observe stale credentials and pile
+        // into the refresh endpoint themselves. refresh_if_stale will
+        // persist the new credentials atomically on success.
         auth.last_refresh = Some(chrono::Utc::now() - chrono::Duration::days(30));
-        write_auth_dot_json(&auth)?;
         if let Err(e) = refresh_if_stale(&mut auth).await {
             return Err(e.context("forced token refresh failed"));
         }
@@ -243,10 +264,10 @@ impl CodexClient {
         let status = resp.status();
         if !status.is_success() {
             let body_text = resp.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "ChatGPT Responses API returned HTTP {status}: {}",
-                body_text.trim()
-            );
+            return Err(anyhow::Error::new(ChatGptHttpError {
+                status,
+                body: body_text.trim().to_string(),
+            }));
         }
 
         let stream = resp
@@ -308,7 +329,7 @@ async fn fetch_chatgpt_models(
 ) -> Result<Vec<String>> {
     let url = format!(
         "{CHATGPT_MODELS_URL}?client_version={}",
-        urlencode_minimal(CODEX_COMPAT_CLIENT_VERSION)
+        urlencode(CODEX_COMPAT_CLIENT_VERSION)
     );
     let resp = http
         .get(&url)
@@ -393,21 +414,6 @@ fn body_excerpt(body: &[u8], limit: usize) -> String {
     }
 }
 
-/// Minimal percent-encoder for query values. Avoids pulling in `url`
-/// just to encode a semver string.
-fn urlencode_minimal(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
 #[derive(Debug, Deserialize)]
 struct ChatGptModelsResponse {
     #[serde(default)]
@@ -476,14 +482,40 @@ fn is_chatgpt_mode(auth: &AuthDotJson) -> bool {
     matches!(auth.auth_mode.as_deref(), Some("chatgpt"))
 }
 
-/// Heuristic 401 detector. We can't introspect the original `reqwest`
-/// status because `send_responses_request` collapses non-success
-/// responses into an `anyhow!` carrying the body. Looking for "HTTP
-/// 401" in the message is brittle but localized to this file; a richer
-/// retry path can swap this for a typed error later.
+/// Typed HTTP error so `is_unauthorized` can match on the status code
+/// rather than scanning the formatted error message. The previous
+/// string-match approach drifted out of sync whenever the upstream
+/// wording changed and conflated unrelated bodies that happened to
+/// mention "invalid_token". Putting the `StatusCode` in a downcastable
+/// struct makes the 401-retry path robust without leaking reqwest
+/// types to public APIs.
+#[derive(Debug)]
+struct ChatGptHttpError {
+    status: reqwest::StatusCode,
+    body: String,
+}
+
+impl std::fmt::Display for ChatGptHttpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ChatGPT Responses API returned HTTP {}: {}",
+            self.status, self.body
+        )
+    }
+}
+
+impl std::error::Error for ChatGptHttpError {}
+
+/// Detect 401 by walking the anyhow chain for our typed
+/// `ChatGptHttpError`. Returns false for transport errors or other
+/// non-HTTP failures, which is the intended behavior -- we only retry
+/// once on an actual unauthorized response from the gateway.
 fn is_unauthorized(err: &anyhow::Error) -> bool {
-    let s = format!("{err}");
-    s.contains("HTTP 401") || s.contains("invalid_token") || s.contains("token_expired")
+    err.chain()
+        .find_map(|cause| cause.downcast_ref::<ChatGptHttpError>())
+        .map(|e| e.status == reqwest::StatusCode::UNAUTHORIZED)
+        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -563,6 +595,10 @@ pub(crate) fn build_responses_request(
             "system" => {
                 if let Some(text) = &msg.content {
                     instructions_parts.push(text.clone());
+                } else {
+                    tracing::debug!(
+                        "dropping system message with no content when building Responses input"
+                    );
                 }
             }
             "user" => {
@@ -571,6 +607,10 @@ pub(crate) fn build_responses_request(
                         role: "user".to_string(),
                         content: vec![ResponsesContent::InputText { text: text.clone() }],
                     });
+                } else {
+                    tracing::debug!(
+                        "dropping user message with no content when building Responses input"
+                    );
                 }
             }
             "assistant" => {
@@ -587,6 +627,11 @@ pub(crate) fn build_responses_request(
                         role: "assistant".to_string(),
                         content: vec![ResponsesContent::OutputText { text: text.clone() }],
                     });
+                } else {
+                    tracing::debug!(
+                        "dropping assistant message with neither tool_calls nor content when \
+                         building Responses input"
+                    );
                 }
             }
             "tool" => {
@@ -595,6 +640,13 @@ pub(crate) fn build_responses_request(
                         call_id: call_id.clone(),
                         output: output.clone(),
                     });
+                } else {
+                    tracing::warn!(
+                        "dropping malformed tool message when building Responses input: \
+                         tool_call_id_present={} content_present={}",
+                        msg.tool_call_id.is_some(),
+                        msg.content.is_some()
+                    );
                 }
             }
             other => {
@@ -730,6 +782,12 @@ where
     let mut deadline = tokio::time::Instant::now() + idle;
     let mut completed = false;
     let mut failure: Option<anyhow::Error> = None;
+    // Track whether any text deltas were actually delivered so the
+    // output_item.done backfill below can distinguish "no deltas yet"
+    // from "deltas arrived but happened to be empty strings". Using
+    // `full_text.is_empty()` for that decision conflated the two and
+    // could double-emit the assistant text when a server sent both.
+    let mut deltas_received = false;
 
     loop {
         tokio::select! {
@@ -785,6 +843,7 @@ where
                         "response.output_text.delta" => {
                             if let Some(delta) = event.delta {
                                 made_progress = true;
+                                deltas_received = true;
                                 on_token(&delta);
                                 full_text.push_str(&delta);
                             }
@@ -799,10 +858,12 @@ where
                                         // assistant message via output_item.done
                                         // without ever emitting deltas (e.g. a
                                         // very short reply or a cached completion).
-                                        // Backfill `full_text` from the item if
-                                        // we haven't seen any deltas yet so the
-                                        // caller still gets the assistant text.
-                                        if role.as_deref() == Some("assistant") && full_text.is_empty() {
+                                        // Backfill `full_text` from the item only
+                                        // when no deltas were seen -- otherwise
+                                        // the deltas already carry the assistant
+                                        // text and re-emitting it duplicates the
+                                        // content for the caller.
+                                        if role.as_deref() == Some("assistant") && !deltas_received {
                                             for c in content {
                                                 if let OutputItemContent::OutputText { text } = c {
                                                     on_token(&text);
@@ -1077,6 +1138,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sse_parser_does_not_duplicate_text_when_deltas_and_output_item_done_overlap() {
+        // Some servers send both a delta stream AND a final
+        // output_item.done carrying the same assistant text. The
+        // parser must surface the deltas (which already drove
+        // on_token) and ignore the final item's content -- echoing
+        // it would double the visible reply.
+        let raw = concat!(
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hel\"}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"lo\"}\n\n",
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{}}\n\n",
+        );
+        let stream = futures::stream::iter(vec![Ok(raw.as_bytes().to_vec())]);
+        let collected = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let cb = sink_collecting(collected.clone());
+        let cancel = CancellationToken::new();
+        let resp = drive_responses_sse_stream(stream, cb, cancel, Duration::from_secs(5))
+            .await
+            .expect("stream completes");
+        match resp {
+            LlmResponse::Text(text) => assert_eq!(text, "hello"),
+            other => panic!("expected Text, got {other:?}"),
+        }
+        assert_eq!(collected.lock().unwrap().as_str(), "hello");
+    }
+
+    #[tokio::test]
     async fn sse_parser_surfaces_response_failed_as_error() {
         let raw = "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"slow down\"}}}\n\n";
         let stream = futures::stream::iter(vec![Ok(raw.as_bytes().to_vec())]);
@@ -1117,10 +1205,33 @@ mod tests {
 
     #[test]
     fn unauthorized_detector_matches_codex_responses_401_shape() {
-        let err = anyhow!("ChatGPT Responses API returned HTTP 401: {{...}}");
+        let err = anyhow::Error::new(ChatGptHttpError {
+            status: reqwest::StatusCode::UNAUTHORIZED,
+            body: "{...}".to_string(),
+        });
         assert!(is_unauthorized(&err));
-        let other = anyhow!("ChatGPT Responses API returned HTTP 500: server error");
+        let other = anyhow::Error::new(ChatGptHttpError {
+            status: reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            body: "server error".to_string(),
+        });
         assert!(!is_unauthorized(&other));
+        // Non-HTTP errors (e.g. transport failures) must not be
+        // misclassified as 401 -- the retry path would loop forever.
+        let transport = anyhow!("connection reset");
+        assert!(!is_unauthorized(&transport));
+    }
+
+    #[test]
+    fn unauthorized_detector_walks_anyhow_chain() {
+        // `is_unauthorized` runs after callers may have added their
+        // own `.context(...)` -- the typed cause must still be
+        // recoverable through the chain.
+        let err = anyhow::Error::new(ChatGptHttpError {
+            status: reqwest::StatusCode::UNAUTHORIZED,
+            body: "expired".to_string(),
+        })
+        .context("posting Responses API request");
+        assert!(is_unauthorized(&err));
     }
 
     #[test]

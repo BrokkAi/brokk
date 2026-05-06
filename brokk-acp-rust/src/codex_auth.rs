@@ -191,7 +191,7 @@ fn build_authorize_url(challenge: &PkceCodeChallenge, state: &str) -> String {
 /// Minimal percent-encoder for the handful of characters that show up
 /// in our query values (`/`, `:`, `=`, etc.). Avoids pulling in `url`
 /// just to call `Url::parse`/`form_urlencoded::byte_serialize`.
-fn urlencode(s: &str) -> String {
+pub(crate) fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
@@ -336,14 +336,20 @@ pub async fn interactive_login() -> Result<AuthDotJson> {
     Ok(auth)
 }
 
+/// True when `auth.last_refresh` is older than `REFRESH_AFTER`. Mirrors
+/// `refresh_if_stale`'s "no last_refresh => not stale" branch so callers
+/// can cheaply skip the refresh lock when nothing needs to happen.
+pub fn is_stale(auth: &AuthDotJson) -> bool {
+    match auth.last_refresh {
+        Some(ts) => Utc::now() - ts >= REFRESH_AFTER,
+        None => false,
+    }
+}
+
 /// Refresh the API key if the stored credentials are stale. Used on
 /// startup so long-running ACP sessions don't 401 mid-flight.
 pub async fn refresh_if_stale(auth: &mut AuthDotJson) -> Result<bool> {
-    let last = match auth.last_refresh {
-        Some(ts) => ts,
-        None => return Ok(false),
-    };
-    if Utc::now() - last < REFRESH_AFTER {
+    if !is_stale(auth) {
         return Ok(false);
     }
     let tokens = auth
