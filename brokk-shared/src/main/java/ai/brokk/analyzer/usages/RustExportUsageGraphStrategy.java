@@ -9,12 +9,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public final class RustExportUsageGraphStrategy implements UsageAnalyzer {
-    private static final Logger log = LoggerFactory.getLogger(RustExportUsageGraphStrategy.class);
-
     private final RustAnalyzer analyzer;
     private final ExportUsageReferenceGraphEngine.Limits limits;
 
@@ -29,9 +25,7 @@ public final class RustExportUsageGraphStrategy implements UsageAnalyzer {
     }
 
     public boolean canHandle(CodeUnit target) {
-        Set<String> exportNames = inferExportNames(target);
-        log.debug("Rust graph canHandle {} -> export names {}", target.fqName(), exportNames);
-        return !exportNames.isEmpty();
+        return !inferExportNames(target).isEmpty();
     }
 
     @Override
@@ -53,8 +47,7 @@ public final class RustExportUsageGraphStrategy implements UsageAnalyzer {
                 limits.maxFiles(), Math.max(1, Math.min(limits.maxHits(), graphHitLimit)), limits.maxReexportDepth());
         Set<UsageHit> hits = new LinkedHashSet<>();
         for (String exportName : exportNames) {
-            Set<ProjectFile> effectiveCandidateFiles =
-                    candidateFiles.isEmpty() ? analyzer.rustUsageCandidateFiles(exportNames, target) : candidateFiles;
+            Set<ProjectFile> effectiveCandidateFiles = effectiveCandidateFiles(candidateFiles, exportNames, target);
             ReferenceGraphResult graphResult = ExportUsageReferenceGraphEngine.findExportUsages(
                     target.source(), exportName, target, adapter, effectiveLimits, effectiveCandidateFiles);
             hits.addAll(graphResult.hits().stream()
@@ -77,6 +70,17 @@ public final class RustExportUsageGraphStrategy implements UsageAnalyzer {
         }
         hits = hits.stream().limit(maxUsages).collect(Collectors.toCollection(LinkedHashSet::new));
         return new FuzzyResult.Success(Map.of(target, Set.copyOf(hits)));
+    }
+
+    private Set<ProjectFile> effectiveCandidateFiles(
+            Set<ProjectFile> candidateFiles, Set<String> exportNames, CodeUnit target) {
+        if (candidateFiles.isEmpty()) {
+            return analyzer.rustUsageCandidateFiles(exportNames, target);
+        }
+        Set<ProjectFile> analyzedFiles = analyzer.getAnalyzedFiles();
+        Set<ProjectFile> filtered =
+                candidateFiles.stream().filter(analyzedFiles::contains).collect(Collectors.toUnmodifiableSet());
+        return filtered.isEmpty() ? Set.of(target.source()) : filtered;
     }
 
     private Set<String> inferExportNames(CodeUnit target) {

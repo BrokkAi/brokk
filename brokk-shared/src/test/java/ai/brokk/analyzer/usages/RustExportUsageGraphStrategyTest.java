@@ -110,6 +110,48 @@ class RustExportUsageGraphStrategyTest extends AbstractUsageReferenceGraphTest {
     }
 
     @Test
+    void strategyFiltersNonRustCallerCandidatesWithoutWideningEmptySets() throws Exception {
+        String service = "pub struct Service;\n";
+        String consumer =
+                """
+                use crate::service::Service;
+
+                fn run() {
+                    let _ = Service {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .addFileContents("# notes\n", "README.md")
+                .addFileContents("[package]\nname = \"demo\"\n", "Cargo.toml")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile readmeFile = projectFile(project.getAllFiles(), "README.md");
+            CodeUnit target = target(analyzer, serviceFile, "Service");
+
+            FuzzyResult broadResult =
+                    new RustExportUsageGraphStrategy(analyzer).findUsages(List.of(target), project.getAllFiles(), 1000);
+            FuzzyResult nonRustOnlyResult =
+                    new RustExportUsageGraphStrategy(analyzer).findUsages(List.of(target), Set.of(readmeFile), 1000);
+
+            assertEquals(
+                    1,
+                    ((FuzzyResult.Success) broadResult)
+                            .hitsByOverload()
+                            .get(target)
+                            .size());
+            assertEquals(
+                    0,
+                    ((FuzzyResult.Success) nonRustOnlyResult)
+                            .hitsByOverload()
+                            .get(target)
+                            .size());
+        }
+    }
+
+    @Test
     void strategyReturnsTooManyCallsitesWhenHitsExceedLimit() throws Exception {
         String service = "pub struct Service;\n";
         String first =

@@ -45,7 +45,7 @@ public final class ExportUsageReferenceGraphEngine {
         Set<CodeUnit> targets = queryTarget != null ? Set.of(queryTarget) : resolution.targets();
         Set<ProjectFile> frontier = new LinkedHashSet<>(resolution.frontier());
 
-        log.debug(
+        log.trace(
                 "export usage reference graph resolving {}:{} -> {} targets, {} frontier files, queryTarget={}",
                 definingFile,
                 exportName,
@@ -54,7 +54,7 @@ public final class ExportUsageReferenceGraphEngine {
                 queryTarget != null ? queryTarget.fqName() : "<none>");
 
         if (targets.isEmpty()) {
-            log.debug("export usage reference graph found no targets for {}:{}", definingFile, exportName);
+            log.trace("export usage reference graph found no targets for {}:{}", definingFile, exportName);
             return new ReferenceGraphResult(Set.of(), Set.copyOf(frontier), Set.copyOf(externalFrontier));
         }
 
@@ -68,7 +68,7 @@ public final class ExportUsageReferenceGraphEngine {
         boolean shouldResolveReceiverCandidates =
                 targets.stream().anyMatch(ExportUsageReferenceGraphEngine::isMemberTarget);
 
-        log.debug(
+        log.trace(
                 "export usage reference graph analyzing {} files for {}:{} (receiverCandidates={})",
                 filesToAnalyze.size(),
                 definingFile,

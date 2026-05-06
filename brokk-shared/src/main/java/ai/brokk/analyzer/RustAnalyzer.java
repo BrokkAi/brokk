@@ -267,11 +267,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             }
         }
 
-        // Fallback for non-.rs files or unexpected structures.
-        log.warn(
-                "Could not determine Rust package name for non .rs file {} (relative dir path '{}'). Using directory path possibly with filename.",
-                absFilePath,
-                relativeDirModulePath);
+        // Non-Rust files can appear in broad caller-provided candidate sets. Keep this fallback quiet; Rust usage
+        // graph routing filters them out before structured analysis.
         return relativeDirModulePath.isEmpty() ? fileNameStr : relativeDirModulePath + "." + fileNameStr;
     }
 
