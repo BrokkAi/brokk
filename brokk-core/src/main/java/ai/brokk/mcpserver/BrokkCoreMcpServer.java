@@ -362,10 +362,12 @@ public class BrokkCoreMcpServer {
 
         specs.add(tool(
                 "findFilenames",
-                "Search for files by name pattern. Accepts regex or literal strings; invalid regex is automatically treated as a literal match. Patterns are case-insensitive and match anywhere in the filename.",
+                "Search for files by name pattern. Accepts regex patterns; invalid regex is automatically treated as a glob pattern. Patterns are case-insensitive and match anywhere in the filename.",
                 schema(
                         Map.of(
-                                "patterns", arrayProp("Patterns to match against filenames (regex or literal string)."),
+                                "patterns",
+                                arrayProp(
+                                        "Patterns to match against filenames. Invalid regex falls back to glob matching, so patterns like *.proto work."),
                                 "limit", intProp("Maximum results to return.")),
                         List.of("patterns", "limit")),
                 (exchange, request) -> withReadLock(() -> {

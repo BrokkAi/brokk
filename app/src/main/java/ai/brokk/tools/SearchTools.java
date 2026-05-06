@@ -24,6 +24,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.io.ProjectFiles;
 import ai.brokk.util.AlmostGrep;
 import ai.brokk.util.FileTargetHeuristic;
+import ai.brokk.util.FilenamePatternMatcher;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import ai.brokk.util.SearchToolSupport;
@@ -2291,12 +2292,12 @@ public class SearchTools {
     @Tool(
             """
                     Returns filenames (relative to the project root) that match the given patterns.
-                    Accepts regex or literal strings; invalid regex is automatically treated as a literal match.
+                    Accepts regex patterns; invalid regex is automatically treated as a glob pattern.
                     Matching is always case-insensitive.
                     Use this to find configuration files, test data, or source files when you know part of their name.
                     """)
     public String findFilenames(
-            @P("Patterns to match against filenames (regex or literal string).") List<String> patterns,
+            @P("Patterns to match against filenames. Invalid regex falls back to glob matching.") List<String> patterns,
             @P("Maximum number of filenames to return (capped at 100).") int limit) {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search filenames: patterns list is empty");
@@ -2304,50 +2305,8 @@ public class SearchTools {
 
         logger.debug("Searching filenames for patterns: {}", patterns);
 
-        final List<Pattern> compiledPatterns;
-        try {
-            List<Pattern> matchingPatterns = new ArrayList<>();
-            List<String> compileErrors = new ArrayList<>();
-            for (String pattern : patterns) {
-                boolean hasBackslash = pattern.contains("\\");
-                boolean normalizedCompiled = false;
-
-                try {
-                    matchingPatterns.addAll(compilePatternsWithFlags(
-                            List.of(toUnixPath(pattern)), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
-                    normalizedCompiled = true;
-                } catch (IllegalArgumentException e) {
-                    if (!hasBackslash) {
-                        compileErrors.add(
-                                e.getMessage() != null
-                                        ? e.getMessage()
-                                        : e.getClass().getSimpleName());
-                    }
-                }
-
-                if (hasBackslash) {
-                    try {
-                        matchingPatterns.addAll(compilePatternsWithFlags(
-                                List.of(pattern), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
-                    } catch (IllegalArgumentException e) {
-                        if (!normalizedCompiled) {
-                            compileErrors.add(
-                                    e.getMessage() != null
-                                            ? e.getMessage()
-                                            : e.getClass().getSimpleName());
-                        }
-                    }
-                }
-            }
-
-            if (!compileErrors.isEmpty()) {
-                throw new IllegalArgumentException(String.join("; ", compileErrors));
-            }
-
-            compiledPatterns = List.copyOf(matchingPatterns);
-        } catch (IllegalArgumentException e) {
-            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-        }
+        final var compiledPatterns =
+                FilenamePatternMatcher.compilePatterns(patterns, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
         if (compiledPatterns.isEmpty()) {
             throw new IllegalArgumentException("No valid patterns provided");
@@ -2358,8 +2317,8 @@ public class SearchTools {
             allMatches = contextManager.getProject().getAllFiles().stream()
                     .filter(pf -> {
                         String filePath = toUnixPath(pf.toString());
-                        for (Pattern pattern : compiledPatterns) {
-                            if (AlmostGrep.findWithOverflowGuard(pattern, filePath)) {
+                        for (var pattern : compiledPatterns) {
+                            if (pattern.matches(filePath)) {
                                 return true;
                             }
                         }

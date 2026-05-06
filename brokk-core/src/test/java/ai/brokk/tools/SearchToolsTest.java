@@ -76,6 +76,33 @@ class SearchToolsTest {
     }
 
     @Test
+    void findFilenames_InvalidRegexFallsBackToGlob() throws Exception {
+        Path projectRoot = initRepo();
+        commitTrackedFiles(
+                projectRoot,
+                Map.of(
+                        "rpc/flipt/flipt.proto",
+                        "syntax = \"proto3\";",
+                        "internal/config/testdata/database/missing_protocol.yml",
+                        "protocol: missing"),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add proto and protocol files");
+
+        project = new CoreProject(projectRoot);
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, new DisabledAnalyzer(project)));
+
+        String result = tools.findFilenames(List.of("*.proto"), 10);
+
+        assertTrue(result.contains("# rpc/flipt"), "Should group the proto file by directory. Result: " + result);
+        assertTrue(
+                result.contains("- flipt.proto"),
+                "Should match basename glob in nested directories. Result: " + result);
+        assertFalse(
+                result.contains("missing_protocol.yml"),
+                "Should not behave like broad substring search. Result: " + result);
+    }
+
+    @Test
     void searchSymbols_AppendsRelatedContent() throws Exception {
         Path projectRoot = initRepo();
         commitTrackedFiles(

@@ -25,6 +25,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.AlmostGrep;
 import ai.brokk.util.FileTargetHeuristic;
+import ai.brokk.util.FilenamePatternMatcher;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import ai.brokk.util.PathExpander;
@@ -2161,50 +2162,8 @@ public class SearchTools {
 
         logger.debug("Searching filenames for patterns: {}", patterns);
 
-        final List<Pattern> compiledPatterns;
-        try {
-            List<Pattern> matchingPatterns = new ArrayList<>();
-            List<String> compileErrors = new ArrayList<>();
-            for (String pattern : patterns) {
-                boolean hasBackslash = pattern.contains("\\");
-                boolean normalizedCompiled = false;
-
-                try {
-                    matchingPatterns.addAll(compilePatternsWithFlags(
-                            List.of(toUnixPath(pattern)), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
-                    normalizedCompiled = true;
-                } catch (IllegalArgumentException e) {
-                    if (!hasBackslash) {
-                        compileErrors.add(
-                                e.getMessage() != null
-                                        ? e.getMessage()
-                                        : e.getClass().getSimpleName());
-                    }
-                }
-
-                if (hasBackslash) {
-                    try {
-                        matchingPatterns.addAll(compilePatternsWithFlags(
-                                List.of(pattern), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
-                    } catch (IllegalArgumentException e) {
-                        if (!normalizedCompiled) {
-                            compileErrors.add(
-                                    e.getMessage() != null
-                                            ? e.getMessage()
-                                            : e.getClass().getSimpleName());
-                        }
-                    }
-                }
-            }
-
-            if (!compileErrors.isEmpty()) {
-                throw new IllegalArgumentException(String.join("; ", compileErrors));
-            }
-
-            compiledPatterns = List.copyOf(matchingPatterns);
-        } catch (IllegalArgumentException e) {
-            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-        }
+        final var compiledPatterns =
+                FilenamePatternMatcher.compilePatterns(patterns, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
         if (compiledPatterns.isEmpty()) {
             throw new IllegalArgumentException("No valid patterns provided");
@@ -2215,8 +2174,8 @@ public class SearchTools {
             allMatches = codeIntelligence.getProject().getAllFiles().stream()
                     .filter(pf -> {
                         String filePath = toUnixPath(pf.toString());
-                        for (Pattern pattern : compiledPatterns) {
-                            if (AlmostGrep.findWithOverflowGuard(pattern, filePath)) {
+                        for (var pattern : compiledPatterns) {
+                            if (pattern.matches(filePath)) {
                                 return true;
                             }
                         }
