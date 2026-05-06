@@ -506,6 +506,323 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
         }
     }
 
+    @Test
+    void functionParameterTypeSeedsReceiver() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                impl Foo {
+                    pub fn bar(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run(x: Foo) {
+                    x.bar();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1,
+                    find(analyzer, serviceFile, "Foo", member(analyzer, serviceFile, "Foo", "bar"), consumerFile)
+                            .hits()
+                            .size());
+        }
+    }
+
+    @Test
+    void simpleTypeAliasSeedsReceiver() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                impl Foo {
+                    pub fn bar(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                type Alias = Foo;
+
+                fn run(value: Alias) {
+                    value.bar();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1,
+                    find(analyzer, serviceFile, "Foo", member(analyzer, serviceFile, "Foo", "bar"), consumerFile)
+                            .hits()
+                            .size());
+        }
+    }
+
+    @Test
+    void nonConcreteParameterTypesDoNotSeedReceivers() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                pub trait Worker {
+                    fn work(&self);
+                }
+                impl Worker for Foo {
+                    fn work(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Worker;
+
+                fn generic<T: Worker>(x: T) {
+                    x.work();
+                }
+
+                fn opaque(x: impl Worker) {
+                    x.work();
+                }
+
+                fn dynamic(x: &dyn Worker) {
+                    x.work();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertTrue(
+                    find(analyzer, serviceFile, "Worker", member(analyzer, serviceFile, "Worker", "work"), consumerFile)
+                            .hits()
+                            .isEmpty());
+        }
+    }
+
+    @Test
+    void enumVariantsResolveAsAssociatedFields() throws Exception {
+        String service =
+                """
+                pub enum Foo {
+                    Variant,
+                    TupleVariant(usize),
+                    StructVariant { value: usize },
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run() {
+                    let _ = Foo::Variant;
+                    let _ = Foo::TupleVariant(1);
+                    let _ = Foo::StructVariant { value: 1 };
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1,
+                    find(analyzer, serviceFile, "Foo", member(analyzer, serviceFile, "Foo", "Variant"), consumerFile)
+                            .hits()
+                            .size());
+            assertEquals(
+                    1,
+                    find(
+                                    analyzer,
+                                    serviceFile,
+                                    "Foo",
+                                    member(analyzer, serviceFile, "Foo", "TupleVariant"),
+                                    consumerFile)
+                            .hits()
+                            .size());
+            assertEquals(
+                    1,
+                    find(
+                                    analyzer,
+                                    serviceFile,
+                                    "Foo",
+                                    member(analyzer, serviceFile, "Foo", "StructVariant"),
+                                    consumerFile)
+                            .hits()
+                            .size());
+        }
+    }
+
+    @Test
+    void associatedTypeResolvesAsStaticAssociatedField() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                impl Foo {
+                    pub type AssocType = usize;
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run(_: Foo::AssocType) {}
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+            CodeUnit assocType =
+                    CodeUnit.field(serviceFile, "", "Foo.AssocType").withSynthetic(true);
+
+            assertEquals(
+                    1,
+                    find(analyzer, serviceFile, "Foo", assocType, consumerFile)
+                            .hits()
+                            .size());
+        }
+    }
+
+    @Test
+    void boundedGlobImportResolvesKnownLocalExportsOnly() throws Exception {
+        String service = """
+                pub struct Foo;
+                struct Hidden;
+                """;
+        String consumer =
+                """
+                use crate::service::*;
+
+                fn run() {
+                    let _ = Foo {};
+                    let _ = Hidden {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1, find(analyzer, serviceFile, "Foo", consumerFile).hits().size());
+            assertTrue(
+                    find(analyzer, serviceFile, "Hidden", consumerFile).hits().isEmpty());
+        }
+    }
+
+    @Test
+    void boundedGlobReexportResolvesKnownLocalExports() throws Exception {
+        String service = "pub struct Foo;\n";
+        String index = "pub use crate::service::*;\n";
+        String consumer =
+                """
+                use crate::index::Foo;
+
+                fn run() {
+                    let _ = Foo {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(index, "src/index.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1, find(analyzer, serviceFile, "Foo", consumerFile).hits().size());
+        }
+    }
+
+    @Test
+    void unresolvedGlobReexportRecordsExternalFrontier() throws Exception {
+        String index = "pub use external_crate::*;\n";
+
+        try (var project = InlineTestProjectCreator.code(index, "src/index.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile indexFile = projectFile(project.getAllFiles(), "src/index.rs");
+
+            var result = ExportUsageReferenceGraphEngine.findExportUsages(
+                    indexFile,
+                    "Foo",
+                    null,
+                    new RustExportUsageGraphAdapter(analyzer),
+                    ExportUsageReferenceGraphEngine.Limits.defaults(),
+                    Set.of(indexFile));
+
+            assertTrue(result.hits().isEmpty());
+            assertTrue(result.externalFrontierSpecifiers().contains("external_crate"));
+        }
+    }
+
+    @Test
+    void publicModuleDeclarationsAndInlineModulesResolve() throws Exception {
+        String service = "pub struct FileBacked;\n";
+        String lib =
+                """
+                pub mod service;
+                pub mod inline {
+                    pub struct Inline;
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::FileBacked;
+                use crate::inline::Inline;
+
+                fn run() {
+                    let _ = FileBacked {};
+                    let _ = Inline {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(lib, "src/lib.rs")
+                .addFileContents(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile libFile = projectFile(project.getAllFiles(), "src/lib.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1,
+                    find(analyzer, serviceFile, "FileBacked", consumerFile)
+                            .hits()
+                            .size());
+            assertEquals(
+                    1, find(analyzer, libFile, "Inline", consumerFile).hits().size());
+        }
+    }
+
     private static ReferenceGraphResult find(
             RustAnalyzer analyzer, ProjectFile definingFile, String exportName, ProjectFile candidate)
             throws InterruptedException {

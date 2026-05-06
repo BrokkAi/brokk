@@ -652,6 +652,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             ProjectFile importingFile, String moduleSpecifier) {
         String fqn = resolveRustPathToFqn(moduleSpecifier, packageNameOf(importingFile));
         return rustModuleFileForFqn(fqn)
+                .or(() -> inlineRustModuleFileForFqn(fqn))
                 .map(ai.brokk.analyzer.usages.ExportUsageGraphLanguageAdapter.ResolutionOutcome::resolved)
                 .orElseGet(() -> ai.brokk.analyzer.usages.ExportUsageGraphLanguageAdapter.ResolutionOutcome.external(
                         moduleSpecifier));
@@ -790,6 +791,53 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 .map(path -> getProject().getFileByRelPath(path))
                 .flatMap(Optional::stream)
                 .findFirst();
+    }
+
+    private Optional<ProjectFile> inlineRustModuleFileForFqn(String fqn) {
+        for (ProjectFile file : getAnalyzedFiles()) {
+            String packageName = packageNameOf(file);
+            boolean found = withTreeOf(
+                    file,
+                    tree -> {
+                        TSNode root = tree.getRootNode();
+                        if (root == null) {
+                            return false;
+                        }
+                        return withSource(file, source -> hasInlineRustModule(root, source, packageName, fqn), false);
+                    },
+                    false);
+            if (found) {
+                return Optional.of(file);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static boolean hasInlineRustModule(
+            TSNode node, SourceContent source, String packageName, String wantedFqn) {
+        if (nodeType(MOD_ITEM).equals(node.getType())) {
+            TSNode body = node.getChildByFieldName(nodeField(RustNodeField.BODY));
+            TSNode name = node.getChildByFieldName(nodeField(RustNodeField.NAME));
+            if (body != null && name != null) {
+                String localName = source.substringFrom(name).strip();
+                String childPackage = packageName.isBlank() ? localName : packageName + "." + localName;
+                if (childPackage.equals(wantedFqn)) {
+                    return true;
+                }
+                for (TSNode child : body.getNamedChildren()) {
+                    if (hasInlineRustModule(child, source, childPackage, wantedFqn)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            if (hasInlineRustModule(child, source, packageName, wantedFqn)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String normalizedMemberName(CodeUnit codeUnit) {
