@@ -222,18 +222,23 @@ public final class UsageFinder {
             return new FuzzyResult.Success(Map.of());
         }
         Set<CodeUnit> definitions = analyzer.getDefinitions(fqName);
+        log.debug("UsageFinder.findUsages({}) getDefinitions -> {}", fqName, describeCodeUnits(definitions));
         if (definitions.isEmpty()) {
             definitions = analyzer.searchDefinitions(fqName).stream()
                     .filter(codeUnit -> codeUnit.identifier().equals(fqName)
                             || codeUnit.shortName().equals(fqName))
                     .collect(Collectors.toSet());
+            log.debug("UsageFinder.findUsages({}) exact searchDefinitions -> {}", fqName, describeCodeUnits(definitions));
         }
         if (definitions.isEmpty()) {
+            log.debug("UsageFinder.findUsages({}) found no definitions", fqName);
             return new FuzzyResult.Failure(fqName, "No definitions found");
         }
 
         var overloads = List.copyOf(definitions);
+        log.debug("UsageFinder.findUsages({}) querying overloads {}", fqName, describeCodeUnits(overloads));
         var result = queryUsages(overloads, maxFiles, maxUsages).result();
+        log.debug("UsageFinder.findUsages({}) raw result {}", fqName, summarizeResult(result));
 
         return switch (result) {
             case FuzzyResult.Success success ->
@@ -250,6 +255,15 @@ public final class UsageFinder {
 
     public FuzzyResult findUsages(String fqName) throws InterruptedException {
         return findUsages(fqName, DEFAULT_MAX_FILES, DEFAULT_MAX_USAGES);
+    }
+
+    private static String describeCodeUnits(Iterable<CodeUnit> codeUnits) {
+        var descriptions = new java.util.ArrayList<String>();
+        for (CodeUnit codeUnit : codeUnits) {
+            descriptions.add("%s[%s:%s]".formatted(
+                    codeUnit.fqName(), codeUnit.kind(), codeUnit.source().getRelPath()));
+        }
+        return descriptions.toString();
     }
 
     public UsageQueryResult queryUsages(CodeUnit target, int maxFiles, int maxUsages) throws InterruptedException {

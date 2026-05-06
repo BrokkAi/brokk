@@ -55,8 +55,21 @@ public final class RustExportUsageGraphStrategy implements UsageAnalyzer {
         for (String exportName : exportNames) {
             Set<ProjectFile> effectiveCandidateFiles =
                     candidateFiles.isEmpty() ? analyzer.rustUsageCandidateFiles(exportNames, target) : candidateFiles;
+            log.debug(
+                    "Rust graph findUsages target={} exportName={} incomingCandidates={} effectiveCandidates={}",
+                    target.fqName(),
+                    exportName,
+                    candidateFiles.size(),
+                    effectiveCandidateFiles.size());
             ReferenceGraphResult graphResult = ExportUsageReferenceGraphEngine.findExportUsages(
                     target.source(), exportName, target, adapter, effectiveLimits, effectiveCandidateFiles);
+            log.debug(
+                    "Rust graph result target={} exportName={} hits={} frontier={} externalFrontier={}",
+                    target.fqName(),
+                    exportName,
+                    graphResult.hits().size(),
+                    graphResult.frontier().size(),
+                    graphResult.externalFrontierSpecifiers());
             hits.addAll(graphResult.hits().stream()
                     .map(hit -> new UsageHit(
                             hit.file(),

@@ -1104,9 +1104,11 @@ public class SearchTools {
         for (String symbol : symbols) {
             if (symbol.isBlank()) continue;
 
+            logger.debug("scanUsages requested symbol={} includeTests={}", symbol, includeTests);
             var fragment = new ContextFragments.UsageFragment(
                     contextManager, symbol, includeTests, ContextFragments.UsageMode.SAMPLE);
             String text = fragment.text().join();
+            logger.debug("scanUsages symbol={} produced {} chars", symbol, text.length());
             if (!text.isEmpty()) {
                 results.add(text);
             }
