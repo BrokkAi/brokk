@@ -376,6 +376,80 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
     }
 
     @Test
+    void privateInherentAssociatedItemsDoNotResolveAsMemberHits() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                impl Foo {
+                    fn private(&self) {}
+                    const PRIVATE: usize = 1;
+                    type Private = usize;
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run() {
+                    let x: Foo = Foo {};
+                    x.private();
+                    let _ = Foo::PRIVATE;
+                    let _: Foo::Private;
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertTrue(find(analyzer, serviceFile, "Foo", CodeUnit.fn(serviceFile, "", "Foo.private"), consumerFile)
+                    .hits()
+                    .isEmpty());
+            assertTrue(find(analyzer, serviceFile, "Foo", CodeUnit.field(serviceFile, "", "Foo.PRIVATE"), consumerFile)
+                    .hits()
+                    .isEmpty());
+            assertTrue(find(analyzer, serviceFile, "Foo", CodeUnit.field(serviceFile, "", "Foo.Private"), consumerFile)
+                    .hits()
+                    .isEmpty());
+        }
+    }
+
+    @Test
+    void publicAssociatedItemOnPrivateOwnerDoesNotSeedGraph() throws Exception {
+        String service =
+                """
+                struct Foo;
+                impl Foo {
+                    pub fn public(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run(x: Foo) {
+                    x.public();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertFalse(analyzer.exportIndexOf(serviceFile).exportsByName().containsKey("Foo"));
+            assertTrue(find(analyzer, serviceFile, "Foo", CodeUnit.fn(serviceFile, "", "Foo.public"), consumerFile)
+                    .hits()
+                    .isEmpty());
+        }
+    }
+
+    @Test
     void duplicateOwnerNamesAcrossModulesDoNotCrossMatch() throws Exception {
         String service =
                 """
@@ -763,6 +837,103 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
     }
 
     @Test
+    void barrelReexportFromPrivateModuleResolvesSelectedPublicItem() throws Exception {
+        String service = "pub struct Foo;\n";
+        String lib = """
+                mod service;
+                pub use service::Foo;
+                """;
+        String consumer =
+                """
+                use crate::Foo;
+
+                fn run() {
+                    let _ = Foo {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(lib, "src/lib.rs")
+                .addFileContents(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1, find(analyzer, serviceFile, "Foo", consumerFile).hits().size());
+        }
+    }
+
+    @Test
+    void chainedAndGroupedAliasedBarrelReexportsResolve() throws Exception {
+        String service = """
+                pub struct Foo;
+                pub struct Bar;
+                """;
+        String first = """
+                pub use crate::service::{Foo, Bar as PublicBar};
+                """;
+        String second =
+                """
+                pub use crate::first::Foo;
+                pub use crate::first::PublicBar;
+                """;
+        String consumer =
+                """
+                use crate::second::{Foo, PublicBar};
+
+                fn run() {
+                    let _ = Foo {};
+                    let _ = PublicBar {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(first, "src/first.rs")
+                .addFileContents(second, "src/second.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1, find(analyzer, serviceFile, "Foo", consumerFile).hits().size());
+            assertEquals(
+                    1, find(analyzer, serviceFile, "Bar", consumerFile).hits().size());
+        }
+    }
+
+    @Test
+    void privateItemBehindBarrelReexportDoesNotResolve() throws Exception {
+        String service = "struct Hidden;\n";
+        String lib = """
+                mod service;
+                pub use service::Hidden;
+                """;
+        String consumer =
+                """
+                use crate::Hidden;
+
+                fn run() {
+                    let _ = Hidden {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(lib, "src/lib.rs")
+                .addFileContents(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile libFile = projectFile(project.getAllFiles(), "src/lib.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertTrue(find(analyzer, libFile, "Hidden", consumerFile).hits().isEmpty());
+        }
+    }
+
+    @Test
     void unresolvedGlobReexportRecordsExternalFrontier() throws Exception {
         String index = "pub use external_crate::*;\n";
 
@@ -820,6 +991,37 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
                             .size());
             assertEquals(
                     1, find(analyzer, libFile, "Inline", consumerFile).hits().size());
+        }
+    }
+
+    @Test
+    void inlineModuleExportsOnlyPublicContents() throws Exception {
+        String lib =
+                """
+                pub mod service {
+                    pub struct Foo;
+                    struct Hidden;
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::{Foo, Hidden};
+
+                fn run() {
+                    let _ = Foo {};
+                    let _ = Hidden {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(lib, "src/lib.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile libFile = projectFile(project.getAllFiles(), "src/lib.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(1, find(analyzer, libFile, "Foo", consumerFile).hits().size());
+            assertTrue(find(analyzer, libFile, "Hidden", consumerFile).hits().isEmpty());
         }
     }
 

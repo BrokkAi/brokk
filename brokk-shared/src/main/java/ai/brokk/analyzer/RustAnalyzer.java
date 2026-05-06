@@ -729,6 +729,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     public String resolveRustPathToFqn(String rustPath, String currentPackage) {
         String trimmedPath = rustPath.trim();
 
+        if ("crate".equals(trimmedPath)) {
+            return "";
+        }
+
         if (trimmedPath.startsWith("crate::")) {
             return trimmedPath.substring("crate::".length()).replace("::", ".");
         }
