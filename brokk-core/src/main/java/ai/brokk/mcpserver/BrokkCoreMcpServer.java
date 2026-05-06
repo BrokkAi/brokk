@@ -368,7 +368,8 @@ public class BrokkCoreMcpServer {
                                 "patterns",
                                 arrayProp(
                                         "Patterns to match against filenames. Invalid regex falls back to glob matching, so patterns like *.proto work."),
-                                "limit", intProp("Maximum results to return.")),
+                                "limit",
+                                intProp("Maximum results to return.")),
                         List.of("patterns", "limit")),
                 (exchange, request) -> withReadLock(() -> {
                     var patterns = stringListArg(request, "patterns");
