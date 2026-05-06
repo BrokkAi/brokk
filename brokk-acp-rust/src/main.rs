@@ -7,6 +7,7 @@ use clap::Parser;
 mod agent;
 mod bifrost_client;
 mod codex_auth;
+mod codex_client;
 mod llm_client;
 mod session;
 mod tool_loop;
@@ -28,10 +29,18 @@ struct Args {
 
     /// Authenticate against OpenAI using "Sign in with ChatGPT" credentials
     /// stored at `~/.codex/auth.json` (cross-compatible with Codex CLI).
-    /// When set, --endpoint-url and --api-key are overridden by the
-    /// OAuth-issued OPENAI_API_KEY pointed at https://api.openai.com/v1.
-    /// Run `/codex-login` from an ACP session to authenticate if no
-    /// credentials are present yet.
+    ///
+    /// When `auth.json` is in `chatgpt` mode (the default after
+    /// `/codex-login`), prompts are routed to
+    /// `https://chatgpt.com/backend-api/codex/responses` using the
+    /// OAuth `access_token` + `ChatGPT-Account-ID` headers, so usage
+    /// counts against your ChatGPT Plus/Pro/Enterprise subscription.
+    ///
+    /// When `auth.json` is in `apikey` mode, prompts fall back to
+    /// `https://api.openai.com/v1` with the stored `OPENAI_API_KEY`,
+    /// which is billed as standard API usage. Run `/codex-login` from
+    /// an ACP session to authenticate if no credentials are present
+    /// yet.
     #[arg(long, conflicts_with = "api_key")]
     use_codex: bool,
 
@@ -91,39 +100,67 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    // Codex login takes precedence: re-point the LLM at api.openai.com using
-    // the issued OPENAI_API_KEY, and refresh the credentials if they're stale
-    // before any prompts arrive. If no auth.json exists yet we still start --
+    // Codex login takes precedence over the explicit --endpoint-url/--api-key
+    // flags. We branch on the stored `auth_mode`:
+    //   * "chatgpt" -> route through CodexClient (Responses API on
+    //     chatgpt.com, billed against the user's ChatGPT subscription).
+    //   * anything else (typically "apikey") -> fall back to OpenAiClient
+    //     against api.openai.com using the stored OPENAI_API_KEY, which
+    //     is billed as standard API usage.
+    // Refresh stale credentials proactively so the first prompt doesn't
+    // burn a 401 round-trip. If no auth.json exists yet we still start --
     // the user can run `/codex-login` from a session to authenticate.
-    let (endpoint_url, api_key) = if args.use_codex {
+    let llm: Arc<dyn llm_client::LlmBackend> = if args.use_codex {
         match codex_auth::read_auth_dot_json()? {
             Some(mut auth) => {
                 if let Err(e) = codex_auth::refresh_if_stale(&mut auth).await {
                     tracing::warn!("codex credential refresh failed: {e:#}");
                 }
-                let key = auth.openai_api_key.clone();
-                if key.is_none() {
-                    tracing::warn!(
-                        "~/.codex/auth.json has no OPENAI_API_KEY; run /codex-login to authenticate"
+                if matches!(auth.auth_mode.as_deref(), Some("chatgpt")) && auth.tokens.is_some() {
+                    tracing::info!(
+                        "brokk-acp starting in ChatGPT subscription mode (Responses API on chatgpt.com)"
                     );
+                    Arc::new(codex_client::CodexClient::new())
+                } else {
+                    // We land here when auth_mode != "chatgpt" OR
+                    // tokens are missing. Falling back to the API key
+                    // path is the only meaningful thing we can do --
+                    // but if there's no key either, the first prompt
+                    // will 401 and the user needs to re-run login.
+                    let key = auth.openai_api_key.clone();
+                    if key.is_none() {
+                        tracing::warn!(
+                            "~/.codex/auth.json is not usable: not in chatgpt mode AND no OPENAI_API_KEY; \
+                             run /codex-login from a session to authenticate"
+                        );
+                    }
+                    tracing::info!(
+                        "brokk-acp starting in OPENAI_API_KEY mode (api.openai.com), auth_mode={:?}",
+                        auth.auth_mode
+                    );
+                    Arc::new(llm_client::OpenAiClient::new(
+                        "https://api.openai.com/v1".to_string(),
+                        key,
+                    ))
                 }
-                ("https://api.openai.com/v1".to_string(), key)
             }
             None => {
                 tracing::warn!(
                     "no ~/.codex/auth.json found; run /codex-login from a session to authenticate"
                 );
-                ("https://api.openai.com/v1".to_string(), None)
+                Arc::new(llm_client::OpenAiClient::new(
+                    "https://api.openai.com/v1".to_string(),
+                    None,
+                ))
             }
         }
     } else {
-        (args.endpoint_url.clone(), args.api_key.clone())
+        tracing::info!("brokk-acp starting, endpoint={}", args.endpoint_url);
+        Arc::new(llm_client::OpenAiClient::new(
+            args.endpoint_url.clone(),
+            args.api_key.clone(),
+        ))
     };
-
-    tracing::info!("brokk-acp starting, endpoint={endpoint_url}");
-
-    let llm: Arc<dyn llm_client::LlmBackend> =
-        Arc::new(llm_client::OpenAiClient::new(endpoint_url, api_key));
     // SessionStore uses internal Arc -- no outer Arc needed
     let limits = session::SessionLimits {
         max_sessions: args.max_sessions,

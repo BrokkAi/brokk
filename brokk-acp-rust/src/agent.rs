@@ -138,12 +138,17 @@ fn all_config_options(
 /// Slash commands advertised to clients via `available_commands_update`.
 /// Mirrors the Java executor's `/context` command (other Java commands are
 /// intentionally omitted -- they depend on the live workspace context that
-/// the Rust agent does not yet model).
+/// the Rust agent does not yet model). `/codex-login` is published so it
+/// shows up in editor autocomplete (Zed, JetBrains ACP) -- without this
+/// the slash command works when typed but is invisible to discovery.
 fn available_commands() -> Vec<AvailableCommand> {
-    vec![AvailableCommand::new(
-        "context",
-        "Show current session context snapshot",
-    )]
+    vec![
+        AvailableCommand::new("context", "Show current session context snapshot"),
+        AvailableCommand::new(
+            "codex-login",
+            "Sign in with ChatGPT (or `status` / `disconnect`)",
+        ),
+    ]
 }
 
 fn send_available_commands_update(cx: &ConnectionTo<Client>, session_id: &str) {
@@ -955,16 +960,29 @@ async fn handle_codex_login(prompt_text: &str) -> String {
                     .last_refresh
                     .map(|ts| ts.to_rfc3339())
                     .unwrap_or_else(|| "(unknown)".to_string());
+                let routing = match mode {
+                    "chatgpt" => "ChatGPT subscription (Responses API on chatgpt.com)",
+                    "apikey" => "OPENAI_API_KEY (api.openai.com, billed as API usage)",
+                    _ => "unknown",
+                };
+                // ChatGPT-only accounts don't get an OPENAI_API_KEY
+                // because they have no API organization to mint one
+                // against. Surface that explicitly so users don't read
+                // "MISSING" as a broken login.
+                let api_key_label = match (mode, has_key) {
+                    (_, true) => "present",
+                    ("chatgpt", false) => "n/a (ChatGPT-only account; subscription routing does not need one)",
+                    (_, false) => "MISSING",
+                };
                 format!(
-                    "Codex login status:\n  auth_mode: {mode}\n  api_key: {}\n  account_id: {acct}\n  last_refresh: {last}",
-                    if has_key { "present" } else { "MISSING" }
+                    "Codex login status:\n  auth_mode: {mode}\n  routing: {routing}\n  api_key: {api_key_label}\n  account_id: {acct}\n  last_refresh: {last}"
                 )
             }
             Ok(None) => "No Codex credentials found. Run `/codex-login` to authenticate.".to_string(),
             Err(e) => format!("Failed to read ~/.codex/auth.json: {e:#}"),
         },
         "disconnect" => match crate::codex_auth::logout() {
-            Ok(()) => "Codex credentials cleared. Restart the server to drop the cached API key from memory.".to_string(),
+            Ok(()) => "Codex credentials cleared. Restart the server to drop any cached tokens from memory.".to_string(),
             Err(e) => format!("Failed to remove ~/.codex/auth.json: {e:#}"),
         },
         "" => match crate::codex_auth::interactive_login().await {
@@ -975,7 +993,9 @@ async fn handle_codex_login(prompt_text: &str) -> String {
                     .map(|t| t.account_id.as_str())
                     .unwrap_or("(unknown)");
                 format!(
-                    "Codex login complete (account_id: {acct}). Restart the server with --use-codex to route prompts through the issued OPENAI_API_KEY."
+                    "Codex login complete (account_id: {acct}). \
+                     Restart the server with --use-codex; prompts will route through your \
+                     ChatGPT subscription via https://chatgpt.com/backend-api/codex/responses."
                 )
             }
             Err(e) => format!("Codex login failed: {e:#}"),
