@@ -34,7 +34,7 @@ public final class UsageRenderer {
 
         CodeUnit target = overloads.getFirst();
         var hits = either.getUsages().stream()
-                .filter(hit -> !hit.enclosing().equals(target))
+                .filter(hit -> isExternalUsage(analyzer, target, hit))
                 .sorted(Comparator.comparing((UsageHit hit) -> hit.enclosing().fqName())
                         .thenComparing(hit -> hit.file().toString())
                         .thenComparingInt(UsageHit::line))
@@ -67,6 +67,15 @@ public final class UsageRenderer {
                 .trim();
 
         return new Output(text, files, true, hits.size());
+    }
+
+    private static boolean isExternalUsage(IAnalyzer analyzer, CodeUnit target, UsageHit hit) {
+        var definingOwner = analyzer.parentOf(target);
+        if (definingOwner.filter(CodeUnit::isClass).isPresent()) {
+            var hitOwner = analyzer.parentOf(hit.enclosing()).orElse(hit.enclosing());
+            return !hitOwner.equals(definingOwner.orElseThrow());
+        }
+        return !hit.enclosing().equals(target);
     }
 
     private static String displayPath(ProjectFile file) {
