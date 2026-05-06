@@ -4,6 +4,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.project.ICoreProject;
 import java.util.List;
 import java.util.Set;
@@ -25,6 +26,16 @@ public final class UsageAnalyzerSelector {
                 return graph;
             }
         }
+        if (language.contains(Languages.PYTHON)) {
+            var python = analyzer.subAnalyzer(Languages.PYTHON)
+                    .filter(PythonAnalyzer.class::isInstance)
+                    .map(PythonAnalyzer.class::cast)
+                    .orElseGet(() -> new PythonAnalyzer(project));
+            var graph = new PythonExportUsageGraphStrategy(python);
+            if (graph.canHandle(target)) {
+                return graph;
+            }
+        }
         return new RegexUsageAnalyzer(analyzer);
     }
 
@@ -39,6 +50,9 @@ public final class UsageAnalyzerSelector {
     }
 
     public static boolean shouldFallbackToRegex(FuzzyResult result, UsageAnalyzer usageAnalyzer) {
+        if (usageAnalyzer instanceof PythonExportUsageGraphStrategy) {
+            return result instanceof FuzzyResult.Failure;
+        }
         if (!(usageAnalyzer instanceof JsTsExportUsageGraphStrategy)) {
             return false;
         }

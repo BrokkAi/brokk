@@ -5,8 +5,17 @@ import static org.treesitter.PythonNodeType.*;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cache.PythonAnalyzerCache;
 import ai.brokk.analyzer.python.CognitiveComplexityAnalysis;
+import ai.brokk.analyzer.python.PythonExportUsageExtractor;
+import ai.brokk.analyzer.usages.ExportIndex;
+import ai.brokk.analyzer.usages.ExportResolutionData;
+import ai.brokk.analyzer.usages.ExportUsageGraphLanguageAdapter;
+import ai.brokk.analyzer.usages.ImportBinder;
+import ai.brokk.analyzer.usages.ReferenceCandidate;
+import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import ai.brokk.project.ICoreProject;
+import ai.brokk.util.PathNormalizer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -24,11 +33,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.PythonNodeField;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
@@ -38,6 +49,18 @@ import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
+    public record MemberKey(String ownerClassName, String memberName) {}
+
+    public record ExportResolutionKey(ProjectFile file, String exportName, int maxReexportDepth) {}
+
+    private sealed interface PythonBindingEvent permits ImportBindingEvent, LocalBindingEvent {
+        int startByte();
+    }
+
+    private record ImportBindingEvent(int startByte, String localName, ImportBinder.ImportBinding binding)
+            implements PythonBindingEvent {}
+
+    private record LocalBindingEvent(int startByte, String localName) implements PythonBindingEvent {}
 
     @Override
     public boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
@@ -555,8 +578,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             return List.of();
         }
         var out = new ArrayList<TSNode>();
-        for (int i = 0; i < args.getNamedChildCount(); i++) {
-            TSNode child = args.getNamedChild(i);
+        for (TSNode child : args.getNamedChildren()) {
             if (child != null) {
                 out.add(child);
             }
@@ -603,8 +625,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     private static @Nullable TSNode firstNamedChild(TSNode node) {
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child != null) {
                 return child;
             }
@@ -613,8 +634,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     private static @Nullable TSNode firstNamedChildOfType(TSNode node, String type) {
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+        for (TSNode child : node.getNamedChildren()) {
             if (child != null && type.equals(child.getType())) {
                 return child;
             }
@@ -648,8 +668,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     private Optional<ExceptionHandlingSmell> analyzeExceptClause(
             ProjectFile file, TSNode exceptClause, SourceContent sourceContent, ExceptionSmellWeights weights) {
         TSNode bodyNode = null;
-        for (int i = 0; i < exceptClause.getNamedChildCount(); i++) {
-            TSNode child = exceptClause.getNamedChild(i);
+        for (TSNode child : exceptClause.getNamedChildren()) {
             if (child == null) {
                 continue;
             }
@@ -720,8 +739,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     private static int countBodyExpressions(TSNode bodyNode) {
         int expressions = 0;
-        for (int i = 0; i < bodyNode.getNamedChildCount(); i++) {
-            TSNode child = bodyNode.getNamedChild(i);
+        for (TSNode child : bodyNode.getNamedChildren()) {
             if (child == null) {
                 continue;
             }
@@ -958,8 +976,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                     }
                                 }
 
-                                for (int i = 0; i < node.getNamedChildCount(); i++) {
-                                    TSNode child = node.getNamedChild(i);
+                                for (TSNode child : node.getNamedChildren()) {
                                     if (child != null) {
                                         stack.push(child);
                                     }
@@ -1017,12 +1034,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     public PythonAnalyzer(ICoreProject project, ProgressListener listener) {
-        super(project, Languages.PYTHON, listener);
+        super(project, Languages.PYTHON, listener, new PythonAnalyzerCache());
     }
 
     private PythonAnalyzer(
             ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
-        super(project, Languages.PYTHON, state, listener, cache);
+        super(project, Languages.PYTHON, state, listener, cache != null ? cache : new PythonAnalyzerCache());
     }
 
     public static PythonAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
@@ -1033,6 +1050,18 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     protected IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
         return new PythonAnalyzer(getProject(), state, listener, previousCache);
+    }
+
+    @Override
+    protected AnalyzerCache createEmptyCache() {
+        return new PythonAnalyzerCache();
+    }
+
+    @Override
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return previous instanceof PythonAnalyzerCache pythonCache
+                ? new PythonAnalyzerCache(pythonCache, changedFiles)
+                : new PythonAnalyzerCache();
     }
 
     @Override
@@ -1671,81 +1700,59 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, @Nullable TSNode classNode, String signature, SourceContent sourceContent) {
         if (classNode == null) return List.of();
-        // Extract superclass names from Python class definition
-        // Pattern: class Child(Parent1, Parent2): ...
-        return withCachedQuery(
-                QueryType.DEFINITIONS,
-                query -> {
-                    // Use the actual definition node for range matching.
-                    // If classNode is a decorated_definition, we must find the inner class_definition node
-                    // to match the 'type.decl' capture in python.scm.
-                    TSNode matchNode = classNode;
-                    if (nodeType(DECORATED_DEFINITION).equals(classNode.getType())) {
-                        for (TSNode child : classNode.getNamedChildren()) {
-                            if (nodeType(CLASS_DEFINITION).equals(child.getType())) {
-                                matchNode = child;
-                                break;
-                            }
-                        }
-                    }
+        TSNode definitionNode = classDefinitionNode(classNode);
+        if (definitionNode == null) {
+            return List.of();
+        }
+        TSNode superclasses = definitionNode.getChildByFieldName(nodeField(PythonNodeField.SUPERCLASSES));
+        if (superclasses == null) {
+            return List.of();
+        }
 
-                    // Ascend to root node for matching
-                    TSNode root = classNode;
-                    TSNode parent = root.getParent();
-                    while (parent != null) {
-                        root = parent;
-                        parent = root.getParent();
-                    }
+        var supers = new LinkedHashSet<String>();
+        for (TSNode child : superclasses.getNamedChildren()) {
+            if (child == null || !isSuperclassExpression(child)) {
+                continue;
+            }
+            String text = sourceContent.substringFrom(child).strip();
+            if (!text.isEmpty()) {
+                supers.add(text);
+            }
+        }
+        return List.copyOf(supers);
+    }
 
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        List<TSNode> aggregateSuperNodes = new ArrayList<>();
-                        cursor.exec(query, root, sourceContent.text());
+    private static @Nullable TSNode classDefinitionNode(TSNode node) {
+        TSNode current = node;
+        while (current != null
+                && !nodeType(CLASS_DEFINITION).equals(current.getType())
+                && !nodeType(DECORATED_DEFINITION).equals(current.getType())) {
+            current = current.getParent();
+        }
+        if (current == null) {
+            return null;
+        }
+        if (nodeType(CLASS_DEFINITION).equals(current.getType())) {
+            return current;
+        }
+        TSNode definition = current.getChildByFieldName(nodeField(PythonNodeField.DEFINITION));
+        if (definition != null && nodeType(CLASS_DEFINITION).equals(definition.getType())) {
+            return definition;
+        }
+        for (TSNode child : current.getNamedChildren()) {
+            if (child != null && nodeType(CLASS_DEFINITION).equals(child.getType())) {
+                return child;
+            }
+        }
+        return null;
+    }
 
-                        var match = new TSQueryMatch();
-                        final TSNode finalMatchNode = matchNode;
-                        final int targetStart = finalMatchNode.getStartByte();
-                        final int targetEnd = finalMatchNode.getEndByte();
-
-                        while (cursor.nextMatch(match)) {
-                            TSNode declNode = null;
-                            List<TSNode> superCapturesThisMatch = new ArrayList<>();
-
-                            for (var cap : match.getCaptures()) {
-                                var capName = query.getCaptureNameForId(cap.getIndex());
-                                var n = cap.getNode();
-                                if (n == null) continue;
-
-                                if ("type.decl".equals(capName)) {
-                                    declNode = n;
-                                } else if ("type.super".equals(capName)) {
-                                    superCapturesThisMatch.add(n);
-                                }
-                            }
-
-                            if (declNode != null
-                                    && declNode.getStartByte() == targetStart
-                                    && declNode.getEndByte() == targetEnd) {
-                                aggregateSuperNodes.addAll(superCapturesThisMatch);
-                            }
-                        }
-
-                        // Sort by position to preserve source order
-                        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
-
-                        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
-                        for (var s : aggregateSuperNodes) {
-                            var text = sourceContent.substringFrom(s).strip();
-                            if (!text.isEmpty()) {
-                                supers.add(text);
-                            }
-                        }
-
-                        // Deduplicate while preserving order
-                        var unique = new LinkedHashSet<>(supers);
-                        return List.copyOf(unique);
-                    }
-                },
-                List.of());
+    private static boolean isSuperclassExpression(TSNode node) {
+        String type = node.getType();
+        return nodeType(IDENTIFIER).equals(type)
+                || nodeType(ATTRIBUTE).equals(type)
+                || nodeType(SUBSCRIPT).equals(type)
+                || nodeType(GENERIC_TYPE).equals(type);
     }
 
     /**
@@ -1822,6 +1829,25 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         }
 
         return null;
+    }
+
+    public ExportUsageGraphLanguageAdapter.ResolutionOutcome resolvePythonModuleOutcome(
+            ProjectFile importingFile, String moduleSpecifier) {
+        String absoluteSpecifier = moduleSpecifier;
+        if (moduleSpecifier.startsWith(".")) {
+            var resolvedRelative = resolveRelativeImport(importingFile, moduleSpecifier);
+            if (resolvedRelative.isEmpty()) {
+                return ExportUsageGraphLanguageAdapter.ResolutionOutcome.empty();
+            }
+            absoluteSpecifier = resolvedRelative.orElseThrow();
+        }
+        ProjectFile resolved = resolveModuleFile(absoluteSpecifier);
+        if (resolved != null) {
+            return ExportUsageGraphLanguageAdapter.ResolutionOutcome.resolved(resolved);
+        }
+        return moduleSpecifier.startsWith(".")
+                ? ExportUsageGraphLanguageAdapter.ResolutionOutcome.empty()
+                : ExportUsageGraphLanguageAdapter.ResolutionOutcome.external(moduleSpecifier);
     }
 
     /**
@@ -1910,12 +1936,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                             // from X import Y
                                             var moduleFile = resolveModuleFile(currentModule);
                                             if (moduleFile != null) {
-                                                var decls = getDeclarations(moduleFile);
-                                                decls.stream()
-                                                        .filter(cu ->
-                                                                cu.identifier().equals(text)
-                                                                        && (cu.isClass() || cu.isFunction()))
-                                                        .findFirst()
+                                                resolveImportNameFromModule(moduleFile, text)
                                                         .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                                             }
                                         } else if (wildcardModule == null) {
@@ -1938,6 +1959,24 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         }
 
         return Collections.unmodifiableSet(new LinkedHashSet<>(resolvedByName.values()));
+    }
+
+    private Optional<CodeUnit> resolveImportNameFromModule(ProjectFile moduleFile, String name) {
+        Optional<CodeUnit> resolvedByDefinition = getDefinitions(name).stream()
+                .filter(cu -> isTopLevelImportableDeclaration(cu, moduleFile, name))
+                .findFirst();
+        if (resolvedByDefinition.isPresent()) {
+            return resolvedByDefinition;
+        }
+
+        return Optional.ofNullable(topLevelImportables(moduleFile).get(name));
+    }
+
+    private static boolean isTopLevelImportableDeclaration(CodeUnit cu, ProjectFile moduleFile, String name) {
+        return cu.source().equals(moduleFile)
+                && cu.identifier().equals(name)
+                && (cu.isClass() || cu.isFunction())
+                && ownerNameOf(cu).isEmpty();
     }
 
     @Override
@@ -1992,6 +2031,334 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
         return performImportedCodeUnitsOf(file);
+    }
+
+    public ExportIndex exportIndexOf(ProjectFile file) {
+        ExportIndex cached = cache().exportIndex().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        ExportIndex computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return ExportIndex.empty();
+                    }
+                    return withSource(
+                            file,
+                            source -> PythonExportUsageExtractor.computeExportIndex(
+                                    this, file, root, source, importBinderOf(file), pythonReexportStarsOf(file)),
+                            ExportIndex.empty());
+                },
+                ExportIndex.empty());
+        cache().exportIndex().put(file, computed);
+        return computed;
+    }
+
+    public ImportBinder importBinderOf(ProjectFile file) {
+        ImportBinder cached = cache().importBinder().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        var events = new ArrayList<PythonBindingEvent>();
+        events.addAll(pythonImportBindingEventsOf(file));
+        events.addAll(getTopLevelDeclarations(file).stream()
+                .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
+                .map(cu -> new LocalBindingEvent(primaryStartByte(cu), cu.identifier()))
+                .toList());
+        events.sort(Comparator.comparingInt(PythonBindingEvent::startByte));
+        var bindings = new LinkedHashMap<String, ImportBinder.ImportBinding>();
+        for (PythonBindingEvent event : events) {
+            if (event instanceof ImportBindingEvent importEvent) {
+                bindings.put(importEvent.localName(), importEvent.binding());
+            } else if (event instanceof LocalBindingEvent localEvent) {
+                bindings.remove(localEvent.localName());
+            }
+        }
+        ImportBinder computed = new ImportBinder(Map.copyOf(bindings));
+        cache().importBinder().put(file, computed);
+        return computed;
+    }
+
+    private List<ImportBindingEvent> pythonImportBindingEventsOf(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.<ImportBindingEvent>of();
+                    }
+                    return withSource(
+                            file,
+                            source -> withCachedQuery(
+                                    QueryType.IMPORTS,
+                                    query -> {
+                                        var events = new ArrayList<ImportBindingEvent>();
+                                        try (var cursor = new TSQueryCursor()) {
+                                            cursor.exec(query, root, source.text());
+                                            var match = new TSQueryMatch();
+                                            while (cursor.nextMatch(match)) {
+                                                events.addAll(bindPythonImportMatch(query, match, source));
+                                            }
+                                        }
+                                        return List.copyOf(events);
+                                    },
+                                    List.<ImportBindingEvent>of()),
+                            List.<ImportBindingEvent>of());
+                },
+                List.<ImportBindingEvent>of());
+    }
+
+    private List<ExportIndex.ReexportStar> pythonReexportStarsOf(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.of();
+                    }
+                    return withSource(
+                            file,
+                            source -> withCachedQuery(
+                                    QueryType.IMPORTS,
+                                    query -> {
+                                        var stars = new ArrayList<ExportIndex.ReexportStar>();
+                                        try (var cursor = new TSQueryCursor()) {
+                                            cursor.exec(query, root, source.text());
+                                            var match = new TSQueryMatch();
+                                            while (cursor.nextMatch(match)) {
+                                                pythonWildcardModule(query, match, source)
+                                                        .ifPresent(module ->
+                                                                stars.add(new ExportIndex.ReexportStar(module)));
+                                            }
+                                        }
+                                        return List.copyOf(stars);
+                                    },
+                                    List.of()),
+                            List.of());
+                },
+                List.of());
+    }
+
+    private static List<ImportBindingEvent> bindPythonImportMatch(
+            TSQuery query, TSQueryMatch match, SourceContent source) {
+        if (pythonWildcardModule(query, match, source).isPresent()) {
+            return List.of();
+        }
+
+        String moduleSpecifier = null;
+        String importedName = null;
+        String alias = null;
+        int startByte = Integer.MAX_VALUE;
+        for (var cap : match.getCaptures()) {
+            var node = cap.getNode();
+            if (node == null) {
+                continue;
+            }
+            startByte = Math.min(startByte, node.getStartByte());
+            String capName = query.getCaptureNameForId(cap.getIndex());
+            String text = source.substringFrom(node).strip();
+            switch (capName) {
+                case IMPORT_MODULE_CAPTURE, IMPORT_RELATIVE_CAPTURE -> moduleSpecifier = text;
+                case IMPORT_NAME_CAPTURE -> importedName = text;
+                case IMPORT_ALIAS_CAPTURE -> alias = text;
+                default -> {}
+            }
+        }
+
+        if (importedName == null || importedName.isBlank()) {
+            return List.of();
+        }
+
+        if (moduleSpecifier != null && !moduleSpecifier.isBlank()) {
+            String localName = alias != null && !alias.isBlank() ? alias : importedName;
+            return List.of(new ImportBindingEvent(
+                    startByte,
+                    localName,
+                    new ImportBinder.ImportBinding(moduleSpecifier, ImportBinder.ImportKind.NAMED, importedName)));
+        }
+
+        String localName = alias != null && !alias.isBlank() ? alias : firstModuleSegment(importedName);
+        var binding = new ImportBinder.ImportBinding(importedName, ImportBinder.ImportKind.NAMESPACE, null);
+        var events = new ArrayList<ImportBindingEvent>();
+        events.add(new ImportBindingEvent(startByte, localName, binding));
+        if (!localName.equals(importedName)) {
+            events.add(new ImportBindingEvent(startByte, importedName, binding));
+        }
+        return List.copyOf(events);
+    }
+
+    private static Optional<String> pythonWildcardModule(TSQuery query, TSQueryMatch match, SourceContent source) {
+        String moduleSpecifier = null;
+        boolean wildcard = false;
+        for (var cap : match.getCaptures()) {
+            var node = cap.getNode();
+            if (node == null) {
+                continue;
+            }
+            String capName = query.getCaptureNameForId(cap.getIndex());
+            if (IMPORT_MODULE_WILDCARD_CAPTURE.equals(capName) || IMPORT_RELATIVE_WILDCARD_CAPTURE.equals(capName)) {
+                moduleSpecifier = source.substringFrom(node).strip();
+            }
+            if (IMPORT_WILDCARD_CAPTURE.equals(capName)) {
+                wildcard = true;
+            }
+        }
+        return wildcard && moduleSpecifier != null && !moduleSpecifier.isBlank()
+                ? Optional.of(moduleSpecifier)
+                : Optional.empty();
+    }
+
+    private static String firstModuleSegment(String moduleSpecifier) {
+        int dot = moduleSpecifier.indexOf('.');
+        return dot >= 0 ? moduleSpecifier.substring(0, dot) : moduleSpecifier;
+    }
+
+    public Set<ReferenceCandidate> exportUsageCandidatesOf(ProjectFile file) {
+        Set<ReferenceCandidate> cached = cache().references().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        Set<ReferenceCandidate> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Set.<ReferenceCandidate>of();
+                    }
+                    return withSource(
+                            file,
+                            source -> PythonExportUsageExtractor.computeUsageCandidates(
+                                    file,
+                                    root,
+                                    source,
+                                    importBinderOf(file),
+                                    getTopLevelDeclarations(file).stream()
+                                            .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
+                                            .map(CodeUnit::identifier)
+                                            .collect(Collectors.toSet())),
+                            Set.<ReferenceCandidate>of());
+                },
+                Set.<ReferenceCandidate>of());
+        cache().references().put(file, computed);
+        return computed;
+    }
+
+    public Set<ResolvedReceiverCandidate> resolvedReceiverCandidatesOf(ProjectFile file, ImportBinder binder) {
+        Set<ResolvedReceiverCandidate> cached = cache().receiverCandidates().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        Set<ResolvedReceiverCandidate> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Set.<ResolvedReceiverCandidate>of();
+                    }
+                    return withSource(
+                            file,
+                            source -> PythonExportUsageExtractor.computeResolvedReceiverCandidates(
+                                    this, file, root, source, binder),
+                            Set.<ResolvedReceiverCandidate>of());
+                },
+                Set.<ResolvedReceiverCandidate>of());
+        cache().receiverCandidates().put(file, computed);
+        return computed;
+    }
+
+    public Map<String, Set<String>> heritageIndex() {
+        Map<String, Set<String>> cached = cache().heritageIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = getAllDeclarations().stream()
+                .filter(CodeUnit::isClass)
+                .collect(Collectors.toUnmodifiableMap(
+                        this::qualifiedClassKey,
+                        cu -> getDirectAncestors(cu).stream()
+                                .filter(CodeUnit::isClass)
+                                .map(this::qualifiedClassKey)
+                                .collect(Collectors.toUnmodifiableSet()),
+                        (left, right) -> {
+                            var merged = new LinkedHashSet<String>(left);
+                            merged.addAll(right);
+                            return Set.copyOf(merged);
+                        }));
+        cache().heritageIndex(computed);
+        return computed;
+    }
+
+    public Set<CodeUnit> definitionsByIdentifier(String identifier) {
+        Map<String, Set<CodeUnit>> cached = pythonCache().definitionsByIdentifierIndex();
+        if (cached != null) {
+            return cached.getOrDefault(identifier, Set.of());
+        }
+        var computed = getAllDeclarations().stream()
+                .collect(Collectors.groupingBy(
+                        CodeUnit::identifier, Collectors.collectingAndThen(Collectors.toSet(), Set::copyOf)));
+        pythonCache().definitionsByIdentifierIndex(Map.copyOf(computed));
+        return computed.getOrDefault(identifier, Set.of());
+    }
+
+    public @Nullable CodeUnit exactMember(ProjectFile sourceFile, MemberKey memberKey) {
+        return pythonCache()
+                .exactMembersByFileCache()
+                .get(sourceFile, file -> getDeclarations(file).stream()
+                        .filter(cu -> cu.isFunction() || cu.isField())
+                        .filter(cu -> !ownerNameOf(cu).isEmpty())
+                        .collect(Collectors.toUnmodifiableMap(
+                                cu -> new MemberKey(ownerNameOf(cu), cu.identifier()),
+                                cu -> cu,
+                                (left, right) -> left)))
+                .get(memberKey);
+    }
+
+    public ExportResolutionData cachedExportResolution(
+            ProjectFile definingFile,
+            String exportName,
+            int maxReexportDepth,
+            Supplier<ExportResolutionData> supplier) {
+        return pythonCache()
+                .exportResolutionCache()
+                .get(new ExportResolutionKey(definingFile, exportName, maxReexportDepth), ignored -> supplier.get());
+    }
+
+    private Map<String, CodeUnit> topLevelImportables(ProjectFile sourceFile) {
+        return pythonCache().topLevelImportablesByFileCache().get(sourceFile, file -> getDeclarations(file).stream()
+                .filter(cu -> isTopLevelImportableDeclaration(cu, file, cu.identifier()))
+                .collect(Collectors.toUnmodifiableMap(CodeUnit::identifier, cu -> cu, (left, right) -> left)));
+    }
+
+    private String qualifiedClassKey(CodeUnit codeUnit) {
+        return pythonCache()
+                .classKeyByCodeUnitCache()
+                .get(
+                        codeUnit,
+                        cu -> PathNormalizer.canonicalizeForProject(
+                                        cu.source().getRelPath().toString(),
+                                        cu.source().getRoot())
+                                + ":"
+                                + cu.identifier());
+    }
+
+    private int primaryStartByte(CodeUnit codeUnit) {
+        return rangesOf(codeUnit).stream().mapToInt(Range::startByte).min().orElse(Integer.MAX_VALUE);
+    }
+
+    private PythonAnalyzerCache pythonCache() {
+        assert cache() instanceof PythonAnalyzerCache;
+        return (PythonAnalyzerCache) cache();
+    }
+
+    private static String ownerNameOf(CodeUnit codeUnit) {
+        String shortName = codeUnit.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return "";
+        }
+        return shortName.substring(0, lastDot);
     }
 
     @Override

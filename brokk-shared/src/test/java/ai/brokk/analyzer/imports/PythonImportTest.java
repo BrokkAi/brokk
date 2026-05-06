@@ -114,6 +114,49 @@ public class PythonImportTest {
     }
 
     @Test
+    public void testNamedImportResolvesTopLevelDeclarationInTargetModule() throws IOException {
+        var builder = InlineCoreProject.code("# Package marker\n", "pkg/__init__.py")
+                .addFile(
+                        """
+                        class Container:
+                            def Target(self):
+                                pass
+
+                        class Target:
+                            pass
+
+                        class Unrelated:
+                            pass
+                        """,
+                        "pkg/module.py");
+
+        try (var testProject = builder.addFile(
+                        """
+                        from pkg.module import Target
+
+                        class Consumer:
+                            pass
+                        """,
+                        "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var targetImports = resolvedImports.stream()
+                    .filter(cu -> cu.identifier().equals("Target"))
+                    .collect(Collectors.toList());
+
+            assertEquals(1, targetImports.size(), "Should resolve exactly one Target import");
+            assertEquals(
+                    "pkg.module.Target",
+                    targetImports.getFirst().fqName(),
+                    "Named import should resolve the top-level declaration from the imported module");
+        }
+    }
+
+    @Test
     public void testLastWildcardWins() throws IOException {
         // In Python: second wildcard shadows the first when both provide the same name
         var builder = InlineCoreProject.code("# Package marker\n", "pkg1/__init__.py")

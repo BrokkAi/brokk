@@ -25,15 +25,15 @@ public final class JsTsExportUsageGraphStrategy implements UsageAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(JsTsExportUsageGraphStrategy.class);
 
     private final IAnalyzer analyzer;
-    private final JsTsExportUsageReferenceGraph.Limits limits;
+    private final ExportUsageReferenceGraphEngine.Limits limits;
 
     public JsTsExportUsageGraphStrategy(IAnalyzer analyzer) {
-        this(analyzer, JsTsExportUsageReferenceGraph.Limits.defaults());
+        this(analyzer, ExportUsageReferenceGraphEngine.Limits.defaults());
     }
 
-    public JsTsExportUsageGraphStrategy(IAnalyzer analyzer, @Nullable JsTsExportUsageReferenceGraph.Limits limits) {
+    public JsTsExportUsageGraphStrategy(IAnalyzer analyzer, @Nullable ExportUsageReferenceGraphEngine.Limits limits) {
         this.analyzer = analyzer;
-        this.limits = limits != null ? limits : JsTsExportUsageReferenceGraph.Limits.defaults();
+        this.limits = limits != null ? limits : ExportUsageReferenceGraphEngine.Limits.defaults();
     }
 
     public boolean canHandle(CodeUnit target) {
@@ -71,8 +71,13 @@ public final class JsTsExportUsageGraphStrategy implements UsageAnalyzer {
 
         Set<UsageHit> hits = new LinkedHashSet<>();
         for (QuerySeed querySeed : querySeeds) {
-            ReferenceGraphResult graphResult = JsTsExportUsageReferenceGraph.findExportUsages(
-                    querySeed.definingFile(), querySeed.exportName(), target, analyzer, limits, candidateFiles);
+            ReferenceGraphResult graphResult = ExportUsageReferenceGraphEngine.findExportUsages(
+                    querySeed.definingFile(),
+                    querySeed.exportName(),
+                    target,
+                    new JsTsExportUsageGraphAdapter(jsTs),
+                    limits,
+                    candidateFiles);
 
             hits.addAll(graphResult.hits().stream()
                     .map(hit -> {

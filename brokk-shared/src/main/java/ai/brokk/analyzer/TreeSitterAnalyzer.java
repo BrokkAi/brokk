@@ -460,14 +460,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     List.copyOf(ranges));
         }
 
+        private static final CodeUnitProperties EMPTY = new CodeUnitProperties(
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                false,
+                false);
+
         public static CodeUnitProperties empty() {
-            return new CodeUnitProperties(
-                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
-                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
-                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
-                    false,
-                    false,
-                    Map.of());
+            return EMPTY;
         }
     }
 
