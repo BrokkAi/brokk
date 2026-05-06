@@ -76,7 +76,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     public record RustUsageFacts(
             Set<ReferenceCandidate> referenceCandidates,
             Set<ResolvedReceiverCandidate> receiverCandidates,
-            Set<String> candidateTokens) {}
+            Set<String> candidateTokens) {
+        private static final RustUsageFacts EMPTY = new RustUsageFacts(Set.of(), Set.of(), Set.of());
+
+        public static RustUsageFacts empty() {
+            return EMPTY;
+        }
+    }
 
     public record RustUsageCandidateIndex(Map<String, Set<ProjectFile>> filesByToken) {}
 
@@ -617,15 +623,15 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 tree -> {
                     TSNode root = tree.getRootNode();
                     if (root == null) {
-                        return new RustUsageFacts(Set.of(), Set.of(), Set.of());
+                        return RustUsageFacts.empty();
                     }
                     return withSource(
                             file,
                             source -> RustExportUsageExtractor.computeUsageFacts(
                                     this, file, root, source, binder, localExportNames, localTopLevelFunctionNames),
-                            new RustUsageFacts(Set.of(), Set.of(), Set.of()));
+                            RustUsageFacts.empty());
                 },
-                new RustUsageFacts(Set.of(), Set.of(), Set.of()));
+                RustUsageFacts.empty());
         rustCache().usageFactsByFileCache().put(file, computed);
         return computed;
     }
