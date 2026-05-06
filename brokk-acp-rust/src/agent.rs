@@ -965,9 +965,17 @@ async fn handle_codex_login(prompt_text: &str) -> String {
                     "apikey" => "OPENAI_API_KEY (api.openai.com, billed as API usage)",
                     _ => "unknown",
                 };
+                // ChatGPT-only accounts don't get an OPENAI_API_KEY
+                // because they have no API organization to mint one
+                // against. Surface that explicitly so users don't read
+                // "MISSING" as a broken login.
+                let api_key_label = match (mode, has_key) {
+                    (_, true) => "present",
+                    ("chatgpt", false) => "n/a (ChatGPT-only account; subscription routing does not need one)",
+                    (_, false) => "MISSING",
+                };
                 format!(
-                    "Codex login status:\n  auth_mode: {mode}\n  routing: {routing}\n  api_key: {}\n  account_id: {acct}\n  last_refresh: {last}",
-                    if has_key { "present" } else { "MISSING" }
+                    "Codex login status:\n  auth_mode: {mode}\n  routing: {routing}\n  api_key: {api_key_label}\n  account_id: {acct}\n  last_refresh: {last}"
                 )
             }
             Ok(None) => "No Codex credentials found. Run `/codex-login` to authenticate.".to_string(),

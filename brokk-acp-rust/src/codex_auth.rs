@@ -302,12 +302,28 @@ pub async fn interactive_login() -> Result<AuthDotJson> {
         .clone()
         .ok_or_else(|| anyhow!("OAuth response missing refresh_token"))?;
 
-    let api_key = token_exchange_id_token(&http, TOKEN_URL, CLIENT_ID, &id_token).await?;
+    // Token-exchange (RFC 8693 id_token -> sk-...) is best-effort: a
+    // ChatGPT-subscription user with no associated API organization
+    // gets `Invalid ID token: missing organization_id` here, which is
+    // expected -- they don't *have* an API key to derive. Codex CLI's
+    // own `obtain_api_key(...).await.ok()` does the same thing.
+    // Subscription routing only needs the access_token + account_id we
+    // already have; the API key is stored only as a convenience for
+    // users who later run `codex` itself in apikey mode.
+    let api_key = match token_exchange_id_token(&http, TOKEN_URL, CLIENT_ID, &id_token).await {
+        Ok(key) => Some(key),
+        Err(e) => {
+            tracing::info!(
+                "skipping API key derivation (typical for ChatGPT-only accounts): {e:#}"
+            );
+            None
+        }
+    };
     let account_id = extract_chatgpt_account_id(&token.access_token)?;
 
     let auth = AuthDotJson {
         auth_mode: Some("chatgpt".to_string()),
-        openai_api_key: Some(api_key),
+        openai_api_key: api_key,
         tokens: Some(TokenData {
             id_token,
             access_token: token.access_token,
@@ -346,12 +362,23 @@ pub async fn refresh_if_stale(auth: &mut AuthDotJson) -> Result<bool> {
         .clone()
         .unwrap_or_else(|| tokens.refresh_token.clone());
 
-    let api_key = token_exchange_id_token(&http, TOKEN_URL, CLIENT_ID, &id_token).await?;
+    // Same best-effort posture as `interactive_login`: refresh stays
+    // successful even if the user's account can't mint an OPENAI_API_KEY.
+    let api_key = match token_exchange_id_token(&http, TOKEN_URL, CLIENT_ID, &id_token).await {
+        Ok(key) => Some(key),
+        Err(e) => {
+            tracing::debug!("token-exchange skipped during refresh: {e:#}");
+            // Preserve any previously-stored key rather than wiping
+            // it -- a transient failure shouldn't drop an apikey-mode
+            // user's working credentials.
+            auth.openai_api_key.clone()
+        }
+    };
     let account_id = extract_chatgpt_account_id(&refreshed.access_token)?;
 
     *auth = AuthDotJson {
         auth_mode: Some("chatgpt".to_string()),
-        openai_api_key: Some(api_key),
+        openai_api_key: api_key,
         tokens: Some(TokenData {
             id_token,
             access_token: refreshed.access_token,

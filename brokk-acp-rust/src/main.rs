@@ -122,11 +122,16 @@ async fn main() -> Result<()> {
                     );
                     Arc::new(codex_client::CodexClient::new())
                 } else {
+                    // We land here when auth_mode != "chatgpt" OR
+                    // tokens are missing. Falling back to the API key
+                    // path is the only meaningful thing we can do --
+                    // but if there's no key either, the first prompt
+                    // will 401 and the user needs to re-run login.
                     let key = auth.openai_api_key.clone();
                     if key.is_none() {
                         tracing::warn!(
-                            "~/.codex/auth.json has no OPENAI_API_KEY and is not in chatgpt mode; \
-                             run /codex-login to authenticate"
+                            "~/.codex/auth.json is not usable: not in chatgpt mode AND no OPENAI_API_KEY; \
+                             run /codex-login from a session to authenticate"
                         );
                     }
                     tracing::info!(
