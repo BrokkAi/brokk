@@ -13,6 +13,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.nio.file.SimpleFileVisitor;
@@ -267,20 +268,31 @@ public class Completions {
         String basePrefix = lastSepBefore >= 0 ? trimmed.substring(0, lastSepBefore + 1) : "";
 
         Path baseDir;
-        if (looksAbsolute(trimmed)) {
-            if (!basePrefix.isEmpty()) {
-                baseDir = Path.of(basePrefix);
-            } else if (trimmed.startsWith("\\\\")) {
-                // UNC root without server/share is not walkable; require at least \\server\share\
-                return List.of();
-            } else if (trimmed.length() >= 2 && Character.isLetter(trimmed.charAt(0)) && trimmed.charAt(1) == ':') {
-                baseDir = Path.of(trimmed.charAt(0) + ":\\");
+        try {
+            if (looksAbsolute(trimmed)) {
+                if (!basePrefix.isEmpty()) {
+                    baseDir = Path.of(basePrefix);
+                } else if (trimmed.startsWith("\\\\")) {
+                    // UNC root without server/share is not walkable; require at least \\server\share\
+                    return List.of();
+                } else if (trimmed.length() >= 2 && Character.isLetter(trimmed.charAt(0)) && trimmed.charAt(1) == ':') {
+                    baseDir = Path.of(trimmed.charAt(0) + ":\\");
+                } else {
+                    baseDir = Path.of(File.separator);
+                }
             } else {
-                baseDir = Path.of(File.separator);
+                var baseRel = basePrefix.replace('/', sepChar).replace('\\', sepChar);
+                baseDir = root.resolve(baseRel);
             }
-        } else {
-            var baseRel = basePrefix.replace('/', sepChar).replace('\\', sepChar);
-            baseDir = root.resolve(baseRel);
+        } catch (InvalidPathException e) {
+            // LLMs sometimes pass tokens that are illegal as platform path components
+            // (e.g. JSON-array syntax on Windows, where `"`, `<`, `>` are reserved).
+            logger.debug(
+                    "Invalid base-path token in pattern '{}' (basePrefix='{}'); returning no matches",
+                    pattern,
+                    basePrefix,
+                    e);
+            return List.of();
         }
 
         if (!Files.isDirectory(baseDir)) {
@@ -305,6 +317,9 @@ public class Completions {
         String relGlob = remainder.replace('/', sepChar).replace('\\', sepChar);
         PathMatcher matcher;
         try {
+            // getPathMatcher also declares IllegalArgumentException for an unknown syntax identifier,
+            // but with the literal "glob:" prefix used here that branch is unreachable, so the catch
+            // stays narrow.
             matcher = FileSystems.getDefault().getPathMatcher("glob:" + relGlob);
         } catch (PatternSyntaxException e) {
             logger.debug("Invalid glob pattern '{}' (relGlob='{}'); returning no matches", pattern, relGlob, e);
