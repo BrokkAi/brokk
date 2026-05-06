@@ -202,6 +202,35 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
     }
 
     @Test
+    void functionParameterTypesCountAsUsages() throws Exception {
+        String service = "pub struct SearchSymbolsParams;\n";
+        String consumer =
+                """
+                use crate::service::SearchSymbolsParams;
+
+                pub fn search_symbols(
+                    analyzer: &dyn IAnalyzer,
+                    params: SearchSymbolsParams,
+                ) {
+                    let _ = analyzer;
+                    let _ = params;
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/searchtools.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile searchtoolsFile = projectFile(project.getAllFiles(), "src/searchtools.rs");
+
+            var result = find(analyzer, serviceFile, "SearchSymbolsParams", searchtoolsFile);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
     void unresolvedPublicReexportRecordsExternalFrontier() throws Exception {
         String index = "pub use external_crate::Foo;\n";
 
@@ -581,6 +610,59 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
     }
 
     @Test
+    void crossFileTraitImplResolvesTraitOwnerFile() throws Exception {
+        String traits =
+                """
+                pub trait Worker {
+                    fn work(&self);
+                }
+                """;
+        String other =
+                """
+                pub trait Worker {
+                    fn work(&self);
+                }
+                """;
+        String service =
+                """
+                use crate::traits::Worker;
+
+                pub struct Foo;
+                impl Worker for Foo {
+                    fn work(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run(x: Foo) {
+                    x.work();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(traits, "src/traits.rs")
+                .addFileContents(other, "src/other.rs")
+                .addFileContents(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile traitsFile = projectFile(project.getAllFiles(), "src/traits.rs");
+            ProjectFile otherFile = projectFile(project.getAllFiles(), "src/other.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1,
+                    find(analyzer, traitsFile, "Worker", member(analyzer, traitsFile, "Worker", "work"), consumerFile)
+                            .hits()
+                            .size());
+            assertTrue(find(analyzer, otherFile, "Worker", member(analyzer, otherFile, "Worker", "work"), consumerFile)
+                    .hits()
+                    .isEmpty());
+        }
+    }
+
+    @Test
     void functionParameterTypeSeedsReceiver() throws Exception {
         String service =
                 """
@@ -645,6 +727,188 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
                     find(analyzer, serviceFile, "Foo", member(analyzer, serviceFile, "Foo", "bar"), consumerFile)
                             .hits()
                             .size());
+        }
+    }
+
+    @Test
+    void selfLikeAssociatedConstructorChainSeedsReceiver() throws Exception {
+        String service =
+                """
+                pub struct ChangeDelta;
+                pub struct ProjectChangeWatcher;
+                impl ProjectChangeWatcher {
+                    pub fn start() -> Result<Self, String> {
+                        todo!()
+                    }
+                    pub fn other() -> ChangeDelta {
+                        todo!()
+                    }
+                    pub fn take_changed_files(&self) -> ChangeDelta {
+                        todo!()
+                    }
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::ProjectChangeWatcher;
+
+                fn run() {
+                    let watcher = ProjectChangeWatcher::start().unwrap();
+                    watcher.take_changed_files();
+                }
+
+                fn unrelated() {
+                    let delta = ProjectChangeWatcher::other();
+                    delta.take_changed_files();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1,
+                    find(
+                                    analyzer,
+                                    serviceFile,
+                                    "ProjectChangeWatcher",
+                                    member(analyzer, serviceFile, "ProjectChangeWatcher", "take_changed_files"),
+                                    consumerFile)
+                            .hits()
+                            .size());
+        }
+    }
+
+    @Test
+    void selfFieldAsRefLetElseSeedsReceiverFromStructFieldType() throws Exception {
+        String service =
+                """
+                pub struct ChangeDelta;
+                pub struct ProjectChangeWatcher;
+                impl ProjectChangeWatcher {
+                    pub fn take_changed_files(&self) -> ChangeDelta {
+                        todo!()
+                    }
+                }
+
+                pub struct SearchToolsService {
+                    watcher: Option<ProjectChangeWatcher>,
+                }
+                impl SearchToolsService {
+                    pub fn apply_watcher_delta(&mut self) {
+                        let Some(watcher) = self.watcher.as_ref() else {
+                            return;
+                        };
+                        watcher.take_changed_files();
+                    }
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(service, "src/service.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+
+            assertEquals(
+                    1,
+                    find(
+                                    analyzer,
+                                    serviceFile,
+                                    "ProjectChangeWatcher",
+                                    member(analyzer, serviceFile, "ProjectChangeWatcher", "take_changed_files"),
+                                    serviceFile)
+                            .hits()
+                            .size());
+        }
+    }
+
+    @Test
+    void wrappedPatternDestructuringDoesNotSeedReceiverFacts() throws Exception {
+        String service =
+                """
+                pub struct ProjectChangeWatcher;
+                impl ProjectChangeWatcher {
+                    pub fn take_changed_files(&self) {}
+                }
+
+                pub struct Other;
+                impl Other {
+                    pub fn take_changed_files(&self) {}
+                }
+
+                pub struct SearchToolsService {
+                    watcher: Option<(ProjectChangeWatcher, Other)>,
+                }
+                impl SearchToolsService {
+                    pub fn apply_watcher_delta(&mut self) {
+                        let Some((watcher, other)) = self.watcher.as_ref() else {
+                            return;
+                        };
+                        watcher.take_changed_files();
+                        other.take_changed_files();
+                    }
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(service, "src/service.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+
+            assertTrue(find(
+                            analyzer,
+                            serviceFile,
+                            "ProjectChangeWatcher",
+                            member(analyzer, serviceFile, "ProjectChangeWatcher", "take_changed_files"),
+                            serviceFile)
+                    .hits()
+                    .isEmpty());
+        }
+    }
+
+    @Test
+    void destructuringPatternsDoNotSeedReceiverFacts() throws Exception {
+        String service =
+                """
+                pub struct Foo;
+                impl Foo {
+                    pub fn foo_method(&self) {}
+                }
+
+                pub struct Bar;
+                impl Bar {
+                    pub fn foo_method(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::{Bar, Foo};
+
+                fn tuple_parameter((foo, _bar): (Foo, Bar)) {
+                    foo.foo_method();
+                }
+
+                fn tuple_let(pair: (Foo, Bar)) {
+                    let (foo, _bar): (Foo, Bar) = pair;
+                    foo.foo_method();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertTrue(
+                    find(analyzer, serviceFile, "Bar", member(analyzer, serviceFile, "Bar", "foo_method"), consumerFile)
+                            .hits()
+                            .isEmpty());
         }
     }
 
@@ -990,7 +1254,117 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
                             .hits()
                             .size());
             assertEquals(
-                    1, find(analyzer, libFile, "Inline", consumerFile).hits().size());
+                    1,
+                    find(analyzer, libFile, "inline::Inline", consumerFile)
+                            .hits()
+                            .size());
+            assertTrue(find(analyzer, libFile, "Inline", consumerFile).hits().isEmpty());
+        }
+    }
+
+    @Test
+    void privateInlineModuleIsNotExternallyResolvable() throws Exception {
+        String lib =
+                """
+                mod service {
+                    pub struct Foo;
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Foo;
+
+                fn run() {
+                    let _ = Foo {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(lib, "src/lib.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile libFile = projectFile(project.getAllFiles(), "src/lib.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertTrue(
+                    find(analyzer, libFile, "service::Foo", consumerFile).hits().isEmpty());
+        }
+    }
+
+    @Test
+    void privateInlineModuleCanBeExplicitlyReexported() throws Exception {
+        String lib =
+                """
+                mod service {
+                    pub struct Foo;
+                }
+                pub use service::Foo;
+                """;
+        String consumer =
+                """
+                use crate::Foo;
+
+                fn run() {
+                    let _ = Foo {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(lib, "src/lib.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile libFile = projectFile(project.getAllFiles(), "src/lib.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(1, find(analyzer, libFile, "Foo", consumerFile).hits().size());
+        }
+    }
+
+    @Test
+    void pubSelfDoesNotSeedExternalGraphExports() throws Exception {
+        String service = "pub(self) struct Hidden;\n";
+        String consumer =
+                """
+                use crate::service::Hidden;
+
+                fn run() {
+                    let _ = Hidden {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertTrue(
+                    find(analyzer, serviceFile, "Hidden", consumerFile).hits().isEmpty());
+        }
+    }
+
+    @Test
+    void pubCrateRemainsLocallyGraphVisible() throws Exception {
+        String service = "pub(crate) struct Local;\n";
+        String consumer =
+                """
+                use crate::service::Local;
+
+                fn run() {
+                    let _ = Local {};
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+
+            assertEquals(
+                    1, find(analyzer, serviceFile, "Local", consumerFile).hits().size());
         }
     }
 
@@ -1020,8 +1394,187 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
             ProjectFile libFile = projectFile(project.getAllFiles(), "src/lib.rs");
             ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
 
-            assertEquals(1, find(analyzer, libFile, "Foo", consumerFile).hits().size());
+            var first = find(analyzer, libFile, "service::Foo", consumerFile);
+            var second = find(analyzer, libFile, "service::Foo", consumerFile);
+
+            assertEquals(1, first.hits().size());
+            assertEquals(first.hits(), second.hits());
             assertTrue(find(analyzer, libFile, "Hidden", consumerFile).hits().isEmpty());
+        }
+    }
+
+    @Test
+    void privateSameFileFunctionCallResolves() throws Exception {
+        String searchtools =
+                """
+                fn summarize_symbol_targets(targets: Vec<String>) -> SummaryResult {
+                    SummaryResult {}
+                }
+
+                pub fn get_summaries(params: SummariesParams) -> SummaryResult {
+                    let targets = strip_params(params.targets);
+                    summarize_symbol_targets(targets)
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(searchtools, "src/searchtools.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile searchtoolsFile = projectFile(project.getAllFiles(), "src/searchtools.rs");
+            CodeUnit target = target(analyzer, searchtoolsFile, "summarize_symbol_targets");
+
+            var result = find(analyzer, searchtoolsFile, "summarize_symbol_targets", target, searchtoolsFile);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void sameFilePublicStructTypeAndLiteralReferencesResolve() throws Exception {
+        String summary =
+                """
+                pub struct RenderedSummary {
+                    pub label: String,
+                    pub text: String,
+                }
+
+                pub fn summarize_inputs(inputs: &[String]) -> Result<Vec<RenderedSummary>, String> {
+                    inputs
+                        .iter()
+                        .map(|input| summarize_input(input))
+                        .collect()
+                }
+
+                fn summarize_input(input: &str) -> Result<RenderedSummary, String> {
+                    Ok(RenderedSummary {
+                        label: input.to_string(),
+                        text: input.to_string(),
+                    })
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(summary, "src/summary.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile summaryFile = projectFile(project.getAllFiles(), "src/summary.rs");
+            CodeUnit target = target(analyzer, summaryFile, "RenderedSummary");
+
+            var result = find(analyzer, summaryFile, "RenderedSummary", target, summaryFile);
+
+            assertEquals(3, result.hits().size());
+        }
+    }
+
+    @Test
+    void privateSameFileFunctionCallInsideClosureResolves() throws Exception {
+        String summary =
+                """
+                pub struct RenderedSummary;
+
+                pub fn summarize_inputs(inputs: &[String]) -> Result<Vec<RenderedSummary>, String> {
+                    inputs
+                        .iter()
+                        .map(|input| summarize_input(input))
+                        .collect()
+                }
+
+                fn summarize_input(input: &str) -> Result<RenderedSummary, String> {
+                    Ok(RenderedSummary)
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(summary, "src/summary.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile summaryFile = projectFile(project.getAllFiles(), "src/summary.rs");
+            CodeUnit target = target(analyzer, summaryFile, "summarize_input");
+
+            var result = find(analyzer, summaryFile, "summarize_input", target, summaryFile);
+
+            assertEquals(1, result.hits().size());
+        }
+    }
+
+    @Test
+    void privateSameFileFunctionWithoutCallProducesNoHit() throws Exception {
+        String searchtools =
+                """
+                fn summarize_symbol_targets(targets: Vec<String>) -> SummaryResult {
+                    SummaryResult {}
+                }
+
+                pub fn get_summaries(params: SummariesParams) -> SummaryResult {
+                    summarize_files(params.targets)
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(searchtools, "src/searchtools.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile searchtoolsFile = projectFile(project.getAllFiles(), "src/searchtools.rs");
+            CodeUnit target = target(analyzer, searchtoolsFile, "summarize_symbol_targets");
+
+            var result = find(analyzer, searchtoolsFile, "summarize_symbol_targets", target, searchtoolsFile);
+
+            assertTrue(result.hits().isEmpty());
+        }
+    }
+
+    @Test
+    void localBindingShadowsPrivateSameFileFunction() throws Exception {
+        String searchtools =
+                """
+                fn summarize_symbol_targets(targets: Vec<String>) -> SummaryResult {
+                    SummaryResult {}
+                }
+
+                pub fn get_summaries(summarize_symbol_targets: fn(Vec<String>) -> SummaryResult) -> SummaryResult {
+                    summarize_symbol_targets(Vec::new())
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(searchtools, "src/searchtools.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile searchtoolsFile = projectFile(project.getAllFiles(), "src/searchtools.rs");
+            CodeUnit target = target(analyzer, searchtoolsFile, "summarize_symbol_targets");
+
+            var result = find(analyzer, searchtoolsFile, "summarize_symbol_targets", target, searchtoolsFile);
+
+            assertTrue(result.hits().isEmpty());
+        }
+    }
+
+    @Test
+    void samePrivateFunctionNameInAnotherModuleDoesNotCrossMatch() throws Exception {
+        String first =
+                """
+                fn summarize_symbol_targets(targets: Vec<String>) -> SummaryResult {
+                    SummaryResult {}
+                }
+                """;
+        String second =
+                """
+                fn summarize_symbol_targets(targets: Vec<String>) -> SummaryResult {
+                    SummaryResult {}
+                }
+
+                pub fn get_summaries(params: SummariesParams) -> SummaryResult {
+                    summarize_symbol_targets(params.targets)
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(first, "src/a.rs")
+                .addFileContents(second, "src/b.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile aFile = projectFile(project.getAllFiles(), "src/a.rs");
+            ProjectFile bFile = projectFile(project.getAllFiles(), "src/b.rs");
+            CodeUnit target = target(analyzer, aFile, "summarize_symbol_targets");
+
+            var result = find(analyzer, aFile, "summarize_symbol_targets", target, bFile);
+
+            assertTrue(result.hits().isEmpty());
         }
     }
 
@@ -1056,6 +1609,14 @@ class RustExportUsageReferenceGraphTest extends AbstractUsageReferenceGraphTest 
                 .filter(cu -> cu.source().equals(file))
                 .filter(cu -> cu.identifier().equals(memberName))
                 .filter(cu -> cu.shortName().startsWith(ownerName + "."))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static CodeUnit target(RustAnalyzer analyzer, ProjectFile file, String identifier) {
+        return analyzer.getAllDeclarations().stream()
+                .filter(cu -> cu.source().equals(file))
+                .filter(cu -> cu.identifier().equals(identifier))
                 .findFirst()
                 .orElseThrow();
     }

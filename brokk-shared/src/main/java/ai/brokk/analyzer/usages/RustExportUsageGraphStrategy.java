@@ -53,8 +53,10 @@ public final class RustExportUsageGraphStrategy implements UsageAnalyzer {
                 limits.maxFiles(), Math.max(1, Math.min(limits.maxHits(), graphHitLimit)), limits.maxReexportDepth());
         Set<UsageHit> hits = new LinkedHashSet<>();
         for (String exportName : exportNames) {
+            Set<ProjectFile> effectiveCandidateFiles =
+                    candidateFiles.isEmpty() ? analyzer.rustUsageCandidateFiles(exportNames, target) : candidateFiles;
             ReferenceGraphResult graphResult = ExportUsageReferenceGraphEngine.findExportUsages(
-                    target.source(), exportName, target, adapter, effectiveLimits, candidateFiles);
+                    target.source(), exportName, target, adapter, effectiveLimits, effectiveCandidateFiles);
             hits.addAll(graphResult.hits().stream()
                     .map(hit -> new UsageHit(
                             hit.file(),
@@ -81,6 +83,11 @@ public final class RustExportUsageGraphStrategy implements UsageAnalyzer {
         var exportNames = new LinkedHashSet<>(inferExportNames(target.source(), target.identifier()));
         analyzer.parentOf(target)
                 .ifPresent(owner -> exportNames.addAll(inferExportNames(owner.source(), owner.identifier())));
+        if (exportNames.isEmpty()
+                && target.isFunction()
+                && analyzer.parentOf(target).isEmpty()) {
+            exportNames.add(target.identifier());
+        }
         return Set.copyOf(exportNames);
     }
 

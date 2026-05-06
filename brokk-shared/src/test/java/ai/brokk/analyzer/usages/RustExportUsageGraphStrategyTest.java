@@ -1,7 +1,9 @@
 package ai.brokk.analyzer.usages;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
@@ -51,6 +53,29 @@ class RustExportUsageGraphStrategyTest extends AbstractUsageReferenceGraphTest {
             UsageAnalyzer usageAnalyzer = UsageAnalyzerSelector.forTarget(target, analyzer, project);
 
             assertInstanceOf(RegexUsageAnalyzer.class, usageAnalyzer);
+        }
+    }
+
+    @Test
+    void selectorUsesRustGraphForPrivateSameFileFunctionTarget() throws Exception {
+        String searchtools =
+                """
+                fn summarize_symbol_targets() {}
+
+                pub fn get_summaries() {
+                    summarize_symbol_targets();
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(searchtools, "src/searchtools.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile searchtoolsFile = projectFile(project.getAllFiles(), "src/searchtools.rs");
+            CodeUnit target = target(analyzer, searchtoolsFile, "summarize_symbol_targets");
+
+            UsageAnalyzer usageAnalyzer = UsageAnalyzerSelector.forTarget(target, analyzer, project);
+
+            assertInstanceOf(RustExportUsageGraphStrategy.class, usageAnalyzer);
         }
     }
 
@@ -164,6 +189,177 @@ class RustExportUsageGraphStrategyTest extends AbstractUsageReferenceGraphTest {
 
             FuzzyResult result =
                     new RustExportUsageGraphStrategy(analyzer).findUsages(List.of(target), project.getAllFiles(), 1000);
+
+            assertEquals(
+                    1,
+                    ((FuzzyResult.Success) result).hitsByOverload().get(target).size());
+        }
+    }
+
+    @Test
+    void exactMemberCacheReturnsConcreteMemberAcrossRepeatedLookups() throws Exception {
+        String service =
+                """
+                pub struct Service;
+                impl Service {
+                    pub fn run(&self) {}
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(service, "src/service.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+
+            CodeUnit first = analyzer.exactMember(serviceFile, "Service", "run", true);
+            CodeUnit second = analyzer.exactMember(serviceFile, "Service", "run", true);
+
+            assertEquals(first, second);
+            assertFalse(first.isSynthetic());
+        }
+    }
+
+    @Test
+    void rustCandidateFunnelKeepsLikelyMemberFilesAndDropsUnrelatedFiles() throws Exception {
+        String service =
+                """
+                pub struct Service;
+                impl Service {
+                    pub fn run(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Service;
+                fn main() {
+                    let service: Service = Service {};
+                    service.run();
+                }
+                """;
+        String unrelated =
+                """
+                fn unrelated() {
+                    let value = 1;
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .addFileContents(unrelated, "src/other.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile serviceFile = projectFile(project.getAllFiles(), "src/service.rs");
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+            ProjectFile otherFile = projectFile(project.getAllFiles(), "src/other.rs");
+            CodeUnit target = member(analyzer, serviceFile, "Service", "run");
+
+            Set<ProjectFile> candidates = analyzer.rustUsageCandidateFiles(Set.of("Service"), target);
+
+            assertTrue(candidates.contains(consumerFile));
+            assertFalse(candidates.contains(otherFile));
+        }
+    }
+
+    @Test
+    void rustUsageFactsCacheFeedsReferencesAndReceivers() throws Exception {
+        String service =
+                """
+                pub struct Service;
+                impl Service {
+                    pub fn run(&self) {}
+                }
+                """;
+        String consumer =
+                """
+                use crate::service::Service;
+                fn main() {
+                    let service: Service = Service {};
+                    service.run();
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(service, "src/service.rs")
+                .addFileContents(consumer, "src/main.rs")
+                .build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile consumerFile = projectFile(project.getAllFiles(), "src/main.rs");
+            ImportBinder binder = analyzer.importBinderOf(consumerFile);
+
+            var references = analyzer.exportUsageCandidatesOf(consumerFile, binder);
+            var receivers = analyzer.resolvedReceiverCandidatesOf(consumerFile, binder);
+            var warmedReferences = analyzer.exportUsageCandidatesOf(consumerFile, binder);
+            var warmedReceivers = analyzer.resolvedReceiverCandidatesOf(consumerFile, binder);
+
+            assertEquals(references, warmedReferences);
+            assertEquals(receivers, warmedReceivers);
+            assertFalse(references.isEmpty());
+            assertFalse(receivers.isEmpty());
+        }
+    }
+
+    @Test
+    void strategyFindsSameFileStructReferencesInReturnTypesAndLiterals() throws Exception {
+        String summary =
+                """
+                pub struct RenderedSummary {
+                    pub label: String,
+                    pub text: String,
+                }
+
+                pub fn summarize_inputs(inputs: &[String]) -> Result<Vec<RenderedSummary>, String> {
+                    inputs
+                        .iter()
+                        .map(|input| summarize_input(input))
+                        .collect()
+                }
+
+                fn summarize_input(input: &str) -> Result<RenderedSummary, String> {
+                    Ok(RenderedSummary {
+                        label: input.to_string(),
+                        text: input.to_string(),
+                    })
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(summary, "src/summary.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile summaryFile = projectFile(project.getAllFiles(), "src/summary.rs");
+            CodeUnit target = target(analyzer, summaryFile, "RenderedSummary");
+
+            FuzzyResult result = new RustExportUsageGraphStrategy(analyzer).findUsages(List.of(target), Set.of(), 1000);
+
+            assertEquals(
+                    3,
+                    ((FuzzyResult.Success) result).hitsByOverload().get(target).size());
+        }
+    }
+
+    @Test
+    void strategyFindsPrivateSameFileFunctionCallInsideClosure() throws Exception {
+        String summary =
+                """
+                pub struct RenderedSummary;
+
+                pub fn summarize_inputs(inputs: &[String]) -> Result<Vec<RenderedSummary>, String> {
+                    inputs
+                        .iter()
+                        .map(|input| summarize_input(input))
+                        .collect()
+                }
+
+                fn summarize_input(input: &str) -> Result<RenderedSummary, String> {
+                    Ok(RenderedSummary)
+                }
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(summary, "src/summary.rs").build()) {
+            var analyzer = new RustAnalyzer(project);
+            ProjectFile summaryFile = projectFile(project.getAllFiles(), "src/summary.rs");
+            CodeUnit target = target(analyzer, summaryFile, "summarize_input");
+
+            FuzzyResult result = new RustExportUsageGraphStrategy(analyzer).findUsages(List.of(target), Set.of(), 1000);
 
             assertEquals(
                     1,

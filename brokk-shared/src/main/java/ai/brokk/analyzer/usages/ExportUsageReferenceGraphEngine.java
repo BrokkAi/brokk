@@ -197,6 +197,11 @@ public final class ExportUsageReferenceGraphEngine {
                 .findFirst()
                 .orElse(null);
         if (target == null) {
+            target = adapter.definitionsOf(file, cand.identifier()).stream()
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (target == null) {
             return Optional.empty();
         }
         return Optional.of(new ResolvedExport(target, 1.0));
@@ -475,8 +480,9 @@ public final class ExportUsageReferenceGraphEngine {
             ExportIndex.ExportEntry entry = index.exportsByName().get(name);
 
             if (entry instanceof ExportIndex.LocalExport local) {
-                if (tryQueueImportedLocalExport(
-                        currentFile, local.localName(), adapter, frontier, externalFrontier, queue)) {
+                if (!name.contains("::")
+                        && tryQueueImportedLocalExport(
+                                currentFile, local.localName(), adapter, frontier, externalFrontier, queue)) {
                     continue;
                 }
                 targets.addAll(resolveLocalExport(currentFile, local.localName(), adapter));
@@ -549,12 +555,17 @@ public final class ExportUsageReferenceGraphEngine {
 
     private static Set<CodeUnit> resolveLocalExport(
             ProjectFile file, String localName, ExportUsageGraphLanguageAdapter adapter) {
+        String simpleLocalName =
+                localName.contains("::") ? localName.substring(localName.lastIndexOf("::") + "::".length()) : localName;
         CodeUnit singleMatch = null;
         var matches = new LinkedHashSet<CodeUnit>();
         for (CodeUnit cu : adapter.definitionsOf(file, localName)) {
             if (cu.identifier().equals(localName)
+                    || cu.identifier().equals(simpleLocalName)
                     || cu.shortName().equals(localName)
-                    || ownerNameOf(cu).equals(localName)) {
+                    || cu.shortName().equals(simpleLocalName)
+                    || ownerNameOf(cu).equals(localName)
+                    || ownerNameOf(cu).equals(simpleLocalName)) {
                 if (singleMatch == null && matches.isEmpty()) {
                     singleMatch = cu;
                 } else {

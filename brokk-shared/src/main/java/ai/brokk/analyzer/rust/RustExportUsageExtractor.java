@@ -19,7 +19,10 @@ import ai.brokk.analyzer.usages.ReceiverTargetRef;
 import ai.brokk.analyzer.usages.ReferenceCandidate;
 import ai.brokk.analyzer.usages.ReferenceKind;
 import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -33,12 +36,13 @@ import org.treesitter.TSNode;
 public final class RustExportUsageExtractor {
     private RustExportUsageExtractor() {}
 
-    public static ExportIndex computeExportIndex(TSNode root, SourceContent source) {
+    public static ExportIndex computeExportIndex(
+            RustAnalyzer analyzer, ProjectFile file, TSNode root, SourceContent source) {
         var exports = new LinkedHashMap<String, ExportIndex.ExportEntry>();
         var reexportStars = new ArrayList<ExportIndex.ReexportStar>();
         var heritageEdges = new LinkedHashSet<ExportIndex.HeritageEdge>();
         var classMembers = new LinkedHashSet<ExportIndex.ClassMember>();
-        collectExports(root, source, exports, reexportStars, heritageEdges, classMembers);
+        collectExports(root, analyzer, file, source, List.of(), exports, reexportStars, heritageEdges, classMembers);
         return new ExportIndex(
                 Map.copyOf(exports), List.copyOf(reexportStars), Set.copyOf(heritageEdges), Set.copyOf(classMembers));
     }
@@ -79,26 +83,67 @@ public final class RustExportUsageExtractor {
             SourceContent source,
             ImportBinder binder,
             Set<String> localExportNames) {
-        CodeUnit fallbackEnclosing = analyzer.enclosingCodeUnit(file, rangeOf(root))
-                .orElse(CodeUnit.module(file, analyzer.packageNameOf(file), "_module_"));
-        var candidates = new LinkedHashSet<ReferenceCandidate>();
-        collectUsageCandidates(root, analyzer, file, source, binder, localExportNames, fallbackEnclosing, candidates);
-        return Set.copyOf(candidates);
+        return computeUsageFacts(analyzer, file, root, source, binder, localExportNames, Set.of())
+                .referenceCandidates();
     }
 
     public static Set<ResolvedReceiverCandidate> computeResolvedReceiverCandidates(
             RustAnalyzer analyzer, ProjectFile file, TSNode root, SourceContent source, ImportBinder binder) {
+        return computeUsageFacts(analyzer, file, root, source, binder, Set.of(), Set.of())
+                .receiverCandidates();
+    }
+
+    public static RustAnalyzer.RustUsageFacts computeUsageFacts(
+            RustAnalyzer analyzer,
+            ProjectFile file,
+            TSNode root,
+            SourceContent source,
+            ImportBinder binder,
+            Set<String> localExportNames,
+            Set<String> localTopLevelFunctionNames) {
         CodeUnit fallbackEnclosing = analyzer.enclosingCodeUnit(file, rangeOf(root))
                 .orElse(CodeUnit.module(file, analyzer.packageNameOf(file), "_module_"));
+        var candidates = new LinkedHashSet<ReferenceCandidate>();
+        collectUsageCandidates(root, analyzer, file, source, binder, localExportNames, fallbackEnclosing, candidates);
+        collectLocalFunctionCallCandidates(
+                root,
+                analyzer,
+                file,
+                source,
+                localTopLevelFunctionNames,
+                fallbackEnclosing,
+                new ArrayDeque<>(),
+                candidates);
         var events = new ArrayList<LocalUsageEvent>();
         Map<String, List<String>> typeAliases = collectTypeAliases(root, source);
-        collectLocalUsageEvents(root, analyzer, file, source, binder, typeAliases, fallbackEnclosing, events);
-        return LocalUsageInference.infer(events);
+        collectLocalUsageEvents(root, analyzer, file, source, binder, typeAliases, fallbackEnclosing, null, events);
+        Set<ResolvedReceiverCandidate> receiverCandidates = LocalUsageInference.infer(events);
+        var candidateTokens = new LinkedHashSet<>(usageCandidateTokens(candidates, receiverCandidates));
+        localTopLevelFunctionNames.forEach(token -> addToken(candidateTokens, token));
+        return new RustAnalyzer.RustUsageFacts(
+                Set.copyOf(candidates), Set.copyOf(receiverCandidates), Set.copyOf(candidateTokens));
+    }
+
+    public static Map<RustAnalyzer.AssociatedFunctionKey, Boolean> computeSelfLikeAssociatedFunctions(
+            TSNode root, SourceContent source) {
+        var functions = new LinkedHashMap<RustAnalyzer.AssociatedFunctionKey, Boolean>();
+        collectSelfLikeAssociatedFunctions(root, source, functions);
+        return Map.copyOf(functions);
+    }
+
+    public static Map<RustAnalyzer.FieldKey, RustAnalyzer.RustTypeRef> computeStructFieldTypes(
+            TSNode root, SourceContent source) {
+        var fields = new LinkedHashMap<RustAnalyzer.FieldKey, RustAnalyzer.RustTypeRef>();
+        collectStructFieldTypes(root, source, fields);
+        return Map.copyOf(fields);
     }
 
     private static void collectExports(
             TSNode node,
+            RustAnalyzer analyzer,
+            ProjectFile file,
             SourceContent source,
+            List<String> modulePrefix,
             Map<String, ExportIndex.ExportEntry> exports,
             List<ExportIndex.ReexportStar> reexportStars,
             Set<ExportIndex.HeritageEdge> heritageEdges,
@@ -108,11 +153,12 @@ public final class RustExportUsageExtractor {
         }
         String type = node.getType();
         if (nodeType(USE_DECLARATION).equals(type)) {
-            collectReexports(node, source, exports, reexportStars);
+            collectReexports(node, analyzer, file, source, exports, reexportStars);
             return;
         }
-        if (isExportableItem(node) && isItemLevelDeclaration(node) && isPublic(node)) {
-            localNameOf(node, source).ifPresent(name -> exports.put(name, new ExportIndex.LocalExport(name)));
+        if (isExportableItem(node) && isItemLevelDeclaration(node) && isGraphVisible(node)) {
+            localNameOf(node, source)
+                    .ifPresent(name -> exports.put(exportKey(modulePrefix, name), new ExportIndex.LocalExport(name)));
         }
         if (nodeType(IMPL_ITEM).equals(type)) {
             collectImplMembers(node, source, heritageEdges, classMembers);
@@ -120,20 +166,43 @@ public final class RustExportUsageExtractor {
         if (nodeType(TRAIT_ITEM).equals(type)) {
             collectTraitMembers(node, source, classMembers);
         }
-        if (nodeType(ENUM_ITEM).equals(type) && isPublic(node)) {
+        if (nodeType(ENUM_ITEM).equals(type) && isGraphVisible(node)) {
             collectEnumVariantMembers(node, source, classMembers);
         }
+        if (nodeType(MOD_ITEM).equals(type)) {
+            TSNode body = node.getChildByFieldName(nodeField(RustNodeField.BODY));
+            Optional<String> moduleName = localNameOf(node, source);
+            if (body != null && moduleName.isPresent()) {
+                var childPrefix = concat(modulePrefix, List.of(moduleName.orElseThrow()));
+                for (TSNode child : body.getNamedChildren()) {
+                    collectExports(
+                            child,
+                            analyzer,
+                            file,
+                            source,
+                            childPrefix,
+                            exports,
+                            reexportStars,
+                            heritageEdges,
+                            classMembers);
+                }
+                return;
+            }
+        }
         for (TSNode child : node.getNamedChildren()) {
-            collectExports(child, source, exports, reexportStars, heritageEdges, classMembers);
+            collectExports(
+                    child, analyzer, file, source, modulePrefix, exports, reexportStars, heritageEdges, classMembers);
         }
     }
 
     private static void collectReexports(
             TSNode useDeclaration,
+            RustAnalyzer analyzer,
+            ProjectFile file,
             SourceContent source,
             Map<String, ExportIndex.ExportEntry> exports,
             List<ExportIndex.ReexportStar> reexportStars) {
-        if (!isPublic(useDeclaration)) {
+        if (!isGraphVisible(useDeclaration)) {
             return;
         }
         useSpecsOf(useDeclaration, source).forEach(spec -> {
@@ -146,7 +215,10 @@ public final class RustExportUsageExtractor {
             }
             splitModuleAndName(spec.path()).ifPresent(parts -> {
                 String exportName = spec.alias() != null ? spec.alias() : parts.importedName();
-                exports.put(exportName, new ExportIndex.ReexportedNamed(parts.moduleSpecifier(), parts.importedName()));
+                String importedName = analyzer.inlineRustModuleExportName(
+                                file, parts.moduleSpecifier(), parts.importedName(), true)
+                        .orElse(parts.importedName());
+                exports.put(exportName, new ExportIndex.ReexportedNamed(parts.moduleSpecifier(), importedName));
             });
         });
     }
@@ -178,20 +250,48 @@ public final class RustExportUsageExtractor {
                 && !nodeType(ENUM_VARIANT_LIST).equals(parentType);
     }
 
-    private static boolean isPublic(TSNode node) {
+    private static boolean isGraphVisible(TSNode node) {
+        Visibility visibility = visibilityOf(node);
+        return visibility == Visibility.PUBLIC || visibility == Visibility.CRATE || visibility == Visibility.SUPER;
+    }
+
+    public static boolean isExternallyVisible(TSNode node) {
+        return isGraphVisible(node);
+    }
+
+    private static Visibility visibilityOf(TSNode node) {
         for (TSNode child : node.getChildren()) {
             if (nodeType(VISIBILITY_MODIFIER).equals(child.getType())) {
-                return true;
+                if (containsNodeType(child, nodeType(CRATE))) {
+                    return Visibility.CRATE;
+                }
+                if (containsNodeType(child, nodeType(SUPER_))) {
+                    return Visibility.SUPER;
+                }
+                if (containsNodeType(child, nodeType(SELF))) {
+                    return Visibility.PRIVATE;
+                }
+                return child.getNamedChildCount() == 0 ? Visibility.PUBLIC : Visibility.PRIVATE;
             }
         }
-        return false;
+        return Visibility.PRIVATE;
+    }
+
+    private static String exportKey(List<String> modulePrefix, String name) {
+        return modulePrefix.isEmpty() ? name : String.join("::", concat(modulePrefix, List.of(name)));
     }
 
     private static Optional<String> localNameOf(TSNode node, SourceContent source) {
         TSNode name = node.getChildByFieldName(nodeField(RustNodeField.NAME));
-        return name == null
-                ? Optional.empty()
-                : Optional.of(source.substringFrom(name).strip()).filter(s -> !s.isBlank());
+        if (name != null) {
+            return Optional.of(source.substringFrom(name).strip()).filter(s -> !s.isBlank());
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            if (nodeType(FIELD_IDENTIFIER).equals(child.getType())) {
+                return Optional.of(source.substringFrom(child).strip()).filter(s -> !s.isBlank());
+            }
+        }
+        return Optional.empty();
     }
 
     private static void collectImplMembers(
@@ -203,13 +303,15 @@ public final class RustExportUsageExtractor {
         if (owner.isEmpty()) {
             return;
         }
-        Optional<String> trait = typeNameOf(implItem.getChildByFieldName(nodeField(RustNodeField.TRAIT)), source);
-        trait.ifPresent(traitName -> heritageEdges.add(new ExportIndex.HeritageEdge(owner.orElseThrow(), traitName)));
+        Optional<String> ownerPath = rustPathOf(implItem.getChildByFieldName(nodeField(RustNodeField.TYPE)), source);
+        Optional<String> trait = rustPathOf(implItem.getChildByFieldName(nodeField(RustNodeField.TRAIT)), source);
+        trait.ifPresent(
+                traitName -> heritageEdges.add(new ExportIndex.HeritageEdge(ownerPath.orElseThrow(), traitName)));
 
         TSNode body = implItem.getChildByFieldName(nodeField(RustNodeField.BODY));
         for (TSNode child : (body == null ? implItem : body).getNamedChildren()) {
             memberOf(child, source).ifPresent(member -> {
-                if (trait.isPresent() || isPublic(child)) {
+                if (trait.isPresent() || isGraphVisible(child)) {
                     classMembers.add(new ExportIndex.ClassMember(
                             owner.orElseThrow(), member.name(), member.staticMember(), member.kind()));
                 }
@@ -257,6 +359,98 @@ public final class RustExportUsageExtractor {
                             new ExportIndex.ClassMember(owner.orElseThrow(), member.name(), true, member.kind()));
                 }
             });
+        }
+    }
+
+    private static void collectSelfLikeAssociatedFunctions(
+            TSNode node, SourceContent source, Map<RustAnalyzer.AssociatedFunctionKey, Boolean> functions) {
+        if (nodeType(IMPL_ITEM).equals(node.getType())) {
+            Optional<String> owner = typeNameOf(node.getChildByFieldName(nodeField(RustNodeField.TYPE)), source);
+            TSNode body = node.getChildByFieldName(nodeField(RustNodeField.BODY));
+            if (owner.isPresent() && body != null) {
+                for (TSNode child : body.getNamedChildren()) {
+                    if (nodeType(FUNCTION_ITEM).equals(child.getType()) && !hasSelfParameter(child)) {
+                        localNameOf(child, source)
+                                .ifPresent(functionName -> functions.put(
+                                        new RustAnalyzer.AssociatedFunctionKey(owner.orElseThrow(), functionName),
+                                        returnTypeIsSelfLike(child, source, owner.orElseThrow())));
+                    }
+                }
+            }
+            return;
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            collectSelfLikeAssociatedFunctions(child, source, functions);
+        }
+    }
+
+    private static boolean returnTypeIsSelfLike(TSNode function, SourceContent source, String ownerName) {
+        TSNode returnType = function.getChildByFieldName(nodeField(RustNodeField.RETURN_TYPE));
+        if (returnType != null) {
+            return containsSelfLikeType(returnType, source, ownerName);
+        }
+        TSNode parameters = function.getChildByFieldName(nodeField(RustNodeField.PARAMETERS));
+        for (TSNode child : function.getNamedChildren()) {
+            if (parameters != null && child.getStartByte() <= parameters.getStartByte()) {
+                continue;
+            }
+            String type = child.getType();
+            if (!nodeType(BLOCK).equals(type) && !nodeType(VISIBILITY_MODIFIER).equals(type)) {
+                return containsSelfLikeType(child, source, ownerName);
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsSelfLikeType(TSNode node, SourceContent source, String ownerName) {
+        String type = node.getType();
+        if (nodeType(SELF).equals(type)
+                || nodeType(TYPE_IDENTIFIER).equals(type)
+                || nodeType(IDENTIFIER).equals(type)) {
+            String text = source.substringFrom(node).strip();
+            if ("Self".equals(text) || ownerName.equals(text)) {
+                return true;
+            }
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            if (containsSelfLikeType(child, source, ownerName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void collectStructFieldTypes(
+            TSNode node, SourceContent source, Map<RustAnalyzer.FieldKey, RustAnalyzer.RustTypeRef> fields) {
+        if (nodeType(STRUCT_ITEM).equals(node.getType())) {
+            Optional<String> owner = localNameOf(node, source);
+            if (owner.isPresent()) {
+                collectStructFieldTypes(node, source, owner.orElseThrow(), fields);
+            }
+            return;
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            collectStructFieldTypes(child, source, fields);
+        }
+    }
+
+    private static void collectStructFieldTypes(
+            TSNode node,
+            SourceContent source,
+            String ownerName,
+            Map<RustAnalyzer.FieldKey, RustAnalyzer.RustTypeRef> fields) {
+        if (nodeType(FIELD_DECLARATION).equals(node.getType())) {
+            localNameOf(node, source).ifPresent(fieldName -> {
+                TSNode type = node.getChildByFieldName(nodeField(RustNodeField.TYPE));
+                List<String> segments = pathSegmentsPreservingKeywords(type, source);
+                if (!segments.isEmpty()) {
+                    fields.put(new RustAnalyzer.FieldKey(ownerName, fieldName), new RustAnalyzer.RustTypeRef(segments));
+                }
+            });
+            return;
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            collectStructFieldTypes(child, source, ownerName, fields);
         }
     }
 
@@ -350,6 +544,105 @@ public final class RustExportUsageExtractor {
         }
     }
 
+    private static void collectLocalFunctionCallCandidates(
+            TSNode node,
+            RustAnalyzer analyzer,
+            ProjectFile file,
+            SourceContent source,
+            Set<String> localTopLevelFunctionNames,
+            CodeUnit fallbackEnclosing,
+            Deque<Set<String>> scopes,
+            Set<ReferenceCandidate> candidates) {
+        if (node == null || nodeType(USE_DECLARATION).equals(node.getType())) {
+            return;
+        }
+
+        boolean scope = isLocalScope(node);
+        if (scope) {
+            scopes.addLast(new HashSet<>());
+            collectShadowingParameterNames(node, source, scopes);
+        }
+
+        if (nodeType(CALL_EXPRESSION).equals(node.getType())) {
+            TSNode function = node.getChildByFieldName(nodeField(RustNodeField.FUNCTION));
+            simpleIdentifierName(function, source)
+                    .filter(localTopLevelFunctionNames::contains)
+                    .filter(name -> !isShadowed(name, scopes))
+                    .ifPresent(name -> candidates.add(new ReferenceCandidate(
+                            name,
+                            null,
+                            null,
+                            false,
+                            ReferenceKind.STATIC_REFERENCE,
+                            rangeOf(requireNonNull(function)),
+                            enclosing(analyzer, file, node, fallbackEnclosing))));
+        }
+
+        if (nodeType(LET_DECLARATION).equals(node.getType())) {
+            simplePatternName(node, source)
+                    .ifPresent(name -> currentScope(scopes).add(name));
+        }
+
+        for (TSNode child : node.getNamedChildren()) {
+            collectLocalFunctionCallCandidates(
+                    child, analyzer, file, source, localTopLevelFunctionNames, fallbackEnclosing, scopes, candidates);
+        }
+
+        if (scope) {
+            scopes.removeLast();
+        }
+    }
+
+    private static void collectShadowingParameterNames(TSNode scope, SourceContent source, Deque<Set<String>> scopes) {
+        if (!nodeType(FUNCTION_ITEM).equals(scope.getType())) {
+            return;
+        }
+        TSNode parameters = scope.getChildByFieldName(nodeField(RustNodeField.PARAMETERS));
+        if (parameters == null) {
+            return;
+        }
+        for (TSNode parameter : parameters.getNamedChildren()) {
+            simplePatternName(parameter, source)
+                    .ifPresent(name -> currentScope(scopes).add(name));
+        }
+    }
+
+    private static Set<String> currentScope(Deque<Set<String>> scopes) {
+        if (scopes.isEmpty()) {
+            scopes.addLast(new HashSet<>());
+        }
+        return scopes.getLast();
+    }
+
+    private static boolean isShadowed(String name, Deque<Set<String>> scopes) {
+        return scopes.stream().anyMatch(scope -> scope.contains(name));
+    }
+
+    private static Set<String> usageCandidateTokens(
+            Set<ReferenceCandidate> candidates, Set<ResolvedReceiverCandidate> receiverCandidates) {
+        var tokens = new LinkedHashSet<String>();
+        for (ReferenceCandidate candidate : candidates) {
+            addToken(tokens, candidate.identifier());
+            if (candidate.qualifier() != null) {
+                addToken(tokens, candidate.qualifier());
+            }
+            if (candidate.ownerIdentifier() != null) {
+                addToken(tokens, candidate.ownerIdentifier());
+            }
+        }
+        for (ResolvedReceiverCandidate candidate : receiverCandidates) {
+            addToken(tokens, candidate.identifier());
+            addToken(tokens, candidate.receiverTarget().exportedName());
+        }
+        return Set.copyOf(tokens);
+    }
+
+    private static void addToken(Set<String> tokens, String token) {
+        if (!token.isBlank()) {
+            tokens.add(token);
+        }
+    }
+
     private static void collectLocalUsageEvents(
             TSNode node,
             RustAnalyzer analyzer,
@@ -358,9 +651,16 @@ public final class RustExportUsageExtractor {
             ImportBinder binder,
             Map<String, List<String>> typeAliases,
             CodeUnit fallbackEnclosing,
+            @Nullable String currentImplOwner,
             List<LocalUsageEvent> events) {
         if (node == null || nodeType(USE_DECLARATION).equals(node.getType())) {
             return;
+        }
+
+        String nextImplOwner = currentImplOwner;
+        if (nodeType(IMPL_ITEM).equals(node.getType())) {
+            nextImplOwner = typeNameOf(node.getChildByFieldName(nodeField(RustNodeField.TYPE)), source)
+                    .orElse(currentImplOwner);
         }
 
         boolean scope = isLocalScope(node);
@@ -370,13 +670,14 @@ public final class RustExportUsageExtractor {
         }
 
         if (nodeType(LET_DECLARATION).equals(node.getType())) {
-            collectLetDeclarationEvent(node, analyzer, file, source, binder, typeAliases, events);
+            collectLetDeclarationEvent(node, analyzer, file, source, binder, typeAliases, nextImplOwner, events);
         } else if (nodeType(FIELD_EXPRESSION).equals(node.getType())) {
             collectReceiverAccessEvent(node, analyzer, file, source, fallbackEnclosing, events);
         }
 
         for (TSNode child : node.getNamedChildren()) {
-            collectLocalUsageEvents(child, analyzer, file, source, binder, typeAliases, fallbackEnclosing, events);
+            collectLocalUsageEvents(
+                    child, analyzer, file, source, binder, typeAliases, fallbackEnclosing, nextImplOwner, events);
         }
 
         if (scope) {
@@ -405,10 +706,7 @@ public final class RustExportUsageExtractor {
             return;
         }
         for (TSNode parameter : parameters.getNamedChildren()) {
-            Optional<String> name = firstIdentifierName(
-                            parameter.getChildByFieldName(nodeField(RustNodeField.PATTERN)), source)
-                    .or(() ->
-                            firstIdentifierName(parameter.getChildByFieldName(nodeField(RustNodeField.NAME)), source));
+            Optional<String> name = simplePatternName(parameter, source);
             Optional<ReceiverTargetRef> target = receiverTargetForType(
                     analyzer,
                     file,
@@ -429,9 +727,12 @@ public final class RustExportUsageExtractor {
             SourceContent source,
             ImportBinder binder,
             Map<String, List<String>> typeAliases,
+            @Nullable String currentImplOwner,
             List<LocalUsageEvent> events) {
-        Optional<String> localName =
-                firstIdentifierName(letDeclaration.getChildByFieldName(nodeField(RustNodeField.PATTERN)), source);
+        Optional<String> localName = simplePatternName(letDeclaration, source);
+        if (localName.isEmpty()) {
+            collectFieldAsRefLetElseEvent(letDeclaration, analyzer, file, source, binder, currentImplOwner, events);
+        }
         if (localName.isEmpty()) {
             return;
         }
@@ -467,8 +768,7 @@ public final class RustExportUsageExtractor {
             SourceContent source,
             CodeUnit fallbackEnclosing,
             List<LocalUsageEvent> events) {
-        Optional<String> receiver =
-                firstIdentifierName(fieldExpression.getChildByFieldName(nodeField(RustNodeField.VALUE)), source);
+        Optional<String> receiver = firstIdentifierName(fieldExpressionReceiver(fieldExpression), source);
         Optional<String> field = fieldNameOf(fieldExpression, source);
         if (receiver.isEmpty() || field.isEmpty()) {
             return;
@@ -508,16 +808,112 @@ public final class RustExportUsageExtractor {
             if (function == null) {
                 return Optional.empty();
             }
+            Optional<TSNode> unwrapped = unwrapSimpleCallChain(function, source);
+            if (unwrapped.isPresent()) {
+                return receiverTargetForConstructor(
+                        analyzer, file, unwrapped.orElseThrow(), source, binder, typeAliases);
+            }
             if (nodeType(SCOPED_IDENTIFIER).equals(function.getType())
                     || nodeType(SCOPED_TYPE_IDENTIFIER).equals(function.getType())) {
                 List<String> segments = pathSegmentsPreservingKeywords(function, source);
                 if (segments.size() >= 2 && "new".equals(segments.getLast())) {
                     return receiverTargetForSegments(analyzer, file, segments.subList(0, segments.size() - 1), binder);
                 }
+                if (segments.size() >= 2
+                        && analyzer.associatedFunctionReturnsSelfLike(
+                                file, segments.subList(0, segments.size() - 1), segments.getLast(), binder)) {
+                    return receiverTargetForSegments(analyzer, file, segments.subList(0, segments.size() - 1), binder);
+                }
+                if (segments.size() >= 2) {
+                    return Optional.empty();
+                }
             }
             return receiverTargetForType(analyzer, file, function, source, binder, typeAliases);
         }
         return Optional.empty();
+    }
+
+    private static Optional<TSNode> unwrapSimpleCallChain(TSNode function, SourceContent source) {
+        if (!nodeType(FIELD_EXPRESSION).equals(function.getType())) {
+            return Optional.empty();
+        }
+        Optional<String> field = fieldNameOf(function, source);
+        if (field.isEmpty() || (!"unwrap".equals(field.orElseThrow()) && !"expect".equals(field.orElseThrow()))) {
+            return Optional.empty();
+        }
+        TSNode receiver = fieldExpressionReceiver(function);
+        if (receiver != null && nodeType(CALL_EXPRESSION).equals(receiver.getType())) {
+            return Optional.of(receiver);
+        }
+        return Optional.empty();
+    }
+
+    private static void collectFieldAsRefLetElseEvent(
+            TSNode letDeclaration,
+            RustAnalyzer analyzer,
+            ProjectFile file,
+            SourceContent source,
+            ImportBinder binder,
+            @Nullable String currentImplOwner,
+            List<LocalUsageEvent> events) {
+        if (currentImplOwner == null) {
+            return;
+        }
+        Optional<String> localName = singleIdentifierInWrappedPattern(
+                letDeclaration.getChildByFieldName(nodeField(RustNodeField.PATTERN)), source);
+        Optional<String> fieldName =
+                selfFieldAsRefName(letDeclaration.getChildByFieldName(nodeField(RustNodeField.VALUE)), source);
+        if (localName.isEmpty() || fieldName.isEmpty()) {
+            return;
+        }
+        analyzer.structFieldType(file, currentImplOwner, fieldName.orElseThrow())
+                .ifPresent(fieldType -> {
+                    List<String> concreteSegments = unwrapSimpleWrapperType(fieldType.segments());
+                    Optional<ReceiverTargetRef> target =
+                            receiverTargetForSegments(analyzer, file, concreteSegments, binder);
+                    target.ifPresent(receiverTarget -> events.add(
+                            new LocalUsageEvent.SeedSymbol(localName.orElseThrow(), Set.of(receiverTarget))));
+                });
+    }
+
+    private static Optional<String> selfFieldAsRefName(@Nullable TSNode value, SourceContent source) {
+        if (value == null || !nodeType(CALL_EXPRESSION).equals(value.getType())) {
+            return Optional.empty();
+        }
+        TSNode function = value.getChildByFieldName(nodeField(RustNodeField.FUNCTION));
+        if (function == null || !nodeType(FIELD_EXPRESSION).equals(function.getType())) {
+            return Optional.empty();
+        }
+        Optional<String> called = fieldNameOf(function, source);
+        if (called.isEmpty() || !"as_ref".equals(called.orElseThrow())) {
+            return Optional.empty();
+        }
+        TSNode receiver = fieldExpressionReceiver(function);
+        if (receiver == null || !nodeType(FIELD_EXPRESSION).equals(receiver.getType())) {
+            return Optional.empty();
+        }
+        TSNode self = fieldExpressionReceiver(receiver);
+        if (self == null || !nodeType(SELF).equals(self.getType())) {
+            return Optional.empty();
+        }
+        return fieldNameOf(receiver, source);
+    }
+
+    private static @Nullable TSNode fieldExpressionReceiver(TSNode fieldExpression) {
+        TSNode receiver = fieldExpression.getChildByFieldName(nodeField(RustNodeField.VALUE));
+        if (receiver != null) {
+            return receiver;
+        }
+        var children = fieldExpression.getNamedChildren();
+        return children.isEmpty() ? null : children.getFirst();
+    }
+
+    private static List<String> unwrapSimpleWrapperType(List<String> segments) {
+        if (segments.size() > 1
+                && Set.of("Option", "Result", "Box", "Arc", "Rc").contains(segments.getFirst())) {
+            return segments.subList(1, segments.size());
+        }
+        return segments;
     }
 
     private static Optional<ReceiverTargetRef> receiverTargetForType(
@@ -530,7 +926,7 @@ public final class RustExportUsageExtractor {
         if (isNonConcreteReceiverType(type, source)) {
             return Optional.empty();
         }
-        List<String> segments = pathSegmentsPreservingKeywords(type, source);
+        List<String> segments = receiverTypeSegments(type, source);
         if (segments.size() == 1) {
             List<String> aliased = typeAliases.getOrDefault(segments.getFirst(), List.of());
             if (!aliased.isEmpty()) {
@@ -538,6 +934,31 @@ public final class RustExportUsageExtractor {
             }
         }
         return receiverTargetForSegments(analyzer, file, segments, binder);
+    }
+
+    private static List<String> receiverTypeSegments(@Nullable TSNode type, SourceContent source) {
+        if (type == null) {
+            return List.of();
+        }
+        if (nodeType(REFERENCE_TYPE).equals(type.getType())) {
+            return receiverTypeSegments(type.getChildByFieldName(nodeField(RustNodeField.TYPE)), source);
+        }
+        if (nodeType(GENERIC_TYPE).equals(type.getType())
+                || nodeType(GENERIC_TYPE_WITH_TURBOFISH).equals(type.getType())) {
+            List<String> base =
+                    pathSegmentsPreservingKeywords(type.getChildByFieldName(nodeField(RustNodeField.TYPE)), source);
+            if (!base.isEmpty()
+                    && Set.of("Option", "Result", "Box", "Arc", "Rc").contains(base.getLast())) {
+                List<String> wrapped = pathSegmentsPreservingKeywords(
+                        type.getChildByFieldName(nodeField(RustNodeField.TYPE_ARGUMENTS)), source);
+                if (wrapped.size() > 1 && "Result".equals(base.getLast())) {
+                    return List.of(wrapped.getFirst());
+                }
+                return wrapped;
+            }
+            return base;
+        }
+        return pathSegmentsPreservingKeywords(type, source);
     }
 
     private static boolean isNonConcreteReceiverType(@Nullable TSNode type, SourceContent source) {
@@ -599,6 +1020,81 @@ public final class RustExportUsageExtractor {
             return Optional.of(source.substringFrom(value).strip()).filter(s -> !s.isBlank());
         }
         return Optional.empty();
+    }
+
+    private static Optional<String> simplePatternName(TSNode declaration, SourceContent source) {
+        TSNode pattern = declaration.getChildByFieldName(nodeField(RustNodeField.PATTERN));
+        Optional<String> fromPattern = simpleIdentifierName(pattern, source);
+        if (fromPattern.isPresent()) {
+            return fromPattern;
+        }
+        Optional<String> fromName =
+                simpleIdentifierName(declaration.getChildByFieldName(nodeField(RustNodeField.NAME)), source);
+        if (fromName.isPresent()) {
+            return fromName;
+        }
+        for (TSNode child : declaration.getNamedChildren()) {
+            Optional<String> direct = simpleIdentifierName(child, source);
+            if (direct.isPresent()) {
+                return direct;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<String> simpleIdentifierName(@Nullable TSNode node, SourceContent source) {
+        if (node == null) {
+            return Optional.empty();
+        }
+        String type = node.getType();
+        if (nodeType(IDENTIFIER).equals(type) || nodeType(TYPE_IDENTIFIER).equals(type)) {
+            return Optional.of(source.substringFrom(node).strip()).filter(s -> !s.isBlank());
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<String> singleIdentifierInWrappedPattern(@Nullable TSNode node, SourceContent source) {
+        if (node == null || containsUnsupportedWrappedPattern(node)) {
+            return Optional.empty();
+        }
+        if (nodeType(TUPLE_STRUCT_PATTERN).equals(node.getType())) {
+            var identifiers = new ArrayList<String>();
+            var children = node.getNamedChildren();
+            for (int i = 1; i < children.size(); i++) {
+                collectPatternIdentifiers(children.get(i), source, identifiers);
+            }
+            return identifiers.size() == 1 ? Optional.of(identifiers.getFirst()) : Optional.empty();
+        }
+        var identifiers = new ArrayList<String>();
+        collectPatternIdentifiers(node, source, identifiers);
+        return identifiers.size() == 1 ? Optional.of(identifiers.getFirst()) : Optional.empty();
+    }
+
+    private static boolean containsUnsupportedWrappedPattern(TSNode node) {
+        String type = node.getType();
+        if (nodeType(TUPLE_PATTERN).equals(type)
+                || nodeType(STRUCT_PATTERN).equals(type)
+                || nodeType(SLICE_PATTERN).equals(type)
+                || nodeType(FIELD_PATTERN).equals(type)
+                || nodeType(OR_PATTERN).equals(type)) {
+            return true;
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            if (containsUnsupportedWrappedPattern(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void collectPatternIdentifiers(TSNode node, SourceContent source, List<String> identifiers) {
+        if (nodeType(IDENTIFIER).equals(node.getType())) {
+            identifiers.add(source.substringFrom(node).strip());
+            return;
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            collectPatternIdentifiers(child, source, identifiers);
+        }
     }
 
     private static Optional<String> firstIdentifierName(@Nullable TSNode node, SourceContent source) {
@@ -762,6 +1258,7 @@ public final class RustExportUsageExtractor {
         if (nodeType(GENERIC_TYPE).equals(type)
                 || nodeType(GENERIC_TYPE_WITH_TURBOFISH).equals(type)) {
             collectPathSegments(node.getChildByFieldName(nodeField(RustNodeField.TYPE)), source, segments);
+            collectPathSegments(node.getChildByFieldName(nodeField(RustNodeField.TYPE_ARGUMENTS)), source, segments);
             return;
         }
         for (TSNode child : node.getNamedChildren()) {
@@ -774,6 +1271,13 @@ public final class RustExportUsageExtractor {
                 .filter(segment -> !isRustPathKeyword(segment))
                 .toList();
         return segments.isEmpty() ? Optional.empty() : Optional.of(segments.getLast());
+    }
+
+    private static Optional<String> rustPathOf(@Nullable TSNode node, SourceContent source) {
+        List<String> segments = pathSegmentsPreservingKeywords(node, source).stream()
+                .filter(segment -> !isRustPathKeyword(segment))
+                .toList();
+        return segments.isEmpty() ? Optional.empty() : Optional.of(String.join("::", segments));
     }
 
     private static boolean isRustPathKeyword(String segment) {
@@ -878,7 +1382,11 @@ public final class RustExportUsageExtractor {
                 .ifPresent(parts -> bindings.put(
                         localName,
                         new ImportBinder.ImportBinding(
-                                parts.moduleSpecifier(), ImportBinder.ImportKind.NAMED, parts.importedName())));
+                                parts.moduleSpecifier(),
+                                ImportBinder.ImportKind.NAMED,
+                                analyzer.inlineRustModuleExportName(
+                                                file, parts.moduleSpecifier(), parts.importedName(), false)
+                                        .orElse(parts.importedName()))));
     }
 
     private static void expandWildcardImport(
@@ -892,11 +1400,20 @@ public final class RustExportUsageExtractor {
             return;
         }
         analyzer.resolveRustModuleOutcome(file, moduleSpecifier).resolved().ifPresent(moduleFile -> {
+            var prefix = analyzer.inlineRustModuleExportPrefix(file, moduleSpecifier, false);
             for (String exportName :
                     analyzer.exportIndexOf(moduleFile).exportsByName().keySet()) {
-                if (!localTopLevelNames.contains(exportName)) {
+                if (prefix.isPresent()
+                        && !exportName.equals(prefix.orElseThrow())
+                        && !exportName.startsWith(prefix.orElseThrow() + "::")) {
+                    continue;
+                }
+                String localName = prefix.isPresent()
+                        ? exportName.substring(prefix.orElseThrow().length()).replaceFirst("^::", "")
+                        : exportName;
+                if (!localName.contains("::") && !localTopLevelNames.contains(localName)) {
                     bindings.putIfAbsent(
-                            exportName,
+                            localName,
                             new ImportBinder.ImportBinding(moduleSpecifier, ImportBinder.ImportKind.NAMED, exportName));
                 }
             }
@@ -912,4 +1429,11 @@ public final class RustExportUsageExtractor {
     private record Member(String name, boolean staticMember, CodeUnitType kind) {}
 
     private record PathParts(String moduleSpecifier, String importedName) {}
+
+    private enum Visibility {
+        PUBLIC,
+        CRATE,
+        SUPER,
+        PRIVATE
+    }
 }

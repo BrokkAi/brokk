@@ -36,11 +36,7 @@ public final class RustExportUsageGraphAdapter implements ExportUsageGraphLangua
 
     @Override
     public Set<CodeUnit> definitionsOf(ProjectFile file, String localName) {
-        return analyzer.getAllDeclarations().stream()
-                .filter(cu -> cu.source().equals(file))
-                .filter(cu ->
-                        cu.identifier().equals(localName) || cu.shortName().equals(localName))
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return analyzer.definitionsOf(file, localName);
     }
 
     @Override
