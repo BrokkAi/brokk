@@ -352,9 +352,18 @@ async fn fetch_chatgpt_models(
         )
     })?;
     let mut models = parsed.models;
-    // Drop hidden / disabled entries; preserve everything else and let
-    // the priority sort decide ordering.
-    models.retain(|m| m.visibility.as_deref() != Some("hidden"));
+    // Codex's `ModelVisibility` enum has three values: `list` (show in
+    // picker), `hide` (don't show but still callable), and `none`
+    // (internal-only model used by Codex's review/automation hooks --
+    // e.g. `codex-auto-review`). Codex CLI itself only puts `list`
+    // models in its picker (`show_in_picker = info.visibility ==
+    // ModelVisibility::List`). Match that exactly so we don't surface
+    // automation-only slugs that the user can't sensibly chat with.
+    //
+    // The previous filter looked for `"hidden"` (wrong serialized
+    // name) and ended up keeping `hide` *and* `none` entries, which is
+    // how `codex-auto-review` leaked into the picker.
+    models.retain(|m| m.visibility.as_deref() == Some("list"));
     // Higher priority first -- Codex's UI does the same. Stable sort so
     // ties keep server order (which is already curated).
     models.sort_by_key(|m| std::cmp::Reverse(m.priority));
@@ -1117,19 +1126,25 @@ mod tests {
     #[test]
     fn parses_models_response_and_sorts_by_priority_descending() {
         // Mirror a real ChatGPT /models payload (fields trimmed to the
-        // ones we deserialize). Priority-descending sort is what Codex
-        // CLI's picker does, so the most prominent slug surfaces first.
+        // ones we deserialize). Visibility filtering follows Codex's
+        // own `ModelVisibility` enum: only `list` is shown in pickers.
+        // `hide` (callable but not in picker) and `none` (internal /
+        // automation-only, e.g. `codex-auto-review`) are dropped so the
+        // user doesn't see slugs that aren't meant for chat. Priority-
+        // descending sort matches Codex CLI's UI ordering.
         let raw = r#"{
             "models": [
-                {"slug": "gpt-low",  "priority": 1},
-                {"slug": "gpt-high", "priority": 100},
-                {"slug": "gpt-mid",  "priority": 50,  "visibility": "public"},
-                {"slug": "gpt-hidden", "priority": 999, "visibility": "hidden"}
+                {"slug": "gpt-low",     "priority": 1,   "visibility": "list"},
+                {"slug": "gpt-high",    "priority": 100, "visibility": "list"},
+                {"slug": "gpt-mid",     "priority": 50,  "visibility": "list"},
+                {"slug": "gpt-hidden",  "priority": 999, "visibility": "hide"},
+                {"slug": "auto-review", "priority": 999, "visibility": "none"},
+                {"slug": "gpt-no-vis",  "priority": 999}
             ]
         }"#;
         let parsed: ChatGptModelsResponse = serde_json::from_str(raw).unwrap();
         let mut models = parsed.models;
-        models.retain(|m| m.visibility.as_deref() != Some("hidden"));
+        models.retain(|m| m.visibility.as_deref() == Some("list"));
         models.sort_by_key(|m| std::cmp::Reverse(m.priority));
         let slugs: Vec<&str> = models.iter().map(|m| m.slug.as_str()).collect();
         assert_eq!(slugs, vec!["gpt-high", "gpt-mid", "gpt-low"]);
