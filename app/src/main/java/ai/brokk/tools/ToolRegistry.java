@@ -1,5 +1,7 @@
 package ai.brokk.tools;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.exception.GlobalExceptionHandler;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
@@ -279,7 +281,25 @@ public class ToolRegistry {
                     };
                 }
             }
-            throw new RuntimeException(e);
+            // Unhandled tool exception: log the full stack so operators can see it,
+            // and surface the actual root cause's class + message to the LLM instead of
+            // a useless "InvocationTargetException".
+            GlobalExceptionHandler.handle(e);
+            // Method.invoke() always wraps with a non-null cause; walk the full chain
+            // (matching the sibling InterruptedException/ToolCallException loop above)
+            // so wrapped diagnostics like RuntimeException("wrapper", real) aren't hidden.
+            Throwable root = requireNonNull(e.getCause());
+            while (root.getCause() != null && root.getCause() != root) {
+                root = root.getCause();
+            }
+            var causeMsg = root.getMessage();
+            // Unlike the sibling error paths in this method (which surface only the
+            // message), include the class name so the LLM still has a concrete handle
+            // when the exception carries no message at all.
+            var msg = causeMsg == null
+                    ? root.getClass().getName()
+                    : "%s: %s".formatted(root.getClass().getName(), causeMsg);
+            return ToolExecutionResult.internalError(request, msg, elapsedMs(startNanos));
         } catch (IllegalAccessException e) {
             throw new RuntimeException(e);
         }
