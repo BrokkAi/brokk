@@ -59,6 +59,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.xml.XMLConstants;
@@ -709,6 +710,11 @@ public class SearchTools {
                 compiled.add(newlyCompiled);
             } catch (StackOverflowError e) {
                 errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
+            } catch (PatternSyntaxException e) {
+                logger.debug("Pattern '{}' is not valid regex, falling back to literal match", pat);
+                Pattern literal = Pattern.compile(Pattern.quote(pat));
+                cache.put(pat, literal);
+                compiled.add(literal);
             } catch (RuntimeException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 errors.add("'%s': %s".formatted(pat, message));
@@ -734,9 +740,8 @@ public class SearchTools {
         List<String> errors = new ArrayList<>();
 
         for (String pat : nonBlank) {
+            String cacheKey = pat + "::flags=" + flags;
             try {
-                String cacheKey = pat + "::flags=" + flags;
-
                 Pattern cached = cache.getIfPresent(cacheKey);
                 if (cached != null) {
                     compiled.add(cached);
@@ -748,6 +753,11 @@ public class SearchTools {
                 compiled.add(newlyCompiled);
             } catch (StackOverflowError e) {
                 errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
+            } catch (PatternSyntaxException e) {
+                logger.debug("Pattern '{}' is not valid regex, falling back to literal match", pat);
+                Pattern literal = Pattern.compile(Pattern.quote(pat), flags);
+                cache.put(cacheKey, literal);
+                compiled.add(literal);
             } catch (RuntimeException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 errors.add("'%s': %s".formatted(pat, message));
@@ -1522,12 +1532,13 @@ public class SearchTools {
     @Tool(
             """
                     Use for locating files/assets by name/path, not for primary code discovery in analyzed languages.
-                    Returns file names (paths relative to the project root) whose text contents match Java regular expression patterns.
+                    Returns file names (paths relative to the project root) whose text contents match the given patterns.
+                    Accepts regex or literal strings; invalid regex is automatically treated as a literal match.
                     Faster/cheaper than searchFileContents, since it only returns filenames and can stop as soon as it finds a match.
                     """)
     public String findFilesContaining(
             @P(
-                            "Java-style regex patterns to search for within file contents. Unlike searchSymbols this does not automatically include any implicit anchors or case insensitivity.")
+                            "Patterns to search for within file contents (regex or literal string). Unlike searchSymbols this does not automatically include any implicit anchors or case insensitivity.")
                     List<String> patterns,
             @P("Maximum number of files to return (capped at 100).") int limit)
             throws InterruptedException {
@@ -1702,7 +1713,8 @@ public class SearchTools {
 
     @Tool(
             """
-            Regex search across file contents -- use for string literals, config values, comments, log messages, and non-code files.
+            Search across file contents -- use for string literals, config values, comments, log messages, and non-code files.
+            Accepts regex or literal strings; invalid regex is automatically treated as a literal match.
             For finding code definitions (classes, methods), prefer searchSymbols or getSymbolLocations. For finding usages of known symbols, prefer scanUsages.
             In analyzed files, searchType can focus on declarations, usages, or all. searchType=all shows declarations first, then usages, then lower-signal related lines such as imports. Usage hits are grouped under their enclosing symbol with that symbol's line range, and usage context is clipped to that symbol body. searchType=declarations or usages hides related lines. Un-analyzed files always behave as all.
             Returns pseudo-XML <file> blocks with <matches> and optional <related> sections, plus optional context lines.
@@ -1710,7 +1722,7 @@ public class SearchTools {
             Limits: 500 total matching lines across all files. 20 matches per file per pattern. maxFiles capped at 100.
             """)
     public String searchFileContents(
-            @P("Java-style regex patterns to search for.") List<String> patterns,
+            @P("Patterns to search for (regex or literal string).") List<String> patterns,
             @P("Glob pattern for file paths (e.g., '**/AGENTS.md', 'src/**/*.java').") String filepath,
             @P(
                             "In analyzed files, filter visible hits to declarations, usages, or all. Imports and other related lines only appear with all. Usage hits are grouped under their enclosing symbol. Un-analyzed files always behave as all.")
@@ -2278,12 +2290,13 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns filenames (relative to the project root) that match the given Java regular expression patterns.
+                    Returns filenames (relative to the project root) that match the given patterns.
+                    Accepts regex or literal strings; invalid regex is automatically treated as a literal match.
                     Matching is always case-insensitive.
                     Use this to find configuration files, test data, or source files when you know part of their name.
                     """)
     public String findFilenames(
-            @P("Java-style regex patterns to match against filenames.") List<String> patterns,
+            @P("Patterns to match against filenames (regex or literal string).") List<String> patterns,
             @P("Maximum number of filenames to return (capped at 100).") int limit) {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search filenames: patterns list is empty");
