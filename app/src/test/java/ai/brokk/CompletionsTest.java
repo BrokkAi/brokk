@@ -3,12 +3,15 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestAnalyzer;
+import ai.brokk.testutil.TestProject;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -119,6 +122,25 @@ public class CompletionsTest {
                 Map.entry("w.u.Zz", List.of()),
                 Map.entry("test.CamelClass", List.of(CodeUnit.fn(mockFile, "test", "CamelClass.someMethod"))));
         return new TestAnalyzer(allClasses, methodsMap);
+    }
+
+    @Test
+    public void testExpandPathMalformedGlobReturnsEmpty() throws Exception {
+        // Regression for issue #3331: an LLM passing a JSON-array literal as a single glob
+        // (e.g. ["server/src/**/*.rs"]) used to escape a PatternSyntaxException up through
+        // the tool registry and crash the agent. We now return no matches instead.
+        Files.createDirectories(tempDir.resolve("server/src/bin"));
+        Files.writeString(tempDir.resolve("server/src/bin/main.rs"), "fn main() {}");
+
+        var project = new TestProject(tempDir);
+
+        List<BrokkFile> bracketed = Completions.expandPath(project, "[\"server/src/**/*.rs\"]");
+        assertEquals(List.of(), bracketed);
+
+        // Sanity check: a well-formed glob still resolves the file.
+        List<BrokkFile> ok = Completions.expandPath(project, "server/src/**/*.rs");
+        assertEquals(1, ok.size());
+        assertTrue(ok.get(0).toString().endsWith("main.rs"));
     }
 
     @Test

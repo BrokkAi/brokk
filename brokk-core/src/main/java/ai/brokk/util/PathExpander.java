@@ -11,11 +11,13 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.regex.PatternSyntaxException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -135,7 +137,13 @@ public final class PathExpander {
 
         // Build a matcher relative to baseDir to avoid Windows absolute glob quirks.
         String relGlob = remainder.replace('/', sepChar).replace('\\', sepChar);
-        var matcher = FileSystems.getDefault().getPathMatcher("glob:" + relGlob);
+        PathMatcher matcher;
+        try {
+            matcher = FileSystems.getDefault().getPathMatcher("glob:" + relGlob);
+        } catch (PatternSyntaxException e) {
+            logger.debug("Invalid glob pattern '{}' (relGlob='{}'); returning no matches", pattern, relGlob, e);
+            return List.of();
+        }
 
         var matches = new ArrayList<Path>();
         try {
