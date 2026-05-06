@@ -225,6 +225,47 @@ class ToolRegistryTest {
     }
 
     @Test
+    void executeTool_UnhandledExceptionSurfacesRootCauseToLlm() throws Exception {
+        var req = ToolExecutionRequest.builder()
+                .name("throwingTool")
+                .arguments("{}")
+                .build();
+
+        var result = registry.executeTool(req);
+
+        assertEquals(ToolExecutionResult.Status.INTERNAL_ERROR, result.status());
+        // The LLM must see the actual cause, not "java.lang.reflect.InvocationTargetException".
+        assertFalse(
+                result.resultText().contains("InvocationTargetException"),
+                "result text should not leak the reflection wrapper, was: " + result.resultText());
+        assertTrue(
+                result.resultText().contains("IllegalStateException"),
+                "result text should name the actual cause class, was: " + result.resultText());
+        assertTrue(
+                result.resultText().contains("kaboom"),
+                "result text should include the cause message, was: " + result.resultText());
+    }
+
+    @Test
+    void executeTool_UnhandledExceptionWithoutMessageStillUsesCauseClass() throws Exception {
+        var req = ToolExecutionRequest.builder()
+                .name("throwingToolNoMessage")
+                .arguments("{}")
+                .build();
+
+        var result = registry.executeTool(req);
+
+        assertEquals(ToolExecutionResult.Status.INTERNAL_ERROR, result.status());
+        assertFalse(
+                result.resultText().contains("InvocationTargetException"),
+                "result text should not leak the reflection wrapper, was: " + result.resultText());
+        assertTrue(
+                result.resultText().contains("NullPointerException"),
+                "result text should name the actual cause class even without a message, was: "
+                        + result.resultText());
+    }
+
+    @Test
     void executeTool_ValidationFailureReturnsRequestErrorWithTextOutput() throws Exception {
         var map = new LinkedHashMap<String, Object>();
         map.put("classNames", List.of("com.a.A"));
@@ -379,6 +420,16 @@ class ToolRegistryTest {
         @Tool("Tool with map param")
         public String mapParamTool(@P("arbitrary args") Map<String, Object> args) {
             return "";
+        }
+
+        @Tool("Tool that throws an unchecked exception with a message")
+        public String throwingTool() {
+            throw new IllegalStateException("kaboom");
+        }
+
+        @Tool("Tool that throws an unchecked exception with no message")
+        public String throwingToolNoMessage() {
+            throw new NullPointerException();
         }
     }
 

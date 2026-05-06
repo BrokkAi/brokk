@@ -279,7 +279,16 @@ public class ToolRegistry {
                     };
                 }
             }
-            throw new RuntimeException(e);
+            // Unhandled tool exception: log the full stack so operators can see it,
+            // and surface the actual cause's class + message to the LLM instead of
+            // a useless "InvocationTargetException".
+            GlobalExceptionHandler.handle(e);
+            var cause = e.getCause() != null ? e.getCause() : e;
+            var causeMsg = cause.getMessage();
+            var msg = causeMsg == null
+                    ? cause.getClass().getName()
+                    : "%s: %s".formatted(cause.getClass().getName(), causeMsg);
+            return ToolExecutionResult.internalError(request, msg, elapsedMs(startNanos));
         } catch (IllegalAccessException e) {
             throw new RuntimeException(e);
         }
