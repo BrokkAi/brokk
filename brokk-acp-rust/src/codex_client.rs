@@ -97,10 +97,32 @@ impl Default for CodexClient {
 
 impl CodexClient {
     pub fn new() -> Self {
+        // The ChatGPT backend sits behind Cloudflare. Without a cookie
+        // jar we drop Cloudflare's `__cf_bm` / `cf_clearance` / etc. set
+        // on the first response, which makes the bot manager
+        // increasingly suspicious of us across requests -- it can return
+        // 403 or a challenge HTML page instead of JSON, and the
+        // `/models` endpoint is more aggressive about that than
+        // `/responses`. `cookie_store(true)` gives us a per-client jar
+        // that quietly accumulates those cookies. We're not as strict
+        // as codex-rs about allowlisting only Cloudflare names; the
+        // jar is local to this client and the only host we talk to is
+        // chatgpt.com.
+        //
+        // The User-Agent matches Codex CLI's `codex_cli_rs/<ver> (<os>)`
+        // shape so we present as one of the first-party originators
+        // the consent screen + Responses backend recognize. Cloudflare
+        // is sensitive to user-agent strings that look like bots.
+        let user_agent = format!(
+            "{ORIGINATOR}/{ver} (brokk-acp; {os})",
+            ver = env!("CARGO_PKG_VERSION"),
+            os = std::env::consts::OS,
+        );
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(600))
-            .user_agent(format!("{ORIGINATOR}/brokk-acp"))
+            .cookie_store(true)
+            .user_agent(user_agent)
             .build()
             .expect("failed to build HTTP client");
         Self {
@@ -250,18 +272,27 @@ impl CodexClient {
     }
 }
 
-/// GET `chatgpt.com/backend-api/codex/models` and return the slugs.
-/// Sorted by the server-supplied `priority` (descending) so the most
-/// recommended model surfaces first in the picker -- matches Codex CLI's
-/// ordering. Models with `visibility != "hidden"` are included; we
-/// intentionally don't filter on `supported_in_api` because the
-/// ChatGPT backend ignores that field.
+/// GET `chatgpt.com/backend-api/codex/models?client_version=...` and
+/// return the slugs. Sorted by the server-supplied `priority`
+/// (descending) so the most recommended model surfaces first in the
+/// picker -- matches Codex CLI's ordering.
+///
+/// We attach `client_version` because the ChatGPT backend uses it for
+/// version-gated rollout (older clients see a different list). Reading
+/// the body as bytes first lets us surface an excerpt in the error
+/// message when the server returns a Cloudflare HTML challenge or any
+/// other non-JSON payload, which used to fail silently with `parsing
+/// /models JSON: expected value at line 1 column 1`.
 async fn fetch_chatgpt_models(
     http: &reqwest::Client,
     creds: &ChatGptCredentials,
 ) -> Result<Vec<String>> {
+    let url = format!(
+        "{CHATGPT_MODELS_URL}?client_version={}",
+        urlencode_minimal(env!("CARGO_PKG_VERSION"))
+    );
     let resp = http
-        .get(CHATGPT_MODELS_URL)
+        .get(&url)
         .header("Authorization", format!("Bearer {}", creds.access_token))
         .header("ChatGPT-Account-ID", &creds.account_id)
         .header("originator", ORIGINATOR)
@@ -270,11 +301,37 @@ async fn fetch_chatgpt_models(
         .await
         .context("GET /models")?;
     let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(ToString::to_string);
+    let body_bytes = resp
+        .bytes()
+        .await
+        .context("reading /models response body")?;
+
     if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("ChatGPT /models returned HTTP {status}: {}", body.trim());
+        let excerpt = body_excerpt(&body_bytes, 256);
+        anyhow::bail!(
+            "ChatGPT /models returned HTTP {status} (content-type: {ct}): {excerpt}",
+            ct = content_type.as_deref().unwrap_or("(none)")
+        );
     }
-    let parsed: ChatGptModelsResponse = resp.json().await.context("parsing /models JSON")?;
+    // Cloudflare challenges come back 200 OK with text/html. Fail loud
+    // rather than try to parse them as JSON.
+    if let Some(ct) = &content_type
+        && !ct.contains("json")
+    {
+        let excerpt = body_excerpt(&body_bytes, 256);
+        anyhow::bail!("ChatGPT /models returned non-JSON response (content-type: {ct}): {excerpt}");
+    }
+    let parsed: ChatGptModelsResponse = serde_json::from_slice(&body_bytes).with_context(|| {
+        format!(
+            "parsing /models JSON (excerpt: {})",
+            body_excerpt(&body_bytes, 256)
+        )
+    })?;
     let mut models = parsed.models;
     // Drop hidden / disabled entries; preserve everything else and let
     // the priority sort decide ordering.
@@ -282,7 +339,45 @@ async fn fetch_chatgpt_models(
     // Higher priority first -- Codex's UI does the same. Stable sort so
     // ties keep server order (which is already curated).
     models.sort_by_key(|m| std::cmp::Reverse(m.priority));
+    tracing::info!(
+        "ChatGPT /models returned {} slugs after filtering: {:?}",
+        models.len(),
+        models.iter().map(|m| m.slug.as_str()).collect::<Vec<_>>()
+    );
     Ok(models.into_iter().map(|m| m.slug).collect())
+}
+
+/// Render up to `limit` bytes of `body` as a debug-safe string. Used
+/// only in error paths -- we don't trust the body to be UTF-8 (a
+/// Cloudflare challenge page might be) but `from_utf8_lossy` always
+/// gives us *something* readable in logs.
+fn body_excerpt(body: &[u8], limit: usize) -> String {
+    let slice = if body.len() > limit {
+        &body[..limit]
+    } else {
+        body
+    };
+    let s = String::from_utf8_lossy(slice).replace('\n', " ");
+    if body.len() > limit {
+        format!("{s}... (truncated, {} total bytes)", body.len())
+    } else {
+        s
+    }
+}
+
+/// Minimal percent-encoder for query values. Avoids pulling in `url`
+/// just to encode a semver string.
+fn urlencode_minimal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 #[derive(Debug, Deserialize)]
