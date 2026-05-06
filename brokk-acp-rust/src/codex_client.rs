@@ -38,11 +38,20 @@ use crate::llm_client::{
     ChatMessage, FunctionCall, LlmBackend, LlmResponse, ToolCall, ToolDefinition,
 };
 
-/// Default Responses endpoint for "Sign in with ChatGPT" subscriptions.
-/// Codex CLI's `chatgpt_base_url` config defaults to the directory
-/// (`/backend-api/codex`); we append `/responses` to land on the
-/// Responses API specifically.
+// Codex CLI's `chatgpt_base_url` default is
+// `https://chatgpt.com/backend-api/codex`; the Responses API and the
+// model-discovery endpoint both live under it. We spell each full URL
+// out below rather than concatenating from a shared base so the strings
+// are greppable verbatim.
+
+/// Streaming completions endpoint (Responses API).
 const CHATGPT_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+
+/// Model discovery endpoint. Returns `{"models": [{"slug": ..., "display_name": ..., ...}]}`
+/// for the slugs the user's ChatGPT plan can route to. Codex CLI fetches
+/// this on startup and caches it -- we do the same so the picker stays
+/// in step with whatever models OpenAI currently offers.
+const CHATGPT_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
 
 /// Originator header value Codex CLI sends. The server gates ChatGPT-
 /// subscription usage on this identity (alongside the OAuth token), so
@@ -55,19 +64,12 @@ const ORIGINATOR: &str = "codex_cli_rs";
 /// hold the connection open. Aligned with `OpenAiClient`'s constant.
 const IDLE_CHUNK_TIMEOUT: Duration = Duration::from_secs(90);
 
-/// Default model list surfaced via ACP `initialize` when the user runs
-/// `--use-codex`. The Responses API has no `/models` listing on the
-/// ChatGPT backend, so we publish the slugs Codex CLI exposes in its
-/// model picker. The user can still type any other slug; we forward it
-/// verbatim. Order matters: the first entry becomes the session
-/// default unless overridden by `--default-model`.
-const DEFAULT_CHATGPT_MODELS: &[&str] = &[
-    "gpt-5-codex",
-    "gpt-5.1-codex",
-    "gpt-5",
-    "gpt-5.1",
-    "gpt-5-pro",
-];
+/// Last-resort fallback if `/models` is unreachable at startup. Kept
+/// to a single, well-known slug so we don't ship a stale, multi-entry
+/// picker that misleads the user (the original bug). One slug is enough
+/// to bootstrap a session; the user can always type another at the
+/// `/config` prompt and the server forwards it verbatim.
+const FALLBACK_CHATGPT_MODEL: &str = "gpt-5-codex";
 
 /// LLM backend that proxies to the ChatGPT subscription via the
 /// Responses API. Reads `~/.codex/auth.json` on every request and
@@ -212,21 +214,97 @@ impl CodexClient {
 
         drive_responses_sse_stream(stream, on_token, cancel, IDLE_CHUNK_TIMEOUT).await
     }
+
+    /// Discover usable model slugs by hitting `chatgpt.com/backend-api/codex/models`.
+    /// We deliberately don't ship a hardcoded picker any more: the
+    /// model lineup moves faster than our release cadence, and shipping
+    /// stale slugs (e.g. `gpt-5-pro` after that family is retired)
+    /// gives users an autocomplete full of models that 401 on first
+    /// use. On any error here we fall back to a single known slug
+    /// (`FALLBACK_CHATGPT_MODEL`) so ACP `initialize` still advertises
+    /// *something*; the user can override via `--default-model` or the
+    /// `/config` model picker.
+    async fn list_models_impl(&self) -> Result<Vec<String>> {
+        let creds = match self.load_credentials().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("skipping ChatGPT model discovery (credentials not ready): {e:#}");
+                return Ok(vec![FALLBACK_CHATGPT_MODEL.to_string()]);
+            }
+        };
+        match fetch_chatgpt_models(&self.http, &creds).await {
+            Ok(slugs) if !slugs.is_empty() => Ok(slugs),
+            Ok(_) => {
+                tracing::warn!(
+                    "ChatGPT /models endpoint returned no slugs; falling back to {FALLBACK_CHATGPT_MODEL}"
+                );
+                Ok(vec![FALLBACK_CHATGPT_MODEL.to_string()])
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "ChatGPT model discovery failed ({CHATGPT_MODELS_URL}): {e:#}; falling back to {FALLBACK_CHATGPT_MODEL}"
+                );
+                Ok(vec![FALLBACK_CHATGPT_MODEL.to_string()])
+            }
+        }
+    }
+}
+
+/// GET `chatgpt.com/backend-api/codex/models` and return the slugs.
+/// Sorted by the server-supplied `priority` (descending) so the most
+/// recommended model surfaces first in the picker -- matches Codex CLI's
+/// ordering. Models with `visibility != "hidden"` are included; we
+/// intentionally don't filter on `supported_in_api` because the
+/// ChatGPT backend ignores that field.
+async fn fetch_chatgpt_models(
+    http: &reqwest::Client,
+    creds: &ChatGptCredentials,
+) -> Result<Vec<String>> {
+    let resp = http
+        .get(CHATGPT_MODELS_URL)
+        .header("Authorization", format!("Bearer {}", creds.access_token))
+        .header("ChatGPT-Account-ID", &creds.account_id)
+        .header("originator", ORIGINATOR)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("GET /models")?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("ChatGPT /models returned HTTP {status}: {}", body.trim());
+    }
+    let parsed: ChatGptModelsResponse = resp.json().await.context("parsing /models JSON")?;
+    let mut models = parsed.models;
+    // Drop hidden / disabled entries; preserve everything else and let
+    // the priority sort decide ordering.
+    models.retain(|m| m.visibility.as_deref() != Some("hidden"));
+    // Higher priority first -- Codex's UI does the same. Stable sort so
+    // ties keep server order (which is already curated).
+    models.sort_by_key(|m| std::cmp::Reverse(m.priority));
+    Ok(models.into_iter().map(|m| m.slug).collect())
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatGptModelsResponse {
+    #[serde(default)]
+    models: Vec<ChatGptModelEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatGptModelEntry {
+    slug: String,
+    #[serde(default)]
+    visibility: Option<String>,
+    /// Server-supplied ordering hint. Higher = more prominent in the
+    /// picker. Default to 0 if absent so missing-field models sort last.
+    #[serde(default)]
+    priority: i32,
 }
 
 impl LlmBackend for CodexClient {
     fn list_models(&self) -> BoxFuture<'_, Result<Vec<String>>> {
-        // The ChatGPT backend has no `/v1/models` listing -- Codex CLI
-        // ships a hardcoded picker for exactly the same reason. Surface
-        // a known-good list so ACP `initialize` advertises something
-        // sensible; the user can still type any slug as the session
-        // model and we'll forward it verbatim.
-        Box::pin(async {
-            Ok(DEFAULT_CHATGPT_MODELS
-                .iter()
-                .map(|s| s.to_string())
-                .collect())
-        })
+        Box::pin(self.list_models_impl())
     }
 
     fn stream_chat(
@@ -920,5 +998,59 @@ mod tests {
         assert!(is_unauthorized(&err));
         let other = anyhow!("ChatGPT Responses API returned HTTP 500: server error");
         assert!(!is_unauthorized(&other));
+    }
+
+    #[test]
+    fn parses_models_response_and_sorts_by_priority_descending() {
+        // Mirror a real ChatGPT /models payload (fields trimmed to the
+        // ones we deserialize). Priority-descending sort is what Codex
+        // CLI's picker does, so the most prominent slug surfaces first.
+        let raw = r#"{
+            "models": [
+                {"slug": "gpt-low",  "priority": 1},
+                {"slug": "gpt-high", "priority": 100},
+                {"slug": "gpt-mid",  "priority": 50,  "visibility": "public"},
+                {"slug": "gpt-hidden", "priority": 999, "visibility": "hidden"}
+            ]
+        }"#;
+        let parsed: ChatGptModelsResponse = serde_json::from_str(raw).unwrap();
+        let mut models = parsed.models;
+        models.retain(|m| m.visibility.as_deref() != Some("hidden"));
+        models.sort_by_key(|m| std::cmp::Reverse(m.priority));
+        let slugs: Vec<&str> = models.iter().map(|m| m.slug.as_str()).collect();
+        assert_eq!(slugs, vec!["gpt-high", "gpt-mid", "gpt-low"]);
+    }
+
+    #[test]
+    fn parses_models_response_with_unknown_fields() {
+        // The real payload carries dozens of fields we don't model
+        // (reasoning levels, instructions templates, etc.). Make sure
+        // they don't break our deserializer.
+        let raw = r#"{
+            "models": [
+                {
+                    "slug": "gpt-future",
+                    "display_name": "GPT Future",
+                    "priority": 10,
+                    "supported_reasoning_levels": [],
+                    "shell_type": "default_shell",
+                    "visibility": "public",
+                    "supported_in_api": true,
+                    "base_instructions": "be helpful",
+                    "supports_reasoning_summaries": false,
+                    "support_verbosity": false,
+                    "default_verbosity": null,
+                    "apply_patch_tool_type": null,
+                    "truncation_policy": {"type": "auto"},
+                    "supports_parallel_tool_calls": true,
+                    "experimental_supported_tools": [],
+                    "availability_nux": null,
+                    "upgrade": null
+                }
+            ]
+        }"#;
+        let parsed: ChatGptModelsResponse = serde_json::from_str(raw).unwrap();
+        assert_eq!(parsed.models.len(), 1);
+        assert_eq!(parsed.models[0].slug, "gpt-future");
     }
 }
