@@ -262,6 +262,11 @@ class ToolRegistryTest {
         assertTrue(
                 result.resultText().contains("NullPointerException"),
                 "result text should name the actual cause class even without a message, was: " + result.resultText());
+        // Guard against a regression to "NullPointerException: null" — when there is no
+        // message, the formatter should emit only the class name, never a literal "null".
+        assertFalse(
+                result.resultText().contains("null"),
+                "result text should not contain the literal substring 'null', was: " + result.resultText());
     }
 
     @Test
