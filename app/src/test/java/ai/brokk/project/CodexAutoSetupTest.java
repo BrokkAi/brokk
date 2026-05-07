@@ -2,7 +2,6 @@ package ai.brokk.project;
 
 import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -189,19 +188,89 @@ class CodexAutoSetupTest {
     }
 
     @Test
-    void testRevertCodexAutoSetupVendorOnlyTouchesCodex(@TempDir Path tempDir) {
+    void testRevertCodexAutoSetupVendorRestoresOriginalVendor(@TempDir Path tempDir) {
         System.setProperty("brokk.test.mode", "true");
         System.setProperty("brokk.test.sandbox.root", tempDir.toString());
         MainProject.resetGlobalConfigCachesForTests();
 
-        // No-op when preference is already not-Codex.
         MainProject.setOtherModelsVendorPreference("Anthropic");
-        assertFalse(MainProject.revertCodexAutoSetupVendor(), "Should not touch a non-Codex vendor");
+
+        Optional<String> previous = MainProject.applyCodexSignInAutoSetup();
+        assertEquals(Optional.of("Anthropic"), previous);
+        assertEquals(ModelProperties.CODEX_VENDOR, MainProject.getOtherModelsVendorPreference());
+
+        Optional<String> restored = MainProject.revertCodexAutoSetupVendor();
+        assertEquals(Optional.of("Anthropic"), restored);
         assertEquals("Anthropic", MainProject.getOtherModelsVendorPreference());
 
-        // Reverts when preference is Codex.
+        MainProject.resetGlobalConfigCachesForTests();
+        assertEquals("Anthropic", MainProject.getOtherModelsVendorPreference());
+    }
+
+    @Test
+    void testRevertCodexAutoSetupVendorRestoresDefaultVendor(@TempDir Path tempDir) {
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", tempDir.toString());
+        MainProject.resetGlobalConfigCachesForTests();
+
+        Optional<String> previous = MainProject.applyCodexSignInAutoSetup();
+        assertEquals(Optional.of(""), previous);
+        assertEquals(ModelProperties.CODEX_VENDOR, MainProject.getOtherModelsVendorPreference());
+
+        Optional<String> restored = MainProject.revertCodexAutoSetupVendor();
+        assertEquals(Optional.of(""), restored);
+        assertEquals("", MainProject.getOtherModelsVendorPreference(), "Codex should restore the empty default");
+    }
+
+    @Test
+    void testRevertCodexAutoSetupVendorPreservesExplicitCodexChoice(@TempDir Path tempDir) {
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", tempDir.toString());
+        MainProject.resetGlobalConfigCachesForTests();
+
         MainProject.setOtherModelsVendorPreference(ModelProperties.CODEX_VENDOR);
-        assertTrue(MainProject.revertCodexAutoSetupVendor(), "Should revert when on Codex");
-        assertEquals("", MainProject.getOtherModelsVendorPreference(), "Codex should reset to default");
+        assertTrue(MainProject.revertCodexAutoSetupVendor().isEmpty(), "Should not touch an explicit Codex vendor");
+        assertEquals(ModelProperties.CODEX_VENDOR, MainProject.getOtherModelsVendorPreference());
+    }
+
+    @Test
+    void testManualVendorChangeAfterAutoSetupClearsRestoreMarker(@TempDir Path tempDir) {
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", tempDir.toString());
+        MainProject.resetGlobalConfigCachesForTests();
+
+        MainProject.setOtherModelsVendorPreference("Anthropic");
+        assertEquals(Optional.of("Anthropic"), MainProject.applyCodexSignInAutoSetup());
+
+        MainProject.setOtherModelsVendorPreference(ModelProperties.CODEX_VENDOR);
+        assertTrue(MainProject.revertCodexAutoSetupVendor().isEmpty());
+        assertEquals(ModelProperties.CODEX_VENDOR, MainProject.getOtherModelsVendorPreference());
+    }
+
+    @Test
+    void testSetConnectedAppliesCodexAutoSetupWithoutSettingsPanelListener(@TempDir Path tempDir) {
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", tempDir.toString());
+        MainProject.resetGlobalConfigCachesForTests();
+
+        MainProject.setOtherModelsVendorPreference("Anthropic");
+        MainProject.setOpenAiCodexOauthConnected(true);
+
+        assertEquals(ModelProperties.CODEX_VENDOR, MainProject.getOtherModelsVendorPreference());
+        assertEquals(Optional.of("Anthropic"), MainProject.getCodexAutoSetupPreviousVendorPreference());
+
+        Optional<String> restored = MainProject.setOpenAiCodexOauthConnected(false);
+        assertEquals(Optional.of("Anthropic"), restored);
+        assertEquals("Anthropic", MainProject.getOtherModelsVendorPreference());
+    }
+
+    @Test
+    void testCodexAutoSetupMessagesUseSharedWording() {
+        assertEquals(
+                "\"Vendor for other models\" was switched to \"OpenAI - Codex\" (was: Anthropic). To change it, open Settings > Advanced > Model Roles and pick a different entry from the \"Vendor for other models\" dropdown.",
+                MainProject.formatCodexAutoSetupVendorMessage("Anthropic"));
+        assertEquals(
+                "\"Vendor for other models\" was restored to \"Anthropic\".",
+                MainProject.formatCodexDisconnectVendorRestoreMessage("Anthropic"));
     }
 }

@@ -2106,19 +2106,13 @@ public class BrokkAcpAgent {
                     MainProject.removeSettingsChangeListener(this);
                 }
                 logger.info("ACP /codex-login completed for session {}", sessionId);
-                // Mirror SettingsGlobalPanel.maybeRunCodexAutoSetup so ACP and GUI converge after
-                // sign-in: install Codex favorites and switch the "Vendor for other models" default,
-                // then reload Service so getAvailableModels sees the new OAuth-only catalog. Run off
-                // the OAuth callback thread.
+                pushSessionMessage(sessionId, "Codex sign-in successful.");
+                MainProject.getCodexAutoSetupPreviousVendorPreference()
+                        .ifPresent(prev ->
+                                pushSessionMessage(sessionId, MainProject.formatCodexAutoSetupVendorMessage(prev)));
+                // Mirror SettingsGlobalPanel.maybeShowCodexAutoSetupDialog so ACP and GUI converge after
+                // sign-in: reload Service so getAvailableModels sees the new OAuth-only catalog.
                 LoggingFuture.runVirtual(() -> {
-                    var previousVendor = MainProject.applyCodexSignInAutoSetup();
-                    var msg = "Codex sign-in successful."
-                            + previousVendor
-                                    .map(prev -> String.format(
-                                            "%n%n\"Vendor for other models\" was switched to \"%s\" (was: %s). To change it, open the Brokk GUI Settings > Advanced > Model Roles and pick a different entry from the \"Vendor for other models\" dropdown.",
-                                            ModelProperties.CODEX_VENDOR, prev.isBlank() ? "Default" : prev))
-                                    .orElse("");
-                    pushSessionMessage(sessionId, msg);
                     var bundle = bundleBySession.get(sessionId);
                     if (bundle != null) {
                         bundle.cm().reloadService();
@@ -2215,18 +2209,21 @@ public class BrokkAcpAgent {
         LoggingFuture.runVirtual(() -> {
             var error = Service.disconnectCodexOauth();
             if (error == null) {
-                // Revert vendor preference before flipping the connected flag, otherwise
-                // listeners on openAiOauthConnectionChanged observe the stale OpenAI - Codex
-                // vendor while connected=false.
-                MainProject.revertCodexAutoSetupVendor();
-                MainProject.setOpenAiCodexOauthConnected(false);
+                var restoredVendor = MainProject.setOpenAiCodexOauthConnected(false);
                 // Drop any in-flight login on this JVM so its listener cannot fire a phantom
                 // "successful" message on a future unrelated reconnection.
                 var pending = pendingLogin.get();
                 if (pending != null) {
                     cancelPending(pending);
                 }
-                pushSessionMessage(sessionId, "Codex sign-in disconnected.");
+                pushSessionMessage(
+                        sessionId,
+                        "Codex sign-in disconnected."
+                                + restoredVendor
+                                        .map(vendor -> String.format(
+                                                "%n%n%s",
+                                                MainProject.formatCodexDisconnectVendorRestoreMessage(vendor)))
+                                        .orElse(""));
                 logger.info("ACP /codex-login disconnect succeeded");
             } else {
                 pushSessionMessage(sessionId, "Failed to disconnect Codex: " + error);

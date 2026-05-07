@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -2433,16 +2434,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         chrome.getContextManager().submitBackgroundTask("Disconnecting OpenAI", () -> {
             String error = Service.disconnectCodexOauth();
-            SwingUtilities.invokeLater(() -> {
+            var restoredVendor = error == null
+                    ? MainProject.setOpenAiCodexOauthConnected(false)
+                    : Optional.<String>empty();
+            SwingUtil.runOnEdt(() -> {
                 if (error == null) {
-                    // Revert vendor preference before flipping the connected flag, otherwise
-                    // listeners on openAiOauthConnectionChanged observe the stale OpenAI - Codex
-                    // vendor while connected=false.
-                    MainProject.revertCodexAutoSetupVendor();
-                    MainProject.setOpenAiCodexOauthConnected(false);
+                    String message = "Successfully disconnected from OpenAI."
+                            + restoredVendor
+                                    .map(vendor -> String.format(
+                                            "%n%n%s", MainProject.formatCodexDisconnectVendorRestoreMessage(vendor)))
+                                    .orElse("");
                     MaterialOptionPane.showConfirmDialog(
                             SettingsGlobalPanel.this,
-                            "Successfully disconnected from OpenAI.",
+                            message,
                             "OpenAI Disconnected",
                             JOptionPane.DEFAULT_OPTION,
                             JOptionPane.INFORMATION_MESSAGE);
@@ -2468,28 +2472,25 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     public void openAiOauthConnectionChanged() {
         SwingUtilities.invokeLater(() -> {
             updateOpenAiConnectionUi();
-            chrome.getContextManager().reloadService();
-            maybeRunCodexAutoSetup();
+            maybeShowCodexAutoSetupDialog();
         });
     }
 
-    private void maybeRunCodexAutoSetup() {
+    private void maybeShowCodexAutoSetupDialog() {
         if (!MainProject.isOpenAiCodexOauthConnected()) {
             return;
         }
-        logger.info("Codex OAuth connected; installing Codex favorites preset and default vendor.");
+        logger.info("Codex OAuth connected; reloading service and reporting Codex defaults.");
 
-        // Disk I/O (favorites + vendor preference writes) plus Service.reloadService must run off
+        // Disk I/O (vendor preference reads) plus Service.reloadService must run off
         // the EDT; the user-facing dialog has to run back on the EDT once the work is done.
-        chrome.getContextManager().submitBackgroundTask("Setting up Codex defaults", () -> {
-            var previousVendor = MainProject.applyCodexSignInAutoSetup();
+        chrome.getContextManager().submitBackgroundTask("Reloading Codex defaults", () -> {
+            var previousVendor = MainProject.getCodexAutoSetupPreviousVendorPreference();
             chrome.getContextManager().reloadService();
 
             SwingUtil.runOnEdt(() -> {
                 String vendorLine = previousVendor
-                        .map(prev -> String.format(
-                                "%n%n\"Vendor for other models\" was switched to \"%s\" (was: %s). To change it, open Settings > Advanced > Model Roles and pick a different entry from the \"Vendor for other models\" dropdown.",
-                                ModelProperties.CODEX_VENDOR, prev.isBlank() ? "Default" : prev))
+                        .map(prev -> String.format("%n%n%s", MainProject.formatCodexAutoSetupVendorMessage(prev)))
                         .orElse("");
                 String message =
                         """
