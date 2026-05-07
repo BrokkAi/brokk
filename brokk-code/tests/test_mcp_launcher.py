@@ -146,9 +146,7 @@ def test_run_mcp_server_reports_missing_runtime(monkeypatch, tmp_path, capsys) -
     assert "Unable to launch MCP runtime" in capsys.readouterr().err
 
 
-def test_run_mcp_server_appends_passthrough_args_directly_for_jbang(
-    monkeypatch, tmp_path
-) -> None:
+def test_run_mcp_server_appends_passthrough_args_directly_for_jbang(monkeypatch, tmp_path) -> None:
     """JBang's `jbang run [OPTS] <script> [<userParams>...]` grammar has no `--`
     separator: anything after the script/jar URL is passed straight to the Java
     main. Adding `--` shows up as `args[0]` to the main class and trips
@@ -336,9 +334,7 @@ def test_run_mcp_core_server_passthrough_args_directly_for_jbang(monkeypatch, tm
     assert "--" not in command
 
 
-def test_run_mcp_core_server_passthrough_args_direct_java_no_separator(
-    monkeypatch, tmp_path
-) -> None:
+def test_run_mcp_core_server_passthrough_args_directly_for_java(monkeypatch, tmp_path) -> None:
     captured: dict[str, object] = {}
     dummy_jar = tmp_path / "brokk-core.jar"
     dummy_jar.write_text("dummy")
@@ -479,3 +475,37 @@ def test_run_acp_server_passthrough_with_explicit_executor_version_still_uses_ja
     assert str(dummy_jar) in command
     assert not any("9.9.9" in part for part in command)
     assert not any("brokk-releases" in part for part in command)
+
+
+def test_run_acp_server_passthrough_args_directly_for_jbang(monkeypatch, tmp_path) -> None:
+    """`brokk acp` (no --jar) must launch via JBang and append passthrough args
+    such as `--workspace-dir <path>` directly to the command, with no `--`
+    separator before them. This is the exact production scenario from issue
+    #3547: the spurious `--` would otherwise show up as `args[0]` to the Java
+    main and trip `CliArgParser`'s `unknown argument --` warning."""
+    captured: dict[str, object] = {}
+
+    def fake_execvpe(binary: str, command: list[str], env: dict[str, str]) -> None:
+        captured["binary"] = binary
+        captured["command"] = command
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(os, "chdir", lambda _path: None)
+    monkeypatch.setattr(os, "execvpe", fake_execvpe)
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
+    monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
+
+    with pytest.raises(RuntimeError, match="stop"):
+        mcp_launcher.run_acp_server(
+            workspace_dir=tmp_path,
+            jar_path=None,
+            executor_version=None,
+            passthrough_args=["--workspace-dir", str(tmp_path)],
+        )
+
+    command = captured["command"]
+    assert captured["binary"] == "/usr/local/bin/jbang"
+    assert "ai.brokk.acp.AcpServerMain" in command
+    assert command[-2:] == ["--workspace-dir", str(tmp_path)]
+    assert "--" not in command
