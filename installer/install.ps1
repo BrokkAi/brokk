@@ -30,11 +30,11 @@
     Print the installer version and exit.
 
 .EXAMPLE
-    irm https://install.brokk.ai/install.ps1 | iex
+    irm https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.ps1 | iex
 
 .EXAMPLE
     # With options, download then run:
-    irm https://install.brokk.ai/install.ps1 -OutFile install.ps1
+    irm https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.ps1 -OutFile install.ps1
     .\install.ps1 -InstallDir C:\tools\brokk
 
 .NOTES
@@ -167,6 +167,33 @@ function Get-LatestPrefixedTag($repo, $prefix) {
     Die "No release found for $repo with tag prefix '$prefix'. Pin a version with -AcpVersion or `$env:BROKK_ACP_VERSION."
 }
 
+function Get-ReleaseByTag($repo, $tag) {
+    $url = "https://api.github.com/repos/$repo/releases/tags/$tag"
+    try {
+        return Invoke-DownloadJson $url
+    } catch {
+        Die "Could not fetch release $tag for ${repo}: $_"
+    }
+}
+
+function Find-AssetUrl {
+    param(
+        [Parameter(Mandatory)] $Release,
+        [Parameter(Mandatory)] [string] $AssetName,
+        [switch] $Optional
+    )
+    $asset = $Release.assets | Where-Object { $_.name -eq $AssetName } | Select-Object -First 1
+    if (-not $asset) {
+        if ($Optional) { return $null }
+        Die "Release $($Release.tag_name) is missing expected asset: $AssetName"
+    }
+    if (-not $asset.browser_download_url) {
+        if ($Optional) { return $null }
+        Die "Release $($Release.tag_name) asset $AssetName has no browser_download_url."
+    }
+    return $asset.browser_download_url
+}
+
 # ---- install helpers -----------------------------------------------------
 
 function Test-Sha256 {
@@ -203,7 +230,8 @@ function Install-Bifrost {
     }
     $target = 'x86_64-pc-windows-msvc'
     $archiveName = "bifrost-$Version-$target.zip"
-    $url = "https://github.com/$BifrostRepo/releases/download/$Version/$archiveName"
+    $release = Get-ReleaseByTag $BifrostRepo $Version
+    $url = Find-AssetUrl -Release $release -AssetName $archiveName
 
     Write-Step "Downloading bifrost $Version ($target)"
     $tmp = New-Item -ItemType Directory -Path (Join-Path ([System.IO.Path]::GetTempPath()) ("brokk-installer-" + [guid]::NewGuid())) -Force
@@ -211,13 +239,17 @@ function Install-Bifrost {
         $archivePath = Join-Path $tmp.FullName $archiveName
         Invoke-Download -Url $url -Destination $archivePath
 
-        $shaUrl = "$url.sha256"
+        $shaUrl = Find-AssetUrl -Release $release -AssetName "$archiveName.sha256" -Optional
         $shaPath = "$archivePath.sha256"
         $shaOk = $false
-        try {
-            Invoke-Download -Url $shaUrl -Destination $shaPath
-            $shaOk = $true
-        } catch {
+        if ($shaUrl) {
+            try {
+                Invoke-Download -Url $shaUrl -Destination $shaPath
+                $shaOk = $true
+            } catch {
+                Write-Warn2 "Could not download sha256 sidecar for bifrost $Version; skipping checksum verification."
+            }
+        } else {
             Write-Warn2 "No sha256 sidecar for bifrost $Version; skipping checksum verification."
         }
         if ($shaOk) {
@@ -253,7 +285,8 @@ function Install-BrokkAcp {
         Die "Internal: no brokk-acp asset for Windows $Arch"
     }
     $assetName = 'brokk-acp-windows-x86_64.exe'
-    $url = "https://github.com/$BrokkRepo/releases/download/$AcpTagPrefix$Version/$assetName"
+    $release = Get-ReleaseByTag $BrokkRepo "$AcpTagPrefix$Version"
+    $url = Find-AssetUrl -Release $release -AssetName $assetName
 
     Write-Step "Downloading brokk-acp $Version (windows-x86_64)"
     $tmp = New-Item -ItemType Directory -Path (Join-Path ([System.IO.Path]::GetTempPath()) ("brokk-installer-" + [guid]::NewGuid())) -Force

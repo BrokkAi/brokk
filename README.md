@@ -9,6 +9,7 @@
   <a href="https://blog.brokk.ai">Blog</a> •
   <a href="https://www.youtube.com/@Brokk_AI">YouTube</a> •
   <a href="https://github.com/BrokkAi/brokk/releases">Download</a> •
+  <a href="#install">Install</a> •
   <a href="#getting-started">Getting Started</a>
 </p>
 
@@ -30,6 +31,36 @@ Brokk keeps LLMs on-task in large codebases with fragment-level context, code in
 <p align="center">
   <img src="docs/media/brokk-hero.gif" alt="Brokk Lutz Mode: collect relevant fragments -> prune -> note/discard -> workspace ready" width="1080">
 </p>
+
+## Install
+
+Most users should install the Brokk desktop app from GitHub Releases:
+
+- Download Brokk: https://github.com/BrokkAi/brokk/releases
+- Alternative jDeploy install page: https://www.jdeploy.com/gh/BrokkAi/brokk
+
+The app installer is the normal way to run Brokk. It includes the Java desktop application and handles platform-specific packaging.
+
+### ACP support components
+
+The scripts under `installer/` do **not** install the Brokk desktop app. They install only the standalone agent support components:
+
+- `bifrost`: the auth proxy
+- `brokk-acp`: the Rust ACP server
+
+Use this only when you need those command-line components for ACP/Codex-style integrations:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.sh | bash
+```
+
+On Windows, run this in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.ps1 | iex
+```
+
+The component installer downloads the latest GitHub release assets for your platform, installs them to a per-user bin directory, and adds that directory to `PATH`. See [installer/README.md](installer/README.md) for options, pinned versions, supported platforms, and security notes.
 
 ## Why Brokk is different
 
@@ -64,26 +95,6 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 <p align="center">
   <img src="docs/media/screenshot-bpr-meter.png" alt="In-app BPR meter above the Instructions panel" width="800">
 </p>
-
-## Claude Code Plugin
-
-Brokk is available as a [Claude Code plugin](claude-plugin/README.md) that adds semantic code intelligence -- symbol navigation, cross-reference analysis, and structural code understanding. See the [plugin README](claude-plugin/README.md) for installation instructions.
-
-## Terminal UI (Python Client)
-
-The `brokk-code/` directory contains the **Python (Textual) terminal UI client**. This is an interactive TUI that launches and manages a **local Java executor** subprocess.
-
-- **Main Product**: The core Brokk engine (executor) is Java-based.
-- **TUI Client**: The Python project is a separate client that communicates with the executor via a local HTTP API.
-- **Documentation**:
-  - See [brokk-code/README.md](brokk-code/README.md) for instructions on running and configuring the TUI.
-  - See [brokk-code/AGENTS.md](brokk-code/AGENTS.md) for Python-specific contributor guidance.
-
-**Common Confusion:**
-- **Builds**: Java components use Gradle; the TUI uses Python (`uv` or `pip`). Build them independently.
-- **Execution**: Run TUI commands (like `uv run brokk-code`) from the `brokk-code/` directory.
-- **Executor JAR**: The TUI automatically downloads the required Java executor JAR to `~/.brokk/` on first run, so you don't need to build the Java project manually just to use the client.
-- **Authentication**: The TUI handles authentication by generating a transient bearer token to secure the local communication with the executor subprocess.
 
 ## How it works (20 seconds)
 
@@ -176,6 +187,7 @@ The `brokk-code/` directory contains the **Python (Textual) terminal UI client**
        ```
      - All platforms and installers: https://www.jdeploy.com/gh/BrokkAi/brokk
      - Requires Java 21+. On Windows, use the Releases installers or the jDeploy page.
+   - Optional ACP support components: use the `bifrost` + `brokk-acp` installer above only if you need those standalone command-line services.
 
 3. Launch and sign in
    - Start Brokk and paste your API key when prompted.
@@ -183,6 +195,14 @@ The `brokk-code/` directory contains the **Python (Textual) terminal UI client**
 4. Requirements
    - For building from source: JDK 21 or newer (JetBrains Runtime recommended).
    - Supported platforms: recent macOS, Windows, and Linux distributions.
+
+## Related Tools
+
+These are optional companion projects, not the main desktop app install path:
+
+- [Claude Code plugin](claude-plugin/README.md): adds Brokk-powered semantic code intelligence to Claude Code.
+- [Terminal UI](brokk-code/README.md): a Python/Textual client that launches a local Java executor subprocess.
+- [ACP support components](installer/README.md): installs only `bifrost` and `brokk-acp` for ACP/Codex-style integrations.
 
 ## Staging Environment
 
