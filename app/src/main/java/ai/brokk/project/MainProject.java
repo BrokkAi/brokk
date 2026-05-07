@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
@@ -1105,18 +1106,30 @@ public final class MainProject extends AbstractProject {
         return Boolean.parseBoolean(props.getProperty(OPENAI_CODEX_OAUTH_CONNECTED_KEY, "false"));
     }
 
-    public static void setOpenAiCodexOauthConnected(boolean connected) {
-        var props = loadGlobalProperties();
-        boolean currentValue = Boolean.parseBoolean(props.getProperty(OPENAI_CODEX_OAUTH_CONNECTED_KEY, "false"));
-        if (currentValue != connected) {
+    @Blocking
+    public static Optional<String> setOpenAiCodexOauthConnected(boolean connected) {
+        Optional<String> restoredVendor = Optional.empty();
+        synchronized (MainProject.class) {
+            var props = loadGlobalProperties();
+            boolean currentValue = Boolean.parseBoolean(props.getProperty(OPENAI_CODEX_OAUTH_CONNECTED_KEY, "false"));
+            if (currentValue == connected) {
+                return Optional.empty();
+            }
             if (connected) {
+                try {
+                    applyCodexSignInAutoSetup(props);
+                } catch (RuntimeException e) {
+                    GlobalExceptionHandler.handle(e);
+                }
                 props.setProperty(OPENAI_CODEX_OAUTH_CONNECTED_KEY, "true");
             } else {
+                restoredVendor = revertCodexAutoSetupVendor(props).restoredVendor();
                 props.remove(OPENAI_CODEX_OAUTH_CONNECTED_KEY);
             }
             saveGlobalProperties(props);
-            notifyOpenAiOauthConnectionChanged();
         }
+        notifyOpenAiOauthConnectionChanged();
+        return restoredVendor;
     }
 
     public static boolean isRestrictToOauthModelsWhenConnected() {
@@ -1499,6 +1512,7 @@ public final class MainProject extends AbstractProject {
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
     private static final String OTHER_MODELS_VENDOR_KEY = "otherModelsVendor";
+    private static final String OTHER_MODELS_VENDOR_PRE_CODEX_KEY = "otherModelsVendorBeforeCodexAutoSetup";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1566,8 +1580,9 @@ public final class MainProject extends AbstractProject {
         return props.getProperty(OTHER_MODELS_VENDOR_KEY, "");
     }
 
-    public static void setOtherModelsVendorPreference(String vendor) {
+    public static synchronized void setOtherModelsVendorPreference(String vendor) {
         var props = loadGlobalProperties();
+        props.remove(OTHER_MODELS_VENDOR_PRE_CODEX_KEY);
         if (vendor.isBlank()) {
             props.remove(OTHER_MODELS_VENDOR_KEY);
         } else {
@@ -1881,6 +1896,106 @@ public final class MainProject extends AbstractProject {
             logger.trace("Favorite models unchanged, skipping save.");
         }
     }
+
+    /**
+     * Applies the post-Codex-sign-in defaults: installs the Codex favorites preset, switches the
+     * "Vendor for other models" preference to {@link ModelProperties#CODEX_VENDOR}, and remembers
+     * the replaced vendor so disconnect can restore it.
+     *
+     * @return the previous vendor preference if it differed from {@link ModelProperties#CODEX_VENDOR}
+     *         (so callers can mention it in user-facing messaging); empty otherwise.
+     */
+    @Blocking
+    public static synchronized Optional<String> applyCodexSignInAutoSetup() {
+        var props = loadGlobalProperties();
+        var result = applyCodexSignInAutoSetup(props);
+        if (result.changed()) {
+            saveGlobalProperties(props);
+        }
+        return result.previousVendor();
+    }
+
+    private static CodexAutoSetupResult applyCodexSignInAutoSetup(Properties props) {
+        boolean changed = ModelProperties.saveFavoriteModels(props, ModelProperties.CODEX_OAUTH_FAVORITES);
+        String previousVendor = props.getProperty(OTHER_MODELS_VENDOR_KEY, "");
+        if (ModelProperties.CODEX_VENDOR.equals(previousVendor)) {
+            return new CodexAutoSetupResult(Optional.empty(), changed);
+        }
+        props.setProperty(OTHER_MODELS_VENDOR_PRE_CODEX_KEY, previousVendor);
+        props.setProperty(OTHER_MODELS_VENDOR_KEY, ModelProperties.CODEX_VENDOR);
+        logger.info(
+                "Codex auto-setup: switched 'Vendor for other models' from '{}' to '{}'",
+                previousVendor.isBlank() ? "(default)" : previousVendor,
+                ModelProperties.CODEX_VENDOR);
+        return new CodexAutoSetupResult(Optional.of(previousVendor), true);
+    }
+
+    /**
+     * Restores the vendor preference that {@link #applyCodexSignInAutoSetup()} replaced, if Codex
+     * auto-setup is still responsible for the current Codex vendor selection.
+     *
+     * @return the restored vendor preference, empty if no auto-setup vendor was restored.
+     */
+    @Blocking
+    public static synchronized Optional<String> revertCodexAutoSetupVendor() {
+        var props = loadGlobalProperties();
+        var result = revertCodexAutoSetupVendor(props);
+        if (result.changed()) {
+            saveGlobalProperties(props);
+        }
+        return result.restoredVendor();
+    }
+
+    private static CodexVendorRestoreResult revertCodexAutoSetupVendor(Properties props) {
+        String previousVendor = props.getProperty(OTHER_MODELS_VENDOR_PRE_CODEX_KEY);
+        if (previousVendor == null) {
+            return new CodexVendorRestoreResult(Optional.empty(), false);
+        }
+        props.remove(OTHER_MODELS_VENDOR_PRE_CODEX_KEY);
+        if (!ModelProperties.CODEX_VENDOR.equals(props.getProperty(OTHER_MODELS_VENDOR_KEY, ""))) {
+            logger.info(
+                    "Codex disconnect: cleared stale pre-Codex vendor '{}' because current vendor is '{}'",
+                    previousVendor.isBlank() ? "(default)" : previousVendor,
+                    props.getProperty(OTHER_MODELS_VENDOR_KEY, ""));
+            return new CodexVendorRestoreResult(Optional.empty(), true);
+        }
+        if (previousVendor.isBlank()) {
+            props.remove(OTHER_MODELS_VENDOR_KEY);
+        } else {
+            props.setProperty(OTHER_MODELS_VENDOR_KEY, previousVendor);
+        }
+        logger.info(
+                "Codex disconnect: restored 'Vendor for other models' from '{}' to '{}'",
+                ModelProperties.CODEX_VENDOR,
+                previousVendor.isBlank() ? "(default)" : previousVendor);
+        return new CodexVendorRestoreResult(Optional.of(previousVendor), true);
+    }
+
+    @Blocking
+    public static synchronized Optional<String> getCodexAutoSetupPreviousVendorPreference() {
+        var props = loadGlobalProperties();
+        if (!ModelProperties.CODEX_VENDOR.equals(props.getProperty(OTHER_MODELS_VENDOR_KEY, ""))) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(props.getProperty(OTHER_MODELS_VENDOR_PRE_CODEX_KEY));
+    }
+
+    public static String formatCodexAutoSetupVendorMessage(String previousVendor) {
+        return String.format(
+                "\"Vendor for other models\" was switched to \"%s\" (was: %s). To change it, open Settings > Advanced > Model Roles and pick a different entry from the \"Vendor for other models\" dropdown.",
+                ModelProperties.CODEX_VENDOR,
+                previousVendor.isBlank() ? "Default" : previousVendor);
+    }
+
+    public static String formatCodexDisconnectVendorRestoreMessage(String restoredVendor) {
+        return String.format(
+                "\"Vendor for other models\" was restored to %s.",
+                restoredVendor.isBlank() ? "Default" : "\"" + restoredVendor + "\"");
+    }
+
+    private record CodexAutoSetupResult(Optional<String> previousVendor, boolean changed) {}
+
+    private record CodexVendorRestoreResult(Optional<String> restoredVendor, boolean changed) {}
 
     private static Properties loadProjectsProperties() {
         var props = new Properties();

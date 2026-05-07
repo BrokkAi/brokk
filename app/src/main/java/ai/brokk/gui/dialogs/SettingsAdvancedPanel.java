@@ -419,7 +419,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         vendors.addAll(ModelProperties.getAvailableVendors());
 
         if (!MainProject.isOpenAiCodexOauthConnected()) {
-            vendors.remove("OpenAI - Codex");
+            vendors.remove(ModelProperties.CODEX_VENDOR);
         }
 
         otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
@@ -896,7 +896,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         defaultsRolesButton.addActionListener(e -> {
             boolean codexConnected = MainProject.isOpenAiCodexOauthConnected();
 
-            otherModelsVendorCombo.setSelectedItem(codexConnected ? "OpenAI - Codex" : ModelProperties.DEFAULT_VENDOR);
+            otherModelsVendorCombo.setSelectedItem(
+                    codexConnected ? ModelProperties.CODEX_VENDOR : ModelProperties.DEFAULT_VENDOR);
 
             // OAuth-connected: use the Codex OAuth preset; else fall back to ModelProperties defaults.
             var architectConfig = codexConnected

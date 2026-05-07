@@ -7,6 +7,7 @@ import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.MaterialOptionPane;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.SwingUtil.ThemedIcon;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
@@ -43,6 +44,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -2432,12 +2434,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         chrome.getContextManager().submitBackgroundTask("Disconnecting OpenAI", () -> {
             String error = Service.disconnectCodexOauth();
-            SwingUtilities.invokeLater(() -> {
+            var restoredVendor = error == null
+                    ? MainProject.setOpenAiCodexOauthConnected(false)
+                    : Optional.<String>empty();
+            SwingUtil.runOnEdt(() -> {
                 if (error == null) {
-                    MainProject.setOpenAiCodexOauthConnected(false);
+                    String message = "Successfully disconnected from OpenAI."
+                            + restoredVendor
+                                    .map(vendor -> String.format(
+                                            "%n%n%s", MainProject.formatCodexDisconnectVendorRestoreMessage(vendor)))
+                                    .orElse("");
                     MaterialOptionPane.showConfirmDialog(
                             SettingsGlobalPanel.this,
-                            "Successfully disconnected from OpenAI.",
+                            message,
                             "OpenAI Disconnected",
                             JOptionPane.DEFAULT_OPTION,
                             JOptionPane.INFORMATION_MESSAGE);
@@ -2463,40 +2472,44 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     public void openAiOauthConnectionChanged() {
         SwingUtilities.invokeLater(() -> {
             updateOpenAiConnectionUi();
-            chrome.getContextManager().reloadService();
-            maybeRunCodexAutoSetup();
+            maybeShowCodexAutoSetupDialog();
         });
     }
 
-    private void maybeRunCodexAutoSetup() {
-        if (MainProject.isOpenAiCodexOauthConnected()) {
-            logger.info("Codex OAuth connected; installing Codex favorites preset.");
+    private void maybeShowCodexAutoSetupDialog() {
+        if (!MainProject.isOpenAiCodexOauthConnected()) {
+            return;
+        }
+        logger.info("Codex OAuth connected; reloading service and reporting Codex defaults.");
 
-            MainProject.saveFavoriteModels(ModelProperties.CODEX_OAUTH_FAVORITES);
-            logger.info("Replaced favorites list with Codex OAuth models");
-
+        // Disk I/O (vendor preference reads) plus Service.reloadService must run off
+        // the EDT; the user-facing dialog has to run back on the EDT once the work is done.
+        chrome.getContextManager().submitBackgroundTask("Reloading Codex defaults", () -> {
+            var previousVendor = MainProject.getCodexAutoSetupPreviousVendorPreference();
             chrome.getContextManager().reloadService();
 
-            SwingUtilities.invokeLater(() -> {
+            SwingUtil.runOnEdt(() -> {
+                String vendorLine = previousVendor
+                        .map(prev -> String.format("%n%n%s", MainProject.formatCodexAutoSetupVendorMessage(prev)))
+                        .orElse("");
                 String message =
                         """
                         Codex OAuth is connected. While the OAuth-only restriction is enabled
-                        (Settings > Global), all model roles route to Codex models automatically
-                        without overwriting your saved preferences. The favorites list has been
-                        updated with Codex presets.
-                        """
-                                .stripIndent();
+                        (Settings > Global), all model roles route to Codex models automatically.
+                        The favorites list has been updated with Codex presets."""
+                                        .stripIndent()
+                                + vendorLine;
 
                 MaterialOptionPane.showConfirmDialog(
                         parentDialog,
                         message,
-                        "Codex Setup Complete",
+                        "Codex Sign-in Complete",
                         JOptionPane.DEFAULT_OPTION,
                         JOptionPane.INFORMATION_MESSAGE);
 
                 parentDialog.reloadSettingsAndSelectTab(SettingsAdvancedPanel.MODEL_ROLES_TAB_TITLE);
             });
-        }
+        });
     }
 
     @Override
