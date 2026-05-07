@@ -2,6 +2,7 @@ package ai.brokk.project;
 
 import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -9,6 +10,7 @@ import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -144,5 +146,62 @@ class CodexAutoSetupTest {
         // Persistence sanity: substitution never wrote anything to disk.
         MainProject.resetGlobalConfigCachesForTests();
         assertEquals("claude-sonnet-4-6", project.getModelConfig(ModelType.CODE).name());
+    }
+
+    @Test
+    void testApplyCodexSignInAutoSetupSwitchesVendorAndReportsPrevious(@TempDir Path tempDir) {
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", tempDir.toString());
+        MainProject.resetGlobalConfigCachesForTests();
+
+        // Pre-condition: no vendor preference set yet.
+        assertEquals("", MainProject.getOtherModelsVendorPreference());
+
+        Optional<String> previous = MainProject.applyCodexSignInAutoSetup();
+        assertTrue(previous.isPresent(), "Helper should report a vendor change occurred");
+        assertEquals("", previous.get(), "Previous vendor should be the empty default");
+        assertEquals(
+                ModelProperties.CODEX_VENDOR,
+                MainProject.getOtherModelsVendorPreference(),
+                "Vendor preference should switch to OpenAI - Codex");
+
+        // Idempotent: re-running when already on Codex reports no change.
+        Optional<String> repeat = MainProject.applyCodexSignInAutoSetup();
+        assertTrue(repeat.isEmpty(), "Helper should report no change when already on Codex");
+
+        // Persistence: survives a cache reset.
+        MainProject.resetGlobalConfigCachesForTests();
+        assertEquals(ModelProperties.CODEX_VENDOR, MainProject.getOtherModelsVendorPreference());
+    }
+
+    @Test
+    void testApplyCodexSignInAutoSetupReportsExplicitPreviousVendor(@TempDir Path tempDir) {
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", tempDir.toString());
+        MainProject.resetGlobalConfigCachesForTests();
+
+        MainProject.setOtherModelsVendorPreference("Anthropic");
+
+        Optional<String> previous = MainProject.applyCodexSignInAutoSetup();
+        assertTrue(previous.isPresent(), "Helper should report a vendor change occurred");
+        assertEquals("Anthropic", previous.get(), "Previous vendor should be reported verbatim");
+        assertEquals(ModelProperties.CODEX_VENDOR, MainProject.getOtherModelsVendorPreference());
+    }
+
+    @Test
+    void testRevertCodexAutoSetupVendorOnlyTouchesCodex(@TempDir Path tempDir) {
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", tempDir.toString());
+        MainProject.resetGlobalConfigCachesForTests();
+
+        // No-op when preference is already not-Codex.
+        MainProject.setOtherModelsVendorPreference("Anthropic");
+        assertFalse(MainProject.revertCodexAutoSetupVendor(), "Should not touch a non-Codex vendor");
+        assertEquals("Anthropic", MainProject.getOtherModelsVendorPreference());
+
+        // Reverts when preference is Codex.
+        MainProject.setOtherModelsVendorPreference(ModelProperties.CODEX_VENDOR);
+        assertTrue(MainProject.revertCodexAutoSetupVendor(), "Should revert when on Codex");
+        assertEquals("", MainProject.getOtherModelsVendorPreference(), "Codex should reset to default");
     }
 }

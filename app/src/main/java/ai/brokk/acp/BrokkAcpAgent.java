@@ -2105,13 +2105,20 @@ public class BrokkAcpAgent {
                 } finally {
                     MainProject.removeSettingsChangeListener(this);
                 }
-                pushSessionMessage(sessionId, "Codex sign-in successful.");
                 logger.info("ACP /codex-login completed for session {}", sessionId);
                 // Mirror SettingsGlobalPanel.maybeRunCodexAutoSetup so ACP and GUI converge after
-                // sign-in: install Codex favorites, then reload Service so getAvailableModels
-                // sees the new OAuth-only catalog. Run off the OAuth callback thread.
+                // sign-in: install Codex favorites and switch the "Vendor for other models" default,
+                // then reload Service so getAvailableModels sees the new OAuth-only catalog. Run off
+                // the OAuth callback thread.
                 LoggingFuture.runVirtual(() -> {
-                    MainProject.saveFavoriteModels(ModelProperties.CODEX_OAUTH_FAVORITES);
+                    var previousVendor = MainProject.applyCodexSignInAutoSetup();
+                    var msg = "Codex sign-in successful."
+                            + previousVendor
+                                    .map(prev -> String.format(
+                                            "%n%n\"Vendor for other models\" was switched to \"%s\" (was: %s). To change it, open the Brokk GUI Settings > Advanced > Model Roles and pick a different entry from the \"Vendor for other models\" dropdown.",
+                                            ModelProperties.CODEX_VENDOR, prev.isBlank() ? "Default" : prev))
+                                    .orElse("");
+                    pushSessionMessage(sessionId, msg);
                     var bundle = bundleBySession.get(sessionId);
                     if (bundle != null) {
                         bundle.cm().reloadService();
@@ -2209,6 +2216,7 @@ public class BrokkAcpAgent {
             var error = Service.disconnectCodexOauth();
             if (error == null) {
                 MainProject.setOpenAiCodexOauthConnected(false);
+                MainProject.revertCodexAutoSetupVendor();
                 // Drop any in-flight login on this JVM so its listener cannot fire a phantom
                 // "successful" message on a future unrelated reconnection.
                 var pending = pendingLogin.get();

@@ -70,6 +70,9 @@ public final class ModelProperties {
     // Default vendor selection for "Other Models" settings
     public static final String DEFAULT_VENDOR = "Default";
 
+    /** Canonical "Vendor for other models" entry that routes to the Codex OAuth model catalog. */
+    public static final String CODEX_VENDOR = "OpenAI - Codex";
+
     /**
      * Current version for model settings. Increment this to force a reset of favorite models,
      * code model, and architect model to their current defaults on the next app upgrade.
@@ -191,7 +194,7 @@ public final class ModelProperties {
                             ModelType.SEARCH, codex5_3,
                             ModelType.BUILD_PROCESSOR, gpt5_4NanoHigh));
             map.put(
-                    "OpenAI - Codex",
+                    CODEX_VENDOR,
                     Map.of(
                             ModelType.SUMMARIZE, gpt5_3CodexOauthDefault,
                             ModelType.USAGES, gpt5_3CodexOauthDefault,
@@ -263,7 +266,7 @@ public final class ModelProperties {
             case ARCHITECT -> CODEX_OAUTH_ARCHITECT_CONFIG;
             default -> {
                 var codexMap =
-                        requireNonNull(getVendorModelMap().get("OpenAI - Codex"), "OpenAI - Codex vendor map missing");
+                        requireNonNull(getVendorModelMap().get(CODEX_VENDOR), "OpenAI - Codex vendor map missing");
                 yield requireNonNull(
                         codexMap.get(modelType), "OpenAI - Codex vendor map missing entry for " + modelType);
             }

@@ -1882,6 +1882,46 @@ public final class MainProject extends AbstractProject {
         }
     }
 
+    /**
+     * Applies the post-Codex-sign-in defaults: installs the Codex favorites preset and switches
+     * the "Vendor for other models" preference to {@link ModelProperties#CODEX_VENDOR}. Both the
+     * GUI ({@code SettingsGlobalPanel.maybeRunCodexAutoSetup}) and ACP {@code /codex-login} flows
+     * call this so the persisted state is identical regardless of entry point.
+     *
+     * @return the previous vendor preference if it differed from {@link ModelProperties#CODEX_VENDOR}
+     *         (so callers can mention it in user-facing messaging); empty otherwise.
+     */
+    public static Optional<String> applyCodexSignInAutoSetup() {
+        saveFavoriteModels(ModelProperties.CODEX_OAUTH_FAVORITES);
+        String previousVendor = getOtherModelsVendorPreference();
+        if (ModelProperties.CODEX_VENDOR.equals(previousVendor)) {
+            return Optional.empty();
+        }
+        setOtherModelsVendorPreference(ModelProperties.CODEX_VENDOR);
+        logger.info(
+                "Codex auto-setup: switched 'Vendor for other models' from '{}' to '{}'",
+                previousVendor.isBlank() ? "(default)" : previousVendor,
+                ModelProperties.CODEX_VENDOR);
+        return Optional.of(previousVendor);
+    }
+
+    /**
+     * Reverts the {@link ModelProperties#CODEX_VENDOR} vendor preference back to the default if it
+     * is currently selected. Mirrors {@link #applyCodexSignInAutoSetup()} so disconnecting Codex
+     * does not leave the user pinned to a vendor that the UI hides while disconnected.
+     *
+     * @return {@code true} if the preference was reset.
+     */
+    public static boolean revertCodexAutoSetupVendor() {
+        if (!ModelProperties.CODEX_VENDOR.equals(getOtherModelsVendorPreference())) {
+            return false;
+        }
+        setOtherModelsVendorPreference("");
+        logger.info(
+                "Codex disconnect: reset 'Vendor for other models' from '{}' to default", ModelProperties.CODEX_VENDOR);
+        return true;
+    }
+
     private static Properties loadProjectsProperties() {
         var props = new Properties();
         Path projectsPath = getProjectsPropertiesPath();

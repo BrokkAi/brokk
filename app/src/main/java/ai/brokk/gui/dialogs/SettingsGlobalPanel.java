@@ -2435,6 +2435,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             SwingUtilities.invokeLater(() -> {
                 if (error == null) {
                     MainProject.setOpenAiCodexOauthConnected(false);
+                    MainProject.revertCodexAutoSetupVendor();
                     MaterialOptionPane.showConfirmDialog(
                             SettingsGlobalPanel.this,
                             "Successfully disconnected from OpenAI.",
@@ -2470,27 +2471,31 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private void maybeRunCodexAutoSetup() {
         if (MainProject.isOpenAiCodexOauthConnected()) {
-            logger.info("Codex OAuth connected; installing Codex favorites preset.");
+            logger.info("Codex OAuth connected; installing Codex favorites preset and default vendor.");
 
-            MainProject.saveFavoriteModels(ModelProperties.CODEX_OAUTH_FAVORITES);
-            logger.info("Replaced favorites list with Codex OAuth models");
+            var previousVendor = MainProject.applyCodexSignInAutoSetup();
 
             chrome.getContextManager().reloadService();
 
             SwingUtilities.invokeLater(() -> {
+                String vendorLine = previousVendor
+                        .map(prev -> String.format(
+                                "%n%n\"Vendor for other models\" was switched to \"%s\" (was: %s). To change it, open Settings > Advanced > Model Roles and pick a different entry from the \"Vendor for other models\" dropdown.",
+                                ModelProperties.CODEX_VENDOR, prev.isBlank() ? "Default" : prev))
+                        .orElse("");
                 String message =
                         """
                         Codex OAuth is connected. While the OAuth-only restriction is enabled
                         (Settings > Global), all model roles route to Codex models automatically
                         without overwriting your saved preferences. The favorites list has been
-                        updated with Codex presets.
-                        """
-                                .stripIndent();
+                        updated with Codex presets."""
+                                        .stripIndent()
+                                + vendorLine;
 
                 MaterialOptionPane.showConfirmDialog(
                         parentDialog,
                         message,
-                        "Codex Setup Complete",
+                        "Codex Sign-in Complete",
                         JOptionPane.DEFAULT_OPTION,
                         JOptionPane.INFORMATION_MESSAGE);
 
