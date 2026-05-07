@@ -1,11 +1,26 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.rust.Constants.*;
+import static java.util.Objects.requireNonNull;
 import static org.treesitter.RustNodeType.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cache.RustAnalyzerCache;
 import ai.brokk.analyzer.rust.CognitiveComplexityAnalysis;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.AssociatedFunctionKey;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.FieldKey;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.InlineModuleResolution;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.MemberKey;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.RustTypeRef;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.RustUsageCandidateIndex;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.RustUsageFacts;
+import ai.brokk.analyzer.usages.ExportIndex;
+import ai.brokk.analyzer.usages.ImportBinder;
+import ai.brokk.analyzer.usages.ReferenceCandidate;
+import ai.brokk.analyzer.usages.ResolvedReceiverCandidate;
 import ai.brokk.project.ICoreProject;
+import ai.brokk.util.PathNormalizer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -13,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -20,6 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +69,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             int shallowAssertionCount,
             int meaningfulAssertionCount,
             List<AssertionSignal> smells) {}
+
+    private record ResolvedRustType(ProjectFile file, @Nullable String moduleSpecifier, String name) {}
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -90,12 +109,12 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     public RustAnalyzer(ICoreProject project, ProgressListener listener) {
-        super(project, Languages.RUST, listener);
+        super(project, Languages.RUST, listener, new RustAnalyzerCache());
     }
 
     private RustAnalyzer(
             ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
-        super(project, Languages.RUST, state, listener, cache);
+        super(project, Languages.RUST, state, listener, cache != null ? cache : new RustAnalyzerCache());
     }
 
     public static RustAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
@@ -106,6 +125,18 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     protected IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
         return new RustAnalyzer(getProject(), state, listener, previousCache);
+    }
+
+    @Override
+    protected AnalyzerCache createEmptyCache() {
+        return new RustAnalyzerCache();
+    }
+
+    @Override
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return previous instanceof RustAnalyzerCache rustCache
+                ? new RustAnalyzerCache(rustCache, changedFiles)
+                : new RustAnalyzerCache();
     }
 
     @Override
@@ -220,11 +251,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             }
         }
 
-        // Fallback for non-.rs files or unexpected structures.
-        log.warn(
-                "Could not determine Rust package name for non .rs file {} (relative dir path '{}'). Using directory path possibly with filename.",
-                absFilePath,
-                relativeDirModulePath);
+        // Non-Rust files can appear in broad caller-provided candidate sets. Keep this fallback quiet; Rust usage
+        // graph routing filters them out before structured analysis.
         return relativeDirModulePath.isEmpty() ? fileNameStr : relativeDirModulePath + "." + fileNameStr;
     }
 
@@ -508,23 +536,268 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return performReferencingFilesOf(file);
     }
 
-    @Override
-    protected String extractPackageFromWildcard(String rawSnippet) {
-        if (rawSnippet.startsWith("use ")) {
-            rawSnippet = rawSnippet.substring(4);
+    public ExportIndex exportIndexOf(ProjectFile file) {
+        ExportIndex cached = cache().exportIndex().get(file);
+        if (cached != null) {
+            return cached;
         }
-        if (rawSnippet.endsWith(";")) {
-            rawSnippet = rawSnippet.substring(0, rawSnippet.length() - 1);
-        }
-        if (rawSnippet.endsWith("::*")) {
-            return rawSnippet.substring(0, rawSnippet.length() - 3);
-        }
-        return "";
+        ExportIndex computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return ExportIndex.empty();
+                    }
+                    return withSource(
+                            file,
+                            source -> RustExportUsageExtractor.computeExportIndex(this, file, root, source),
+                            ExportIndex.empty());
+                },
+                ExportIndex.empty());
+        cache().exportIndex().put(file, computed);
+        return computed;
     }
 
-    @Override
-    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        String currentPackage = withTreeOf(
+    public ImportBinder importBinderOf(ProjectFile file) {
+        ImportBinder cached = cache().importBinder().get(file);
+        if (cached != null) {
+            return cached;
+        }
+        Set<String> localTopLevelNames = getTopLevelDeclarations(file).stream()
+                .map(CodeUnit::identifier)
+                .collect(java.util.stream.Collectors.toSet());
+        ImportBinder computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return ImportBinder.empty();
+                    }
+                    return withSource(
+                            file,
+                            source -> RustExportUsageExtractor.computeImportBinder(
+                                    this, file, root, source, localTopLevelNames),
+                            ImportBinder.empty());
+                },
+                ImportBinder.empty());
+        cache().importBinder().put(file, computed);
+        return computed;
+    }
+
+    public Set<ReferenceCandidate> exportUsageCandidatesOf(ProjectFile file, ImportBinder binder) {
+        return usageFactsOf(file, binder).referenceCandidates();
+    }
+
+    public Set<ResolvedReceiverCandidate> resolvedReceiverCandidatesOf(ProjectFile file, ImportBinder binder) {
+        return usageFactsOf(file, binder).receiverCandidates();
+    }
+
+    public RustUsageFacts usageFactsOf(ProjectFile file, ImportBinder binder) {
+        RustUsageFacts cached = rustCache().usageFactsByFileCache().getIfPresent(file);
+        if (cached != null) {
+            return cached;
+        }
+        Set<String> localExportNames = exportIndexOf(file).exportsByName().keySet();
+        Set<String> localTopLevelFunctionNames = localTopLevelFunctionNames(file);
+        RustUsageFacts computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return RustUsageFacts.empty();
+                    }
+                    return withSource(
+                            file,
+                            source -> RustExportUsageExtractor.computeUsageFacts(
+                                    this, file, root, source, binder, localExportNames, localTopLevelFunctionNames),
+                            RustUsageFacts.empty());
+                },
+                RustUsageFacts.empty());
+        rustCache().usageFactsByFileCache().put(file, computed);
+        return computed;
+    }
+
+    private Set<String> localTopLevelFunctionNames(ProjectFile file) {
+        return getTopLevelDeclarations(file).stream()
+                .filter(CodeUnit::isFunction)
+                .map(CodeUnit::identifier)
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    public Map<String, Set<String>> heritageIndex() {
+        Map<String, Set<String>> cached = cache().heritageIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = new HashMap<String, Set<String>>();
+        for (ProjectFile file : getAnalyzedFiles()) {
+            ExportIndex index = exportIndexOf(file);
+            ImportBinder binder = importBinderOf(file);
+            for (ExportIndex.HeritageEdge edge : index.heritageEdges()) {
+                String childKey = rustTypeKey(file, edge.childName(), binder);
+                String parentKey = rustTypeKey(file, edge.parentName(), binder);
+                computed.computeIfAbsent(childKey, ignored -> new HashSet<>()).add(parentKey);
+            }
+        }
+        var immutable = computed.entrySet().stream()
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> Set.copyOf(entry.getValue())));
+        cache().heritageIndex(immutable);
+        return immutable;
+    }
+
+    public @Nullable CodeUnit exactMember(
+            ProjectFile sourceFile, String ownerClassName, String memberName, boolean instanceReceiver) {
+        return exactMembersByFile(sourceFile).get(new MemberKey(ownerClassName, memberName, instanceReceiver));
+    }
+
+    private Map<MemberKey, CodeUnit> exactMembersByFile(ProjectFile sourceFile) {
+        Map<MemberKey, CodeUnit> cached = rustCache().exactMembersByFileCache().getIfPresent(sourceFile);
+        if (cached != null) {
+            return cached;
+        }
+        var declared = exportIndexOf(sourceFile).classMembers().stream()
+                .collect(Collectors.groupingBy(
+                        member -> new MemberKey(member.ownerClassName(), member.memberName(), !member.staticMember()),
+                        Collectors.toSet()));
+        var computed = new HashMap<MemberKey, CodeUnit>();
+        for (CodeUnit cu : getDeclarations(sourceFile)) {
+            if (!cu.isFunction() && !cu.isField()) {
+                continue;
+            }
+            ownerNameFromShortName(cu).ifPresent(ownerName -> {
+                String memberName = normalizedMemberName(cu);
+                var instanceKey = new MemberKey(ownerName, memberName, true);
+                if (declared.containsKey(instanceKey)) {
+                    computed.putIfAbsent(instanceKey, cu);
+                }
+                var staticKey = new MemberKey(ownerName, memberName, false);
+                if (declared.containsKey(staticKey)) {
+                    computed.putIfAbsent(staticKey, cu);
+                }
+            });
+        }
+        var immutable = Map.copyOf(computed);
+        rustCache().exactMembersByFileCache().put(sourceFile, immutable);
+        return immutable;
+    }
+
+    public boolean associatedFunctionReturnsSelfLike(
+            ProjectFile contextFile, List<String> ownerSegments, String functionName, ImportBinder binder) {
+        Optional<ResolvedRustType> owner = resolveRustType(contextFile, ownerSegments, binder);
+        if (owner.isEmpty()) {
+            return false;
+        }
+        Map<AssociatedFunctionKey, Boolean> selfLikeFunctions =
+                selfLikeAssociatedFunctionsByFile(owner.orElseThrow().file());
+        return selfLikeFunctions.getOrDefault(
+                new AssociatedFunctionKey(owner.orElseThrow().name(), functionName), false);
+    }
+
+    public Optional<RustTypeRef> structFieldType(ProjectFile file, String ownerClassName, String fieldName) {
+        return Optional.ofNullable(structFieldTypesByFile(file).get(new FieldKey(ownerClassName, fieldName)));
+    }
+
+    private Map<AssociatedFunctionKey, Boolean> selfLikeAssociatedFunctionsByFile(ProjectFile file) {
+        Map<AssociatedFunctionKey, Boolean> cached =
+                rustCache().selfLikeAssociatedFunctionsCache().getIfPresent(file);
+        if (cached != null) {
+            return cached;
+        }
+        Map<AssociatedFunctionKey, Boolean> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Map.<AssociatedFunctionKey, Boolean>of();
+                    }
+                    return withSource(
+                            file,
+                            source -> RustExportUsageExtractor.computeSelfLikeAssociatedFunctions(root, source),
+                            Map.<AssociatedFunctionKey, Boolean>of());
+                },
+                Map.<AssociatedFunctionKey, Boolean>of());
+        rustCache().selfLikeAssociatedFunctionsCache().put(file, computed);
+        return computed;
+    }
+
+    private Map<FieldKey, RustTypeRef> structFieldTypesByFile(ProjectFile file) {
+        Map<FieldKey, RustTypeRef> cached = rustCache().structFieldTypesCache().getIfPresent(file);
+        if (cached != null) {
+            return cached;
+        }
+        Map<FieldKey, RustTypeRef> computed = withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return Map.<FieldKey, RustTypeRef>of();
+                    }
+                    return withSource(
+                            file,
+                            source -> RustExportUsageExtractor.computeStructFieldTypes(root, source),
+                            Map.<FieldKey, RustTypeRef>of());
+                },
+                Map.<FieldKey, RustTypeRef>of());
+        rustCache().structFieldTypesCache().put(file, computed);
+        return computed;
+    }
+
+    private Optional<ResolvedRustType> resolveRustType(
+            ProjectFile contextFile, List<String> rawSegments, ImportBinder binder) {
+        var segments =
+                rawSegments.stream().filter(segment -> !"self".equals(segment)).toList();
+        if (segments.isEmpty()) {
+            return Optional.empty();
+        }
+        String exportedName = segments.getLast();
+        String first = segments.getFirst();
+        ImportBinder.ImportBinding binding = binder.bindings().get(first);
+        if (binding != null && binding.importedName() != null) {
+            return resolveRustModuleOutcome(contextFile, binding.moduleSpecifier())
+                    .resolved()
+                    .map(file -> new ResolvedRustType(
+                            file, binding.moduleSpecifier(), requireNonNull(binding.importedName())));
+        }
+        if (segments.size() >= 2) {
+            String moduleSpecifier = String.join("::", segments.subList(0, segments.size() - 1));
+            return resolveRustModuleOutcome(contextFile, moduleSpecifier)
+                    .resolved()
+                    .map(file -> new ResolvedRustType(file, moduleSpecifier, exportedName));
+        }
+        if (exportIndexOf(contextFile).exportsByName().containsKey(exportedName)) {
+            return Optional.of(new ResolvedRustType(contextFile, null, exportedName));
+        }
+        return Optional.empty();
+    }
+
+    public ai.brokk.analyzer.usages.ExportUsageGraphLanguageAdapter.ResolutionOutcome resolveRustModuleOutcome(
+            ProjectFile importingFile, String moduleSpecifier) {
+        String fqn = resolveRustPathToFqn(moduleSpecifier, packageNameOf(importingFile));
+        return rustModuleFileForFqn(fqn)
+                .or(() -> inlineRustModuleResolution(importingFile, fqn, false).map(InlineModuleResolution::file))
+                .map(ai.brokk.analyzer.usages.ExportUsageGraphLanguageAdapter.ResolutionOutcome::resolved)
+                .orElseGet(() -> ai.brokk.analyzer.usages.ExportUsageGraphLanguageAdapter.ResolutionOutcome.external(
+                        moduleSpecifier));
+    }
+
+    public Optional<String> inlineRustModuleExportName(
+            ProjectFile importingFile, String moduleSpecifier, String importedName, boolean allowPrivate) {
+        return inlineRustModuleExportPrefix(importingFile, moduleSpecifier, allowPrivate)
+                .map(prefix -> prefix + "::" + importedName);
+    }
+
+    public Optional<String> inlineRustModuleExportPrefix(
+            ProjectFile importingFile, String moduleSpecifier, boolean allowPrivate) {
+        String fqn = resolveRustPathToFqn(moduleSpecifier, packageNameOf(importingFile));
+        return inlineRustModuleResolution(importingFile, fqn, allowPrivate).map(InlineModuleResolution::exportPrefix);
+    }
+
+    public String packageNameOf(ProjectFile file) {
+        String cached = rustCache().packageNamesByFileCache().getIfPresent(file);
+        if (cached != null) {
+            return cached;
+        }
+        String computed = withTreeOf(
                 file,
                 tree -> {
                     TSNode root = tree.getRootNode();
@@ -532,48 +805,160 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                     return withSource(file, sc -> determinePackageName(file, root, root, sc), "");
                 },
                 "");
+        rustCache().packageNamesByFileCache().put(file, computed);
+        return computed;
+    }
+
+    public Set<CodeUnit> definitionsOf(ProjectFile file, String localName) {
+        Map<String, Set<CodeUnit>> index =
+                rustCache().definitionsByFileAndNameCache().getIfPresent(file);
+        if (index == null) {
+            var computed = new HashMap<String, Set<CodeUnit>>();
+            for (CodeUnit cu : getDeclarations(file)) {
+                addDefinitionKey(computed, cu.identifier(), cu);
+                addDefinitionKey(computed, cu.shortName(), cu);
+            }
+            index = computed.entrySet().stream()
+                    .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> Set.copyOf(entry.getValue())));
+            rustCache().definitionsByFileAndNameCache().put(file, index);
+        }
+
+        String simpleName =
+                localName.contains("::") ? localName.substring(localName.lastIndexOf("::") + "::".length()) : localName;
+        String moduleQualifiedName = localName.contains("::")
+                ? localName.substring(0, localName.lastIndexOf("::")).replace("::", ".") + "." + simpleName
+                : simpleName;
+        var definitions = new HashSet<CodeUnit>();
+        definitions.addAll(index.getOrDefault(simpleName, Set.of()));
+        definitions.addAll(index.getOrDefault(moduleQualifiedName, Set.of()));
+        return Set.copyOf(definitions);
+    }
+
+    public Set<ProjectFile> rustUsageCandidateFiles(Set<String> exportNames, @Nullable CodeUnit target) {
+        RustUsageCandidateIndex index = rustUsageCandidateIndex();
+        var candidates = new HashSet<ProjectFile>();
+        for (String exportName : exportNames) {
+            addCandidateFilesForToken(index, candidates, exportName);
+            if (exportName.contains("::")) {
+                addCandidateFilesForToken(
+                        index, candidates, exportName.substring(exportName.lastIndexOf("::") + "::".length()));
+            }
+        }
+        if (target != null) {
+            addCandidateFilesForToken(index, candidates, target.identifier());
+            ownerNameFromShortName(target)
+                    .ifPresent(ownerName -> addCandidateFilesForToken(index, candidates, ownerName));
+        }
+        candidates.removeIf(file -> !getAnalyzedFiles().contains(file));
+        return Set.copyOf(candidates);
+    }
+
+    private RustUsageCandidateIndex rustUsageCandidateIndex() {
+        RustUsageCandidateIndex cached = rustCache().usageCandidateIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var filesByToken = new HashMap<String, Set<ProjectFile>>();
+        for (ProjectFile file : getAnalyzedFiles()) {
+            ImportBinder binder = importBinderOf(file);
+            binder.bindings().forEach((localName, binding) -> {
+                addUsageCandidateToken(filesByToken, localName, file);
+                if (binding.importedName() != null) {
+                    addUsageCandidateToken(filesByToken, binding.importedName(), file);
+                }
+            });
+            usageFactsOf(file, binder)
+                    .candidateTokens()
+                    .forEach(token -> addUsageCandidateToken(filesByToken, token, file));
+        }
+        var immutable = filesByToken.entrySet().stream()
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> Set.copyOf(entry.getValue())));
+        var computed = new RustUsageCandidateIndex(immutable);
+        rustCache().usageCandidateIndex(computed);
+        return computed;
+    }
+
+    private static void addCandidateFilesForToken(
+            RustUsageCandidateIndex index, Set<ProjectFile> candidates, String token) {
+        candidates.addAll(index.filesByToken().getOrDefault(token, Set.of()));
+    }
+
+    private static void addUsageCandidateToken(
+            Map<String, Set<ProjectFile>> filesByToken, String token, ProjectFile file) {
+        if (!token.isBlank()) {
+            filesByToken.computeIfAbsent(token, ignored -> new HashSet<>()).add(file);
+        }
+    }
+
+    private static void addDefinitionKey(Map<String, Set<CodeUnit>> index, String key, CodeUnit codeUnit) {
+        if (!key.isBlank()) {
+            index.computeIfAbsent(key, ignored -> new HashSet<>()).add(codeUnit);
+        }
+    }
+
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        String currentPackage = packageNameOf(file);
         Set<CodeUnit> resolved = new HashSet<>();
 
-        for (ImportInfo info : importInfoOf(file)) {
-            if (info.isWildcard()) {
-                String wildcardPackage = extractPackageFromWildcard(info.rawSnippet());
-                if (!wildcardPackage.isEmpty()) {
-                    String packageFqn = resolveRustPathToFqn(wildcardPackage, currentPackage);
+        for (var spec : rustUseSpecsOf(file)) {
+            if (spec.wildcard()) {
+                String wildcardPath = stripWildcardSegment(spec.path());
+                if (!wildcardPath.isEmpty()) {
+                    String packageFqn = resolveRustPathToFqn(wildcardPath, currentPackage);
                     // Search for all definitions that belong to this package
                     resolved.addAll(searchDefinitions("^" + Pattern.quote(packageFqn) + "\\.[^.]+$", false));
                 }
                 continue;
             }
 
-            String identifier = info.identifier();
-            if (identifier == null) {
-                continue;
-            }
-
-            // Extract the path from the raw snippet "use path::to::Symbol [as Alias];"
-            String rawPath = info.rawSnippet();
-            if (rawPath.startsWith("use ")) {
-                rawPath = rawPath.substring(4);
-            }
-            if (rawPath.endsWith(";")) {
-                rawPath = rawPath.substring(0, rawPath.length() - 1);
-            }
-
-            // Strip alias if present to get the target path
-            int asIdx = rawPath.toLowerCase(Locale.ROOT).lastIndexOf(" as ");
-            if (asIdx != -1) {
-                rawPath = rawPath.substring(0, asIdx).trim();
-            }
-
-            String fqn = resolveRustPathToFqn(rawPath, currentPackage);
+            String fqn = resolveRustPathToFqn(spec.path(), currentPackage);
             resolved.addAll(getDefinitions(fqn));
         }
 
         return Collections.unmodifiableSet(resolved);
     }
 
-    private String resolveRustPathToFqn(String rustPath, String currentPackage) {
+    private List<RustExportUsageExtractor.UseSpec> rustUseSpecsOf(ProjectFile file) {
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) {
+                        return List.<RustExportUsageExtractor.UseSpec>of();
+                    }
+                    return withSource(file, source -> rustUseSpecsOf(root, source), List.of());
+                },
+                List.of());
+    }
+
+    private static List<RustExportUsageExtractor.UseSpec> rustUseSpecsOf(TSNode root, SourceContent source) {
+        var specs = new ArrayList<RustExportUsageExtractor.UseSpec>();
+        collectRustUseSpecs(root, source, specs);
+        return List.copyOf(specs);
+    }
+
+    private static void collectRustUseSpecs(
+            TSNode node, SourceContent source, List<RustExportUsageExtractor.UseSpec> specs) {
+        if (nodeType(USE_DECLARATION).equals(node.getType())) {
+            specs.addAll(RustExportUsageExtractor.useSpecsOf(node, source));
+            return;
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            collectRustUseSpecs(child, source, specs);
+        }
+    }
+
+    private static String stripWildcardSegment(String rustPath) {
+        return rustPath.endsWith("::*") ? rustPath.substring(0, rustPath.length() - 3) : rustPath;
+    }
+
+    public String resolveRustPathToFqn(String rustPath, String currentPackage) {
         String trimmedPath = rustPath.trim();
+
+        if ("crate".equals(trimmedPath)) {
+            return "";
+        }
 
         if (trimmedPath.startsWith("crate::")) {
             return trimmedPath.substring("crate::".length()).replace("::", ".");
@@ -619,6 +1004,153 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return trimmedPath.replace("::", ".");
     }
 
+    private Optional<ProjectFile> rustModuleFileForFqn(String fqn) {
+        String slashPath = fqn.replace('.', '/');
+        var candidates = new ArrayList<Path>();
+        if (slashPath.isBlank()) {
+            candidates.add(Path.of("src/lib.rs"));
+            candidates.add(Path.of("src/main.rs"));
+            candidates.add(Path.of("lib.rs"));
+            candidates.add(Path.of("main.rs"));
+        } else {
+            candidates.add(Path.of("src", slashPath + ".rs"));
+            candidates.add(Path.of("src", slashPath, "mod.rs"));
+            candidates.add(Path.of(slashPath + ".rs"));
+            candidates.add(Path.of(slashPath, "mod.rs"));
+        }
+        return candidates.stream()
+                .map(path -> getProject().getFileByRelPath(path))
+                .flatMap(Optional::stream)
+                .findFirst();
+    }
+
+    private String rustTypeKey(ProjectFile file, String rustPath, ImportBinder binder) {
+        List<String> segments = List.of(rustPath.split("::"));
+        if (segments.isEmpty()) {
+            return qualifiedClassKey(file, rustPath);
+        }
+        if (segments.size() == 1) {
+            ImportBinder.ImportBinding binding = binder.bindings().get(rustPath);
+            if (binding != null && binding.importedName() != null) {
+                String importedName = binding.importedName();
+                return resolveRustModuleOutcome(file, binding.moduleSpecifier())
+                        .resolved()
+                        .map(resolvedFile -> qualifiedClassKey(resolvedFile, importedName))
+                        .orElseGet(() -> qualifiedClassKey(file, rustPath));
+            }
+            return qualifiedClassKey(file, rustPath);
+        }
+        String moduleSpecifier = String.join("::", segments.subList(0, segments.size() - 1));
+        String typeName = segments.getLast();
+        return resolveRustModuleOutcome(file, moduleSpecifier)
+                .resolved()
+                .map(resolvedFile -> qualifiedClassKey(resolvedFile, typeName))
+                .orElseGet(() -> qualifiedClassKey(file, typeName));
+    }
+
+    private Optional<InlineModuleResolution> inlineRustModuleResolution(
+            ProjectFile importingFile, String fqn, boolean allowPrivate) {
+        InlineModuleResolution resolution = inlineRustModuleIndex().get(fqn);
+        if (resolution == null) {
+            return Optional.empty();
+        }
+        if (allowPrivate || importingFile.equals(resolution.file()) || resolution.externallyVisible()) {
+            return Optional.of(resolution);
+        }
+        return Optional.empty();
+    }
+
+    private Map<String, InlineModuleResolution> inlineRustModuleIndex() {
+        Map<String, InlineModuleResolution> cached = rustCache().inlineModuleIndex();
+        if (cached != null) {
+            return cached;
+        }
+        var computed = new HashMap<String, InlineModuleResolution>();
+        for (ProjectFile file : getAnalyzedFiles()) {
+            String packageName = packageNameOf(file);
+            withTreeOf(
+                    file,
+                    tree -> {
+                        TSNode root = tree.getRootNode();
+                        if (root == null) {
+                            return false;
+                        }
+                        return withSource(
+                                file,
+                                source -> {
+                                    collectInlineRustModules(root, source, file, packageName, true, computed);
+                                    return true;
+                                },
+                                false);
+                    },
+                    false);
+        }
+        var immutable = Map.copyOf(computed);
+        rustCache().inlineModuleIndex(immutable);
+        return immutable;
+    }
+
+    private static void collectInlineRustModules(
+            TSNode node,
+            SourceContent source,
+            ProjectFile file,
+            String packageName,
+            boolean parentExternallyVisible,
+            Map<String, InlineModuleResolution> modules) {
+        if (nodeType(MOD_ITEM).equals(node.getType())) {
+            TSNode body = node.getChildByFieldName(nodeField(RustNodeField.BODY));
+            TSNode name = node.getChildByFieldName(nodeField(RustNodeField.NAME));
+            if (body != null && name != null) {
+                String localName = source.substringFrom(name).strip();
+                String childPackage = packageName.isBlank() ? localName : packageName + "." + localName;
+                boolean externallyVisible =
+                        parentExternallyVisible && RustExportUsageExtractor.isExternallyVisible(node);
+                modules.put(
+                        childPackage,
+                        new InlineModuleResolution(
+                                file, exportPrefixForInlineModule(packageName, childPackage), externallyVisible));
+                for (TSNode child : body.getNamedChildren()) {
+                    collectInlineRustModules(child, source, file, childPackage, externallyVisible, modules);
+                }
+                return;
+            }
+        }
+        for (TSNode child : node.getNamedChildren()) {
+            collectInlineRustModules(child, source, file, packageName, parentExternallyVisible, modules);
+        }
+    }
+
+    private static String exportPrefixForInlineModule(String filePackageName, String moduleFqn) {
+        String prefix = filePackageName.isBlank()
+                ? moduleFqn
+                : moduleFqn.substring(filePackageName.length()).replaceFirst("^\\.", "");
+        return prefix.replace(".", "::");
+    }
+
+    private static String normalizedMemberName(CodeUnit codeUnit) {
+        String identifier = codeUnit.identifier();
+        int marker = identifier.indexOf('$');
+        return marker >= 0 ? identifier.substring(0, marker) : identifier;
+    }
+
+    private static Optional<String> ownerNameFromShortName(CodeUnit codeUnit) {
+        String shortName = codeUnit.shortName();
+        int lastDot = shortName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return Optional.empty();
+        }
+        return Optional.of(shortName.substring(0, lastDot));
+    }
+
+    private static String qualifiedClassKey(ProjectFile file, String className) {
+        return PathNormalizer.canonicalizeForProject(file.getRelPath().toString(), file.getRoot()) + ":" + className;
+    }
+
+    private RustAnalyzerCache rustCache() {
+        assert cache() instanceof RustAnalyzerCache;
+        return (RustAnalyzerCache) cache();
+    }
+
     @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
@@ -627,102 +1159,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             return;
         }
 
-        String fullSnippet = sourceContent.substringFrom(importNode).trim();
-        if (fullSnippet.isEmpty()) {
-            return;
-        }
-
-        // Clean snippet: remove 'use ' and trailing ';'
-        String pathArea = fullSnippet;
-        if (pathArea.startsWith("use ")) {
-            pathArea = pathArea.substring(4).trim();
-        }
-        if (pathArea.endsWith(";")) {
-            pathArea = pathArea.substring(0, pathArea.length() - 1).trim();
-        }
-
-        flattenRustImports(pathArea, "", localImportInfos);
-    }
-
-    private void flattenRustImports(String pathPart, String prefix, List<ImportInfo> localImportInfos) {
-        pathPart = pathPart.trim();
-        if (pathPart.isEmpty()) return;
-
-        // Handle nesting: "prefix::{a, b, c::{d, e}}"
-        int braceIdx = pathPart.indexOf('{');
-        if (braceIdx != -1) {
-            String base = pathPart.substring(0, braceIdx).trim();
-            if (base.endsWith("::")) {
-                base = base.substring(0, base.length() - 2);
-            }
-
-            String newPrefix;
-            if (base.isEmpty()) {
-                newPrefix = prefix;
-            } else {
-                newPrefix = prefix.isEmpty() ? base : prefix + "::" + base;
-            }
-
-            String listContent = pathPart.substring(braceIdx + 1);
-            int lastBrace = listContent.lastIndexOf('}');
-            if (lastBrace != -1) {
-                listContent = listContent.substring(0, lastBrace);
-            }
-
-            // Split by comma, but respect nested braces
-            int depth = 0;
-            int start = 0;
-            for (int i = 0; i < listContent.length(); i++) {
-                char c = listContent.charAt(i);
-                if (c == '{') depth++;
-                else if (c == '}') depth--;
-                else if (c == ',' && depth == 0) {
-                    flattenRustImports(listContent.substring(start, i), newPrefix, localImportInfos);
-                    start = i + 1;
-                }
-            }
-            flattenRustImports(listContent.substring(start), newPrefix, localImportInfos);
-        } else {
-            // Leaf node: "path::to::Symbol [as Alias]" or "*"
-            String fullPath = prefix.isEmpty() ? pathPart : prefix + "::" + pathPart;
-            boolean isWildcard = fullPath.endsWith("*");
-
-            String identifier = null;
-            String alias = null;
-            String resolvedPath = fullPath;
-
-            if (!isWildcard) {
-                // Check for alias "path as alias"
-                int asIdx = fullPath.toLowerCase(Locale.ROOT).lastIndexOf(" as ");
-                if (asIdx != -1) {
-                    resolvedPath = fullPath.substring(0, asIdx).trim();
-                    alias = fullPath.substring(asIdx + 4).trim();
-                    identifier = alias;
-                } else {
-                    // Extract identifier from last segment
-                    int lastSep = fullPath.lastIndexOf("::");
-                    identifier = (lastSep != -1) ? fullPath.substring(lastSep + 2) : fullPath;
-
-                    // Handle "self" keyword: "use std::io::{self, Read}"
-                    // "use std::io::self" -> "use std::io;"
-                    if ("self".equals(identifier)) {
-                        if (lastSep != -1) {
-                            resolvedPath = fullPath.substring(0, lastSep);
-                            // After stripping ::self, update identifier to the new last segment
-                            int prevSep = resolvedPath.lastIndexOf("::");
-                            identifier = (prevSep != -1) ? resolvedPath.substring(prevSep + 2) : resolvedPath;
-                        } else {
-                            // "use self;" (crate root or relative)
-                            identifier = "self";
-                        }
-                    }
-                }
-            }
-
-            // The rawSnippet in ImportInfo should be a clean standalone "use ...;" statement for the specific leaf.
-            String standaloneSnippet = "use " + resolvedPath + (alias != null ? " as " + alias : "") + ";";
-            localImportInfos.add(new ImportInfo(standaloneSnippet, isWildcard, identifier, alias));
-        }
+        RustExportUsageExtractor.useSpecsOf(importNode, sourceContent).stream()
+                .map(spec -> new ImportInfo(
+                        "use " + spec.path() + (spec.alias() != null ? " as " + spec.alias() : "") + ";",
+                        spec.wildcard(),
+                        spec.localName(),
+                        spec.alias()))
+                .forEach(localImportInfos::add);
     }
 
     @Override

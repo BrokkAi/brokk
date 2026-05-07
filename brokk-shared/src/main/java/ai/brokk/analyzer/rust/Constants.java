@@ -27,6 +27,8 @@ public final class Constants {
 
     public static final Set<String> RUST_LOG_MACRO_NAMES = Set.of("trace", "debug", "info", "warn", "error");
     public static final Set<String> RUST_PRINT_MACRO_NAMES = Set.of("println", "eprintln");
+    public static final Set<String> RUST_PATH_KEYWORDS = Set.of("crate", "self", "super");
+    public static final Set<String> SIMPLE_WRAPPER_TYPES = Set.of("Option", "Result", "Box", "Arc", "Rc");
 
     // Test assertion smell labels (shared string values)
     // These are semantic labels used in IAnalyzer.TestAssertionSmell.

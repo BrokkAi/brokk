@@ -4,7 +4,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.PythonAnalyzer;
+import ai.brokk.analyzer.RustAnalyzer;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -12,34 +12,30 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
-    private static final Logger log = LoggerFactory.getLogger(PythonExportUsageGraphStrategy.class);
-
-    private final Optional<PythonAnalyzer> analyzer;
+public final class RustExportUsageGraphStrategy implements UsageAnalyzer {
+    private final Optional<RustAnalyzer> analyzer;
     private final ExportUsageReferenceGraphEngine.Limits limits;
 
-    public PythonExportUsageGraphStrategy(IAnalyzer analyzer) {
+    public RustExportUsageGraphStrategy(IAnalyzer analyzer) {
         this(resolveAnalyzer(analyzer), ExportUsageReferenceGraphEngine.Limits.defaults());
     }
 
-    public PythonExportUsageGraphStrategy(IAnalyzer analyzer, @Nullable ExportUsageReferenceGraphEngine.Limits limits) {
+    public RustExportUsageGraphStrategy(IAnalyzer analyzer, @Nullable ExportUsageReferenceGraphEngine.Limits limits) {
         this(resolveAnalyzer(analyzer), limits);
     }
 
-    public PythonExportUsageGraphStrategy(PythonAnalyzer analyzer) {
+    public RustExportUsageGraphStrategy(RustAnalyzer analyzer) {
         this(Optional.of(analyzer), ExportUsageReferenceGraphEngine.Limits.defaults());
     }
 
-    public PythonExportUsageGraphStrategy(
-            PythonAnalyzer analyzer, @Nullable ExportUsageReferenceGraphEngine.Limits limits) {
+    public RustExportUsageGraphStrategy(
+            RustAnalyzer analyzer, @Nullable ExportUsageReferenceGraphEngine.Limits limits) {
         this(Optional.of(analyzer), limits);
     }
 
-    private PythonExportUsageGraphStrategy(
-            Optional<PythonAnalyzer> analyzer, @Nullable ExportUsageReferenceGraphEngine.Limits limits) {
+    private RustExportUsageGraphStrategy(
+            Optional<RustAnalyzer> analyzer, @Nullable ExportUsageReferenceGraphEngine.Limits limits) {
         this.analyzer = analyzer;
         this.limits = limits != null ? limits : ExportUsageReferenceGraphEngine.Limits.defaults();
     }
@@ -48,9 +44,7 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
         if (analyzer.isEmpty()) {
             return false;
         }
-        Set<String> exportNames = inferExportNames(target);
-        log.debug("Python graph canHandle {} -> export names {}", target.fqName(), exportNames);
-        return !exportNames.isEmpty();
+        return !inferExportNames(target).isEmpty();
     }
 
     @Override
@@ -70,13 +64,14 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
         }
 
         int graphHitLimit = maxUsages == Integer.MAX_VALUE ? maxUsages : maxUsages + 1;
-        var adapter = new PythonExportUsageGraphAdapter(analyzer.orElseThrow());
+        var adapter = new RustExportUsageGraphAdapter(analyzer.orElseThrow());
         var effectiveLimits = new ExportUsageReferenceGraphEngine.Limits(
                 limits.maxFiles(), Math.max(1, Math.min(limits.maxHits(), graphHitLimit)), limits.maxReexportDepth());
         Set<UsageHit> hits = new LinkedHashSet<>();
         for (String exportName : exportNames) {
+            Set<ProjectFile> effectiveCandidateFiles = effectiveCandidateFiles(candidateFiles, exportNames, target);
             ReferenceGraphResult graphResult = ExportUsageReferenceGraphEngine.findExportUsages(
-                    target.source(), exportName, target, adapter, effectiveLimits, candidateFiles);
+                    target.source(), exportName, target, adapter, effectiveLimits, effectiveCandidateFiles);
             hits.addAll(graphResult.hits().stream()
                     .map(hit -> new UsageHit(
                             hit.file(),
@@ -99,31 +94,34 @@ public final class PythonExportUsageGraphStrategy implements UsageAnalyzer {
         return new FuzzyResult.Success(Map.of(target, Set.copyOf(hits)));
     }
 
-    private static Optional<PythonAnalyzer> resolveAnalyzer(IAnalyzer analyzer) {
-        return analyzer.subAnalyzer(Languages.PYTHON)
-                .filter(PythonAnalyzer.class::isInstance)
-                .map(PythonAnalyzer.class::cast);
+    private static Optional<RustAnalyzer> resolveAnalyzer(IAnalyzer analyzer) {
+        return analyzer.subAnalyzer(Languages.RUST)
+                .filter(RustAnalyzer.class::isInstance)
+                .map(RustAnalyzer.class::cast);
+    }
+
+    private Set<ProjectFile> effectiveCandidateFiles(
+            Set<ProjectFile> candidateFiles, Set<String> exportNames, CodeUnit target) {
+        if (candidateFiles.isEmpty()) {
+            return analyzer.orElseThrow().rustUsageCandidateFiles(exportNames, target);
+        }
+        Set<ProjectFile> analyzedFiles = analyzer.orElseThrow().getAnalyzedFiles();
+        Set<ProjectFile> filtered =
+                candidateFiles.stream().filter(analyzedFiles::contains).collect(Collectors.toUnmodifiableSet());
+        return filtered.isEmpty() ? Set.of(target.source()) : filtered;
     }
 
     private Set<String> inferExportNames(CodeUnit target) {
-        Set<String> exportNames = inferExportNames(target.source(), target.identifier());
-        if (!exportNames.isEmpty()) {
-            return exportNames;
+        var exportNames = new LinkedHashSet<>(inferExportNames(target.source(), target.identifier()));
+        analyzer.orElseThrow()
+                .parentOf(target)
+                .ifPresent(owner -> exportNames.addAll(inferExportNames(owner.source(), owner.identifier())));
+        if (exportNames.isEmpty()
+                && target.isFunction()
+                && analyzer.orElseThrow().parentOf(target).isEmpty()) {
+            exportNames.add(target.identifier());
         }
-        String ownerName = ownerNameOf(target);
-        if (ownerName.isEmpty()) {
-            return Set.of();
-        }
-        return inferExportNames(target.source(), ownerName);
-    }
-
-    private static String ownerNameOf(CodeUnit target) {
-        String shortName = target.shortName();
-        int lastDot = shortName.lastIndexOf('.');
-        if (lastDot <= 0 || (!target.isFunction() && !target.isField())) {
-            return "";
-        }
-        return shortName.substring(0, lastDot);
+        return Set.copyOf(exportNames);
     }
 
     private Set<String> inferExportNames(ProjectFile definingFile, String localName) {
