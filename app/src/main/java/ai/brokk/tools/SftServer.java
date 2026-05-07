@@ -205,16 +205,17 @@ public final class SftServer implements AutoCloseable {
 
     @Blocking
     public Map<String, String> format_patch(String repoPath, String from, String to, List<String> filenames) {
-        try (var lease = contextFor(repoPath)) {
-            var cachedContext = lease.context();
-            if (from.isBlank() || to.isBlank()) {
-                throw new IllegalArgumentException("from and to must not be blank");
-            }
+        if (from.isBlank() || to.isBlank()) {
+            throw new IllegalArgumentException("from and to must not be blank");
+        }
 
-            var includedFiles = normalizePathSet(cachedContext, defaultIfNull(filenames));
+        var root =
+                Path.of(requireNonBlank(repoPath, "repo_path")).toAbsolutePath().normalize();
+        var includedFiles = normalizePathSet(root, defaultIfNull(filenames));
+        try (var gitRepo = new GitRepo(root)) {
             List<GitRepoData.FileDiff> fileDiffs;
             try {
-                fileDiffs = requireGitRepo(cachedContext).data().getFileDiffs(from, to);
+                fileDiffs = gitRepo.data().getFileDiffs(from, to);
             } catch (Exception e) {
                 throw new IllegalArgumentException("Failed to diff revisions '%s' and '%s'".formatted(from, to), e);
             }
@@ -343,6 +344,10 @@ public final class SftServer implements AutoCloseable {
     }
 
     private ProjectFile validateProjectFile(CachedContext cachedContext, String relativePath) {
+        return validateProjectFile(cachedContext.project().getRoot(), relativePath);
+    }
+
+    private static ProjectFile validateProjectFile(Path projectRoot, String relativePath) {
         if (relativePath.isBlank()) {
             throw new IllegalArgumentException("Path must not be blank");
         }
@@ -352,7 +357,7 @@ public final class SftServer implements AutoCloseable {
             throw new IllegalArgumentException("Path must be project-relative: " + relativePath);
         }
 
-        var root = cachedContext.project().getRoot().toAbsolutePath().normalize();
+        var root = projectRoot.toAbsolutePath().normalize();
         var normalized = root.resolve(relPath).normalize();
         if (!normalized.startsWith(root)) {
             throw new IllegalArgumentException("Path escapes the project root: " + relativePath);
@@ -409,14 +414,14 @@ public final class SftServer implements AutoCloseable {
         return new SftMessage(toSftRole(message), Messages.getText(message));
     }
 
-    private Set<String> normalizePathSet(CachedContext cachedContext, List<String> paths) {
+    private Set<String> normalizePathSet(Path projectRoot, List<String> paths) {
         var normalized = new LinkedHashSet<String>();
         for (var path : normalizePaths(defaultIfNull(paths))) {
             if (path.isBlank()) {
                 throw new IllegalArgumentException("Path list must not contain blank entries");
             }
 
-            normalized.add(validateProjectFile(cachedContext, path).toString().replace('\\', '/'));
+            normalized.add(validateProjectFile(projectRoot, path).toString().replace('\\', '/'));
         }
         return Set.copyOf(normalized);
     }
