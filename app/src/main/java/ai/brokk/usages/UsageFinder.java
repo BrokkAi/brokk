@@ -213,6 +213,8 @@ public final class UsageFinder {
         }
         Set<CodeUnit> definitions = analyzer.getDefinitions(fqName);
         if (definitions.isEmpty()) {
+            // Rust app usage lookups may pass short names like RenderedSummary or summarize_input; getDefinitions only
+            // resolves exact FQNs. Without this fallback, UsageFinderRustGraphTest short-name assertions fail.
             definitions = analyzer.searchDefinitions(fqName).stream()
                     .filter(codeUnit -> codeUnit.identifier().equals(fqName)
                             || codeUnit.shortName().equals(fqName))
