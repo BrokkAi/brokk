@@ -1,5 +1,10 @@
 //! Auto-discover available LLM models from Codex (`~/.codex/auth.json`) and
-//! a local Ollama daemon (`http://localhost:11434/api/tags` by default).
+//! a local Ollama daemon (`http://localhost:11434/api/tags`).
+//!
+//! Zero-config by design: the Ollama URL is fixed at the daemon's default
+//! port. If your daemon listens elsewhere, the catalog will simply not
+//! include Ollama models -- run `ollama serve` on `:11434` to make them
+//! discoverable.
 //!
 //! Each discovered model carries a `ModelSource` tag so the routing backend
 //! (`MultiBackend`) can pick the right HTTP client at request time. The
@@ -65,25 +70,10 @@ pub fn split_wire_id(wire: &str) -> Option<(ModelSource, &str)> {
     Some((source, rest))
 }
 
-/// Configuration for one discovery pass.
-#[derive(Debug, Clone)]
-pub struct DiscoveryConfig {
-    /// Ollama base URL (without `/api` or `/v1` suffix). `None` disables
-    /// Ollama discovery entirely.
-    pub ollama_url: Option<String>,
-    /// Discover Codex models if `~/.codex/auth.json` exists. Set to `false`
-    /// to skip the auth.json read regardless of file presence.
-    pub codex_enabled: bool,
-}
-
-impl Default for DiscoveryConfig {
-    fn default() -> Self {
-        Self {
-            ollama_url: Some("http://localhost:11434".to_string()),
-            codex_enabled: true,
-        }
-    }
-}
+/// Default Ollama base URL. Hardcoded by design: the whole point of the
+/// zero-config posture is that the user doesn't pick a port -- if the
+/// daemon isn't here, it's not discoverable.
+pub const OLLAMA_DEFAULT_URL: &str = "http://localhost:11434";
 
 // ---------------------------------------------------------------------------
 // Ollama discovery (native /api/tags)
@@ -144,9 +134,13 @@ pub async fn discover_ollama(
 // Top-level orchestrator
 // ---------------------------------------------------------------------------
 
-/// Run all enabled discovery sources concurrently and merge results.
-/// Failures are logged and treated as "no models from this source" so a
-/// dead Ollama daemon doesn't shadow a working Codex login (or vice versa).
+/// Run both discovery sources concurrently and merge results. Failures
+/// are logged and treated as "no models from this source" so a dead
+/// Ollama daemon doesn't shadow a working Codex login (or vice versa).
+///
+/// `ollama_url` is a parameter purely for test injection -- production
+/// always passes `OLLAMA_DEFAULT_URL`. There's no CLI flag for this; the
+/// zero-config posture means the user doesn't pick a port.
 ///
 /// Codex discovery is delegated to a caller-provided closure because the
 /// `CodexClient` it relies on lives in a sibling module that already
@@ -154,8 +148,8 @@ pub async fn discover_ollama(
 /// branching. Keeping the closure here lets `discovery.rs` stay agnostic
 /// of those concerns while still running both sources in parallel.
 pub async fn discover_all<F, Fut>(
-    config: &DiscoveryConfig,
     http: &reqwest::Client,
+    ollama_url: &str,
     codex_lookup: F,
 ) -> Vec<DiscoveredModel>
 where
@@ -163,9 +157,6 @@ where
     Fut: std::future::Future<Output = Result<Vec<String>>>,
 {
     let codex_fut = async {
-        if !config.codex_enabled {
-            return Vec::new();
-        }
         match codex_lookup().await {
             Ok(ids) => ids
                 .into_iter()
@@ -182,13 +173,10 @@ where
     };
 
     let ollama_fut = async {
-        let Some(base) = config.ollama_url.as_deref() else {
-            return Vec::new();
-        };
-        match discover_ollama(http, base).await {
+        match discover_ollama(http, ollama_url).await {
             Ok(models) => models,
             Err(e) => {
-                tracing::info!("ollama model discovery skipped at {base}: {e:#}");
+                tracing::info!("ollama model discovery skipped at {ollama_url}: {e:#}");
                 Vec::new()
             }
         }
@@ -245,6 +233,11 @@ mod tests {
         assert!(split_wire_id("llama3:latest").is_none());
     }
 
+    /// Closed-port URL used by tests to force `discover_ollama` to fail
+    /// fast via `connect_timeout`, regardless of whether the test host
+    /// happens to have a real Ollama running on the default port.
+    const TEST_DEAD_OLLAMA_URL: &str = "http://127.0.0.1:1";
+
     /// `discover_all` returns Codex first, then Ollama, regardless of which
     /// future resolves first. Stable ordering matters because the first
     /// model in the catalog is auto-selected as the session default; we
@@ -252,15 +245,8 @@ mod tests {
     /// Ollama daemon was slow to respond on a particular boot.
     #[tokio::test]
     async fn discover_all_orders_codex_before_ollama() {
-        let config = DiscoveryConfig {
-            // Pointing at a closed port so ollama discovery returns Err
-            // quickly via `connect_timeout`. We only care about ordering
-            // of the merged vec, not the success path.
-            ollama_url: Some("http://127.0.0.1:1".into()),
-            codex_enabled: true,
-        };
         let http = discovery_http_client();
-        let models = discover_all(&config, &http, || async {
+        let models = discover_all(&http, TEST_DEAD_OLLAMA_URL, || async {
             Ok(vec!["gpt-5-codex".to_string(), "gpt-4o".to_string()])
         })
         .await;
@@ -271,30 +257,13 @@ mod tests {
     }
 
     /// When both sources fail, the merged vec is empty rather than an
-    /// error -- the server still starts and the user can re-run discovery
-    /// later via session/new.
+    /// error -- the server still starts and the user can run /codex-login
+    /// or start Ollama, then re-run discovery via the next session/new.
     #[tokio::test]
     async fn discover_all_returns_empty_when_both_sources_fail() {
-        let config = DiscoveryConfig {
-            ollama_url: Some("http://127.0.0.1:1".into()),
-            codex_enabled: true,
-        };
         let http = discovery_http_client();
-        let models = discover_all(&config, &http, || async { anyhow::bail!("no auth.json") }).await;
-        assert!(models.is_empty());
-    }
-
-    /// Disabling a source via config short-circuits its lookup. Verified
-    /// by passing a codex_lookup that would panic if called.
-    #[tokio::test]
-    async fn discover_all_skips_disabled_codex() {
-        let config = DiscoveryConfig {
-            ollama_url: None,
-            codex_enabled: false,
-        };
-        let http = discovery_http_client();
-        let models = discover_all(&config, &http, || async {
-            panic!("codex_lookup must not be called when codex_enabled=false")
+        let models = discover_all(&http, TEST_DEAD_OLLAMA_URL, || async {
+            anyhow::bail!("no auth.json")
         })
         .await;
         assert!(models.is_empty());

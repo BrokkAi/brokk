@@ -24,13 +24,12 @@ The server is composed of several specialized modules:
 
 ## Configuration / CLI Options
 
-The server binary is named `brokk-acp`. With zero configuration it discovers models from `~/.codex/auth.json` (if present) and a local Ollama daemon, and presents them to the editor as a single combined picker. Models are tagged on the wire as `codex::<id>` and `ollama::<id>` so identical names from different sources stay distinct.
+The server binary is named `brokk-acp`. It is **zero-config by design**: at startup it reads `~/.codex/auth.json` for Codex credentials and probes `http://localhost:11434/api/tags` for Ollama, presenting whatever responds as a single combined picker. Models are tagged on the wire as `codex::<id>` and `ollama::<id>` so identical names from different sources stay distinct.
+
+There are no flags to point at a different Ollama URL or restrict the picker. If your daemon listens elsewhere, run `ollama serve` on the default port.
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
-| `--ollama-url` | - | `http://localhost:11434` | Ollama base URL. Discovery hits `<url>/api/tags`; chat hits `<url>/v1/chat/completions`. |
-| `--no-ollama` | - | `false` | Disable Ollama discovery entirely. |
-| `--no-codex` | - | `false` | Disable Codex discovery (`~/.codex/auth.json`). |
 | `--default-model` | - | - | Override the default model id for new sessions. Accepts wire form (`codex::gpt-5-codex`) or a bare id. |
 | `--max-turns` | - | `25` | Max tool-calling iterations per prompt before forcing a final response. |
 | `--bifrost-binary`| `BROKK_BIFROST_BINARY` | - | Path to the `bifrost` executable to enable code-intel tools. |

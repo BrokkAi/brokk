@@ -21,22 +21,18 @@ use futures::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
 use crate::discovery::{
-    DiscoveredModel, DiscoveryConfig, ModelSource, discover_all, discovery_http_client,
+    DiscoveredModel, ModelSource, OLLAMA_DEFAULT_URL, discover_all, discovery_http_client,
     split_wire_id,
 };
 use crate::llm_client::{ChatMessage, LlmBackend, LlmResponse, ToolDefinition};
 
 /// LLM backend that routes by `<source>::<id>` prefix. Either inner
-/// backend may be absent (e.g. no `auth.json`, or `--no-ollama`); calls
-/// for a source whose backend isn't configured return a clear error
-/// rather than silently falling through.
+/// backend may be absent (e.g. no `auth.json`, or no Ollama on the
+/// default port); calls for a source whose backend isn't configured
+/// return a clear error rather than silently falling through.
 pub struct MultiBackend {
     codex: Option<Arc<dyn LlmBackend>>,
     ollama: Option<Arc<dyn LlmBackend>>,
-    /// Discovery config used by `list_models`. Held by value because each
-    /// `list_models` call rebuilds the catalog (the ACP agent caches the
-    /// result for re-use across `session/new` until the next discovery).
-    discovery_config: DiscoveryConfig,
     /// Source to use when a chat request arrives with no `<source>::` prefix.
     /// Picked at construction so `stream_chat` is purely synchronous w.r.t.
     /// configuration.
@@ -44,11 +40,7 @@ pub struct MultiBackend {
 }
 
 impl MultiBackend {
-    pub fn new(
-        codex: Option<Arc<dyn LlmBackend>>,
-        ollama: Option<Arc<dyn LlmBackend>>,
-        discovery_config: DiscoveryConfig,
-    ) -> Self {
+    pub fn new(codex: Option<Arc<dyn LlmBackend>>, ollama: Option<Arc<dyn LlmBackend>>) -> Self {
         // Prefer Codex when both are configured -- it's the more capable
         // backend and more likely to be the user's intent for a bare model
         // id like "gpt-5-codex". Falls back to Ollama if Codex is absent.
@@ -60,7 +52,6 @@ impl MultiBackend {
         Self {
             codex,
             ollama,
-            discovery_config,
             fallback_source,
         }
     }
@@ -116,7 +107,7 @@ impl LlmBackend for MultiBackend {
                 }
             };
             let discovered: Vec<DiscoveredModel> =
-                discover_all(&self.discovery_config, &http, codex_lookup).await;
+                discover_all(&http, OLLAMA_DEFAULT_URL, codex_lookup).await;
             Ok(discovered.into_iter().map(|m| m.wire_id()).collect())
         })
     }
@@ -190,11 +181,7 @@ mod tests {
     async fn stream_chat_routes_by_wire_prefix() {
         let (codex_backend, codex_last) = recording("codex");
         let (ollama_backend, ollama_last) = recording("ollama");
-        let multi = MultiBackend::new(
-            Some(codex_backend),
-            Some(ollama_backend),
-            DiscoveryConfig::default(),
-        );
+        let multi = MultiBackend::new(Some(codex_backend), Some(ollama_backend));
 
         let _ = multi
             .stream_chat(
@@ -233,11 +220,7 @@ mod tests {
     async fn bare_id_routes_to_codex_fallback_when_both_configured() {
         let (codex_backend, codex_last) = recording("codex");
         let (ollama_backend, ollama_last) = recording("ollama");
-        let multi = MultiBackend::new(
-            Some(codex_backend),
-            Some(ollama_backend),
-            DiscoveryConfig::default(),
-        );
+        let multi = MultiBackend::new(Some(codex_backend), Some(ollama_backend));
 
         let _ = multi
             .stream_chat(
@@ -259,7 +242,7 @@ mod tests {
     #[tokio::test]
     async fn bare_id_routes_to_ollama_when_codex_absent() {
         let (ollama_backend, ollama_last) = recording("ollama");
-        let multi = MultiBackend::new(None, Some(ollama_backend), DiscoveryConfig::default());
+        let multi = MultiBackend::new(None, Some(ollama_backend));
 
         let _ = multi
             .stream_chat(
@@ -282,7 +265,7 @@ mod tests {
     async fn wire_id_for_absent_backend_returns_error() {
         // Only Ollama is configured; a `codex::` wire id must error.
         let (ollama_backend, _ollama_last) = recording("ollama");
-        let multi = MultiBackend::new(None, Some(ollama_backend), DiscoveryConfig::default());
+        let multi = MultiBackend::new(None, Some(ollama_backend));
 
         let err = multi
             .stream_chat(
@@ -304,7 +287,7 @@ mod tests {
     /// or start Ollama and re-discover) but no model can be routed.
     #[tokio::test]
     async fn empty_multi_backend_errors_on_chat() {
-        let multi = MultiBackend::new(None, None, DiscoveryConfig::default());
+        let multi = MultiBackend::new(None, None);
         let err = multi
             .stream_chat(
                 "anything",
