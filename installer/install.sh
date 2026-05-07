@@ -331,10 +331,10 @@ main() {
     if [ "$skip_verify" = "false" ]; then
         log
         log "==> Verifying installs"
-        if ! "${install_dir}/bifrost" --version >&2; then
+        if ! "${install_dir}/bifrost" --version; then
             warn "bifrost --version failed"
         fi
-        if ! "${install_dir}/brokk-acp" --version >&2; then
+        if ! "${install_dir}/brokk-acp" --version; then
             warn "brokk-acp --version failed"
         fi
     fi

@@ -79,7 +79,13 @@ try {
 function Write-Info($msg)  { Write-Host $msg }
 function Write-Step($msg)  { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Write-Warn2($msg) { Write-Warning $msg }
-function Die($msg)         { Write-Error $msg; exit 1 }
+function Die($msg) {
+    # Avoid Write-Error here: with $ErrorActionPreference='Stop' it throws and
+    # produces a noisy stack trace under `irm | iex`. Plain colored text + exit
+    # gives a clean "error: ..." line.
+    Write-Host "error: $msg" -ForegroundColor Red
+    exit 1
+}
 
 # ---- platform detection --------------------------------------------------
 
@@ -332,13 +338,18 @@ if (-not $SkipPath) {
 if (-not $NoVerify) {
     Write-Info ""
     Write-Step "Verifying installs"
+    # Native exes do not throw on non-zero exit unless $PSNativeCommandUseErrorActionPreference
+    # is on (PS 7.4+), so check $LASTEXITCODE explicitly. The try/catch covers
+    # the launch-failed case (file missing, not executable, etc.).
     try {
         & (Join-Path $InstallDir 'bifrost.exe') --version
+        if ($LASTEXITCODE -ne 0) { Write-Warn2 "bifrost --version exited with code $LASTEXITCODE" }
     } catch {
         Write-Warn2 "bifrost --version failed: $_"
     }
     try {
         & (Join-Path $InstallDir 'brokk-acp.exe') --version
+        if ($LASTEXITCODE -ne 0) { Write-Warn2 "brokk-acp --version exited with code $LASTEXITCODE" }
     } catch {
         Write-Warn2 "brokk-acp --version failed: $_"
     }

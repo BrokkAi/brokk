@@ -103,6 +103,17 @@ $env:BROKK_INSTALL_DIR = 'C:\tools\brokk'
 irm https://install.brokk.ai/install.ps1 | iex
 ```
 
+## Windows execution policy
+
+The `irm | iex` form runs the script in the current PowerShell session and is
+not subject to script-file execution policy. If you instead save the script
+and run it as a file (`.\install.ps1`) on a system with a restrictive policy,
+you may need:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
 ## Security notes
 
 - Both scripts download exclusively over HTTPS. `install.sh` enforces
