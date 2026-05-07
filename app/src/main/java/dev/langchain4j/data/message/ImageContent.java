@@ -8,6 +8,7 @@ import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 import dev.langchain4j.data.image.Image;
 import java.net.URI;
 import java.util.Objects;
+import org.jetbrains.annotations.Nullable;
 
 /** Represents an image with a DetailLevel. */
 public class ImageContent implements Content {
@@ -25,6 +26,9 @@ public class ImageContent implements Content {
 
     private final Image image;
     private final DetailLevel detailLevel;
+
+    @Nullable
+    private final String cacheControl;
 
     /**
      * Create a new {@link ImageContent} from the given url.
@@ -114,8 +118,13 @@ public class ImageContent implements Content {
      * @param detailLevel the detail level of the image.
      */
     public ImageContent(Image image, DetailLevel detailLevel) {
+        this(image, detailLevel, null);
+    }
+
+    private ImageContent(Image image, DetailLevel detailLevel, @Nullable String cacheControl) {
         this.image = ensureNotNull(image, "image");
         this.detailLevel = ensureNotNull(detailLevel, "detailLevel");
+        this.cacheControl = cacheControl;
     }
 
     /**
@@ -142,21 +151,30 @@ public class ImageContent implements Content {
     }
 
     @Override
+    @Nullable
+    public String cacheControl() {
+        return cacheControl;
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ImageContent that = (ImageContent) o;
-        return Objects.equals(this.image, that.image) && Objects.equals(this.detailLevel, that.detailLevel);
+        return Objects.equals(this.image, that.image)
+                && Objects.equals(this.detailLevel, that.detailLevel)
+                && Objects.equals(this.cacheControl, that.cacheControl);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(image, detailLevel);
+        return Objects.hash(image, detailLevel, cacheControl);
     }
 
     @Override
     public String toString() {
-        return "ImageContent {" + " image = " + image + " detailLevel = " + detailLevel + " }";
+        return "ImageContent {" + " image = " + image + " detailLevel = " + detailLevel + " cacheControl = "
+                + cacheControl + " }";
     }
 
     /**
@@ -251,5 +269,16 @@ public class ImageContent implements Content {
      */
     public static ImageContent from(Image image, DetailLevel detailLevel) {
         return new ImageContent(image, detailLevel);
+    }
+
+    /**
+     * Creates a new {@link ImageContent} from an existing one with cache control.
+     *
+     * @param original the original image content.
+     * @param cacheControl the cache control.
+     * @return the image content.
+     */
+    public static ImageContent withCacheControl(ImageContent original, String cacheControl) {
+        return new ImageContent(original.image(), original.detailLevel(), cacheControl);
     }
 }

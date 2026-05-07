@@ -38,6 +38,7 @@ import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.openai.OpenAiTokenUsage.InputTokensDetails;
 import dev.langchain4j.model.openai.OpenAiTokenUsage.OutputTokensDetails;
 import dev.langchain4j.model.openai.internal.chat.AssistantMessage;
+import dev.langchain4j.model.openai.internal.chat.CacheControl;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
 import dev.langchain4j.model.openai.internal.chat.ContentType;
@@ -73,13 +74,24 @@ public class OpenAiUtils {
     }
 
     public static Message toOpenAiMessage(ChatMessage message) {
-        if (message instanceof SystemMessage) {
-            return dev.langchain4j.model.openai.internal.chat.SystemMessage.from(((SystemMessage) message).text());
+        if (message instanceof SystemMessage systemMessage) {
+            return dev.langchain4j.model.openai.internal.chat.SystemMessage.builder()
+                    .content(systemMessage.text())
+                    .build();
         }
 
         if (message instanceof UserMessage userMessage) {
-
             if (userMessage.hasSingleText()) {
+                var textContent = (TextContent) userMessage.contents().getFirst();
+                if (textContent.cacheControl() != null) {
+                    // Use multi-content path to include cache_control on the content block
+                    return dev.langchain4j.model.openai.internal.chat.UserMessage.builder()
+                            .content(userMessage.contents().stream()
+                                    .map(OpenAiUtils::toOpenAiContent)
+                                    .collect(toList()))
+                            .name(userMessage.name())
+                            .build();
+                }
                 return dev.langchain4j.model.openai.internal.chat.UserMessage.builder()
                         .content(userMessage.singleText())
                         .name(userMessage.name())
@@ -95,7 +107,6 @@ public class OpenAiUtils {
         }
 
         if (message instanceof AiMessage aiMessage) {
-
             if (!aiMessage.hasToolExecutionRequests()) {
                 return AssistantMessage.builder()
                         .content(aiMessage.text())
@@ -105,7 +116,7 @@ public class OpenAiUtils {
             }
 
             ToolExecutionRequest toolExecutionRequest =
-                    aiMessage.toolExecutionRequests().get(0);
+                    aiMessage.toolExecutionRequests().getFirst();
             if (toolExecutionRequest.id() == null) {
                 FunctionCall functionCall = FunctionCall.builder()
                         .name(toolExecutionRequest.name())
@@ -154,30 +165,26 @@ public class OpenAiUtils {
     }
 
     private static dev.langchain4j.model.openai.internal.chat.Content toOpenAiContent(Content content) {
-        if (content instanceof TextContent) {
-            return toOpenAiContent((TextContent) content);
-        } else if (content instanceof ImageContent) {
-            return toOpenAiContent((ImageContent) content);
+        CacheControl cacheControl = content.cacheControl() != null ? CacheControl.from(content.cacheControl()) : null;
+
+        if (content instanceof TextContent tc) {
+            return dev.langchain4j.model.openai.internal.chat.Content.builder()
+                    .type(ContentType.TEXT)
+                    .text(tc.text())
+                    .cacheControl(cacheControl)
+                    .build();
+        } else if (content instanceof ImageContent ic) {
+            return dev.langchain4j.model.openai.internal.chat.Content.builder()
+                    .type(ContentType.IMAGE_URL)
+                    .imageUrl(ImageUrl.builder()
+                            .url(toUrl(ic.image()))
+                            .detail(toDetail(ic.detailLevel()))
+                            .build())
+                    .cacheControl(cacheControl)
+                    .build();
         } else {
             throw illegalArgument("Unknown content type: " + content);
         }
-    }
-
-    private static dev.langchain4j.model.openai.internal.chat.Content toOpenAiContent(TextContent content) {
-        return dev.langchain4j.model.openai.internal.chat.Content.builder()
-                .type(ContentType.TEXT)
-                .text(content.text())
-                .build();
-    }
-
-    private static dev.langchain4j.model.openai.internal.chat.Content toOpenAiContent(ImageContent content) {
-        return dev.langchain4j.model.openai.internal.chat.Content.builder()
-                .type(ContentType.IMAGE_URL)
-                .imageUrl(ImageUrl.builder()
-                        .url(toUrl(content.image()))
-                        .detail(toDetail(content.detailLevel()))
-                        .build())
-                .build();
     }
 
     private static String extractSubtype(String mimetype) {
@@ -199,9 +206,24 @@ public class OpenAiUtils {
     }
 
     public static List<Tool> toTools(Collection<ToolSpecification> toolSpecifications, boolean strict) {
-        return toolSpecifications.stream()
+        List<Tool> tools = toolSpecifications.stream()
                 .map((ToolSpecification toolSpecification) -> toTool(toolSpecification, strict))
                 .collect(toList());
+
+        if (!tools.isEmpty()) {
+            Tool lastTool = tools.getLast();
+            Function lastFunction = lastTool.function();
+            Function updatedFunction = Function.builder()
+                    .name(lastFunction.name())
+                    .description(lastFunction.description())
+                    .strict(lastFunction.strict())
+                    .parameters(lastFunction.parameters())
+                    .cacheControl(CacheControl.from("ephemeral"))
+                    .build();
+            tools.set(tools.size() - 1, Tool.from(updatedFunction));
+        }
+
+        return tools;
     }
 
     private static Tool toTool(ToolSpecification toolSpecification, boolean strict) {
