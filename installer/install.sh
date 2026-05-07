@@ -3,10 +3,10 @@
 # Brokk installer: bifrost (auth proxy) + brokk-acp (Rust ACP server).
 #
 # Quick start:
-#   curl -sSL https://install.brokk.ai | bash
+#   curl -fsSL https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.sh | bash
 #
 # Or with options:
-#   curl -sSL https://install.brokk.ai | bash -s -- --install-dir ~/bin
+#   curl -fsSL https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.sh | bash -s -- --install-dir ~/bin
 #
 # Supported platforms (intersection of bifrost and brokk-acp builds):
 #   - Linux x86_64
@@ -150,6 +150,30 @@ get_latest_prefixed_tag() {
     printf '%s\n' "$tag"
 }
 
+download_release_by_tag() {
+    local repo="$1" tag="$2" dest="$3"
+    if ! download "https://api.github.com/repos/${repo}/releases/tags/${tag}" "$dest"; then
+        err "Could not fetch release ${tag} for ${repo}."
+    fi
+}
+
+get_asset_url() {
+    local release_json="$1" asset="$2" url
+    url="$(awk -v asset="$asset" '
+        /"name"[[:space:]]*:/ {
+            in_asset = ($0 ~ "\"name\"[[:space:]]*:[[:space:]]*\"" asset "\"")
+        }
+        in_asset && /"browser_download_url"[[:space:]]*:/ {
+            sub(/^.*"browser_download_url"[[:space:]]*:[[:space:]]*"/, "")
+            sub(/".*$/, "")
+            print
+            exit
+        }
+    ' "$release_json")"
+    [ -n "$url" ] || err "Release is missing expected asset: ${asset}"
+    printf '%s\n' "$url"
+}
+
 # ---- install helpers -----------------------------------------------------
 
 verify_sha256() {
@@ -182,26 +206,31 @@ install_file() {
 
 install_bifrost() {
     local os="$1" arch="$2" install_dir="$3" version="$4"
-    local target tarball url tmp expected_sha bin_path
+    local target tarball url release_json tmp expected_sha bin_path sha_url
 
     target="$(bifrost_target "$os" "$arch")"
     tarball="bifrost-${version}-${target}.tar.gz"
-    url="https://github.com/${BIFROST_REPO}/releases/download/${version}/${tarball}"
+    release_json="$(mktemp)"
+    download_release_by_tag "$BIFROST_REPO" "$version" "$release_json"
+    url="$(get_asset_url "$release_json" "$tarball")"
 
     log "==> Downloading bifrost ${version} (${target})"
     tmp="$(mktemp -d)"
     if ! download "$url" "${tmp}/${tarball}"; then
+        rm -f "$release_json"
         rm -rf "$tmp"
         err "Failed to download ${url}"
     fi
 
     # Verify checksum if upstream provides .sha256 sidecar (bifrost does).
-    if download "${url}.sha256" "${tmp}/${tarball}.sha256" 2>/dev/null; then
+    if sha_url="$(get_asset_url "$release_json" "${tarball}.sha256" 2>/dev/null)" \
+        && download "$sha_url" "${tmp}/${tarball}.sha256" 2>/dev/null; then
         expected_sha="$(awk '{print $1}' "${tmp}/${tarball}.sha256")"
         verify_sha256 "${tmp}/${tarball}" "$expected_sha"
     else
         warn "No sha256 sidecar for bifrost ${version}; skipping checksum verification."
     fi
+    rm -f "$release_json"
 
     ( cd "$tmp" && tar -xzf "$tarball" )
     # Tarball layout varies (binary at root vs. inside a dir): search for it.
@@ -217,17 +246,21 @@ install_bifrost() {
 
 install_brokk_acp() {
     local os="$1" arch="$2" install_dir="$3" version="$4"
-    local asset url tmp
+    local asset release_json url tmp
 
     asset="$(acp_asset_name "$os" "$arch")"
-    url="https://github.com/${BROKK_REPO}/releases/download/${ACP_TAG_PREFIX}${version}/${asset}"
+    release_json="$(mktemp)"
+    download_release_by_tag "$BROKK_REPO" "${ACP_TAG_PREFIX}${version}" "$release_json"
+    url="$(get_asset_url "$release_json" "$asset")"
 
     log "==> Downloading brokk-acp ${version} (${os}-${arch})"
     tmp="$(mktemp -d)"
     if ! download "$url" "${tmp}/${asset}"; then
+        rm -f "$release_json"
         rm -rf "$tmp"
         err "Failed to download ${url}"
     fi
+    rm -f "$release_json"
 
     install_file "${tmp}/${asset}" "${install_dir}/brokk-acp"
     rm -rf "$tmp"

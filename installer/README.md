@@ -1,24 +1,25 @@
-# Brokk Installer
+# Brokk ACP Component Installer
 
-One-line installers that download and install [bifrost](https://github.com/BrokkAi/bifrost)
-(the auth proxy) and `brokk-acp` (the Rust ACP server) together.
+One-line installers for the standalone ACP support components:
+[bifrost](https://github.com/BrokkAi/bifrost) (the auth proxy) and
+`brokk-acp` (the Rust ACP server).
+
+These scripts do **not** install the Brokk desktop app. To install the app,
+download a platform installer from https://github.com/BrokkAi/brokk/releases.
 
 ## Quick install
 
 ### Linux / macOS
 
 ```sh
-curl -sSL https://install.brokk.ai | bash
+curl -fsSL https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.sh | bash
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://install.brokk.ai/install.ps1 | iex
+irm https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.ps1 | iex
 ```
-
-> If you do not yet have the `install.brokk.ai` redirect set up, you can
-> always invoke the scripts directly from this repo's raw content URL.
 
 ## Supported platforms
 
@@ -71,7 +72,7 @@ Equivalent environment variables: `BROKK_INSTALL_DIR`, `BIFROST_VERSION`,
 To pass arguments through `curl | bash`, use the `bash -s --` form:
 
 ```sh
-curl -sSL https://install.brokk.ai | bash -s -- --install-dir ~/bin
+curl -fsSL https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.sh | bash -s -- --install-dir ~/bin
 ```
 
 ### `install.ps1`
@@ -92,7 +93,7 @@ To pass arguments to the script you need to download it first, since
 `irm | iex` cannot forward arguments:
 
 ```powershell
-irm https://install.brokk.ai/install.ps1 -OutFile install.ps1
+irm https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.ps1 -OutFile install.ps1
 .\install.ps1 -InstallDir 'C:\tools\brokk'
 ```
 
@@ -100,7 +101,7 @@ You can also set env vars before piping:
 
 ```powershell
 $env:BROKK_INSTALL_DIR = 'C:\tools\brokk'
-irm https://install.brokk.ai/install.ps1 | iex
+irm https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.ps1 | iex
 ```
 
 ## Windows execution policy
