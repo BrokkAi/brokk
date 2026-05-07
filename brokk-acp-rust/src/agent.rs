@@ -20,6 +20,7 @@ use agent_client_protocol::{
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::llm_client::{ChatMessage, LlmBackend};
+use crate::multi_backend::MultiBackend;
 use crate::session::{
     ConversationTurn, PermissionMode, SessionMode, SessionSnapshot, SessionStore,
 };
@@ -162,7 +163,7 @@ fn send_available_commands_update(cx: &ConnectionTo<Client>, session_id: &str) {
 
 /// Build and run the ACP agent over stdio.
 pub async fn run_agent(
-    llm: Arc<dyn LlmBackend>,
+    llm: Arc<MultiBackend>,
     sessions: SessionStore,
     max_turns: usize,
     bifrost_binary: Option<PathBuf>,
@@ -184,7 +185,9 @@ pub async fn run_agent(
     let sessions_list = sessions.clone();
 
     let llm_prompt = llm.clone();
+    let llm_login = llm.clone();
     let sessions_prompt = sessions.clone();
+    let sessions_login = sessions.clone();
     let bifrost_binary_prompt = bifrost_binary.clone();
 
     let sessions_cancel = sessions.clone();
@@ -461,7 +464,8 @@ pub async fn run_agent(
                 }
 
                 if is_slash_command(&prompt_text, "codex-login") {
-                    let report = handle_codex_login(&prompt_text).await;
+                    let report =
+                        handle_codex_login(&prompt_text, &llm_login, &sessions_login).await;
                     send_message(&cx, &session_id, &report);
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
@@ -490,7 +494,12 @@ pub async fn run_agent(
                 // The tool loop calls `block_task()` to await `session/request_permission`,
                 // which is only safe when run inside `cx.spawn` (per the ACP SDK docs --
                 // calling it directly from a request handler can deadlock the dispatch loop).
-                let llm_for_loop = llm_prompt.clone();
+                //
+                // The tool loop only needs the trait, so coerce the
+                // concrete `Arc<MultiBackend>` here -- keeping the
+                // multi-backend specific surface (e.g. `install_codex`)
+                // out of the generic chat path.
+                let llm_for_loop: Arc<dyn crate::llm_client::LlmBackend> = llm_prompt.clone();
                 let sessions_for_loop = sessions_prompt.clone();
                 let cx_for_loop = cx.clone();
                 let session_id_for_loop = session_id.clone();
@@ -980,7 +989,19 @@ fn is_slash_command(prompt_text: &str, name: &str) -> bool {
 /// Handle the `/codex-login` slash command and its subcommands.
 /// Subcommands: bare = start interactive login, `status` = report what's
 /// stored, `disconnect` = wipe the local credentials.
-async fn handle_codex_login(prompt_text: &str) -> String {
+///
+/// On a successful bare login we install the freshly-built Codex
+/// backend into `MultiBackend` so the next `session/new` (and any
+/// subsequent `codex::*` route) picks it up without a server restart.
+/// Without this, the empty-at-startup `Option` captured at
+/// construction would remain `None` forever and the new credentials
+/// would be unreachable until restart -- the behaviour issue #3555
+/// reported.
+async fn handle_codex_login(
+    prompt_text: &str,
+    llm: &Arc<MultiBackend>,
+    sessions: &SessionStore,
+) -> String {
     let arg = prompt_text
         .trim()
         .strip_prefix('/')
@@ -1036,12 +1057,49 @@ async fn handle_codex_login(prompt_text: &str) -> String {
                     .as_ref()
                     .map(|t| t.account_id.as_str())
                     .unwrap_or("(unknown)");
-                format!(
-                    "Codex login complete (account_id: {acct}). \
-                     Restart the server (or create a new session to refresh discovery) and \
-                     pick a `codex::*` model from the picker; prompts route through your \
-                     ChatGPT subscription via https://chatgpt.com/backend-api/codex/responses."
-                )
+                // Install the new backend so this session (and any
+                // future ones) can route `codex::*` and bare model ids
+                // immediately. We only install when the auth payload
+                // resolves to a usable backend -- a malformed auth.json
+                // (e.g. apikey mode with no key) leaves the slot empty
+                // and the user-facing message stays honest about it.
+                match crate::codex_backend_from_auth(&auth) {
+                    Some(backend) => {
+                        llm.install_codex(backend);
+                        // Refresh the cached model catalog in the
+                        // background so the picker picks Codex up on
+                        // the next `session/new` without waiting for
+                        // an unrelated discovery trigger.
+                        let llm_refresh = llm.clone();
+                        let sessions_refresh = sessions.clone();
+                        tokio::spawn(async move {
+                            match llm_refresh.list_models().await {
+                                Ok(models) => {
+                                    sessions_refresh.set_available_models(models).await;
+                                }
+                                Err(e) => {
+                                    tracing::debug!(
+                                        "post-login model-catalog refresh failed: {e:#}"
+                                    );
+                                }
+                            }
+                        });
+                        format!(
+                            "Codex login complete (account_id: {acct}). \
+                             Codex is now active -- create a new session \
+                             (or wait for the next discovery refresh) and \
+                             pick a `codex::*` model from the picker; \
+                             prompts route through your ChatGPT subscription \
+                             via https://chatgpt.com/backend-api/codex/responses."
+                        )
+                    }
+                    None => format!(
+                        "Codex login completed but the saved credentials are not usable \
+                         (auth_mode={:?}, no OPENAI_API_KEY). Re-run `/codex-login` or \
+                         inspect ~/.codex/auth.json.",
+                        auth.auth_mode
+                    ),
+                }
             }
             Err(e) => format!("Codex login failed: {e:#}"),
         },

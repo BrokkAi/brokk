@@ -14,7 +14,7 @@
 //! `/config` model picker would get a "no backend for model" error even
 //! though the picker also offers `ollama::llama3:latest`.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 use futures::future::BoxFuture;
@@ -30,36 +30,60 @@ use crate::llm_client::{ChatMessage, LlmBackend, LlmResponse, ToolDefinition};
 /// backend may be absent (e.g. no `auth.json`, or no Ollama on the
 /// default port); calls for a source whose backend isn't configured
 /// return a clear error rather than silently falling through.
+///
+/// The Codex slot is held behind a `RwLock` so a successful
+/// `/codex-login` mid-session can install a backend without a server
+/// restart. The lock is only ever held for the duration of a synchronous
+/// `Option<Arc<...>>` clone -- we never hold it across an `.await`.
 pub struct MultiBackend {
-    codex: Option<Arc<dyn LlmBackend>>,
+    codex: RwLock<Option<Arc<dyn LlmBackend>>>,
     ollama: Option<Arc<dyn LlmBackend>>,
-    /// Source to use when a chat request arrives with no `<source>::` prefix.
-    /// Picked at construction so `stream_chat` is purely synchronous w.r.t.
-    /// configuration.
-    fallback_source: Option<ModelSource>,
 }
 
 impl MultiBackend {
     pub fn new(codex: Option<Arc<dyn LlmBackend>>, ollama: Option<Arc<dyn LlmBackend>>) -> Self {
-        // Prefer Codex when both are configured -- it's the more capable
-        // backend and more likely to be the user's intent for a bare model
-        // id like "gpt-5-codex". Falls back to Ollama if Codex is absent.
-        let fallback_source = match (codex.is_some(), ollama.is_some()) {
-            (true, _) => Some(ModelSource::Codex),
-            (false, true) => Some(ModelSource::Ollama),
-            (false, false) => None,
-        };
         Self {
-            codex,
+            codex: RwLock::new(codex),
             ollama,
-            fallback_source,
         }
     }
 
-    fn pick(&self, source: ModelSource) -> Option<&Arc<dyn LlmBackend>> {
+    /// Install (or replace) the Codex backend at runtime. Called from
+    /// the `/codex-login` handler so the next discovery refresh and any
+    /// subsequent `codex::*` route picks it up without a server restart.
+    pub fn install_codex(&self, backend: Arc<dyn LlmBackend>) {
+        // unwrap: the only way the lock gets poisoned is a panic while
+        // holding it, and the only sites that hold it are tiny clones of
+        // an Option<Arc> -- not panickable in practice.
+        *self.codex.write().unwrap() = Some(backend);
+    }
+
+    /// Snapshot the current Codex backend, if any. Cloning the inner Arc
+    /// lets callers release the read lock immediately; they can then
+    /// `.await` the backend without holding a guard.
+    fn codex_snapshot(&self) -> Option<Arc<dyn LlmBackend>> {
+        self.codex.read().unwrap().clone()
+    }
+
+    fn pick(&self, source: ModelSource) -> Option<Arc<dyn LlmBackend>> {
         match source {
-            ModelSource::Codex => self.codex.as_ref(),
-            ModelSource::Ollama => self.ollama.as_ref(),
+            ModelSource::Codex => self.codex_snapshot(),
+            ModelSource::Ollama => self.ollama.clone(),
+        }
+    }
+
+    /// Source to use when a chat request arrives with no `<source>::` prefix.
+    /// Computed on demand (rather than cached at construction) so a Codex
+    /// login mid-session promotes Codex to the preferred fallback.
+    fn fallback_source(&self) -> Option<ModelSource> {
+        let codex_present = self.codex.read().unwrap().is_some();
+        match (codex_present, self.ollama.is_some()) {
+            // Prefer Codex when both are configured -- it's the more
+            // capable backend and more likely to be the user's intent
+            // for a bare model id like "gpt-5-codex".
+            (true, _) => Some(ModelSource::Codex),
+            (false, true) => Some(ModelSource::Ollama),
+            (false, false) => None,
         }
     }
 
@@ -67,18 +91,15 @@ impl MultiBackend {
     /// `<source>::` prefix) route to the fallback source.
     fn resolve(&self, wire_model: &str) -> Result<(Arc<dyn LlmBackend>, String)> {
         if let Some((source, bare)) = split_wire_id(wire_model) {
-            let backend = self
-                .pick(source)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "model {wire_model} requires the {} backend, which is not configured",
-                        source.as_str()
-                    )
-                })?
-                .clone();
+            let backend = self.pick(source).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "model {wire_model} requires the {} backend, which is not configured",
+                    source.as_str()
+                )
+            })?;
             return Ok((backend, bare.to_string()));
         }
-        let source = self.fallback_source.ok_or_else(|| {
+        let source = self.fallback_source().ok_or_else(|| {
             anyhow::anyhow!(
                 "no LLM backend is configured (neither Codex nor Ollama discovered \
                  any models, and no `<source>::<id>` wire prefix was provided)"
@@ -86,8 +107,7 @@ impl MultiBackend {
         })?;
         let backend = self
             .pick(source)
-            .expect("fallback_source is set only when its backend exists")
-            .clone();
+            .expect("fallback_source returns Some only when its backend exists");
         Ok((backend, wire_model.to_string()))
     }
 }
@@ -99,7 +119,10 @@ impl LlmBackend for MultiBackend {
             // Codex lookup is delegated to the configured backend's own
             // `list_models` so we keep auth-mode handling, fallback slugs,
             // and Cloudflare cookie state where they already live.
-            let codex = self.codex.clone();
+            // Snapshotting under the read lock and dropping the guard
+            // before the discovery future means a concurrent
+            // `install_codex` call still observes a consistent state.
+            let codex = self.codex_snapshot();
             let codex_lookup = || async move {
                 match codex {
                     Some(c) => c.list_models().await,
@@ -302,6 +325,100 @@ mod tests {
         assert!(
             msg.contains("no LLM backend is configured"),
             "error must explain the empty-backend case: {msg}"
+        );
+    }
+
+    /// Regression for the `/codex-login` lifecycle (issue #3555): the
+    /// server starts with no Codex backend (auth.json absent), the user
+    /// runs `/codex-login`, and the new backend is installed at
+    /// runtime. Subsequent `codex::*` routing must succeed -- previously
+    /// it kept returning the "backend not configured" error because the
+    /// `None` was captured permanently at construction.
+    #[tokio::test]
+    async fn codex_installed_after_login_is_routable() {
+        // Start with no Codex (mirrors the empty-auth.json startup path).
+        let multi = MultiBackend::new(None, None);
+
+        // Pre-install: a `codex::*` request must fail loudly.
+        let err = multi
+            .stream_chat(
+                "codex::gpt-5-codex",
+                vec![],
+                None,
+                Box::new(|_| {}),
+                CancellationToken::new(),
+            )
+            .await
+            .expect_err("codex route must fail before install");
+        assert!(format!("{err:#}").contains("codex"));
+
+        // User runs `/codex-login` successfully -- the handler installs
+        // a freshly-built Codex backend.
+        let (codex_backend, codex_last) = recording("codex");
+        multi.install_codex(codex_backend);
+
+        // Now the same request routes through Codex with the prefix
+        // stripped, exactly as if the credentials had been there at
+        // startup.
+        let _ = multi
+            .stream_chat(
+                "codex::gpt-5-codex",
+                vec![],
+                None,
+                Box::new(|_| {}),
+                CancellationToken::new(),
+            )
+            .await
+            .expect("codex route must succeed after install");
+        assert_eq!(codex_last.lock().unwrap().as_deref(), Some("gpt-5-codex"));
+    }
+
+    /// Bare ids must also start routing to Codex once it's installed.
+    /// Before the fix, `fallback_source` was frozen at construction --
+    /// so even after `install_codex` a bare `gpt-5-codex` would error
+    /// out with "no LLM backend is configured" because the cached
+    /// fallback was still `None`.
+    #[tokio::test]
+    async fn bare_id_falls_back_to_codex_after_install() {
+        let multi = MultiBackend::new(None, None);
+
+        let (codex_backend, codex_last) = recording("codex");
+        multi.install_codex(codex_backend);
+
+        let _ = multi
+            .stream_chat(
+                "gpt-5-codex",
+                vec![],
+                None,
+                Box::new(|_| {}),
+                CancellationToken::new(),
+            )
+            .await
+            .expect("bare id must route to newly-installed codex");
+        assert_eq!(codex_last.lock().unwrap().as_deref(), Some("gpt-5-codex"));
+    }
+
+    /// `list_models` must consult the currently-installed Codex backend,
+    /// not the one captured at construction. Without this, a successful
+    /// `/codex-login` followed by a discovery refresh (e.g. on
+    /// `session/new`) would keep returning an empty Codex list and the
+    /// model picker would never show Codex models.
+    #[tokio::test]
+    async fn list_models_reflects_installed_codex() {
+        let multi = MultiBackend::new(None, None);
+        let (codex_backend, _codex_last) = recording("codex");
+        multi.install_codex(codex_backend);
+
+        // RecordingBackend::list_models returns ["codex-stub"]. We can't
+        // exercise the live Cloudflare-fronted /codex/models path here
+        // -- the discovery wrapper falls back to the closure's output
+        // when its native probe fails or returns nothing, so the
+        // "codex-stub" id surfacing through `discover_all` is enough to
+        // prove the freshly-installed backend was consulted.
+        let models = multi.list_models().await.expect("discovery must succeed");
+        assert!(
+            models.iter().any(|m| m.contains("codex-stub")),
+            "installed codex backend must contribute to discovery: got {models:?}"
         );
     }
 }

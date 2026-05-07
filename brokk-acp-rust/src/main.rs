@@ -94,6 +94,36 @@ impl std::fmt::Debug for Args {
     }
 }
 
+/// Build a Codex backend from already-loaded credentials. Returns
+/// `None` for the same "credentials are unusable" cases the startup
+/// path treats as no-Codex (apikey mode without an API key, etc.) so
+/// the picker stays honest.
+///
+/// Shared by the startup path (`build_codex_backend`) and the
+/// post-`/codex-login` install path in `agent.rs`. Keeps the
+/// `auth.auth_mode + tokens` decision tree in one place so the two
+/// callers can't drift.
+pub fn codex_backend_from_auth(auth: &codex_auth::AuthDotJson) -> Option<Arc<dyn LlmBackend>> {
+    // ChatGPT-subscription routing requires both `auth_mode == "chatgpt"`
+    // AND a usable `tokens` block. Anything else falls through to the
+    // OPENAI_API_KEY path -- including `chatgpt` mode with no tokens
+    // (which can happen if a refresh just blew them away), `apikey` mode
+    // (the documented API-billed fallback), and any unrecognized mode
+    // string from a future codex-cli version. If we hit the apikey path
+    // with no key, the prompt would 401 -- skip in that case so the
+    // picker is honest about what's available.
+    if matches!(auth.auth_mode.as_deref(), Some("chatgpt")) && auth.tokens.is_some() {
+        return Some(Arc::new(codex_client::CodexClient::new()));
+    }
+    let key = auth.openai_api_key.clone();
+    key.map(|k| {
+        Arc::new(llm_client::OpenAiClient::new(
+            "https://api.openai.com/v1".to_string(),
+            Some(k),
+        )) as Arc<dyn LlmBackend>
+    })
+}
+
 /// Build the Codex backend if `~/.codex/auth.json` is present. Returns
 /// `None` when the file is missing or unreadable. Stale credentials
 /// are refreshed proactively so the first prompt doesn't burn a 401
@@ -115,37 +145,28 @@ async fn build_codex_backend() -> Option<Arc<dyn LlmBackend>> {
     if let Err(e) = codex_auth::refresh_if_stale(&mut auth).await {
         tracing::warn!("codex credential refresh failed: {e:#}");
     }
-    // ChatGPT-subscription routing requires both `auth_mode == "chatgpt"`
-    // AND a usable `tokens` block. Anything else falls through to the
-    // OPENAI_API_KEY path -- including `chatgpt` mode with no tokens
-    // (which can happen if a refresh just blew them away), `apikey` mode
-    // (the documented API-billed fallback), and any unrecognized mode
-    // string from a future codex-cli version. If we hit the apikey path
-    // with no key, the prompt would 401 -- skip in that case so the
-    // picker is honest about what's available.
-    if matches!(auth.auth_mode.as_deref(), Some("chatgpt")) && auth.tokens.is_some() {
-        tracing::info!(
-            "Codex backend enabled in ChatGPT subscription mode (Responses API on chatgpt.com)"
-        );
-        return Some(Arc::new(codex_client::CodexClient::new()));
+    let backend = codex_backend_from_auth(&auth);
+    match (&backend, auth.auth_mode.as_deref(), auth.tokens.is_some()) {
+        (Some(_), Some("chatgpt"), true) => {
+            tracing::info!(
+                "Codex backend enabled in ChatGPT subscription mode (Responses API on chatgpt.com)"
+            );
+        }
+        (Some(_), mode, _) => {
+            tracing::info!(
+                "Codex backend enabled in OPENAI_API_KEY mode (api.openai.com), auth_mode={:?}",
+                mode
+            );
+        }
+        (None, mode, _) => {
+            tracing::warn!(
+                "~/.codex/auth.json is unusable (auth_mode={:?}, no OPENAI_API_KEY); \
+                 skipping Codex backend. Run /codex-login to re-authenticate.",
+                mode
+            );
+        }
     }
-    let key = auth.openai_api_key.clone();
-    if key.is_none() {
-        tracing::warn!(
-            "~/.codex/auth.json is unusable (auth_mode={:?}, no OPENAI_API_KEY); \
-             skipping Codex backend. Run /codex-login to re-authenticate.",
-            auth.auth_mode
-        );
-        return None;
-    }
-    tracing::info!(
-        "Codex backend enabled in OPENAI_API_KEY mode (api.openai.com), auth_mode={:?}",
-        auth.auth_mode
-    );
-    Some(Arc::new(llm_client::OpenAiClient::new(
-        "https://api.openai.com/v1".to_string(),
-        key,
-    )))
+    backend
 }
 
 /// Build the Ollama chat backend. Always pointed at the default
@@ -202,11 +223,12 @@ async fn main() -> Result<()> {
     if codex_backend.is_none() {
         tracing::info!(
             "Codex backend not available; the picker will only show Ollama models. \
-             Run /codex-login from a session to add Codex (a server restart picks up the new auth)."
+             Run /codex-login from a session to add Codex -- the new credentials \
+             are picked up on the next discovery refresh, no restart required."
         );
     }
 
-    let llm: Arc<dyn LlmBackend> = Arc::new(MultiBackend::new(codex_backend, ollama_backend));
+    let llm: Arc<MultiBackend> = Arc::new(MultiBackend::new(codex_backend, ollama_backend));
 
     let limits = session::SessionLimits {
         max_sessions: args.max_sessions,
