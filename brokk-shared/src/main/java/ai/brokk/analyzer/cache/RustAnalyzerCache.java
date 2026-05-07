@@ -2,7 +2,13 @@ package ai.brokk.analyzer.cache;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.RustAnalyzer;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.AssociatedFunctionKey;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.FieldKey;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.InlineModuleResolution;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.MemberKey;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.RustTypeRef;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.RustUsageCandidateIndex;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.RustUsageFacts;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.Map;
@@ -18,12 +24,12 @@ import org.jetbrains.annotations.Nullable;
 public final class RustAnalyzerCache extends AnalyzerCache {
     private final Cache<ProjectFile, String> packageNamesByFileCache;
     private final Cache<ProjectFile, Map<String, Set<CodeUnit>>> definitionsByFileAndNameCache;
-    private final Cache<ProjectFile, Map<RustAnalyzer.MemberKey, CodeUnit>> exactMembersByFileCache;
-    private final Cache<ProjectFile, Map<RustAnalyzer.AssociatedFunctionKey, Boolean>> selfLikeAssociatedFunctionsCache;
-    private final Cache<ProjectFile, Map<RustAnalyzer.FieldKey, RustAnalyzer.RustTypeRef>> structFieldTypesCache;
-    private final Cache<ProjectFile, RustAnalyzer.RustUsageFacts> usageFactsByFileCache;
-    private @Nullable Map<String, RustAnalyzer.InlineModuleResolution> inlineModuleIndex;
-    private @Nullable RustAnalyzer.RustUsageCandidateIndex usageCandidateIndex;
+    private final Cache<ProjectFile, Map<MemberKey, CodeUnit>> exactMembersByFileCache;
+    private final Cache<ProjectFile, Map<AssociatedFunctionKey, Boolean>> selfLikeAssociatedFunctionsCache;
+    private final Cache<ProjectFile, Map<FieldKey, RustTypeRef>> structFieldTypesCache;
+    private final Cache<ProjectFile, RustUsageFacts> usageFactsByFileCache;
+    private @Nullable Map<String, InlineModuleResolution> inlineModuleIndex;
+    private @Nullable RustUsageCandidateIndex usageCandidateIndex;
 
     public RustAnalyzerCache() {
         super();
@@ -92,35 +98,35 @@ public final class RustAnalyzerCache extends AnalyzerCache {
         return definitionsByFileAndNameCache;
     }
 
-    public Cache<ProjectFile, Map<RustAnalyzer.MemberKey, CodeUnit>> exactMembersByFileCache() {
+    public Cache<ProjectFile, Map<MemberKey, CodeUnit>> exactMembersByFileCache() {
         return exactMembersByFileCache;
     }
 
-    public Cache<ProjectFile, Map<RustAnalyzer.AssociatedFunctionKey, Boolean>> selfLikeAssociatedFunctionsCache() {
+    public Cache<ProjectFile, Map<AssociatedFunctionKey, Boolean>> selfLikeAssociatedFunctionsCache() {
         return selfLikeAssociatedFunctionsCache;
     }
 
-    public Cache<ProjectFile, Map<RustAnalyzer.FieldKey, RustAnalyzer.RustTypeRef>> structFieldTypesCache() {
+    public Cache<ProjectFile, Map<FieldKey, RustTypeRef>> structFieldTypesCache() {
         return structFieldTypesCache;
     }
 
-    public Cache<ProjectFile, RustAnalyzer.RustUsageFacts> usageFactsByFileCache() {
+    public Cache<ProjectFile, RustUsageFacts> usageFactsByFileCache() {
         return usageFactsByFileCache;
     }
 
-    public @Nullable Map<String, RustAnalyzer.InlineModuleResolution> inlineModuleIndex() {
+    public @Nullable Map<String, InlineModuleResolution> inlineModuleIndex() {
         return inlineModuleIndex;
     }
 
-    public void inlineModuleIndex(Map<String, RustAnalyzer.InlineModuleResolution> inlineModuleIndex) {
+    public void inlineModuleIndex(Map<String, InlineModuleResolution> inlineModuleIndex) {
         this.inlineModuleIndex = inlineModuleIndex;
     }
 
-    public @Nullable RustAnalyzer.RustUsageCandidateIndex usageCandidateIndex() {
+    public @Nullable RustUsageCandidateIndex usageCandidateIndex() {
         return usageCandidateIndex;
     }
 
-    public void usageCandidateIndex(RustAnalyzer.RustUsageCandidateIndex usageCandidateIndex) {
+    public void usageCandidateIndex(RustUsageCandidateIndex usageCandidateIndex) {
         this.usageCandidateIndex = usageCandidateIndex;
     }
 }

@@ -8,6 +8,13 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.RustAnalyzerCache;
 import ai.brokk.analyzer.rust.CognitiveComplexityAnalysis;
 import ai.brokk.analyzer.rust.RustExportUsageExtractor;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.AssociatedFunctionKey;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.FieldKey;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.InlineModuleResolution;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.MemberKey;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.RustTypeRef;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.RustUsageCandidateIndex;
+import ai.brokk.analyzer.rust.RustExportUsageExtractor.RustUsageFacts;
 import ai.brokk.analyzer.usages.ExportIndex;
 import ai.brokk.analyzer.usages.ImportBinder;
 import ai.brokk.analyzer.usages.ReferenceCandidate;
@@ -62,29 +69,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             int shallowAssertionCount,
             int meaningfulAssertionCount,
             List<AssertionSignal> smells) {}
-
-    public record InlineModuleResolution(ProjectFile file, String exportPrefix, boolean externallyVisible) {}
-
-    public record MemberKey(String ownerClassName, String memberName, boolean instanceReceiver) {}
-
-    public record AssociatedFunctionKey(String ownerClassName, String functionName) {}
-
-    public record FieldKey(String ownerClassName, String fieldName) {}
-
-    public record RustTypeRef(List<String> segments) {}
-
-    public record RustUsageFacts(
-            Set<ReferenceCandidate> referenceCandidates,
-            Set<ResolvedReceiverCandidate> receiverCandidates,
-            Set<String> candidateTokens) {
-        private static final RustUsageFacts EMPTY = new RustUsageFacts(Set.of(), Set.of(), Set.of());
-
-        public static RustUsageFacts empty() {
-            return EMPTY;
-        }
-    }
-
-    public record RustUsageCandidateIndex(Map<String, Set<ProjectFile>> filesByToken) {}
 
     private record ResolvedRustType(ProjectFile file, @Nullable String moduleSpecifier, String name) {}
 
