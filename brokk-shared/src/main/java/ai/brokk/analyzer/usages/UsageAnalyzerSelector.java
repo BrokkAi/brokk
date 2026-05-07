@@ -4,8 +4,6 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.PythonAnalyzer;
-import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.project.ICoreProject;
 import java.util.List;
 import java.util.Set;
@@ -28,21 +26,13 @@ public final class UsageAnalyzerSelector {
             }
         }
         if (language.contains(Languages.PYTHON)) {
-            var python = analyzer.subAnalyzer(Languages.PYTHON)
-                    .filter(PythonAnalyzer.class::isInstance)
-                    .map(PythonAnalyzer.class::cast)
-                    .orElseGet(() -> new PythonAnalyzer(project));
-            var graph = new PythonExportUsageGraphStrategy(python);
+            var graph = new PythonExportUsageGraphStrategy(analyzer);
             if (graph.canHandle(target)) {
                 return graph;
             }
         }
         if (language.contains(Languages.RUST)) {
-            var rust = analyzer.subAnalyzer(Languages.RUST)
-                    .filter(RustAnalyzer.class::isInstance)
-                    .map(RustAnalyzer.class::cast)
-                    .orElseGet(() -> new RustAnalyzer(project));
-            var graph = new RustExportUsageGraphStrategy(rust);
+            var graph = new RustExportUsageGraphStrategy(analyzer);
             if (graph.canHandle(target)) {
                 return graph;
             }
