@@ -24,11 +24,14 @@ public final class FilenamePatternMatcher {
             return List.of();
         }
 
-        List<FilenamePattern> compiled = new ArrayList<>(nonBlank.size());
+        List<FilenamePattern> compiled = new ArrayList<>(nonBlank.size() * 2);
         for (String pattern : nonBlank) {
             compiled.add(compilePattern(toUnixPath(pattern), pattern, flags));
             if (pattern.contains("\\")) {
                 compiled.add(compilePattern(pattern, pattern, flags));
+            }
+            if (hasGlobMetacharacter(pattern)) {
+                compiled.add(compileGlobPattern(pattern, flags));
             }
         }
         return List.copyOf(compiled);
@@ -69,15 +72,50 @@ public final class FilenamePatternMatcher {
         try {
             return new FilenamePattern(Pattern.compile(regexPattern, flags), false, true);
         } catch (PatternSyntaxException e) {
-            String normalizedGlob = toUnixPath(globPattern);
-            Pattern globRegex = globToRegex(normalizedGlob);
-            Pattern compiledGlob = Pattern.compile(globRegex.pattern(), flags);
-            return new FilenamePattern(compiledGlob, true, normalizedGlob.contains("/"));
+            return compileGlobPattern(globPattern, flags);
         }
+    }
+
+    private static FilenamePattern compileGlobPattern(String globPattern, int flags) {
+        String normalizedGlob = normalizeGlobPattern(globPattern);
+        Pattern globRegex = globToRegex(normalizedGlob);
+        Pattern compiledGlob = Pattern.compile(globRegex.pattern(), flags);
+        return new FilenamePattern(compiledGlob, true, normalizedGlob.contains("/"));
+    }
+
+    private static boolean hasGlobMetacharacter(String pattern) {
+        return pattern.indexOf('*') >= 0 || pattern.indexOf('?') >= 0 || pattern.indexOf('[') >= 0;
     }
 
     private static String toUnixPath(String path) {
         return path.replace('\\', '/');
+    }
+
+    private static String normalizeGlobPattern(String pattern) {
+        var normalized = new StringBuilder(pattern.length());
+        for (int i = 0; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (c != '\\') {
+                normalized.append(c);
+                continue;
+            }
+            if (i + 1 >= pattern.length()) {
+                normalized.append('/');
+                continue;
+            }
+            char next = pattern.charAt(i + 1);
+            // In glob mode, tolerate regex-style escapes for punctuation that agents commonly mix
+            // into filename globs, e.g. *_repository\.go and foo\*.py. Bare backslashes and
+            // backslashes before letters/digits remain path separators, so src\main normalizes to
+            // src/main. Use forward slashes when combining Windows-style paths with glob segments.
+            if (".^$+{}()|*?[]".indexOf(next) >= 0) {
+                normalized.append(next);
+                i++;
+            } else {
+                normalized.append('/');
+            }
+        }
+        return normalized.toString();
     }
 
     private static String basename(String path) {

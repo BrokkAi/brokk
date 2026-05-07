@@ -103,6 +103,45 @@ class SearchToolsTest {
     }
 
     @Test
+    void findFilenames_ValidRegexAlsoMatchesGlob() throws Exception {
+        Path projectRoot = initRepo();
+        commitTrackedFiles(
+                projectRoot,
+                Map.of(
+                        "lib/events/report.go",
+                        "package events",
+                        "scripts/foo_bar.py",
+                        "print('ok')",
+                        "scripts/foo_star.py",
+                        "print('ok')",
+                        "persistence/album_repository.go",
+                        "package persistence"),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add glob target files");
+
+        project = new CoreProject(projectRoot);
+        SearchTools tools = new SearchTools(new StandaloneCodeIntelligence(project, new DisabledAnalyzer(project)));
+
+        String pathGlobResult = tools.findFilenames(List.of("lib/events/*.go"), 10);
+        String basenameGlobResult = tools.findFilenames(List.of("foo_*.py"), 10);
+        String mixedGlobResult = tools.findFilenames(List.of("*_repository\\.go"), 10);
+        String escapedGlobResult = tools.findFilenames(List.of("foo\\*.py"), 10);
+
+        assertTrue(
+                pathGlobResult.contains("- report.go"),
+                "Should match valid-regex path glob as a glob. Result: " + pathGlobResult);
+        assertTrue(
+                basenameGlobResult.contains("- foo_bar.py"),
+                "Should match valid-regex basename glob as a glob. Result: " + basenameGlobResult);
+        assertTrue(
+                mixedGlobResult.contains("- album_repository.go"),
+                "Should allow regex-escaped literals in globs. Result: " + mixedGlobResult);
+        assertTrue(
+                escapedGlobResult.contains("- foo_star.py"),
+                "Should not turn escaped glob chars into path separators. Result: " + escapedGlobResult);
+    }
+
+    @Test
     void searchSymbols_AppendsRelatedContent() throws Exception {
         Path projectRoot = initRepo();
         commitTrackedFiles(

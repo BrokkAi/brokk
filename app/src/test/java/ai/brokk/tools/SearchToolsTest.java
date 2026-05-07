@@ -259,6 +259,37 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testfindFilenames_validRegexAlsoMatchesGlob() throws Exception {
+        Path eventFile = projectRoot.resolve("lib/events/report.go");
+        Files.createDirectories(eventFile.getParent());
+        Files.writeString(eventFile, "package events");
+        Path helper = projectRoot.resolve("scripts/foo_bar.py");
+        Files.createDirectories(helper.getParent());
+        Files.writeString(helper, "print('ok')");
+        Path escapedStar = projectRoot.resolve("scripts/foo_star.py");
+        Files.writeString(escapedStar, "print('ok')");
+        Path repository = projectRoot.resolve("persistence/album_repository.go");
+        Files.createDirectories(repository.getParent());
+        Files.writeString(repository, "package persistence");
+
+        mockProjectFiles.add(new ProjectFile(projectRoot, "lib/events/report.go"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "scripts/foo_bar.py"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "scripts/foo_star.py"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "persistence/album_repository.go"));
+
+        String pathGlobResult = searchTools.findFilenames(List.of("lib/events/*.go"), 200);
+        String basenameGlobResult = searchTools.findFilenames(List.of("foo_*.py"), 200);
+        String mixedGlobResult = searchTools.findFilenames(List.of("*_repository\\.go"), 200);
+        String escapedGlobResult = searchTools.findFilenames(List.of("foo\\*.py"), 200);
+
+        assertTrue(pathGlobResult.contains("- report.go"), "Should match valid-regex path glob as a glob");
+        assertTrue(basenameGlobResult.contains("- foo_bar.py"), "Should match valid-regex basename glob as a glob");
+        assertTrue(mixedGlobResult.contains("- album_repository.go"), "Should allow regex-escaped literals in globs");
+        assertTrue(
+                escapedGlobResult.contains("- foo_star.py"), "Should not turn escaped glob chars into path separators");
+    }
+
+    @Test
     void testfindFilenames_limitEnforced() {
         for (int i = 0; i < 10; i++) {
             mockProjectFiles.add(new ProjectFile(projectRoot, "file" + i + ".txt"));

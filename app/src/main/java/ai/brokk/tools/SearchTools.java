@@ -2292,12 +2292,13 @@ public class SearchTools {
     @Tool(
             """
                     Returns filenames (relative to the project root) that match the given patterns.
-                    Accepts regex patterns; invalid regex is automatically treated as a glob pattern.
+                    Accepts regex and glob patterns; glob-looking patterns are matched both ways.
                     Matching is always case-insensitive.
                     Use this to find configuration files, test data, or source files when you know part of their name.
                     """)
     public String findFilenames(
-            @P("Patterns to match against filenames. Invalid regex falls back to glob matching.") List<String> patterns,
+            @P("Patterns to match against filenames. Glob-looking patterns also use glob matching.")
+                    List<String> patterns,
             @P("Maximum number of filenames to return (capped at 100).") int limit) {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search filenames: patterns list is empty");
