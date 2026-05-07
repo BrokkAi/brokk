@@ -39,6 +39,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -506,7 +507,8 @@ public class SearchAgent {
 
     @Tool("Signal workspace preparation is complete.")
     public ToolOutput workspaceComplete(
-            @P("Selected workspace fragments as IDs, or exact fragment descriptions.")
+            @P("Selected workspace fragments. Prefer copying the fragmentid attribute verbatim, "
+                            + "e.g. \"65fda478-c289-4e4e-afb1-d2753af1f080\". Do not paraphrase descriptions.")
                     List<String> fragmentIdsOrDescriptions) {
         var acceptedIds = new LinkedHashSet<String>();
         if (pendingWorkspaceCompleteIds != null) {
@@ -581,10 +583,37 @@ public class SearchAgent {
                 continue;
             }
 
+            var looseMatchingIds = resolveLooseDescriptionSelection(token, descriptionToIds);
+            if (looseMatchingIds.size() == 1) {
+                accepted.add(looseMatchingIds.getFirst());
+                continue;
+            } else if (looseMatchingIds.size() > 1) {
+                bad.add(token + " (ambiguous description, matches multiple IDs: " + looseMatchingIds + ")");
+                continue;
+            }
+
             bad.add(token);
         }
 
         return new FragmentSelectionResolution(List.copyOf(accepted), List.copyOf(bad));
+    }
+
+    private static List<String> resolveLooseDescriptionSelection(
+            String token, Map<String, List<String>> descriptionToIds) {
+        var normalizedToken = normalizeFragmentSelection(token);
+        return descriptionToIds.entrySet().stream()
+                .filter(entry -> {
+                    var normalizedDescription = normalizeFragmentSelection(entry.getKey());
+                    return normalizedDescription.startsWith(normalizedToken)
+                            || normalizedToken.startsWith(normalizedDescription);
+                })
+                .flatMap(entry -> entry.getValue().stream())
+                .distinct()
+                .toList();
+    }
+
+    private static String normalizeFragmentSelection(String value) {
+        return value.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
     }
 
     private static String jsonWithExplanation(String explanation) {
