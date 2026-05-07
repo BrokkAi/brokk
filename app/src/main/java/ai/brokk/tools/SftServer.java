@@ -20,6 +20,8 @@ import ai.brokk.project.MainProject;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Messages;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.sun.net.httpserver.HttpExchange;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -34,8 +36,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.SequencedSet;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,9 +45,17 @@ import org.jetbrains.annotations.Nullable;
 public final class SftServer implements AutoCloseable {
     private static final Logger logger = LogManager.getLogger(SftServer.class);
     private static final int DEFAULT_PORT = 7999;
+    private static final int MAX_CACHED_REPO_CONTEXTS = 50;
 
     private final SimpleHttpServer httpServer;
-    private final ConcurrentMap<Path, CachedContext> repoContexts = new ConcurrentHashMap<>();
+    private final Cache<Path, SharedContext> repoContexts = Caffeine.newBuilder()
+            .maximumSize(MAX_CACHED_REPO_CONTEXTS)
+            .<Path, SharedContext>removalListener((path, context, cause) -> {
+                if (context != null) {
+                    context.retire();
+                }
+            })
+            .build();
     private final CountDownLatch shutdownLatch = new CountDownLatch(1);
 
     public SftServer() throws IOException {
@@ -123,10 +131,9 @@ public final class SftServer implements AutoCloseable {
     @Override
     public void close() {
         httpServer.stop(1);
-        for (var context : repoContexts.values()) {
-            context.close();
-        }
-        repoContexts.clear();
+        repoContexts.asMap().values().forEach(SharedContext::retire);
+        repoContexts.invalidateAll();
+        repoContexts.cleanUp();
         shutdownLatch.countDown();
     }
 
@@ -139,52 +146,56 @@ public final class SftServer implements AutoCloseable {
             List<String> readonly,
             List<String> summarized,
             String buildError) {
-        var cachedContext = contextFor(repoPath);
-        var contextManager = cachedContext.contextManager();
-        var normalizedEditable = normalizePaths(editable);
-        var normalizedReadonly = normalizePaths(readonly);
-        var normalizedSummarized = normalizePaths(summarized);
-        rejectEditableReadonlyOverlap(normalizedEditable, normalizedReadonly);
+        try (var lease = contextFor(repoPath)) {
+            var cachedContext = lease.context();
+            var contextManager = cachedContext.contextManager();
+            var normalizedEditable = normalizePaths(editable);
+            var normalizedReadonly = normalizePaths(readonly);
+            var normalizedSummarized = normalizePaths(summarized);
+            rejectEditableReadonlyOverlap(normalizedEditable, normalizedReadonly);
 
-        var fragments = new ArrayList<ContextFragment>();
-        var readonlyFragments = new ArrayList<ContextFragment>();
+            var fragments = new ArrayList<ContextFragment>();
+            var readonlyFragments = new ArrayList<ContextFragment>();
 
-        for (var path : normalizedEditable) {
-            var file = validateProjectFile(cachedContext, path);
-            fragments.add(new ContextFragments.ProjectPathFragment(
-                    file, contextManager, loadRevisionText(cachedContext, file, revision)));
+            for (var path : normalizedEditable) {
+                var file = validateProjectFile(cachedContext, path);
+                fragments.add(new ContextFragments.ProjectPathFragment(
+                        file, contextManager, loadRevisionText(cachedContext, file, revision)));
+            }
+
+            for (var path : normalizedReadonly) {
+                var file = validateProjectFile(cachedContext, path);
+                var fragment = new ContextFragments.ProjectPathFragment(
+                        file, contextManager, loadRevisionText(cachedContext, file, revision));
+                fragments.add(fragment);
+                readonlyFragments.add(fragment);
+            }
+
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            for (var path : normalizedSummarized) {
+                var file = validateProjectFile(cachedContext, path);
+                var summaryText = analyzer.summarizeSymbols(file, loadRevisionText(cachedContext, file, revision));
+                fragments.add(
+                        ContextFragments.SummaryFragment.precomputedFileSummary(contextManager, file, summaryText));
+            }
+
+            var context = new Context(contextManager, fragments, List.of());
+            for (var readonlyFragment : readonlyFragments) {
+                context = context.setReadonly(readonlyFragment, true);
+            }
+            context = context.removeSupersededSummaries();
+            if (!buildError.isBlank()) {
+                context = context.withBuildResult(false, buildError);
+            }
+
+            var workspaceMessages =
+                    WorkspacePrompts.getMessagesForCodeAgent(context, Set.of()).workspace();
+            var result = new ArrayList<SftMessage>(workspaceMessages.size() + 1);
+            result.addAll(
+                    workspaceMessages.stream().map(SftServer::toSftMessage).toList());
+            result.add(buildAugmentedRequestMessage(context, goal));
+            return List.copyOf(result);
         }
-
-        for (var path : normalizedReadonly) {
-            var file = validateProjectFile(cachedContext, path);
-            var fragment = new ContextFragments.ProjectPathFragment(
-                    file, contextManager, loadRevisionText(cachedContext, file, revision));
-            fragments.add(fragment);
-            readonlyFragments.add(fragment);
-        }
-
-        var analyzer = contextManager.getAnalyzerUninterrupted();
-        for (var path : normalizedSummarized) {
-            var file = validateProjectFile(cachedContext, path);
-            var summaryText = analyzer.summarizeSymbols(file, loadRevisionText(cachedContext, file, revision));
-            fragments.add(ContextFragments.SummaryFragment.precomputedFileSummary(contextManager, file, summaryText));
-        }
-
-        var context = new Context(contextManager, fragments, List.of());
-        for (var readonlyFragment : readonlyFragments) {
-            context = context.setReadonly(readonlyFragment, true);
-        }
-        context = context.removeSupersededSummaries();
-        if (!buildError.isBlank()) {
-            context = context.withBuildResult(false, buildError);
-        }
-
-        var workspaceMessages =
-                WorkspacePrompts.getMessagesForCodeAgent(context, Set.of()).workspace();
-        var result = new ArrayList<SftMessage>(workspaceMessages.size() + 1);
-        result.addAll(workspaceMessages.stream().map(SftServer::toSftMessage).toList());
-        result.add(buildAugmentedRequestMessage(context, goal));
-        return List.copyOf(result);
     }
 
     @Blocking
@@ -194,45 +205,47 @@ public final class SftServer implements AutoCloseable {
 
     @Blocking
     public Map<String, String> format_patch(String repoPath, String from, String to, List<String> filenames) {
-        var cachedContext = contextFor(repoPath);
-        if (from.isBlank() || to.isBlank()) {
-            throw new IllegalArgumentException("from and to must not be blank");
-        }
+        try (var lease = contextFor(repoPath)) {
+            var cachedContext = lease.context();
+            if (from.isBlank() || to.isBlank()) {
+                throw new IllegalArgumentException("from and to must not be blank");
+            }
 
-        var includedFiles = normalizePathSet(cachedContext, defaultIfNull(filenames));
-        List<GitRepoData.FileDiff> fileDiffs;
-        try {
-            fileDiffs = requireGitRepo(cachedContext).data().getFileDiffs(from, to);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to diff revisions '%s' and '%s'".formatted(from, to), e);
-        }
+            var includedFiles = normalizePathSet(cachedContext, defaultIfNull(filenames));
+            List<GitRepoData.FileDiff> fileDiffs;
+            try {
+                fileDiffs = requireGitRepo(cachedContext).data().getFileDiffs(from, to);
+            } catch (Exception e) {
+                throw new IllegalArgumentException("Failed to diff revisions '%s' and '%s'".formatted(from, to), e);
+            }
 
-        if (!includedFiles.isEmpty()) {
-            fileDiffs = fileDiffs.stream()
-                    .filter(diff -> isPathIncluded(diff, includedFiles))
+            if (!includedFiles.isEmpty()) {
+                fileDiffs = fileDiffs.stream()
+                        .filter(diff -> isPathIncluded(diff, includedFiles))
+                        .toList();
+            }
+
+            var binaryPaths = fileDiffs.stream()
+                    .filter(GitRepoData.FileDiff::isBinary)
+                    .map(diff -> diff.newFile() != null
+                            ? diff.newFile().toString()
+                            : requireNonNull(diff.oldFile()).toString())
                     .toList();
-        }
+            if (!binaryPaths.isEmpty()) {
+                throw new IllegalArgumentException("Binary diffs are not supported: " + String.join(", ", binaryPaths));
+            }
 
-        var binaryPaths = fileDiffs.stream()
-                .filter(GitRepoData.FileDiff::isBinary)
-                .map(diff -> diff.newFile() != null
-                        ? diff.newFile().toString()
-                        : requireNonNull(diff.oldFile()).toString())
-                .toList();
-        if (!binaryPaths.isEmpty()) {
-            throw new IllegalArgumentException("Binary diffs are not supported: " + String.join(", ", binaryPaths));
+            SequencedSet<EditBlock.SearchReplaceBlock> blocks = SearchReplaceBlockFormatter.fromFileDiffs(fileDiffs);
+            var results = new LinkedHashMap<String, String>();
+            for (var block : blocks) {
+                var normalizedBlock = normalizePatchBlock(block);
+                results.merge(
+                        requireNonNull(normalizedBlock.rawFileName()),
+                        normalizedBlock.repr(),
+                        (left, right) -> left + "\n" + right);
+            }
+            return Map.copyOf(results);
         }
-
-        SequencedSet<EditBlock.SearchReplaceBlock> blocks = SearchReplaceBlockFormatter.fromFileDiffs(fileDiffs);
-        var results = new LinkedHashMap<String, String>();
-        for (var block : blocks) {
-            var normalizedBlock = normalizePatchBlock(block);
-            results.merge(
-                    requireNonNull(normalizedBlock.rawFileName()),
-                    normalizedBlock.repr(),
-                    (left, right) -> left + "\n" + right);
-        }
-        return Map.copyOf(results);
     }
 
     private void registerContexts() {
@@ -300,10 +313,17 @@ public final class SftServer implements AutoCloseable {
                 new UserMessage(Messages.getText(request) + "\n\n" + WorkspacePrompts.formatToc(context, Set.of())));
     }
 
-    private CachedContext contextFor(String repoPath) {
+    private CachedContextLease contextFor(String repoPath) {
         var root =
                 Path.of(requireNonBlank(repoPath, "repo_path")).toAbsolutePath().normalize();
-        return repoContexts.computeIfAbsent(root, SftServer::createContext);
+        while (true) {
+            var sharedContext = repoContexts.get(root, path -> new SharedContext(createContext(path)));
+            try {
+                return sharedContext.acquire();
+            } catch (IllegalStateException e) {
+                repoContexts.asMap().remove(root, sharedContext);
+            }
+        }
     }
 
     private static CachedContext createContext(Path projectRoot) {
@@ -446,6 +466,77 @@ public final class SftServer implements AutoCloseable {
     private record FormatWorkspaceResponse(List<SftMessage> result) {}
 
     private record FormatPatchResponse(Map<String, String> result) {}
+
+    private static final class CachedContextLease implements AutoCloseable {
+        private final SharedContext owner;
+        private final CachedContext context;
+        private boolean closed;
+
+        private CachedContextLease(SharedContext owner, CachedContext context) {
+            this.owner = owner;
+            this.context = context;
+        }
+
+        private CachedContext context() {
+            return context;
+        }
+
+        @Override
+        public void close() {
+            if (!closed) {
+                closed = true;
+                owner.release();
+            }
+        }
+    }
+
+    private static final class SharedContext {
+        private final CachedContext context;
+        private int leases;
+        private boolean retired;
+        private boolean closed;
+
+        private SharedContext(CachedContext context) {
+            this.context = context;
+        }
+
+        private synchronized CachedContextLease acquire() {
+            if (retired) {
+                throw new IllegalStateException("Context has already been retired");
+            }
+            leases++;
+            return new CachedContextLease(this, context);
+        }
+
+        private void release() {
+            CachedContext contextToClose = null;
+            synchronized (this) {
+                assert leases > 0;
+                leases--;
+                if (retired && leases == 0 && !closed) {
+                    closed = true;
+                    contextToClose = context;
+                }
+            }
+            if (contextToClose != null) {
+                contextToClose.close();
+            }
+        }
+
+        private void retire() {
+            CachedContext contextToClose = null;
+            synchronized (this) {
+                retired = true;
+                if (leases == 0 && !closed) {
+                    closed = true;
+                    contextToClose = context;
+                }
+            }
+            if (contextToClose != null) {
+                contextToClose.close();
+            }
+        }
+    }
 
     private record CachedContext(MainProject project, ContextManager contextManager) implements AutoCloseable {
         @Override
