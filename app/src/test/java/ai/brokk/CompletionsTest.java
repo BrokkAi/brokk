@@ -3,12 +3,15 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestAnalyzer;
+import ai.brokk.testutil.TestProject;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -119,6 +122,40 @@ public class CompletionsTest {
                 Map.entry("w.u.Zz", List.of()),
                 Map.entry("test.CamelClass", List.of(CodeUnit.fn(mockFile, "test", "CamelClass.someMethod"))));
         return new TestAnalyzer(allClasses, methodsMap);
+    }
+
+    @Test
+    public void testExpandPathMalformedGlobReturnsEmpty() throws Exception {
+        // Regression for issue #3331: LLMs pass tokens that crash expandPath. There are two
+        // distinct failure modes the production fix has to swallow; this test exercises each
+        // one explicitly so a future revert of either catch block fails here.
+        Files.createDirectories(tempDir.resolve("server/src/bin"));
+        Files.writeString(tempDir.resolve("server/src/bin/main.rs"), "fn main() {}");
+
+        var project = new TestProject(tempDir);
+
+        // Branch 1: PatternSyntaxException out of FileSystems.getPathMatcher.
+        // The pattern has no path separator, so basePrefix is empty, baseDir resolves to the
+        // project root, and Files.isDirectory passes. Execution reaches getPathMatcher with
+        // an unclosed '{' group, which throws on every OS regardless of glob/path separator
+        // mangling. Without the catch around getPathMatcher, this would propagate out and
+        // crash the tool call.
+        List<BrokkFile> badGlob = Completions.expandPath(project, "*{unclosed");
+        assertEquals(List.of(), badGlob);
+
+        // Branch 2: InvalidPathException out of Path.resolve while building baseDir.
+        // The NUL character is reserved on every OS, so root.resolve(basePrefix) fails before
+        // the isDirectory short-circuit runs. The original PR's test ([\"server/src/**/*.rs\"])
+        // hit this branch only on Windows (where `"` is illegal in path components) and
+        // short-circuited via !isDirectory on Linux/macOS, which is why it crashed Windows CI
+        // and never actually validated the catch elsewhere.
+        List<BrokkFile> illegalPathChar = Completions.expandPath(project, "bad\0prefix/*.rs");
+        assertEquals(List.of(), illegalPathChar);
+
+        // Sanity check: a well-formed glob still resolves the file.
+        List<BrokkFile> ok = Completions.expandPath(project, "server/src/**/*.rs");
+        assertEquals(1, ok.size());
+        assertTrue(ok.get(0).toString().endsWith("main.rs"));
     }
 
     @Test

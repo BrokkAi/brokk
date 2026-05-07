@@ -10,12 +10,15 @@ import java.nio.file.FileSystems;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.regex.PatternSyntaxException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -101,20 +104,31 @@ public final class PathExpander {
         String basePrefix = lastSepBefore >= 0 ? trimmed.substring(0, lastSepBefore + 1) : "";
 
         Path baseDir;
-        if (looksAbsolute(trimmed)) {
-            if (!basePrefix.isEmpty()) {
-                baseDir = Path.of(basePrefix);
-            } else if (trimmed.startsWith("\\\\")) {
-                // UNC root without server/share is not walkable; require at least \\server\share\
-                return List.of();
-            } else if (trimmed.length() >= 2 && Character.isLetter(trimmed.charAt(0)) && trimmed.charAt(1) == ':') {
-                baseDir = Path.of(trimmed.charAt(0) + ":\\");
+        try {
+            if (looksAbsolute(trimmed)) {
+                if (!basePrefix.isEmpty()) {
+                    baseDir = Path.of(basePrefix);
+                } else if (trimmed.startsWith("\\\\")) {
+                    // UNC root without server/share is not walkable; require at least \\server\share\
+                    return List.of();
+                } else if (trimmed.length() >= 2 && Character.isLetter(trimmed.charAt(0)) && trimmed.charAt(1) == ':') {
+                    baseDir = Path.of(trimmed.charAt(0) + ":\\");
+                } else {
+                    baseDir = Path.of(File.separator);
+                }
             } else {
-                baseDir = Path.of(File.separator);
+                var baseRel = basePrefix.replace('/', sepChar).replace('\\', sepChar);
+                baseDir = root.resolve(baseRel);
             }
-        } else {
-            var baseRel = basePrefix.replace('/', sepChar).replace('\\', sepChar);
-            baseDir = root.resolve(baseRel);
+        } catch (InvalidPathException e) {
+            // LLMs sometimes pass tokens that are illegal as platform path components
+            // (e.g. JSON-array syntax on Windows, where `"`, `<`, `>` are reserved).
+            logger.debug(
+                    "Invalid base-path token in pattern '{}' (basePrefix='{}'); returning no matches",
+                    pattern,
+                    basePrefix,
+                    e);
+            return List.of();
         }
 
         if (!Files.isDirectory(baseDir)) {
@@ -134,8 +148,21 @@ public final class PathExpander {
         int maxDepth = recursive ? Integer.MAX_VALUE : (1 + remainingSeparators);
 
         // Build a matcher relative to baseDir to avoid Windows absolute glob quirks.
-        String relGlob = remainder.replace('/', sepChar).replace('\\', sepChar);
-        var matcher = FileSystems.getDefault().getPathMatcher("glob:" + relGlob);
+        // Globs always use '/' as the path separator (java.nio.file.FileSystem#getPathMatcher);
+        // on Windows, "/" in a glob still matches "\" in a Path, so we normalize '\' -> '/' but
+        // never the reverse: replacing '/' with '\' on Windows would turn the separator into the
+        // glob escape character and break "**/*.rs"-style patterns.
+        String relGlob = remainder.replace('\\', '/');
+        PathMatcher matcher;
+        try {
+            // getPathMatcher also declares IllegalArgumentException for an unknown syntax identifier,
+            // but with the literal "glob:" prefix used here that branch is unreachable, so the catch
+            // stays narrow.
+            matcher = FileSystems.getDefault().getPathMatcher("glob:" + relGlob);
+        } catch (PatternSyntaxException e) {
+            logger.debug("Invalid glob pattern '{}' (relGlob='{}'); returning no matches", pattern, relGlob, e);
+            return List.of();
+        }
 
         var matches = new ArrayList<Path>();
         try {
