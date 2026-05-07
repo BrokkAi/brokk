@@ -1891,6 +1891,7 @@ public final class MainProject extends AbstractProject {
      * @return the previous vendor preference if it differed from {@link ModelProperties#CODEX_VENDOR}
      *         (so callers can mention it in user-facing messaging); empty otherwise.
      */
+    @Blocking
     public static Optional<String> applyCodexSignInAutoSetup() {
         saveFavoriteModels(ModelProperties.CODEX_OAUTH_FAVORITES);
         String previousVendor = getOtherModelsVendorPreference();
@@ -1912,6 +1913,7 @@ public final class MainProject extends AbstractProject {
      *
      * @return {@code true} if the preference was reset.
      */
+    @Blocking
     public static boolean revertCodexAutoSetupVendor() {
         if (!ModelProperties.CODEX_VENDOR.equals(getOtherModelsVendorPreference())) {
             return false;

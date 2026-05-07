@@ -7,6 +7,7 @@ import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.MaterialOptionPane;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.SwingUtil.ThemedIcon;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
@@ -2434,8 +2435,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             String error = Service.disconnectCodexOauth();
             SwingUtilities.invokeLater(() -> {
                 if (error == null) {
-                    MainProject.setOpenAiCodexOauthConnected(false);
+                    // Revert vendor preference before flipping the connected flag, otherwise
+                    // listeners on openAiOauthConnectionChanged observe the stale OpenAI - Codex
+                    // vendor while connected=false.
                     MainProject.revertCodexAutoSetupVendor();
+                    MainProject.setOpenAiCodexOauthConnected(false);
                     MaterialOptionPane.showConfirmDialog(
                             SettingsGlobalPanel.this,
                             "Successfully disconnected from OpenAI.",
@@ -2470,14 +2474,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private void maybeRunCodexAutoSetup() {
-        if (MainProject.isOpenAiCodexOauthConnected()) {
-            logger.info("Codex OAuth connected; installing Codex favorites preset and default vendor.");
+        if (!MainProject.isOpenAiCodexOauthConnected()) {
+            return;
+        }
+        logger.info("Codex OAuth connected; installing Codex favorites preset and default vendor.");
 
+        // Disk I/O (favorites + vendor preference writes) plus Service.reloadService must run off
+        // the EDT; the user-facing dialog has to run back on the EDT once the work is done.
+        chrome.getContextManager().submitBackgroundTask("Setting up Codex defaults", () -> {
             var previousVendor = MainProject.applyCodexSignInAutoSetup();
-
             chrome.getContextManager().reloadService();
 
-            SwingUtilities.invokeLater(() -> {
+            SwingUtil.runOnEdt(() -> {
                 String vendorLine = previousVendor
                         .map(prev -> String.format(
                                 "%n%n\"Vendor for other models\" was switched to \"%s\" (was: %s). To change it, open Settings > Advanced > Model Roles and pick a different entry from the \"Vendor for other models\" dropdown.",
@@ -2486,9 +2494,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 String message =
                         """
                         Codex OAuth is connected. While the OAuth-only restriction is enabled
-                        (Settings > Global), all model roles route to Codex models automatically
-                        without overwriting your saved preferences. The favorites list has been
-                        updated with Codex presets."""
+                        (Settings > Global), all model roles route to Codex models automatically.
+                        The favorites list has been updated with Codex presets."""
                                         .stripIndent()
                                 + vendorLine;
 
@@ -2501,7 +2508,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
                 parentDialog.reloadSettingsAndSelectTab(SettingsAdvancedPanel.MODEL_ROLES_TAB_TITLE);
             });
-        }
+        });
     }
 
     @Override

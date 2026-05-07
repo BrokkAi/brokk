@@ -2215,8 +2215,11 @@ public class BrokkAcpAgent {
         LoggingFuture.runVirtual(() -> {
             var error = Service.disconnectCodexOauth();
             if (error == null) {
-                MainProject.setOpenAiCodexOauthConnected(false);
+                // Revert vendor preference before flipping the connected flag, otherwise
+                // listeners on openAiOauthConnectionChanged observe the stale OpenAI - Codex
+                // vendor while connected=false.
                 MainProject.revertCodexAutoSetupVendor();
+                MainProject.setOpenAiCodexOauthConnected(false);
                 // Drop any in-flight login on this JVM so its listener cannot fire a phantom
                 // "successful" message on a future unrelated reconnection.
                 var pending = pendingLogin.get();
