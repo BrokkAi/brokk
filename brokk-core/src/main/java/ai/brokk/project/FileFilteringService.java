@@ -3,6 +3,7 @@ package ai.brokk.project;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.util.FilenamePatternMatcher;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -273,38 +274,7 @@ public final class FileFilteringService {
      */
     @VisibleForTesting
     public static Pattern globToRegex(String glob) {
-        var regex = new StringBuilder();
-        int i = 0;
-        while (i < glob.length()) {
-            char c = glob.charAt(i);
-            if (c == '*') {
-                if (i + 1 < glob.length() && glob.charAt(i + 1) == '*') {
-                    // ** matches anything including path separators
-                    regex.append(".*");
-                    i += 2;
-                    // Skip trailing / after **
-                    if (i < glob.length() && glob.charAt(i) == '/') {
-                        regex.append("/?");
-                        i++;
-                    }
-                } else {
-                    // * matches anything except path separator
-                    regex.append("[^/]*");
-                    i++;
-                }
-            } else if (c == '?') {
-                regex.append("[^/]");
-                i++;
-            } else if (".^$+[]{}()|\\".indexOf(c) >= 0) {
-                // Escape regex metacharacters
-                regex.append('\\').append(c);
-                i++;
-            } else {
-                regex.append(c);
-                i++;
-            }
-        }
-        return Pattern.compile(regex.toString());
+        return FilenamePatternMatcher.globToRegex(glob);
     }
 
     private MatchResult checkIgnoreFile(Path ignoreFile, String pathToCheck, boolean isDirectory) {

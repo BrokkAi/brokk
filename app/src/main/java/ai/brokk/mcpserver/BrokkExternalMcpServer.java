@@ -285,13 +285,24 @@ public class BrokkExternalMcpServer {
         Path current = Files.isDirectory(resolved) ? resolved : requireNonNull(resolved.getParent());
 
         for (Path candidate = current; candidate != null; candidate = candidate.getParent()) {
-            Path gitPath = candidate.resolve(".git");
-            if (Files.isDirectory(gitPath) || Files.isRegularFile(gitPath)) {
+            if (hasGitMetadata(candidate)) {
                 return candidate;
             }
         }
 
         return resolved;
+    }
+
+    private static boolean hasGitMetadata(Path candidate) {
+        Path gitPath = candidate.resolve(".git");
+        if (Files.isRegularFile(gitPath)) {
+            try {
+                return Files.readString(gitPath).startsWith("gitdir: ");
+            } catch (IOException e) {
+                return false;
+            }
+        }
+        return Files.isRegularFile(gitPath.resolve("HEAD")) && Files.isRegularFile(gitPath.resolve("config"));
     }
 
     public static List<McpServerFeatures.SyncToolSpecification> toolSpecificationsFrom(

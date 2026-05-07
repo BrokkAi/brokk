@@ -220,10 +220,73 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testfindFilenames_invalidRegexFallsBackToLiteral() throws Exception {
-        // Invalid regex should fall back to literal matching, not throw
+    void testfindFilenames_invalidRegexDoesNotReportError() throws Exception {
+        // Invalid regex should fall back instead of reporting a regex error.
         String result = searchTools.findFilenames(List.of("[["), 200);
         assertFalse(result.contains("Invalid regex pattern"), "Should not report regex error after fallback");
+    }
+
+    @Test
+    void testfindFilenames_invalidRegexFallsBackToGlob() throws Exception {
+        Path proto = projectRoot.resolve("rpc/flipt/flipt.proto");
+        Files.createDirectories(proto.getParent());
+        Files.writeString(proto, "syntax = \"proto3\";");
+        Path protocol = projectRoot.resolve("internal/config/testdata/database/missing_protocol.yml");
+        Files.createDirectories(protocol.getParent());
+        Files.writeString(protocol, "protocol: missing");
+
+        mockProjectFiles.add(new ProjectFile(projectRoot, "rpc/flipt/flipt.proto"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "internal/config/testdata/database/missing_protocol.yml"));
+
+        String result = searchTools.findFilenames(List.of("*.proto"), 200);
+
+        assertTrue(result.contains("# rpc/flipt"), "Should group the proto file by directory");
+        assertTrue(result.contains("- flipt.proto"), "Should match basename glob in nested directories");
+        assertFalse(result.contains("missing_protocol.yml"), "Should not behave like broad substring search");
+    }
+
+    @Test
+    void testfindFilenames_invalidRegexPathGlobFallsBackToGlob() throws Exception {
+        Path proto = projectRoot.resolve("rpc/flipt/flipt.proto");
+        Files.createDirectories(proto.getParent());
+        Files.writeString(proto, "syntax = \"proto3\";");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "rpc/flipt/flipt.proto"));
+
+        String result = searchTools.findFilenames(List.of("rpc/**/*.proto"), 200);
+
+        assertTrue(result.contains("# rpc/flipt"), "Should match recursive path globs");
+        assertTrue(result.contains("- flipt.proto"), "Should include matching proto file");
+    }
+
+    @Test
+    void testfindFilenames_validRegexAlsoMatchesGlob() throws Exception {
+        Path eventFile = projectRoot.resolve("lib/events/report.go");
+        Files.createDirectories(eventFile.getParent());
+        Files.writeString(eventFile, "package events");
+        Path helper = projectRoot.resolve("scripts/foo_bar.py");
+        Files.createDirectories(helper.getParent());
+        Files.writeString(helper, "print('ok')");
+        Path escapedStar = projectRoot.resolve("scripts/foo_star.py");
+        Files.writeString(escapedStar, "print('ok')");
+        Path repository = projectRoot.resolve("persistence/album_repository.go");
+        Files.createDirectories(repository.getParent());
+        Files.writeString(repository, "package persistence");
+
+        mockProjectFiles.add(new ProjectFile(projectRoot, "lib/events/report.go"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "scripts/foo_bar.py"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "scripts/foo_star.py"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "persistence/album_repository.go"));
+
+        String pathGlobResult = searchTools.findFilenames(List.of("lib/events/*.go"), 200);
+        String basenameGlobResult = searchTools.findFilenames(List.of("foo_*.py"), 200);
+        String mixedGlobResult = searchTools.findFilenames(List.of("*_repository\\.go"), 200);
+        String escapedGlobResult = searchTools.findFilenames(List.of("foo\\*.py"), 200);
+
+        assertTrue(pathGlobResult.contains("- report.go"), "Should match valid-regex path glob as a glob");
+        assertTrue(basenameGlobResult.contains("- foo_bar.py"), "Should match valid-regex basename glob as a glob");
+        assertTrue(mixedGlobResult.contains("- album_repository.go"), "Should allow regex-escaped literals in globs");
+        assertTrue(
+                escapedGlobResult.contains("- foo_star.py"), "Should not turn escaped glob chars into path separators");
     }
 
     @Test

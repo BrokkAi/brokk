@@ -198,11 +198,23 @@ public class BrokkCoreMcpServer {
         Path resolved = path.toAbsolutePath().normalize();
         Path current = Files.isDirectory(resolved) ? resolved : requireNonNull(resolved.getParent());
         for (Path candidate = current; candidate != null; candidate = candidate.getParent()) {
-            if (Files.isDirectory(candidate.resolve(".git")) || Files.isRegularFile(candidate.resolve(".git"))) {
+            if (hasGitMetadata(candidate)) {
                 return candidate;
             }
         }
         return resolved;
+    }
+
+    private static boolean hasGitMetadata(Path candidate) {
+        Path gitPath = candidate.resolve(".git");
+        if (Files.isRegularFile(gitPath)) {
+            try {
+                return Files.readString(gitPath).startsWith("gitdir: ");
+            } catch (IOException e) {
+                return false;
+            }
+        }
+        return Files.isRegularFile(gitPath.resolve("HEAD")) && Files.isRegularFile(gitPath.resolve("config"));
     }
 
     private static void initiateStdinEofShutdown(
@@ -362,11 +374,14 @@ public class BrokkCoreMcpServer {
 
         specs.add(tool(
                 "findFilenames",
-                "Search for files by name pattern. Accepts regex or literal strings; invalid regex is automatically treated as a literal match. Patterns are case-insensitive and match anywhere in the filename.",
+                "Search for files by name pattern. Accepts regex and glob patterns; glob-looking patterns are matched both ways. Patterns are case-insensitive.",
                 schema(
                         Map.of(
-                                "patterns", arrayProp("Patterns to match against filenames (regex or literal string)."),
-                                "limit", intProp("Maximum results to return.")),
+                                "patterns",
+                                arrayProp(
+                                        "Patterns to match against filenames. Glob-looking patterns like *.proto also use glob matching."),
+                                "limit",
+                                intProp("Maximum results to return.")),
                         List.of("patterns", "limit")),
                 (exchange, request) -> withReadLock(() -> {
                     var patterns = stringListArg(request, "patterns");

@@ -149,6 +149,17 @@ class BrokkCoreMcpServerTest {
         assertEquals(noGitDir.toAbsolutePath().normalize(), resolved);
     }
 
+    @Test
+    void resolveProjectRootIgnoresInvalidGitParent() throws Exception {
+        var parent = tempDir.resolve("invalid-git-parent");
+        Files.createDirectories(parent.resolve(".git"));
+        var noGitDir = parent.resolve("no-git");
+        Files.createDirectories(noGitDir);
+
+        var resolved = BrokkCoreMcpServer.resolveProjectRoot(noGitDir);
+        assertEquals(noGitDir.toAbsolutePath().normalize(), resolved);
+    }
+
     // -- getActiveWorkspace tool test --
 
     @Test
