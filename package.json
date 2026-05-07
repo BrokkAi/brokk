@@ -55,7 +55,10 @@
             "debian-x64",
             "mac-x64"
         ]},
-        "platformBundlesEnabled": false
+        "platformBundlesEnabled": false,
+        "artifacts": {
+            "win-x64": { "enabled": true }
+        }
     },
     "dependencies": {
         "command-exists-promise": "^2.0.2",
