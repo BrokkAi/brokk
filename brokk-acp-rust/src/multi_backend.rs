@@ -51,11 +51,30 @@ impl MultiBackend {
     /// Install (or replace) the Codex backend at runtime. Called from
     /// the `/codex-login` handler so the next discovery refresh and any
     /// subsequent `codex::*` route picks it up without a server restart.
+    ///
+    /// Replacing an existing backend is safe: any in-flight request
+    /// holding a clone of the old `Arc<CodexClient>` finishes against
+    /// that instance and then drops it. Note that the new backend
+    /// starts with an empty `reqwest` cookie jar and `refresh_lock`, so
+    /// the first request after replacement may have to re-acquire any
+    /// Cloudflare cookies (`__cf_bm`, `cf_clearance`) the previous
+    /// instance had already accumulated; this is a one-request cost.
     pub fn install_codex(&self, backend: Arc<dyn LlmBackend>) {
         // unwrap: the only way the lock gets poisoned is a panic while
         // holding it, and the only sites that hold it are tiny clones of
         // an Option<Arc> -- not panickable in practice.
         *self.codex.write().unwrap() = Some(backend);
+    }
+
+    /// Drop the currently-installed Codex backend, if any. Called from
+    /// `/codex-login disconnect` after the on-disk credentials are
+    /// wiped so a subsequent `codex::*` request fails with the same
+    /// "backend not configured" error a fresh-no-auth.json startup
+    /// would give, instead of firing requests with credentials that
+    /// will now 401. In-flight requests holding an `Arc` to the old
+    /// backend complete against that captured instance.
+    pub fn uninstall_codex(&self) {
+        *self.codex.write().unwrap() = None;
     }
 
     /// Snapshot the current Codex backend, if any. Cloning the inner Arc
@@ -409,16 +428,60 @@ mod tests {
         let (codex_backend, _codex_last) = recording("codex");
         multi.install_codex(codex_backend);
 
-        // RecordingBackend::list_models returns ["codex-stub"]. We can't
-        // exercise the live Cloudflare-fronted /codex/models path here
-        // -- the discovery wrapper falls back to the closure's output
-        // when its native probe fails or returns nothing, so the
-        // "codex-stub" id surfacing through `discover_all` is enough to
-        // prove the freshly-installed backend was consulted.
+        // RecordingBackend::list_models returns ["codex-stub"].
+        // `discover_all` delegates Codex discovery entirely to the
+        // closure (the only Codex source it has -- there is no separate
+        // native probe), so the "codex-stub" id surfacing through it
+        // proves the freshly-installed backend was consulted by the
+        // refresh path rather than the empty `None` captured at
+        // construction.
         let models = multi.list_models().await.expect("discovery must succeed");
         assert!(
             models.iter().any(|m| m.contains("codex-stub")),
             "installed codex backend must contribute to discovery: got {models:?}"
+        );
+    }
+
+    /// `/codex-login disconnect` calls `uninstall_codex` after wiping
+    /// auth.json. Subsequent `codex::*` routing must fail with the same
+    /// "backend not configured" error a fresh-no-auth.json startup
+    /// gives -- otherwise a wire id picked from a stale `availableModels`
+    /// list would fire a request against credentials that no longer
+    /// exist on disk.
+    #[tokio::test]
+    async fn codex_uninstall_unroutes_codex_requests() {
+        let multi = MultiBackend::new(None, None);
+        let (codex_backend, _codex_last) = recording("codex");
+        multi.install_codex(codex_backend);
+
+        // Sanity check: routable while installed.
+        let _ = multi
+            .stream_chat(
+                "codex::gpt-5-codex",
+                vec![],
+                None,
+                Box::new(|_| {}),
+                CancellationToken::new(),
+            )
+            .await
+            .expect("codex route must succeed while installed");
+
+        // Disconnect path drops the backend.
+        multi.uninstall_codex();
+
+        let err = multi
+            .stream_chat(
+                "codex::gpt-5-codex",
+                vec![],
+                None,
+                Box::new(|_| {}),
+                CancellationToken::new(),
+            )
+            .await
+            .expect_err("codex route must fail after uninstall");
+        assert!(
+            format!("{err:#}").contains("codex"),
+            "error must mention codex backend"
         );
     }
 }

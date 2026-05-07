@@ -161,6 +161,42 @@ fn send_available_commands_update(cx: &ConnectionTo<Client>, session_id: &str) {
     }
 }
 
+/// Spawn a background discovery refresh that updates the session
+/// store's cached model catalog. Throttled by `refresh_lock`: if a
+/// previous refresh is still in flight the call is a no-op (the
+/// in-flight one will seed the cache anyway). Shared by `session/new`
+/// and the `/codex-login` post-install path so the two can never race.
+fn spawn_throttled_refresh(
+    refresh_lock: Arc<tokio::sync::Mutex<()>>,
+    llm: Arc<MultiBackend>,
+    sessions: SessionStore,
+) {
+    if let Ok(guard) = refresh_lock.try_lock_owned() {
+        tokio::spawn(async move {
+            // Hold the guard for the duration of the refresh so the
+            // next try_lock observes "in flight". Drop is implicit at
+            // the end of the spawned future.
+            let _refresh_guard = guard;
+            match llm.list_models().await {
+                Ok(models) => {
+                    tracing::debug!(
+                        count = models.len(),
+                        "background model-catalog refresh complete"
+                    );
+                    sessions.set_available_models(models).await;
+                }
+                Err(e) => {
+                    tracing::debug!("background model-catalog refresh failed: {e:#}");
+                }
+            }
+        });
+    } else {
+        tracing::trace!(
+            "skipping background model-catalog refresh: another refresh is already in flight"
+        );
+    }
+}
+
 /// Build and run the ACP agent over stdio.
 pub async fn run_agent(
     llm: Arc<MultiBackend>,
@@ -178,7 +214,13 @@ pub async fn run_agent(
     // pile up redundant probes against /api/tags and /codex/models. We
     // hold this owned Mutex via try_lock_owned: when a refresh is already
     // in flight, the next try_lock returns None and we skip the spawn.
-    let refresh_lock_new = Arc::new(tokio::sync::Mutex::new(()));
+    //
+    // The same lock is shared with the `/codex-login` post-install
+    // refresh below so an immediate session/new after login doesn't race
+    // a second probe through the discovery path.
+    let refresh_lock = Arc::new(tokio::sync::Mutex::new(()));
+    let refresh_lock_new = refresh_lock.clone();
+    let refresh_lock_login = refresh_lock.clone();
 
     let sessions_load = sessions.clone();
     let sessions_resume = sessions.clone();
@@ -248,36 +290,11 @@ pub async fn run_agent(
                 // returns immediately with the cached list -- the refresh seeds
                 // the cache for the next call so we don't pay the discovery RTT
                 // here on the synchronous path.
-                //
-                // Throttled via `refresh_lock_new`: if a prior refresh is still
-                // running we skip this one rather than queueing it, since the
-                // outcome would be near-identical anyway.
-                if let Ok(guard) = refresh_lock_new.clone().try_lock_owned() {
-                    let llm_refresh = llm_new.clone();
-                    let sessions_refresh = sessions_new.clone();
-                    tokio::spawn(async move {
-                        // Hold the guard for the duration of the refresh so
-                        // the next try_lock observes "in flight". Drop is
-                        // implicit at the end of the spawned future.
-                        let _refresh_guard = guard;
-                        match llm_refresh.list_models().await {
-                            Ok(models) => {
-                                tracing::debug!(
-                                    count = models.len(),
-                                    "background model-catalog refresh complete"
-                                );
-                                sessions_refresh.set_available_models(models).await;
-                            }
-                            Err(e) => {
-                                tracing::debug!("background model-catalog refresh failed: {e:#}");
-                            }
-                        }
-                    });
-                } else {
-                    tracing::trace!(
-                        "skipping background model-catalog refresh: another refresh is already in flight"
-                    );
-                }
+                spawn_throttled_refresh(
+                    refresh_lock_new.clone(),
+                    llm_new.clone(),
+                    sessions_new.clone(),
+                );
 
                 // Use the cached list populated at init; fall back to the session's own model.
                 let mut models = sessions_new.available_models().await;
@@ -464,8 +481,13 @@ pub async fn run_agent(
                 }
 
                 if is_slash_command(&prompt_text, "codex-login") {
-                    let report =
-                        handle_codex_login(&prompt_text, &llm_login, &sessions_login).await;
+                    let report = handle_codex_login(
+                        &prompt_text,
+                        &llm_login,
+                        &sessions_login,
+                        &refresh_lock_login,
+                    )
+                    .await;
                     send_message(&cx, &session_id, &report);
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
@@ -1001,6 +1023,7 @@ async fn handle_codex_login(
     prompt_text: &str,
     llm: &Arc<MultiBackend>,
     sessions: &SessionStore,
+    refresh_lock: &Arc<tokio::sync::Mutex<()>>,
 ) -> String {
     let arg = prompt_text
         .trim()
@@ -1036,18 +1059,33 @@ async fn handle_codex_login(
                 // "MISSING" as a broken login.
                 let api_key_label = match (mode, has_key) {
                     (_, true) => "present",
-                    ("chatgpt", false) => "n/a (ChatGPT-only account; subscription routing does not need one)",
+                    ("chatgpt", false) => {
+                        "n/a (ChatGPT-only account; subscription routing does not need one)"
+                    }
                     (_, false) => "MISSING",
                 };
                 format!(
                     "Codex login status:\n  auth_mode: {mode}\n  routing: {routing}\n  api_key: {api_key_label}\n  account_id: {acct}\n  last_refresh: {last}"
                 )
             }
-            Ok(None) => "No Codex credentials found. Run `/codex-login` to authenticate.".to_string(),
+            Ok(None) => {
+                "No Codex credentials found. Run `/codex-login` to authenticate.".to_string()
+            }
             Err(e) => format!("Failed to read ~/.codex/auth.json: {e:#}"),
         },
         "disconnect" => match crate::codex_auth::logout() {
-            Ok(()) => "Codex credentials cleared. Restart the server to drop any cached tokens from memory.".to_string(),
+            Ok(()) => {
+                // Drop the in-memory backend so subsequent `codex::*`
+                // routes fail loudly (and identically to a no-auth
+                // startup) instead of firing requests against now-missing
+                // credentials. Refresh the cached catalog so the picker
+                // stops offering Codex models.
+                llm.uninstall_codex();
+                spawn_throttled_refresh(refresh_lock.clone(), llm.clone(), sessions.clone());
+                "Codex credentials cleared and the in-memory backend was unloaded; \
+                 the picker will only show Ollama models until you re-run `/codex-login`."
+                    .to_string()
+            }
             Err(e) => format!("Failed to remove ~/.codex/auth.json: {e:#}"),
         },
         "" => match crate::codex_auth::interactive_login().await {
@@ -1069,21 +1107,15 @@ async fn handle_codex_login(
                         // Refresh the cached model catalog in the
                         // background so the picker picks Codex up on
                         // the next `session/new` without waiting for
-                        // an unrelated discovery trigger.
-                        let llm_refresh = llm.clone();
-                        let sessions_refresh = sessions.clone();
-                        tokio::spawn(async move {
-                            match llm_refresh.list_models().await {
-                                Ok(models) => {
-                                    sessions_refresh.set_available_models(models).await;
-                                }
-                                Err(e) => {
-                                    tracing::debug!(
-                                        "post-login model-catalog refresh failed: {e:#}"
-                                    );
-                                }
-                            }
-                        });
+                        // an unrelated discovery trigger. Shares the
+                        // same throttle as `session/new` so an
+                        // immediate session creation right after login
+                        // doesn't race a second probe.
+                        spawn_throttled_refresh(
+                            refresh_lock.clone(),
+                            llm.clone(),
+                            sessions.clone(),
+                        );
                         format!(
                             "Codex login complete (account_id: {acct}). \
                              Codex is now active -- create a new session \
