@@ -146,10 +146,13 @@ def test_run_mcp_server_reports_missing_runtime(monkeypatch, tmp_path, capsys) -
     assert "Unable to launch MCP runtime" in capsys.readouterr().err
 
 
-def test_run_mcp_server_appends_passthrough_args_with_separator_for_jbang(
+def test_run_mcp_server_appends_passthrough_args_directly_for_jbang(
     monkeypatch, tmp_path
 ) -> None:
-    """Verify JBang launches include '--' before passthrough args."""
+    """JBang's `jbang run [OPTS] <script> [<userParams>...]` grammar has no `--`
+    separator: anything after the script/jar URL is passed straight to the Java
+    main. Adding `--` shows up as `args[0]` to the main class and trips
+    `CliArgParser`'s `unknown argument --` warning (issue #3547)."""
     captured: dict[str, object] = {}
 
     def fake_execvpe(binary: str, command: list[str], env: dict[str, str]) -> None:
@@ -173,8 +176,8 @@ def test_run_mcp_server_appends_passthrough_args_with_separator_for_jbang(
     command = captured["command"]
     assert isinstance(command, list)
     assert command[0] == "/usr/local/bin/jbang"
-    # For JBang, we expect -- before passthrough args
-    assert command[-3:] == ["--", "--help", "--verbose"]
+    assert command[-2:] == ["--help", "--verbose"]
+    assert "--" not in command
 
 
 def test_run_mcp_server_appends_passthrough_args_directly_for_java(monkeypatch, tmp_path) -> None:
@@ -307,7 +310,7 @@ def test_run_mcp_core_server_falls_back_to_jbang(monkeypatch, tmp_path) -> None:
     assert any("brokk-core-0.99.0.jar" in arg for arg in command)
 
 
-def test_run_mcp_core_server_passthrough_args_with_jbang_separator(monkeypatch, tmp_path) -> None:
+def test_run_mcp_core_server_passthrough_args_directly_for_jbang(monkeypatch, tmp_path) -> None:
     captured: dict[str, object] = {}
 
     def fake_execvpe(binary: str, command: list[str], env: dict[str, str]) -> None:
@@ -329,7 +332,8 @@ def test_run_mcp_core_server_passthrough_args_with_jbang_separator(monkeypatch, 
         )
 
     command = captured["command"]
-    assert command[-2:] == ["--", "--verbose"]
+    assert command[-1] == "--verbose"
+    assert "--" not in command
 
 
 def test_run_mcp_core_server_passthrough_args_direct_java_no_separator(

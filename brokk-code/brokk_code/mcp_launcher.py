@@ -127,11 +127,6 @@ def _run_mcp(
         )
         launcher = command[0]
         if passthrough_args:
-            # JBang requires '--' before arguments intended for the Java main class
-            # to distinguish them from JBang's own options.
-            # _build_direct_mcp_command always starts with 'java'.
-            if launcher != "java":
-                command.append("--")
             command.extend(passthrough_args)
 
         os.chdir(resolved_workspace_dir)
