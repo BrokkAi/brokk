@@ -159,6 +159,16 @@ public class CodeAgent {
                             2. Give CodeAgent a smaller pieces of the task, possibly with deferBuild set.
                             """
                                 .formatted(explanation);
+                    case PARSE_INCOMPLETE ->
+                        """
+                            **Parse Incomplete: Response Needed Continuation**
+
+                            The first Code Agent response was incomplete and needed continuation:
+                            %s
+
+                            This turn is not a clean terminal example for training.
+                            """
+                                .formatted(explanation);
                     case APPLY_ERROR ->
                         """
                             **Apply Error: Edit Blocks Failed**
@@ -554,9 +564,10 @@ public class CodeAgent {
                 var retryCs = cs.withRetryRequest(continueParse.nextRequest(), TaskResult.StopReason.PARSE_ERROR);
                 report(requireNonNull(continueParse.nextRequestLog()));
                 if (isSingleTurnDryRunEnabled()) {
-                    reportComplete(TaskResult.StopReason.PARSE_ERROR, "Continuation requested in single-turn mode.");
+                    reportComplete(
+                            TaskResult.StopReason.PARSE_INCOMPLETE, "Continuation requested in single-turn mode.");
                     stopDetails = new TaskResult.StopDetails(
-                            TaskResult.StopReason.PARSE_ERROR, "Continuation requested in single-turn mode.");
+                            TaskResult.StopReason.PARSE_INCOMPLETE, "Continuation requested in single-turn mode.");
                     break;
                 }
                 cs = retryCs;
@@ -690,6 +701,7 @@ public class CodeAgent {
                 && !cs.rawMessages().isEmpty()
                 && stopDetails.reason() != TaskResult.StopReason.SUCCESS
                 && stopDetails.reason() != TaskResult.StopReason.PARSE_ERROR
+                && stopDetails.reason() != TaskResult.StopReason.PARSE_INCOMPLETE
                 && stopDetails.reason() != TaskResult.StopReason.INTERRUPTED;
     }
 

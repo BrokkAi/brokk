@@ -52,6 +52,8 @@ public record TaskResult(Context context, StopDetails stopDetails) {
         LLM_ERROR,
         /** The LLM response could not be parsed after retries. */
         PARSE_ERROR,
+        /** The first response was incomplete and required continuation. */
+        PARSE_INCOMPLETE,
         /** Applying edits failed after retries. */
         APPLY_ERROR,
         /** Build errors occurred and were not improving after retries. */

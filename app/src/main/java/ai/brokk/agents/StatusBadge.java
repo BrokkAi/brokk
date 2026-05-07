@@ -16,7 +16,7 @@ public final class StatusBadge {
             case INTERRUPTED -> badge("interrupted", "yellow");
             case READ_ONLY_EDIT, LLM_ABORTED, LLM_CONTEXT_SIZE, LLM_OVERTHINKING, TURN_LIMIT ->
                 badge(formatLabel(reason), "orange");
-            case LLM_ERROR, PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, IO_ERROR, TOOL_ERROR ->
+            case LLM_ERROR, PARSE_ERROR, PARSE_INCOMPLETE, APPLY_ERROR, BUILD_ERROR, IO_ERROR, TOOL_ERROR ->
                 badge(formatLabel(reason), "red");
         };
     }
@@ -32,6 +32,7 @@ public final class StatusBadge {
             case INTERRUPTED -> "interrupted";
             case LLM_ERROR -> "LLM error";
             case PARSE_ERROR -> "parse error";
+            case PARSE_INCOMPLETE -> "parse incomplete";
             case APPLY_ERROR -> "apply error";
             case BUILD_ERROR -> "build error";
             case READ_ONLY_EDIT -> "read-only violation";

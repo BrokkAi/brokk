@@ -169,6 +169,11 @@ class CodeAgentTest {
                 true, false, cs, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "ok")));
         assertFalse(CodeAgent.shouldLogSingleTurnFailureFollowup(
                 true, false, cs, new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR, "retry requested")));
+        assertFalse(CodeAgent.shouldLogSingleTurnFailureFollowup(
+                true,
+                false,
+                cs,
+                new TaskResult.StopDetails(TaskResult.StopReason.PARSE_INCOMPLETE, "continuation requested")));
     }
 
     @Test
