@@ -158,44 +158,37 @@ async fn build_codex_backend(no_codex: bool) -> Option<Arc<dyn LlmBackend>> {
     if let Err(e) = codex_auth::refresh_if_stale(&mut auth).await {
         tracing::warn!("codex credential refresh failed: {e:#}");
     }
-    match auth.auth_mode.as_deref() {
-        Some("chatgpt") if auth.tokens.is_some() => {
-            tracing::info!(
-                "Codex backend enabled in ChatGPT subscription mode (Responses API on chatgpt.com)"
-            );
-            Some(Arc::new(codex_client::CodexClient::new()))
-        }
-        Some("apikey") | Some(_) => {
-            // `apikey` is the documented fallback; any other auth_mode
-            // (or a chatgpt mode that's missing tokens) lands here too,
-            // because falling back to OPENAI_API_KEY is the only thing
-            // we can sensibly do. If there's no key either, the first
-            // prompt will 401 -- the user needs to re-run /codex-login.
-            let key = auth.openai_api_key.clone();
-            if key.is_none() {
-                tracing::warn!(
-                    "~/.codex/auth.json is unusable: not in chatgpt mode AND no OPENAI_API_KEY; \
-                     skipping Codex backend. Run /codex-login from a session to re-authenticate."
-                );
-                return None;
-            }
-            tracing::info!(
-                "Codex backend enabled in OPENAI_API_KEY mode (api.openai.com), auth_mode={:?}",
-                auth.auth_mode
-            );
-            Some(Arc::new(llm_client::OpenAiClient::new(
-                "https://api.openai.com/v1".to_string(),
-                key,
-            )))
-        }
-        None => {
-            tracing::warn!(
-                "~/.codex/auth.json has no auth_mode field; skipping Codex backend. \
-                 Run /codex-login to refresh."
-            );
-            None
-        }
+    // ChatGPT-subscription routing requires both `auth_mode == "chatgpt"`
+    // AND a usable `tokens` block. Anything else falls through to the
+    // OPENAI_API_KEY path -- including `chatgpt` mode with no tokens
+    // (which can happen if a refresh just blew them away), `apikey` mode
+    // (the documented API-billed fallback), and any unrecognized mode
+    // string from a future codex-cli version. If we hit the apikey path
+    // with no key, the prompt would 401 -- skip in that case so the
+    // picker is honest about what's available.
+    if matches!(auth.auth_mode.as_deref(), Some("chatgpt")) && auth.tokens.is_some() {
+        tracing::info!(
+            "Codex backend enabled in ChatGPT subscription mode (Responses API on chatgpt.com)"
+        );
+        return Some(Arc::new(codex_client::CodexClient::new()));
     }
+    let key = auth.openai_api_key.clone();
+    if key.is_none() {
+        tracing::warn!(
+            "~/.codex/auth.json is unusable (auth_mode={:?}, no OPENAI_API_KEY); \
+             skipping Codex backend. Run /codex-login to re-authenticate.",
+            auth.auth_mode
+        );
+        return None;
+    }
+    tracing::info!(
+        "Codex backend enabled in OPENAI_API_KEY mode (api.openai.com), auth_mode={:?}",
+        auth.auth_mode
+    );
+    Some(Arc::new(llm_client::OpenAiClient::new(
+        "https://api.openai.com/v1".to_string(),
+        key,
+    )))
 }
 
 /// Build the Ollama chat backend (separate from discovery, which uses
@@ -234,9 +227,17 @@ async fn main() -> Result<()> {
         );
     }
     if args.use_codex {
+        // `--use-codex` used to mean "use Codex INSTEAD of the configured
+        // OpenAI-compatible endpoint." Now Codex is auto-detected from
+        // auth.json, so the flag is a no-op -- but keeping it accepted
+        // (rather than rejected) means a user upgrading brokk-acp without
+        // re-running `brokk install` doesn't see their editor fail to
+        // launch the agent. The picker will simply also include Ollama
+        // models if Ollama is running, which is the new default.
         tracing::warn!(
-            "--use-codex is deprecated and ignored. Codex is auto-detected when \
-             ~/.codex/auth.json exists; use --no-codex to opt out."
+            "--use-codex is deprecated and has no effect. Codex is auto-detected when \
+             ~/.codex/auth.json exists; pass --no-ollama to suppress local Ollama models \
+             if you want only Codex in the picker."
         );
     }
     let ollama_url = resolve_ollama_url(&args);
