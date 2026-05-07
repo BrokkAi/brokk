@@ -11,6 +11,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -19,8 +20,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import picocli.CommandLine;
 
 class BprCliTest {
 
@@ -68,5 +71,27 @@ class BprCliTest {
         var remaining = summaries.getFirst();
         assertEquals("p.Bar", remaining.getTargetIdentifier());
         assertTrue(updated.allFragments().anyMatch(ContextFragments.ProjectPathFragment.class::isInstance));
+    }
+
+    @Test
+    void analyzeBuildsAndPersistsAnalyzerState() throws Exception {
+        Files.writeString(tempDir.resolve("A.java"), "public class A {}");
+        try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            git.add().addFilepattern("A.java").call();
+            git.commit().setSign(false).setMessage("Initial commit").call();
+        }
+
+        var exitCode = new CommandLine(new BprCli()).execute("--project", tempDir.toString(), "--analyze");
+
+        assertEquals(0, exitCode);
+        try (var project = MainProject.forTests(tempDir)) {
+            assertTrue(Files.exists(Languages.JAVA.getStoragePath(project)));
+        }
+    }
+
+    @Test
+    void analyzeCannotBeCombinedWithOtherActions() {
+        var exitCode = new CommandLine(new BprCli()).execute("--project", tempDir.toString(), "--analyze", "--build");
+        assertEquals(1, exitCode);
     }
 }

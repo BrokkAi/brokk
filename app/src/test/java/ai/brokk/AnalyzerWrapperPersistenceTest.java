@@ -61,4 +61,22 @@ class AnalyzerWrapperPersistenceTest {
             wrapper.deletePersistedAnalyzerStateFiles();
         }
     }
+
+    @Test
+    void testGetReadyAndPersistedWritesFreshAnalyzerState() throws Exception {
+        Language lang = Languages.JAVA;
+        Files.writeString(tempDir.resolve("A.java"), "public class A {}");
+
+        TestProject project = new TestProject(tempDir, lang);
+        project.setAnalyzerLanguages(Set.of(lang));
+
+        Path storage = lang.getStoragePath(project);
+        assertFalse(Files.exists(storage), "Analyzer state should not exist before build");
+
+        try (NoopWatchService stubWatchService = new NoopWatchService();
+                AnalyzerWrapper wrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), stubWatchService)) {
+            wrapper.getReadyAndPersisted();
+            assertTrue(Files.exists(storage), "Fresh analyzer build should be persisted");
+        }
+    }
 }

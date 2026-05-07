@@ -141,12 +141,13 @@ class BrokkCoreMcpServerTest {
     }
 
     @Test
-    void resolveProjectRootFallsBackToInput() throws Exception {
-        var noGitDir = tempDir.resolve("no-git");
-        Files.createDirectories(noGitDir);
+    void resolveProjectRootFallsBackToInput() {
+        var fsRoot = Path.of("").toAbsolutePath().getRoot();
+        assertNotNull(fsRoot);
 
-        var resolved = BrokkCoreMcpServer.resolveProjectRoot(noGitDir);
-        assertEquals(noGitDir.toAbsolutePath().normalize(), resolved);
+        var noGitPath = fsRoot.resolve("brokk-core-mcp-no-git-" + System.nanoTime());
+        var resolved = BrokkCoreMcpServer.resolveProjectRoot(noGitPath);
+        assertEquals(noGitPath.toAbsolutePath().normalize(), resolved);
     }
 
     @Test

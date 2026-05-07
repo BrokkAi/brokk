@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicLong;
@@ -64,6 +65,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     // Dedicated single-threaded executor for analyzer refresh tasks
     private final LoggingExecutorService analyzerExecutor;
     private volatile @Nullable Thread analyzerExecutorThread;
+    private volatile @Nullable CompletableFuture<IAnalyzer> pendingRefresh = null;
     private boolean readyForWatcherEvents = false;
     private final List<EventBatch> queuedWatcherEvents = new ArrayList<>();
 
@@ -383,17 +385,19 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
         /* ── 2.  Determine if any cached storage is stale ───────────────────────────────── */
         logger.debug("Scanning for modified project files");
-        boolean needsRebuild = externalRebuildRequested; // explicit user request wins
+        Set<Language> staleCachedLanguages = new HashSet<>();
+        boolean builtFreshAnalyzer = false;
         for (Language lang : project.getAnalyzerLanguages()) {
             Path storagePath = lang.getStoragePath(project);
-            // todo: This will not exist for most analyzers right now
-            if (!Files.exists(storagePath)) { // no cache → rebuild
-                needsRebuild = true;
+            if (!Files.exists(storagePath)) {
+                builtFreshAnalyzer = true;
                 continue;
             }
             // Filter tracked files relevant to this language
             Set<ProjectFile> tracked = project.getAnalyzableFiles(lang);
-            if (isStale(lang, storagePath, tracked)) needsRebuild = true; // cache older than sources
+            if (isStale(lang, storagePath, tracked)) {
+                staleCachedLanguages.add(lang);
+            }
         }
 
         /* ── 3.  Load or build the analyzer delegates ───────────────────────────────── */
@@ -423,7 +427,8 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                                 t2);
                         continue;
                     }
-                    needsRebuild = true;
+                    builtFreshAnalyzer = true;
+                    staleCachedLanguages.remove(lang);
                 }
                 nextDelegates.put(lang, delegate);
 
@@ -498,12 +503,16 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             persistAnalyzerState(analyzer);
         }
 
+        if (builtFreshAnalyzer) {
+            persistAnalyzerState(analyzer);
+        }
+
         logger.debug("Analyzer became ready, notifying listeners");
         listener.onAnalyzerReady();
         listener.afterEachBuild(false);
 
-        /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
-        if (needsRebuild && !externalRebuildRequested) {
+        /* ── 5.  If we loaded stale caches, schedule a background rebuild ───────────── */
+        if (!staleCachedLanguages.isEmpty() && !externalRebuildRequested) {
             logger.debug("Scheduling background refresh");
             refresh(IAnalyzer::update);
         }
@@ -657,7 +666,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      */
     private CompletableFuture<IAnalyzer> refresh(Function<IAnalyzer, IAnalyzer> fn) {
         logger.trace("Scheduling analyzer refresh task");
-        return analyzerExecutor.submit(() -> {
+        var future = analyzerExecutor.submit(() -> {
             requireNonNull(currentAnalyzer);
             listener.beforeEachBuild();
 
@@ -680,6 +689,13 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
             return currentAnalyzer;
         });
+        pendingRefresh = future;
+        future.whenComplete((ignored, thrown) -> {
+            if (pendingRefresh == future) {
+                pendingRefresh = null;
+            }
+        });
+        return future;
     }
 
     /** Get the analyzer, showing a spinner UI while waiting if requested. */
@@ -713,6 +729,23 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             Thread.sleep(100);
         }
         return currentAnalyzer;
+    }
+
+    @Override
+    @Blocking
+    public IAnalyzer getReadyAndPersisted() throws InterruptedException {
+        while (true) {
+            IAnalyzer analyzer = get();
+            var refresh = pendingRefresh;
+            if (refresh == null) {
+                return analyzer;
+            }
+            try {
+                refresh.get();
+            } catch (ExecutionException e) {
+                throw new IllegalStateException("Analyzer refresh failed", e.getCause());
+            }
+        }
     }
 
     /** @return null if analyzer is not ready yet */

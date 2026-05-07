@@ -133,6 +133,11 @@ public final class BprCli implements Callable<Integer> {
     private boolean build = false;
 
     @CommandLine.Option(
+            names = "--analyze",
+            description = "Create the project's ContextManager and Analyzer, persist analyzer state to disk, and exit.")
+    private boolean analyze = false;
+
+    @CommandLine.Option(
             names = "--worktree",
             description = "Create a detached worktree at the given path, from the default branch's HEAD.")
     @Nullable
@@ -288,10 +293,11 @@ public final class BprCli implements Callable<Integer> {
                 .count();
         if (merge) nonDeepScanActionCount++;
         if (build) nonDeepScanActionCount++;
+        if (analyze) nonDeepScanActionCount++;
 
         if (nonDeepScanActionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace) can be specified.");
+                    "At most one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --analyze, --search-workspace) can be specified.");
             return 1;
         }
         if (deepScan && nonDeepScanActionCount > 0) {
@@ -303,7 +309,7 @@ public final class BprCli implements Callable<Integer> {
         long actionCount = nonDeepScanActionCount + (deepScan ? 1 : 0);
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "At least one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace, --deep-scan) or --worktree is required.");
+                    "At least one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --analyze, --search-workspace, --deep-scan) or --worktree is required.");
             return 1;
         }
 
@@ -446,6 +452,16 @@ public final class BprCli implements Callable<Integer> {
                 modules);
         logger.info("Build Details: " + buildDetails);
         project.setBuildDetails(buildDetails);
+
+        if (analyze) {
+            try {
+                cm.getAnalyzerWrapper().getReadyAndPersisted();
+                return 0;
+            } finally {
+                cm.close();
+                project.close();
+            }
+        }
 
         //  Model Overrides initialization
         var service = cm.getService();

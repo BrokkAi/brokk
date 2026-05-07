@@ -16,6 +16,10 @@ public interface IAnalyzerWrapper extends AutoCloseable {
 
     IAnalyzer get() throws InterruptedException;
 
+    default IAnalyzer getReadyAndPersisted() throws InterruptedException {
+        return get();
+    }
+
     @Nullable
     IAnalyzer getNonBlocking();
 
