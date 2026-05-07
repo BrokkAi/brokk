@@ -164,7 +164,8 @@ impl CodexClient {
         if !is_chatgpt_mode(&auth) {
             anyhow::bail!(
                 "auth.json has auth_mode={:?} (need \"chatgpt\" for subscription routing); \
-                 re-run /codex-login or drop --use-codex to fall back to OPENAI_API_KEY",
+                 re-run /codex-login (apikey-mode auth.json is auto-detected by the \
+                 OPENAI_API_KEY backend at startup -- restart the server to switch)",
                 auth.auth_mode
             );
         }

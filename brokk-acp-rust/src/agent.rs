@@ -170,6 +170,7 @@ pub async fn run_agent(
     let llm_init = llm.clone();
     let sessions_init = sessions.clone();
 
+    let llm_new = llm.clone();
     let sessions_new = sessions.clone();
 
     let sessions_load = sessions.clone();
@@ -232,7 +233,32 @@ pub async fn run_agent(
                 tracing::info!("ACP session/new, cwd={}", cwd.display());
                 let session = sessions_new.create_session(cwd).await;
 
-                // Reuse the cached list populated at init; fall back to the session's own model.
+                // Re-discover in the background so the next `session/new` picks up
+                // models the user added/removed since startup (e.g. they ran
+                // `ollama pull` or signed into Codex). The current session/new
+                // returns immediately with the cached list -- the refresh seeds
+                // the cache for the next call so we don't pay the discovery RTT
+                // here on the synchronous path.
+                {
+                    let llm_refresh = llm_new.clone();
+                    let sessions_refresh = sessions_new.clone();
+                    tokio::spawn(async move {
+                        match llm_refresh.list_models().await {
+                            Ok(models) => {
+                                tracing::debug!(
+                                    count = models.len(),
+                                    "background model-catalog refresh complete"
+                                );
+                                sessions_refresh.set_available_models(models).await;
+                            }
+                            Err(e) => {
+                                tracing::debug!("background model-catalog refresh failed: {e:#}");
+                            }
+                        }
+                    });
+                }
+
+                // Use the cached list populated at init; fall back to the session's own model.
                 let mut models = sessions_new.available_models().await;
                 if models.is_empty() && !session.model.is_empty() {
                     models = vec![session.model.clone()];
@@ -994,7 +1020,8 @@ async fn handle_codex_login(prompt_text: &str) -> String {
                     .unwrap_or("(unknown)");
                 format!(
                     "Codex login complete (account_id: {acct}). \
-                     Restart the server with --use-codex; prompts will route through your \
+                     Restart the server (or create a new session to refresh discovery) and \
+                     pick a `codex::*` model from the picker; prompts route through your \
                      ChatGPT subscription via https://chatgpt.com/backend-api/codex/responses."
                 )
             }

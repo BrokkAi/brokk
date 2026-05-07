@@ -24,13 +24,14 @@ The server is composed of several specialized modules:
 
 ## Configuration / CLI Options
 
-The server binary is named `brokk-acp`. It can be configured via CLI flags or environment variables:
+The server binary is named `brokk-acp`. With zero configuration it discovers models from `~/.codex/auth.json` (if present) and a local Ollama daemon, and presents them to the editor as a single combined picker. Models are tagged on the wire as `codex::<id>` and `ollama::<id>` so identical names from different sources stay distinct.
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
-| `--endpoint-url` | - | `http://localhost:11434/v1` | Base URL for the OpenAI-compatible LLM API. |
-| `--api-key` | `BROKK_ENDPOINT_API_KEY` | - | API key for the endpoint (optional for local LLMs). |
-| `--default-model` | - | - | Model to use if not specified by the client. |
+| `--ollama-url` | - | `http://localhost:11434` | Ollama base URL. Discovery hits `<url>/api/tags`; chat hits `<url>/v1/chat/completions`. |
+| `--no-ollama` | - | `false` | Disable Ollama discovery entirely. |
+| `--no-codex` | - | `false` | Disable Codex discovery (`~/.codex/auth.json`). |
+| `--default-model` | - | - | Override the default model id for new sessions. Accepts wire form (`codex::gpt-5-codex`) or a bare id. |
 | `--max-turns` | - | `25` | Max tool-calling iterations per prompt before forcing a final response. |
 | `--bifrost-binary`| `BROKK_BIFROST_BINARY` | - | Path to the `bifrost` executable to enable code-intel tools. |
 
@@ -73,8 +74,11 @@ standalone):
 # Build the release binary
 cargo build --release --bin brokk-acp
 
-# Run against a local Ollama instance
-./target/release/brokk-acp --default-model llama3.1
+# Run against a local Ollama instance (auto-discovers models)
+./target/release/brokk-acp
+
+# Or pin a default model on startup (wire id or bare id):
+./target/release/brokk-acp --default-model ollama::llama3.1
 ```
 
 Then add the binary path to your editor's agent server config:

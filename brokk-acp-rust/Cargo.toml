@@ -7,9 +7,9 @@ default-members = ["."]
 
 [package]
 name = "brokk-acp-rust"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
-description = "Rust ACP server for Brokk with Ollama/OpenAI-compatible LLM backend"
+description = "Rust ACP server for Brokk with auto-discovery for Codex (~/.codex/auth.json) and Ollama"
 license = "LGPL-3.0"
 
 [[bin]]
