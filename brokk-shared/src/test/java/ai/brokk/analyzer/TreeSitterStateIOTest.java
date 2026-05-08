@@ -33,6 +33,8 @@ import org.treesitter.TSTree;
 public class TreeSitterStateIOTest {
 
     private static final String CURRENT_SCHEMA_STR = TreeSitterStateIO.CURRENT_SCHEMA.toString();
+    private static final Class<TreeSitterStateIO.RejectedAnalyzerStateException> REJECTED_STATE =
+            TreeSitterStateIO.RejectedAnalyzerStateException.class;
 
     private static void writeDtoWithSchemaVersion(Path out, String schemaVersion, long snapshotEpochNanos)
             throws Exception {
@@ -178,8 +180,7 @@ public class TreeSitterStateIOTest {
 
         assertTrue(Files.exists(out), "Expected final state file to exist");
 
-        var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isPresent(), "Expected load to succeed after save");
+        assertDoesNotThrow(() -> TreeSitterStateIO.load(out), "Expected load to succeed after save");
 
         String baseName = out.getFileName().toString();
         String tmpPrefix = "." + baseName + ".";
@@ -219,9 +220,7 @@ public class TreeSitterStateIOTest {
         Path out = tempDir.resolve("java.bin.lz4");
         TreeSitterStateIO.save(originalState, out);
 
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent());
-        var loadedState = loadedOpt.get();
+        var loadedState = TreeSitterStateIO.load(out);
 
         var loadedProps = loadedState.codeUnitState().get(cu);
 
@@ -242,9 +241,7 @@ public class TreeSitterStateIOTest {
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
         TreeSitterStateIO.save(original, out);
 
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent(), "Expected to load state after saving");
-        var loaded = loadedOpt.get();
+        var loaded = TreeSitterStateIO.load(out);
 
         var dtoOriginal = TreeSitterStateIO.toDto(original);
         var dtoLoaded = TreeSitterStateIO.toDto(loaded);
@@ -257,13 +254,12 @@ public class TreeSitterStateIOTest {
             value = OS.WINDOWS,
             disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
-    void loadReturnsEmptyOnCorruptLz4(@TempDir Path tempDir) throws Exception {
+    void loadThrowsOnCorruptLz4(@TempDir Path tempDir) throws Exception {
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         Files.writeString(out, "not a compressed file");
 
-        var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt file");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(out), "Expected load to reject corrupt file");
 
         AnalyzerStateDto dto =
                 new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 1L, "2.0.0", "JAVA");
@@ -273,10 +269,9 @@ public class TreeSitterStateIOTest {
         assertTrue(Files.size(out) > 0, "Saved analyzer state file should be non-empty");
 
         var after = TreeSitterStateIO.load(out);
-        assertTrue(after.isPresent(), "Expected load to succeed after writing valid state");
         assertEquals(
                 TreeSitterStateIO.toDto(state),
-                TreeSitterStateIO.toDto(after.get()),
+                TreeSitterStateIO.toDto(after),
                 "DTO after save+load should equal the original");
     }
 
@@ -297,9 +292,7 @@ public class TreeSitterStateIOTest {
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
         assertTrue(Files.size(out) > 0, "Saved analyzer state file should be non-empty");
 
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent(), "Expected save to replace existing corrupt file");
-        var loaded = loadedOpt.get();
+        var loaded = TreeSitterStateIO.load(out);
 
         assertEquals(
                 TreeSitterStateIO.toDto(original),
@@ -308,7 +301,7 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void loadReturnsEmptyOnLegacyStateMissingContainsTests(@TempDir Path tempDir) throws Exception {
+    void loadThrowsOnLegacyStateMissingContainsTests(@TempDir Path tempDir) throws Exception {
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         // Manually construct a JSON/Smile graph that looks like AnalyzerStateDto
@@ -333,10 +326,10 @@ public class TreeSitterStateIOTest {
             mapper.writeValue(os, legacyState);
         }
 
-        var loaded = TreeSitterStateIO.load(out);
-        assertTrue(
-                loaded.isEmpty(),
-                "Expected load to return empty because legacy state is missing required 'containsTests' field");
+        assertThrows(
+                REJECTED_STATE,
+                () -> TreeSitterStateIO.load(out),
+                "Expected load to reject state missing required 'containsTests' field");
     }
 
     @Test
@@ -363,9 +356,7 @@ public class TreeSitterStateIOTest {
         Path out = tempDir.resolve("java.bin.lz4");
         TreeSitterStateIO.save(originalState, out);
 
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent());
-        var loadedState = loadedOpt.get();
+        var loadedState = TreeSitterStateIO.load(out);
 
         var loadedFileProps = loadedState.fileState().get(projectFile);
         assertNotNull(loadedFileProps);
@@ -395,10 +386,9 @@ public class TreeSitterStateIOTest {
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
         TreeSitterStateIO.save(state, out, Languages.JAVA);
 
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent(), "Should load state with containsTests");
+        var loaded = TreeSitterStateIO.load(out);
 
-        var loadedDto = TreeSitterStateIO.toDto(loadedOpt.get(), Languages.JAVA);
+        var loadedDto = TreeSitterStateIO.toDto(loaded, Languages.JAVA);
         assertEquals(originalDto, loadedDto, "Round-trip should preserve all fields including containsTests");
         assertTrue(loadedDto.fileState().getFirst().value().containsTests(), "containsTests=true should be preserved");
     }
@@ -433,9 +423,7 @@ public class TreeSitterStateIOTest {
             assertTrue(Files.exists(stateFile), "State file should exist after save");
 
             // 4. Load state from file
-            var loadedStateOpt = TreeSitterStateIO.load(stateFile);
-            assertTrue(loadedStateOpt.isPresent(), "Should successfully load state");
-            var loadedState = loadedStateOpt.get();
+            var loadedState = TreeSitterStateIO.load(stateFile);
 
             // 5. Create new analyzer from loaded state
             JavaAnalyzer loadedAnalyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
@@ -564,9 +552,7 @@ public class TreeSitterStateIOTest {
             Path storage = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
             TreeSitterStateIO.save(snapshot, storage);
 
-            var loadedStateOpt = TreeSitterStateIO.load(storage);
-            assertTrue(loadedStateOpt.isPresent());
-            var loadedState = loadedStateOpt.get();
+            var loadedState = TreeSitterStateIO.load(storage);
 
             // 3. Load into a fresh analyzer and verify descendants can be queried via lazy rebuild.
             JavaAnalyzer loaded = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
@@ -690,9 +676,7 @@ public class TreeSitterStateIOTest {
         }
 
         // Load using TreeSitterStateIO
-        var loadedOpt = TreeSitterStateIO.load(file);
-        assertTrue(loadedOpt.isPresent(), "Should load legacy state successfully");
-        var loadedState = loadedOpt.get();
+        var loadedState = TreeSitterStateIO.load(file);
 
         // Verify loaded content
         assertEquals(1, loadedState.codeUnitState().size());
@@ -737,8 +721,8 @@ public class TreeSitterStateIOTest {
             mapper.writeValue(os, stateDtoMap);
         }
 
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent(), "Should successfully load state ignoring legacy supertype fields");
+        assertDoesNotThrow(
+                () -> TreeSitterStateIO.load(out), "Should successfully load state ignoring legacy supertype fields");
     }
 
     @Test
@@ -773,9 +757,7 @@ public class TreeSitterStateIOTest {
             mapper.writeValue(os, stateDtoMap);
         }
 
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent(), "Should load state with null list fields");
-        var loadedState = loadedOpt.get();
+        var loadedState = TreeSitterStateIO.load(out);
 
         var loadedCu = loadedState.codeUnitState().keySet().iterator().next();
         var loadedProps = loadedState.codeUnitState().get(loadedCu);
@@ -786,17 +768,16 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void testUnknownLanguageReturnsEmpty(@TempDir Path tempDir) throws Exception {
+    void testUnknownLanguageThrows(@TempDir Path tempDir) throws Exception {
         Path out = tempDir.resolve("unknown_lang" + Language.ANALYZER_STATE_SUFFIX);
         // No language in DTO + unknown prefix = rebuild
         writeDtoWithSchemaVersion(out, CURRENT_SCHEMA_STR, 1L, null);
-        var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isEmpty(), "Expected empty result for unknown language prefix 'unknown_lang'");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(out), "Expected reject for unknown language prefix");
 
         Path arbitrary = tempDir.resolve("state" + Language.ANALYZER_STATE_SUFFIX);
         // No language in DTO + arbitrary filename = rebuild
         writeDtoWithSchemaVersion(arbitrary, CURRENT_SCHEMA_STR, 1L, null);
-        assertTrue(TreeSitterStateIO.load(arbitrary).isEmpty(), "Expected empty result for arbitrary 'state.bin.lz4'");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(arbitrary), "Expected reject for arbitrary filename");
     }
 
     @Test
@@ -813,12 +794,11 @@ public class TreeSitterStateIOTest {
         }
 
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isPresent(), "Should load from arbitrary filename if DTO specifies language");
-        assertEquals(123L, loaded.get().snapshotEpochNanos());
+        assertEquals(123L, loaded.snapshotEpochNanos());
     }
 
     @Test
-    void schemaMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
+    void schemaMajorVersionMismatchThrows(@TempDir Path tempDir) throws Exception {
         // Manually serialize a DTO with a different major version (1.0.0 vs current 2.x.x)
         AnalyzerStateDto dto =
                 new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 1L, "1.0.0", "JAVA");
@@ -830,8 +810,7 @@ public class TreeSitterStateIOTest {
             mapper.writeValue(lz4, dto);
         }
 
-        var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isEmpty(), "Expected empty result for major version mismatch (1.0.0)");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(out), "Expected reject for major version mismatch");
     }
 
     @Test
@@ -842,8 +821,7 @@ public class TreeSitterStateIOTest {
         writeDtoWithSchemaVersion(out, "3.0.0", 1L);
 
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isPresent(), "Expected Python to accept schema 3.0.0 snapshot");
-        assertEquals(1L, loaded.get().snapshotEpochNanos());
+        assertEquals(1L, loaded.snapshotEpochNanos());
     }
 
     @Test
@@ -853,41 +831,35 @@ public class TreeSitterStateIOTest {
         Path javaFile = tempDir.resolve("java-gating" + Language.ANALYZER_STATE_SUFFIX);
 
         writeDtoWithSchemaVersion(javaFile, "1.1.0", 110L, "JAVA");
-        assertTrue(TreeSitterStateIO.load(javaFile).isEmpty(), "Java should REJECT legacy major schemaVersion 1.1.0");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(javaFile), "Java should reject 1.1.0");
 
         writeDtoWithSchemaVersion(javaFile, "2.0.0", 200L, "JAVA");
-        assertTrue(
-                TreeSitterStateIO.load(javaFile).isEmpty(),
-                "Java should REJECT schemaVersion 2.0.0 (major mismatch with current 3.x)");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(javaFile), "Java should reject 2.0.0");
 
         writeDtoWithSchemaVersion(javaFile, "2.1.0", 215L, "JAVA");
-        assertTrue(
-                TreeSitterStateIO.load(javaFile).isEmpty(),
-                "Java should REJECT schemaVersion 2.1.0 (major mismatch with current 3.x)");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(javaFile), "Java should reject 2.1.0");
 
         writeDtoWithSchemaVersion(javaFile, "3.0.0", 230L, "JAVA");
-        assertTrue(TreeSitterStateIO.load(javaFile).isPresent(), "Java should accept schemaVersion 3.0.0");
+        assertDoesNotThrow(() -> TreeSitterStateIO.load(javaFile), "Java should accept schemaVersion 3.0.0");
     }
 
     @Test
     void typescriptStrictSchemaGating(@TempDir Path tempDir) throws Exception {
         Path v110 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v110, "1.1.0", 110L, "TYPESCRIPT");
-        assertTrue(TreeSitterStateIO.load(v110).isEmpty(), "TypeScript should REJECT legacy schemaVersion 1.1.0");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(v110), "TypeScript should reject 1.1.0");
 
         Path v210 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v210, "2.1.0", 210L, "TYPESCRIPT");
-        assertTrue(TreeSitterStateIO.load(v210).isEmpty(), "TypeScript should REJECT legacy schemaVersion 2.1.0");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(v210), "TypeScript should reject 2.1.0");
 
         Path v220 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v220, "2.2.0", 220L, "TYPESCRIPT");
-        assertTrue(
-                TreeSitterStateIO.load(v220).isEmpty(),
-                "TypeScript should REJECT schemaVersion 2.2.0 (major mismatch with current 3.x)");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(v220), "TypeScript should reject 2.2.0");
 
         Path v300 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v300, "3.0.0", 230L, "TYPESCRIPT");
-        assertTrue(TreeSitterStateIO.load(v300).isPresent(), "TypeScript should accept schemaVersion 3.0.0");
+        assertDoesNotThrow(() -> TreeSitterStateIO.load(v300), "TypeScript should accept schemaVersion 3.0.0");
     }
 
     @Test
@@ -895,19 +867,15 @@ public class TreeSitterStateIOTest {
         Path rust210 = tempDir.resolve("rust-rebuild" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(rust210, "2.1.0", 210L, "RUST");
 
-        var loaded = TreeSitterStateIO.load(rust210);
-        assertTrue(
-                loaded.isEmpty(), "Rust should REJECT schema 2.1.0 because it is below RUST_REBUILD_THRESHOLD (3.0.0)");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(rust210), "Rust should reject schema 2.1.0");
 
         Path rust220 = tempDir.resolve("rust_new" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(rust220, "2.2.0", 220L, "RUST");
-        assertTrue(
-                TreeSitterStateIO.load(rust220).isEmpty(),
-                "Rust should REJECT schema 2.2.0 (major mismatch with current 3.x)");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(rust220), "Rust should reject schema 2.2.0");
 
         Path rust300 = tempDir.resolve("rust_accept" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(rust300, "3.0.0", 230L, "RUST");
-        assertTrue(TreeSitterStateIO.load(rust300).isPresent(), "Rust should accept schema 3.0.0");
+        assertDoesNotThrow(() -> TreeSitterStateIO.load(rust300), "Rust should accept schema 3.0.0");
     }
 
     @Test
@@ -916,19 +884,15 @@ public class TreeSitterStateIOTest {
         Path java200 = tempDir.resolve("java-rebuild" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(java200, "2.0.0", 200L, "JAVA");
 
-        var loaded = TreeSitterStateIO.load(java200);
-        assertTrue(
-                loaded.isEmpty(), "Java should REJECT schema 2.0.0 because it is below JAVA_REBUILD_THRESHOLD (3.0.0)");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(java200), "Java should reject schema 2.0.0");
 
         Path java210 = tempDir.resolve("java_new" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(java210, "2.1.0", 210L, "JAVA");
-        assertTrue(
-                TreeSitterStateIO.load(java210).isEmpty(),
-                "Java should REJECT schema 2.1.0 because it is below JAVA_REBUILD_THRESHOLD (3.0.0)");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(java210), "Java should reject schema 2.1.0");
 
         Path java300 = tempDir.resolve("java_accept" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(java300, "3.0.0", 230L, "JAVA");
-        assertTrue(TreeSitterStateIO.load(java300).isPresent(), "Java should accept schema 3.0.0");
+        assertDoesNotThrow(() -> TreeSitterStateIO.load(java300), "Java should accept schema 3.0.0");
     }
 
     @Test
@@ -938,8 +902,7 @@ public class TreeSitterStateIOTest {
         writeDtoWithSchemaVersion(python300, "3.0.0", 200L);
 
         var loaded = TreeSitterStateIO.load(python300);
-        assertTrue(loaded.isPresent(), "Python should accept schema 3.0.0");
-        assertEquals(200L, loaded.get().snapshotEpochNanos());
+        assertEquals(200L, loaded.snapshotEpochNanos());
     }
 
     @Test
@@ -948,8 +911,7 @@ public class TreeSitterStateIOTest {
         Path v100 = tempDir.resolve("c_sharp" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v100, "1.0.0", 100L);
 
-        assertTrue(
-                TreeSitterStateIO.load(v100).isEmpty(), "All languages should reject legacy major schemaVersion 1.0.0");
+        assertThrows(REJECTED_STATE, () -> TreeSitterStateIO.load(v100), "All languages should reject legacy 1.0.0");
     }
 
     @Test
@@ -1016,7 +978,8 @@ public class TreeSitterStateIOTest {
             mapper.writeValue(os, stateDtoMap);
         }
 
-        var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isPresent(), "Should successfully load state even with unknown 'rawSupertypes' field");
+        assertDoesNotThrow(
+                () -> TreeSitterStateIO.load(out),
+                "Should successfully load state even with unknown 'rawSupertypes' field");
     }
 }

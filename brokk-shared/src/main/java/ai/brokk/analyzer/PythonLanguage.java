@@ -48,12 +48,8 @@ public class PythonLanguage implements Language {
     @Override
     public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
-        return TreeSitterStateIO.load(storage)
-                .map(state -> {
-                    var analyzer = PythonAnalyzer.fromState(project, state, listener);
-                    return (IAnalyzer) analyzer;
-                })
-                .orElseGet(() -> createAnalyzer(project, listener));
+        var state = TreeSitterStateIO.load(storage);
+        return PythonAnalyzer.fromState(project, state, listener);
     }
 
     @Override

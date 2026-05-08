@@ -35,9 +35,9 @@ public class MultiLanguageStateIOTest {
         Set<Language> langs = Set.of(Languages.JAVA, Languages.PYTHON);
 
         try (ICoreProject project = builder.build()) {
-            // Build a MultiLanguage analyzer (load attempts persisted state; initial run falls back to full build)
+            // Build a MultiLanguage analyzer and persist each delegate before testing reload.
             Language.MultiLanguage multiLang = new Language.MultiLanguage(langs);
-            IAnalyzer analyzer = multiLang.loadAnalyzer(project);
+            IAnalyzer analyzer = multiLang.createAnalyzer(project);
             assertNotNull(analyzer, "Expected non-null analyzer");
             assertInstanceOf(MultiAnalyzer.class, analyzer, "Expected a MultiAnalyzer for multiple languages");
 

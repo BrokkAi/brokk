@@ -35,9 +35,8 @@ public class ScalaLanguage implements JvmLanguage {
     @Override
     public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
-        return TreeSitterStateIO.load(storage)
-                .map(state -> (IAnalyzer) ScalaAnalyzer.fromState(project, state, listener))
-                .orElseGet(() -> createAnalyzer(project, listener));
+        var state = TreeSitterStateIO.load(storage);
+        return ScalaAnalyzer.fromState(project, state, listener);
     }
 
     @Override

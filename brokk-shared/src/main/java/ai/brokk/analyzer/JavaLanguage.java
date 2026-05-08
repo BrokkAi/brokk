@@ -36,12 +36,8 @@ public class JavaLanguage implements JvmLanguage {
     @Override
     public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
-        return TreeSitterStateIO.load(storage)
-                .map(state -> {
-                    var analyzer = JavaAnalyzer.fromState(project, state, listener);
-                    return (IAnalyzer) analyzer;
-                })
-                .orElseGet(() -> createAnalyzer(project, listener));
+        var state = TreeSitterStateIO.load(storage);
+        return JavaAnalyzer.fromState(project, state, listener);
     }
 
     @Override

@@ -287,7 +287,7 @@ public class JavaAnalyzerMultiStepUpdateTest {
 
             // Save, Load, Reconstruct, Update
             TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath, Languages.JAVA);
-            var loadedState = TreeSitterStateIO.load(storagePath).orElseThrow();
+            var loadedState = TreeSitterStateIO.load(storagePath);
             project.invalidateAllFiles();
             analyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
             analyzer = analyzer.update();
@@ -314,7 +314,7 @@ public class JavaAnalyzerMultiStepUpdateTest {
                     """);
 
             TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath, Languages.JAVA);
-            loadedState = TreeSitterStateIO.load(storagePath).orElseThrow();
+            loadedState = TreeSitterStateIO.load(storagePath);
             project.invalidateAllFiles();
             analyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
             analyzer = analyzer.update();
@@ -344,7 +344,7 @@ public class JavaAnalyzerMultiStepUpdateTest {
                     """);
 
             TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath, Languages.JAVA);
-            loadedState = TreeSitterStateIO.load(storagePath).orElseThrow();
+            loadedState = TreeSitterStateIO.load(storagePath);
             project.invalidateAllFiles();
             analyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
             analyzer = analyzer.update();

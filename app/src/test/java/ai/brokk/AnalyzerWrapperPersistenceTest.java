@@ -1,15 +1,23 @@
 package ai.brokk;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.TreeSitterStateIO;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.watchservice.NoopWatchService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import net.jpountz.lz4.LZ4FrameOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -17,6 +25,17 @@ class AnalyzerWrapperPersistenceTest {
 
     @TempDir
     Path tempDir;
+
+    private static void writeAnalyzerStateDto(Path out, String schemaVersion, String languageInternalName)
+            throws Exception {
+        var dto = new TreeSitterStateIO.AnalyzerStateDto(
+                Map.of(), List.of(), List.of(), List.of(), null, 1L, schemaVersion, languageInternalName);
+        var mapper = new ObjectMapper(new SmileFactory());
+        try (var os = Files.newOutputStream(out);
+                var lz4 = new LZ4FrameOutputStream(os)) {
+            mapper.writeValue(lz4, dto);
+        }
+    }
 
     @Test
     void testDeletePersistedAnalyzerStateFiles() throws Exception {
@@ -56,6 +75,7 @@ class AnalyzerWrapperPersistenceTest {
 
         try (NoopWatchService stubWatchService = new NoopWatchService();
                 AnalyzerWrapper wrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), stubWatchService)) {
+            wrapper.getReadyAndPersisted();
             project.setAnalyzerLanguages(Set.of(Languages.JAVA));
             // This should not throw any exceptions even if files don't exist
             wrapper.deletePersistedAnalyzerStateFiles();
@@ -78,5 +98,33 @@ class AnalyzerWrapperPersistenceTest {
             wrapper.getReadyAndPersisted();
             assertTrue(Files.exists(storage), "Fresh analyzer build should be persisted");
         }
+    }
+
+    @Test
+    void testGetReadyAndPersistedOverwritesRejectedAnalyzerState() throws Exception {
+        Language lang = Languages.JAVA;
+        Files.writeString(tempDir.resolve("A.java"), "public class A {}");
+
+        TestProject project = new TestProject(tempDir, lang);
+        project.setAnalyzerLanguages(Set.of(lang));
+
+        Path storage = lang.getStoragePath(project);
+        Files.createDirectories(storage.getParent());
+        writeAnalyzerStateDto(storage, "2.2.0", "JAVA");
+
+        assertThrows(
+                TreeSitterStateIO.RejectedAnalyzerStateException.class,
+                () -> TreeSitterStateIO.load(storage),
+                "Precondition: incompatible analyzer state should be rejected");
+
+        try (NoopWatchService stubWatchService = new NoopWatchService();
+                AnalyzerWrapper wrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), stubWatchService)) {
+            wrapper.getReadyAndPersisted();
+        }
+
+        var persisted = TreeSitterStateIO.load(storage);
+        var persistedDto = TreeSitterStateIO.toDto(persisted, lang);
+        assertEquals("3.0.0", persistedDto.schemaVersion(), "Rejected analyzer state should be rewritten");
+        assertFalse(persistedDto.codeUnitState().isEmpty(), "Rewritten analyzer state should contain project symbols");
     }
 }

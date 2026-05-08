@@ -34,9 +34,8 @@ public class CppLanguage implements Language {
     @Override
     public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
-        return TreeSitterStateIO.load(storage)
-                .map(state -> CppAnalyzer.fromState(project, state, listener))
-                .orElseGet(() -> (CppAnalyzer) createAnalyzer(project, listener));
+        var state = TreeSitterStateIO.load(storage);
+        return CppAnalyzer.fromState(project, state, listener);
     }
 
     @Override

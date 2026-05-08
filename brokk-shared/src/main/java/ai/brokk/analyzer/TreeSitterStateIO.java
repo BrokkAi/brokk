@@ -72,6 +72,16 @@ public final class TreeSitterStateIO {
 
     private TreeSitterStateIO() {}
 
+    public static final class RejectedAnalyzerStateException extends RuntimeException {
+        public RejectedAnalyzerStateException(String message) {
+            super(message);
+        }
+
+        public RejectedAnalyzerStateException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     /* ================= Jackson adapters for nested types ================= */
 
     /**
@@ -472,35 +482,43 @@ public final class TreeSitterStateIO {
      *
      * <p>Version semantics:
      * <ul>
-     *   <li>If major versions differ -> incompatible: return Optional.empty().
+     *   <li>If major versions differ -> incompatible: throw {@link RejectedAnalyzerStateException}.
      *   <li>For strict languages (JAVA, TYPESCRIPT, RUST): {@link TreeSitterAnalyzerStateMigrator} may force a rebuild
      *       to drop stale snapshots.
      *   <li>For other languages: allow minor/patch differences and migrate (still subject to major-version check).
      * </ul>
+     *
+     * <p>Missing, corrupt, incompatible, and rebuild-required snapshots throw so callers can rebuild and rewrite the
+     * persisted analyzer state.
      */
     @Blocking
-    public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
+    public static TreeSitterAnalyzer.AnalyzerState load(Path file) {
         if (!Files.exists(file)) {
             log.debug("Analyzer state file does not exist: {}", file);
-            return Optional.empty();
+            throw new RejectedAnalyzerStateException("Analyzer state file does not exist: " + file);
         }
 
         long startMs = System.currentTimeMillis();
         try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
             return loadFromStream(in, file, startMs);
+        } catch (RejectedAnalyzerStateException e) {
+            throw e;
         } catch (EOFException e) {
             log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
-            return Optional.empty();
+            throw new RejectedAnalyzerStateException("Analyzer state at " + file + " is corrupt or truncated", e);
         } catch (MismatchedInputException mie) {
             log.debug("Analyzer state at {} appears incompatible ({}). Will rebuild analyzer.", file, mie.getMessage());
-            return Optional.empty();
+            throw new RejectedAnalyzerStateException("Analyzer state at " + file + " appears incompatible", mie);
         } catch (IOException e) {
             log.debug("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
-            return Optional.empty();
+            throw new RejectedAnalyzerStateException("Failed to load TreeSitter AnalyzerState from " + file, e);
+        } catch (RuntimeException e) {
+            log.debug("Rejected TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
+            throw new RejectedAnalyzerStateException("Rejected TreeSitter AnalyzerState from " + file, e);
         }
     }
 
-    private static Optional<TreeSitterAnalyzer.AnalyzerState> loadFromStream(InputStream in, Path file, long startMs)
+    private static TreeSitterAnalyzer.AnalyzerState loadFromStream(InputStream in, Path file, long startMs)
             throws IOException {
         JsonNode root = SMILE_MAPPER.readTree(in);
 
@@ -526,11 +544,12 @@ public final class TreeSitterStateIO {
                     language = Languages.valueOf(prefix.toUpperCase(Locale.ROOT));
                 } catch (IllegalArgumentException e) {
                     log.info("Could not infer language from filename {} or DTO; forcing rebuild.", fileName);
-                    return Optional.empty();
+                    throw new RejectedAnalyzerStateException(
+                            "Could not infer language from filename or DTO for " + file);
                 }
             } else {
                 log.info("Could not determine language for {}; forcing rebuild.", file);
-                return Optional.empty();
+                throw new RejectedAnalyzerStateException("Could not determine language for " + file);
             }
         }
 
@@ -547,7 +566,8 @@ public final class TreeSitterStateIO {
                     file,
                     fromVer,
                     CURRENT_SCHEMA);
-            return Optional.empty();
+            throw new RejectedAnalyzerStateException(
+                    "Analyzer snapshot at " + file + " has incompatible schema version " + fromVer);
         }
 
         // Check if language-specific rules require a rebuild (e.g. Java/TS fqName changes)
@@ -557,7 +577,8 @@ public final class TreeSitterStateIO {
                     file,
                     language != null ? language.name() : "unknown",
                     fromVer != null ? fromVer : "legacy");
-            return Optional.empty();
+            throw new RejectedAnalyzerStateException(
+                    "Analyzer snapshot at " + file + " requires a rebuild for " + language.name());
         }
 
         // Default: use current schema if missing for non-strict languages
@@ -569,7 +590,7 @@ public final class TreeSitterStateIO {
         var state = fromDto(migratedDto);
         long durMs = System.currentTimeMillis() - startMs;
         log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, effectiveFromVer);
-        return Optional.of(state);
+        return state;
     }
 
     /* ================= Converters ================= */
