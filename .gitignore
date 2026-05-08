@@ -53,6 +53,8 @@ project/project/
 ### Mac OS ###
 .DS_Store
 
+__pycache__/
+
 ### BROKK'S CONFIGURATION ###
 **/.brokk/**
 !**/.brokk/style.md
