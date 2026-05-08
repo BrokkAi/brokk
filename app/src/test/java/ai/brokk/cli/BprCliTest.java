@@ -177,4 +177,14 @@ class BprCliTest {
         assertTrue(manifest.contains("\"model-a\""));
         assertTrue(manifest.contains("\"codeHistoryDir\" : \".brokk/llm-history/2026-01-01 Code Goal\""));
     }
+
+    @Test
+    void normalizeManifestStopReason_mapsSuccessWithoutDiffToNoEdits() throws Exception {
+        Method normalize = BprCli.class.getDeclaredMethod(
+                "normalizeManifestStopReason", TaskResult.StopReason.class, String.class);
+        normalize.setAccessible(true);
+
+        assertEquals("NO_EDITS", normalize.invoke(null, TaskResult.StopReason.SUCCESS, ""));
+        assertEquals("SUCCESS", normalize.invoke(null, TaskResult.StopReason.SUCCESS, "diff --git a/foo b/foo\n"));
+    }
 }

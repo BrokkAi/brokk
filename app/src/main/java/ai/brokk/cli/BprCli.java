@@ -26,6 +26,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.metrics.SearchMetrics;
@@ -1014,6 +1015,8 @@ public final class BprCli implements Callable<Integer> {
 
         for (int index = 0; index < attempts.size(); index++) {
             var attempt = attempts.get(index);
+            var preAttemptContext = cm.liveContext();
+            preAttemptContext.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
             var baselineHead = gitHead(project.getRoot());
             var beforeHistoryDirs = listCodeHistoryDirs(project.getRoot());
             var agent = new CodeAgent(cm, attempt.model());
@@ -1023,6 +1026,7 @@ public final class BprCli implements Callable<Integer> {
             var diff = captureWorkspaceDiff(project.getRoot(), baselineHead);
             var oneshotSuccessful = isOneshotSuccessful(attemptResult, codeHistoryDir, diff);
             var stopDetails = attemptResult.stopDetails();
+            var manifestStopReason = normalizeManifestStopReason(stopDetails.reason(), diff);
 
             manifestEntries.add(new CodeAttemptManifestEntry(
                     index,
@@ -1031,7 +1035,7 @@ public final class BprCli implements Callable<Integer> {
                             ? null
                             : project.getRoot().relativize(codeHistoryDir).toString(),
                     finalExitCode(true, true, stopDetails.reason()),
-                    stopDetails.reason().name(),
+                    manifestStopReason,
                     stopDetails.explanation(),
                     diff,
                     oneshotSuccessful));
@@ -1045,10 +1049,16 @@ public final class BprCli implements Callable<Integer> {
             if (stopAfterGate || index == attempts.size() - 1) {
                 break;
             }
-            removeEphemeralBrokkArtifacts(project.getRoot());
+            attemptResult.context().awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            cm.pushContext(ctx -> attemptResult.context());
             if (!cm.undoContext()) {
                 throw new IllegalStateException(
                         "Failed to reset workspace with undo after code-model attempt " + attempt.modelName());
+            }
+            if (!cm.liveContext().equals(preAttemptContext)) {
+                throw new IllegalStateException("Undo after code-model attempt "
+                        + attempt.modelName()
+                        + " did not restore the original pre-attempt workspace");
             }
         }
 
@@ -1127,29 +1137,19 @@ public final class BprCli implements Callable<Integer> {
         return afterHistoryDirs.isEmpty() ? null : afterHistoryDirs.getLast();
     }
 
-    private static void removeEphemeralBrokkArtifacts(Path projectRoot) throws IOException {
-        var brokkRoot = projectRoot.resolve(AbstractProject.BROKK_DIR);
-        deleteRecursively(brokkRoot.resolve("code_intelligence"));
-        Files.deleteIfExists(brokkRoot.resolve("workspace.properties"));
-    }
-
-    private static void deleteRecursively(Path path) throws IOException {
-        if (!Files.exists(path)) {
-            return;
-        }
-        try (var stream = Files.walk(path)) {
-            for (var entry : stream.sorted(Comparator.reverseOrder()).toList()) {
-                Files.deleteIfExists(entry);
-            }
-        }
-    }
-
     private static boolean isOneshotSuccessful(TaskResult result, @Nullable Path codeHistoryDir, String diff)
             throws IOException {
         return result.stopDetails().reason() == TaskResult.StopReason.SUCCESS
                 && !diff.isBlank()
                 && codeHistoryDir != null
                 && countRequestJsonFiles(codeHistoryDir) == 1;
+    }
+
+    private static String normalizeManifestStopReason(TaskResult.StopReason reason, String diff) {
+        if (reason == TaskResult.StopReason.SUCCESS && diff.isBlank()) {
+            return "NO_EDITS";
+        }
+        return reason.name();
     }
 
     private static long countRequestJsonFiles(Path codeHistoryDir) throws IOException {
