@@ -16,11 +16,16 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.Environment;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.eclipse.jgit.api.Git;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -93,5 +98,83 @@ class BprCliTest {
     void analyzeCannotBeCombinedWithOtherActions() {
         var exitCode = new CommandLine(new BprCli()).execute("--project", tempDir.toString(), "--analyze", "--build");
         assertEquals(1, exitCode);
+    }
+
+    @Test
+    void parseCommaDelimitedPreservingDuplicates_preservesOrderAndDuplicates() throws Exception {
+        Method method = BprCli.class.getDeclaredMethod("parseCommaDelimitedPreservingDuplicates", String.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        var parsed = (List<String>) method.invoke(null, "model-a, model-b,model-a,,model-c");
+
+        assertEquals(List.of("model-a", "model-b", "model-a", "model-c"), parsed);
+    }
+
+    @Test
+    void multiCodeModelRequiresSingleTurnMode() {
+        Assumptions.assumeFalse(Environment.isBooleanFlagEnabled(System.getenv("BRK_CODEAGENT_SINGLE_TURN")));
+
+        var exitCode = new CommandLine(new BprCli())
+                .execute("--project", tempDir.toString(), "--code", "Fix it", "--codemodel", "model-a,model-b");
+
+        assertEquals(1, exitCode);
+    }
+
+    @Test
+    void codeGateModelRequiresMultiModelCodeRun() {
+        var exitCode = new CommandLine(new BprCli())
+                .execute(
+                        "--project",
+                        tempDir.toString(),
+                        "--code",
+                        "Fix it",
+                        "--codemodel",
+                        "model-a",
+                        "--code-gate-model",
+                        "model-a");
+
+        assertEquals(1, exitCode);
+    }
+
+    @Test
+    void writeSftGenManifest_writesRelativeCodeHistoryPath() throws Exception {
+        Constructor<?> attemptCtor = Class.forName("ai.brokk.cli.BprCli$CodeModelAttempt")
+                .getDeclaredConstructor(String.class, StreamingChatModel.class);
+        attemptCtor.setAccessible(true);
+        Object attempt = attemptCtor.newInstance("model-a", null);
+
+        Constructor<?> entryCtor = Class.forName("ai.brokk.cli.BprCli$CodeAttemptManifestEntry")
+                .getDeclaredConstructor(
+                        int.class,
+                        String.class,
+                        String.class,
+                        int.class,
+                        String.class,
+                        String.class,
+                        String.class,
+                        boolean.class);
+        entryCtor.setAccessible(true);
+        Object entry = entryCtor.newInstance(
+                0,
+                "model-a",
+                ".brokk/llm-history/2026-01-01 Code Goal",
+                0,
+                "SUCCESS",
+                null,
+                "diff --git a/foo b/foo\n",
+                true);
+
+        Method writeManifest =
+                BprCli.class.getDeclaredMethod("writeSftGenManifest", Path.class, String.class, List.class, List.class);
+        writeManifest.setAccessible(true);
+        writeManifest.invoke(null, tempDir, "model-a", List.of(attempt), List.of(entry));
+
+        var manifestPath = tempDir.resolve(".brokk").resolve("sft_gen").resolve("attempts.json");
+        assertTrue(Files.exists(manifestPath));
+        var manifest = Files.readString(manifestPath);
+        assertTrue(manifest.contains("\"requestedModels\""));
+        assertTrue(manifest.contains("\"model-a\""));
+        assertTrue(manifest.contains("\"codeHistoryDir\" : \".brokk/llm-history/2026-01-01 Code Goal\""));
     }
 }

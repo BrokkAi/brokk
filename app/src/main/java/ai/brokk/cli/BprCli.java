@@ -3,9 +3,11 @@ package ai.brokk.cli;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
@@ -19,6 +21,7 @@ import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
@@ -35,12 +38,16 @@ import ai.brokk.util.Environment;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -68,6 +75,23 @@ import picocli.CommandLine;
         description = "One-shot Brokk workspace and task runner.")
 public final class BprCli implements Callable<Integer> {
     private static final Logger logger = LogManager.getLogger(BprCli.class);
+    private static final String SFT_GEN_DIR_NAME = "sft_gen";
+    private static final String SFT_GEN_ATTEMPTS_FILE = "attempts.json";
+
+    private record CodeModelAttempt(String modelName, StreamingChatModel model) {}
+
+    private record CodeAttemptManifestEntry(
+            int attemptIndex,
+            String model,
+            @Nullable String codeHistoryDir,
+            int returnCode,
+            String stopReason,
+            @Nullable String stopExplanation,
+            String diff,
+            boolean oneshotSuccessful) {}
+
+    private record CodeAttemptManifest(
+            @Nullable String gateModel, List<String> requestedModels, List<CodeAttemptManifestEntry> attempts) {}
 
     @CommandLine.Option(names = "--project", description = "Path to the project root.")
     @Nullable
@@ -151,6 +175,13 @@ public final class BprCli implements Callable<Integer> {
     @CommandLine.Option(names = "--codemodel", description = "Override the code model to use.")
     @Nullable
     private String codeModelName;
+
+    @CommandLine.Option(
+            names = "--code-gate-model",
+            description =
+                    "When --code and multi-model --codemodel are used, stop after the leading gate-model attempts if all of them succeed oneshot.")
+    @Nullable
+    private String codeGateModelName;
 
     @CommandLine.Option(
             names = "--brokk-key",
@@ -321,6 +352,27 @@ public final class BprCli implements Callable<Integer> {
             }
         }
 
+        List<String> requestedCodeModelNames = parseCommaDelimitedPreservingDuplicates(codeModelName);
+        boolean multiCodeModelRun = codePrompt != null && requestedCodeModelNames.size() > 1;
+        if (!multiCodeModelRun && codeGateModelName != null && !codeGateModelName.isBlank()) {
+            System.err.println("Error: --code-gate-model requires --code with multiple --codemodel values.");
+            return 1;
+        }
+        if (codePrompt == null && requestedCodeModelNames.size() > 1) {
+            System.err.println("Error: multiple --codemodel values are only supported with --code.");
+            return 1;
+        }
+        if (multiCodeModelRun && !isSingleTurnCodeAgentEnabled()) {
+            System.err.println("Error: multi-model --code runs require BRK_CODEAGENT_SINGLE_TURN to be enabled.");
+            return 1;
+        }
+        if (codeGateModelName != null
+                && !codeGateModelName.isBlank()
+                && !requestedCodeModelNames.contains(codeGateModelName)) {
+            System.err.println("Error: --code-gate-model must match one of the requested --codemodel values.");
+            return 1;
+        }
+
         //  Expand @file syntax for prompt parameters
         TaskFileInfo architectTaskInfo = null, codeTaskInfo = null;
         TaskFileInfo inferContextTaskInfo = null;
@@ -484,7 +536,7 @@ public final class BprCli implements Callable<Integer> {
             System.err.println("Error: This action requires --planmodel to be specified.");
             return 1;
         }
-        if (needsCodeModel && codeModelName == null) {
+        if (needsCodeModel && requestedCodeModelNames.isEmpty()) {
             System.err.println("Error: This action requires --codemodel to be specified.");
             return 1;
         }
@@ -502,16 +554,12 @@ public final class BprCli implements Callable<Integer> {
             assert planModel != null : service.getAvailableModels();
         }
 
-        if (codeModelName != null) {
-            Service.FavoriteModel fav;
-            try {
-                fav = MainProject.getFavoriteModel(codeModelName);
-            } catch (IllegalArgumentException e) {
-                System.err.println("Unknown code model specified via --codemodel: " + codeModelName);
+        if (!requestedCodeModelNames.isEmpty() && !multiCodeModelRun) {
+            var resolvedCodeModel = resolveCodeModel(service, requestedCodeModelNames.getFirst());
+            if (resolvedCodeModel.isEmpty()) {
                 return 1;
             }
-            codeModel = service.getModel(fav.config());
-            assert codeModel != null : service.getAvailableModels();
+            codeModel = resolvedCodeModel.get().model();
         }
 
         // --- Search Workspace Mode ---
@@ -766,13 +814,21 @@ public final class BprCli implements Callable<Integer> {
                         }
                     }
                 } else if (codePrompt != null) {
-                    // CodeAgent must use codemodel only
-                    if (codeModel == null) {
+                    var resolvedCodeModels = resolveCodeModels(service, requestedCodeModelNames);
+                    if (resolvedCodeModels.isEmpty()) {
                         System.err.println("Error: --code requires --codemodel to be specified.");
                         return 1;
                     }
-                    var agent = new CodeAgent(cm, codeModel);
-                    result = agent.execute(codePrompt, Set.of());
+                    if (resolvedCodeModels.size() == 1) {
+                        var agent =
+                                new CodeAgent(cm, resolvedCodeModels.getFirst().model());
+                        result = agent.execute(codePrompt, Set.of());
+                    } else {
+                        result = runMultiModelCodeAgent(
+                                codePrompt,
+                                resolvedCodeModels,
+                                codeGateModelName == null ? null : codeGateModelName.trim());
+                    }
                     scope.append(result);
                 } else if (merge) {
                     if (planModel == null) {
@@ -912,6 +968,259 @@ public final class BprCli implements Callable<Integer> {
 
     private static boolean isSingleTurnCodeAgentEnabled() {
         return Environment.isBooleanFlagEnabled(System.getenv("BRK_CODEAGENT_SINGLE_TURN"));
+    }
+
+    private static List<String> parseCommaDelimitedPreservingDuplicates(@Nullable String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        return Stream.of(value.split(","))
+                .map(String::trim)
+                .filter(item -> !item.isEmpty())
+                .toList();
+    }
+
+    private Optional<CodeModelAttempt> resolveCodeModel(AbstractService service, String modelName) {
+        Service.FavoriteModel fav;
+        try {
+            fav = MainProject.getFavoriteModel(modelName);
+        } catch (IllegalArgumentException e) {
+            System.err.println("Unknown code model specified via --codemodel: " + modelName);
+            return Optional.empty();
+        }
+        var model = service.getModel(fav.config());
+        assert model != null : service.getAvailableModels();
+        return Optional.of(new CodeModelAttempt(modelName, castNonNull(model)));
+    }
+
+    private List<CodeModelAttempt> resolveCodeModels(AbstractService service, List<String> modelNames) {
+        List<CodeModelAttempt> resolved = new ArrayList<>();
+        for (var modelName : modelNames) {
+            var model = resolveCodeModel(service, modelName);
+            if (model.isEmpty()) {
+                return List.of();
+            }
+            resolved.add(model.get());
+        }
+        return resolved;
+    }
+
+    private TaskResult runMultiModelCodeAgent(
+            String prompt, List<CodeModelAttempt> attempts, @Nullable String gateModelName) throws Exception {
+        List<CodeAttemptManifestEntry> manifestEntries = new ArrayList<>();
+        int gateAttemptCount = countLeadingGateAttempts(attempts, gateModelName);
+        boolean allGateAttemptsOneshot = gateAttemptCount > 0;
+        TaskResult finalResult = null;
+
+        for (int index = 0; index < attempts.size(); index++) {
+            var attempt = attempts.get(index);
+            var baselineHead = gitHead(project.getRoot());
+            var beforeHistoryDirs = listCodeHistoryDirs(project.getRoot());
+            var agent = new CodeAgent(cm, attempt.model());
+            var attemptResult = agent.execute(prompt, Set.of());
+            var afterHistoryDirs = listCodeHistoryDirs(project.getRoot());
+            var codeHistoryDir = findAttemptCodeHistoryDir(project.getRoot(), beforeHistoryDirs, afterHistoryDirs);
+            var diff = captureWorkspaceDiff(project.getRoot(), baselineHead);
+            var oneshotSuccessful = isOneshotSuccessful(attemptResult, codeHistoryDir, diff);
+            var stopDetails = attemptResult.stopDetails();
+
+            manifestEntries.add(new CodeAttemptManifestEntry(
+                    index,
+                    attempt.modelName(),
+                    codeHistoryDir == null
+                            ? null
+                            : project.getRoot().relativize(codeHistoryDir).toString(),
+                    finalExitCode(true, true, stopDetails.reason()),
+                    stopDetails.reason().name(),
+                    stopDetails.explanation(),
+                    diff,
+                    oneshotSuccessful));
+            finalResult = attemptResult;
+
+            boolean stopAfterGate = false;
+            if (index < gateAttemptCount) {
+                allGateAttemptsOneshot &= oneshotSuccessful;
+                stopAfterGate = index == gateAttemptCount - 1 && allGateAttemptsOneshot;
+            }
+            if (stopAfterGate || index == attempts.size() - 1) {
+                break;
+            }
+            removeEphemeralBrokkArtifacts(project.getRoot());
+            if (!cm.undoContext()) {
+                throw new IllegalStateException(
+                        "Failed to reset workspace with undo after code-model attempt " + attempt.modelName());
+            }
+        }
+
+        writeSftGenManifest(project.getRoot(), gateModelName, attempts, manifestEntries);
+
+        return requireNonNull(finalResult);
+    }
+
+    private static int countLeadingGateAttempts(List<CodeModelAttempt> attempts, @Nullable String gateModelName) {
+        if (gateModelName == null || gateModelName.isBlank()) {
+            return 0;
+        }
+        int count = 0;
+        for (var attempt : attempts) {
+            if (!attempt.modelName().equals(gateModelName)) {
+                break;
+            }
+            count++;
+        }
+        return count;
+    }
+
+    private static void writeSftGenManifest(
+            Path projectRoot,
+            @Nullable String gateModelName,
+            List<CodeModelAttempt> attempts,
+            List<CodeAttemptManifestEntry> entries)
+            throws IOException {
+        var sftGenDir = projectRoot.resolve(AbstractProject.BROKK_DIR).resolve(SFT_GEN_DIR_NAME);
+        Files.createDirectories(sftGenDir);
+        var manifest = new CodeAttemptManifest(
+                gateModelName,
+                attempts.stream().map(CodeModelAttempt::modelName).toList(),
+                List.copyOf(entries));
+        try {
+            var json = AbstractProject.objectMapper
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(manifest);
+            AtomicWrites.save(sftGenDir.resolve(SFT_GEN_ATTEMPTS_FILE), json + "\n");
+        } catch (JsonProcessingException e) {
+            throw new IOException("Failed to serialize SFT manifest", e);
+        }
+    }
+
+    private static List<Path> listCodeHistoryDirs(Path projectRoot) throws IOException {
+        var historyRoot = projectRoot.resolve(AbstractProject.BROKK_DIR).resolve(Llm.HISTORY_DIR_NAME);
+        if (!Files.isDirectory(historyRoot)) {
+            return List.of();
+        }
+        try (var stream = Files.list(historyRoot)) {
+            return stream.filter(Files::isDirectory)
+                    .filter(BprCli::isCodeHistoryDir)
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .toList();
+        }
+    }
+
+    private static boolean isCodeHistoryDir(Path path) {
+        var name = path.getFileName().toString();
+        return name.startsWith("Code ") || name.contains(" Code ");
+    }
+
+    private static @Nullable Path findAttemptCodeHistoryDir(
+            Path projectRoot, List<Path> beforeHistoryDirs, List<Path> afterHistoryDirs) {
+        Set<String> beforeRelative = beforeHistoryDirs.stream()
+                .map(path -> projectRoot.relativize(path).toString())
+                .collect(Collectors.toCollection(HashSet::new));
+        var newDirs = afterHistoryDirs.stream()
+                .filter(path ->
+                        !beforeRelative.contains(projectRoot.relativize(path).toString()))
+                .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                .toList();
+        if (!newDirs.isEmpty()) {
+            return newDirs.getLast();
+        }
+        return afterHistoryDirs.isEmpty() ? null : afterHistoryDirs.getLast();
+    }
+
+    private static void removeEphemeralBrokkArtifacts(Path projectRoot) throws IOException {
+        var brokkRoot = projectRoot.resolve(AbstractProject.BROKK_DIR);
+        deleteRecursively(brokkRoot.resolve("code_intelligence"));
+        Files.deleteIfExists(brokkRoot.resolve("workspace.properties"));
+    }
+
+    private static void deleteRecursively(Path path) throws IOException {
+        if (!Files.exists(path)) {
+            return;
+        }
+        try (var stream = Files.walk(path)) {
+            for (var entry : stream.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(entry);
+            }
+        }
+    }
+
+    private static boolean isOneshotSuccessful(TaskResult result, @Nullable Path codeHistoryDir, String diff)
+            throws IOException {
+        return result.stopDetails().reason() == TaskResult.StopReason.SUCCESS
+                && !diff.isBlank()
+                && codeHistoryDir != null
+                && countRequestJsonFiles(codeHistoryDir) == 1;
+    }
+
+    private static long countRequestJsonFiles(Path codeHistoryDir) throws IOException {
+        try (var stream = Files.walk(codeHistoryDir)) {
+            return stream.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith("-request.json"))
+                    .count();
+        }
+    }
+
+    private static String gitHead(Path projectRoot) throws IOException, InterruptedException {
+        return runCommand(projectRoot, List.of("git", "rev-parse", "HEAD"), Set.of(0))
+                .trim();
+    }
+
+    private static String captureWorkspaceDiff(Path projectRoot, String baselineHead)
+            throws IOException, InterruptedException {
+        StringBuilder diff = new StringBuilder();
+        var currentHead = gitHead(projectRoot);
+        if (baselineHead.equals(currentHead)) {
+            diff.append(runCommand(
+                    projectRoot, List.of("git", "diff", "--binary", "--no-color", baselineHead), Set.of(0, 1)));
+        } else {
+            diff.append(runCommand(
+                    projectRoot,
+                    List.of("git", "diff", "--binary", "--no-color", baselineHead, currentHead),
+                    Set.of(0, 1)));
+            diff.append(runCommand(
+                    projectRoot, List.of("git", "diff", "--binary", "--no-color", currentHead), Set.of(0, 1)));
+        }
+        for (var untrackedPath : listUntrackedFiles(projectRoot)) {
+            diff.append(runCommand(
+                    projectRoot,
+                    List.of("git", "diff", "--binary", "--no-color", "--no-index", "/dev/null", untrackedPath),
+                    Set.of(0, 1)));
+        }
+        return diff.toString();
+    }
+
+    private static List<String> listUntrackedFiles(Path projectRoot) throws IOException, InterruptedException {
+        var output = runCommand(projectRoot, List.of("git", "ls-files", "--others", "--exclude-standard"), Set.of(0));
+        if (output.isBlank()) {
+            return List.of();
+        }
+        return output.lines()
+                .filter(line -> !line.isBlank())
+                .filter(line -> !line.equals("run-output.txt"))
+                .filter(line -> !line.startsWith(AbstractProject.BROKK_DIR + "/"))
+                .toList();
+    }
+
+    private static String runCommand(Path cwd, List<String> command, Set<Integer> allowedExitCodes)
+            throws IOException, InterruptedException {
+        var process = new ProcessBuilder(command).directory(cwd.toFile()).start();
+        String stdout;
+        String stderr;
+        try (var stdoutStream = process.getInputStream();
+                var stderrStream = process.getErrorStream();
+                var stdoutBuffer = new ByteArrayOutputStream();
+                var stderrBuffer = new ByteArrayOutputStream()) {
+            stdoutStream.transferTo(stdoutBuffer);
+            stderrStream.transferTo(stderrBuffer);
+            int exitCode = process.waitFor();
+            stdout = stdoutBuffer.toString(StandardCharsets.UTF_8);
+            stderr = stderrBuffer.toString(StandardCharsets.UTF_8);
+            if (!allowedExitCodes.contains(exitCode)) {
+                throw new IOException(
+                        "Command failed with exit code " + exitCode + ": " + String.join(" ", command) + "\n" + stderr);
+            }
+        }
+        return stdout;
     }
 
     private List<String> resolveFiles(List<String> inputs, String entityType) {
