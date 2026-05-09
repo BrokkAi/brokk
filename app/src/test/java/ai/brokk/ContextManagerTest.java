@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
@@ -245,6 +246,32 @@ class ContextManagerTest {
 
         var afterSize = cm.getContextHistoryList().size();
         assertEquals(beforeSize + 1, afterSize, "Adding a file should push a new context");
+    }
+
+    @Test
+    void pushThenUndoRestoresPreCodeagentWorkspaceAndDiskContents() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-codeagent-undo");
+        try (var project = new MainProject(tempDir)) {
+            var cm = new ContextManager(project);
+            cm.createHeadless();
+
+            var file = new ProjectFile(tempDir, "Sample.java");
+            file.write("class Sample { int value = 1; }\n");
+            cm.addFiles(Set.of(file));
+
+            var preAttemptContext = cm.liveContext();
+            preAttemptContext.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+
+            file.write("class Sample { int value = 2; }\n");
+            var attemptContext = preAttemptContext.copyAndRefresh(Set.of(file));
+            attemptContext.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+
+            cm.pushContext(ctx -> attemptContext);
+
+            assertTrue(cm.undoContext());
+            assertEquals(preAttemptContext, cm.liveContext());
+            assertEquals("class Sample { int value = 1; }\n", file.read().orElseThrow());
+        }
     }
 
     @Test
