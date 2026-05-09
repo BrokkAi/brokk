@@ -261,7 +261,6 @@ public class CodeAgent {
 
     // A "global" for current task Context. Updated mid-task with new files and build status.
     Context context;
-    private @Nullable CodePrompts.ExpectedFileHints expectedFileHints;
 
     public CodeAgent(IAppContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
@@ -311,10 +310,6 @@ public class CodeAgent {
 
     public TaskResult execute(String userInput, Set<Option> options, List<ProjectFile> testFilesOverride) {
         return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options, testFilesOverride);
-    }
-
-    public void setExpectedFileHints(@Nullable CodePrompts.ExpectedFileHints expectedFileHints) {
-        this.expectedFileHints = expectedFileHints == null || expectedFileHints.isEmpty() ? null : expectedFileHints;
     }
 
     /**
@@ -450,8 +445,7 @@ public class CodeAgent {
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         suppressed,
-                        userInput.trim(),
-                        isSingleTurnDryRunEnabled() ? expectedFileHints : null);
+                        userInput.trim());
                 if (shouldUseSingleTurnDryRun(isSingleTurnDryRunEnabled(), cs)) {
                     coder.logRequestOnly(allMessagesForLlm);
                     loggedSingleTurnDryRun = true;
@@ -666,8 +660,7 @@ public class CodeAgent {
                         cs.taskMessages(),
                         followupRequest,
                         suppressed,
-                        userInput.trim(),
-                        isSingleTurnDryRunEnabled() ? expectedFileHints : null);
+                        userInput.trim());
                 coder.logRequestOnly(followupMessages);
             }
         }

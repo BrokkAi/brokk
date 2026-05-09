@@ -33,7 +33,6 @@ import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
-import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.Environment;
@@ -184,24 +183,6 @@ public final class BprCli implements Callable<Integer> {
                     "When --code and multi-model --codemodel are used, stop after the leading gate-model attempts if all of them succeed oneshot.")
     @Nullable
     private String codeGateModelName;
-
-    @CommandLine.Option(
-            names = "--modify-files-hint",
-            split = ",",
-            description = "Benchmark-only single-turn hint listing file paths expected to be modified.")
-    private List<String> modifyFilesHint = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--delete-files-hint",
-            split = ",",
-            description = "Benchmark-only single-turn hint listing file paths expected to be deleted.")
-    private List<String> deleteFilesHint = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--new-files-hint",
-            split = ",",
-            description = "Benchmark-only single-turn hint listing file paths expected to be newly created.")
-    private List<String> newFilesHint = new ArrayList<>();
 
     @CommandLine.Option(
             names = "--brokk-key",
@@ -839,18 +820,15 @@ public final class BprCli implements Callable<Integer> {
                         System.err.println("Error: --code requires --codemodel to be specified.");
                         return 1;
                     }
-                    var expectedFileHints = expectedFileHints();
                     if (resolvedCodeModels.size() == 1) {
                         var agent =
                                 new CodeAgent(cm, resolvedCodeModels.getFirst().model());
-                        agent.setExpectedFileHints(expectedFileHints);
                         result = agent.execute(codePrompt, Set.of());
                     } else {
                         result = runMultiModelCodeAgent(
                                 codePrompt,
                                 resolvedCodeModels,
-                                codeGateModelName == null ? null : codeGateModelName.trim(),
-                                expectedFileHints);
+                                codeGateModelName == null ? null : codeGateModelName.trim());
                     }
                     scope.append(result);
                 } else if (merge) {
@@ -1016,10 +994,6 @@ public final class BprCli implements Callable<Integer> {
         return Optional.of(new CodeModelAttempt(modelName, castNonNull(model)));
     }
 
-    private CodePrompts.ExpectedFileHints expectedFileHints() {
-        return new CodePrompts.ExpectedFileHints(modifyFilesHint, deleteFilesHint, newFilesHint);
-    }
-
     private List<CodeModelAttempt> resolveCodeModels(AbstractService service, List<String> modelNames) {
         List<CodeModelAttempt> resolved = new ArrayList<>();
         for (var modelName : modelNames) {
@@ -1033,11 +1007,7 @@ public final class BprCli implements Callable<Integer> {
     }
 
     private TaskResult runMultiModelCodeAgent(
-            String prompt,
-            List<CodeModelAttempt> attempts,
-            @Nullable String gateModelName,
-            CodePrompts.ExpectedFileHints expectedFileHints)
-            throws Exception {
+            String prompt, List<CodeModelAttempt> attempts, @Nullable String gateModelName) throws Exception {
         List<CodeAttemptManifestEntry> manifestEntries = new ArrayList<>();
         int gateAttemptCount = countLeadingGateAttempts(attempts, gateModelName);
         boolean allGateAttemptsOneshot = gateAttemptCount > 0;
@@ -1050,7 +1020,6 @@ public final class BprCli implements Callable<Integer> {
             var baselineHead = gitHead(project.getRoot());
             var beforeHistoryDirs = listCodeHistoryDirs(project.getRoot());
             var agent = new CodeAgent(cm, attempt.model());
-            agent.setExpectedFileHints(expectedFileHints);
             var attemptResult = agent.execute(prompt, Set.of());
             var afterHistoryDirs = listCodeHistoryDirs(project.getRoot());
             var codeHistoryDir = findAttemptCodeHistoryDir(project.getRoot(), beforeHistoryDirs, afterHistoryDirs);

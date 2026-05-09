@@ -219,19 +219,6 @@ public class CodePrompts {
             UserMessage request,
             Set<SpecialTextType> suppressedTypes,
             String goal) {
-        return collectCodeMessages(model, taskMeta, ctx, prologue, taskMessages, request, suppressedTypes, goal, null);
-    }
-
-    public final List<ChatMessage> collectCodeMessages(
-            StreamingChatModel model,
-            TaskResult.TaskMeta taskMeta,
-            Context ctx,
-            List<ChatMessage> prologue,
-            List<ChatMessage> taskMessages,
-            UserMessage request,
-            Set<SpecialTextType> suppressedTypes,
-            String goal,
-            @Nullable ExpectedFileHints expectedFileHints) {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
         AbstractService service = cm.getService();
@@ -261,10 +248,9 @@ public class CodePrompts {
         // Append TOC reminder to the request
         var tocReminder = """
                 \n
-                %s%s
+                %s
                 """
-                .formatted(
-                        WorkspacePrompts.formatToc(ctx, suppressedTypes), formatExpectedFileHints(expectedFileHints));
+                .formatted(WorkspacePrompts.formatToc(ctx, suppressedTypes));
         var augmentedRequest = new UserMessage(Messages.getText(request) + tocReminder);
         messages.add(augmentedRequest);
 
@@ -289,18 +275,6 @@ public class CodePrompts {
      * and the user message with failure details.
      */
     public record ApplyRetryMessages(AiMessage taggedAiMessage, UserMessage retryRequest) {}
-
-    public record ExpectedFileHints(List<String> modifyFiles, List<String> deleteFiles, List<String> newFiles) {
-        public ExpectedFileHints {
-            modifyFiles = List.copyOf(modifyFiles);
-            deleteFiles = List.copyOf(deleteFiles);
-            newFiles = List.copyOf(newFiles);
-        }
-
-        public boolean isEmpty() {
-            return modifyFiles.isEmpty() && deleteFiles.isEmpty() && newFiles.isEmpty();
-        }
-    }
 
     /**
      * Consolidates the construction of retry messages when SEARCH/REPLACE blocks fail to apply.
@@ -439,36 +413,6 @@ public class CodePrompts {
     private static final Template CODE_SYSTEM_TEMPLATE;
     private static final Template APPLY_RETRY_TEMPLATE;
     private static final Template SEMANTIC_ENRICHMENT_TEMPLATE;
-
-    private static String formatExpectedFileHints(@Nullable ExpectedFileHints expectedFileHints) {
-        if (expectedFileHints == null || expectedFileHints.isEmpty()) {
-            return "";
-        }
-
-        var blocks = new ArrayList<String>();
-        addHintBlock(blocks, "modify_files_hint", expectedFileHints.modifyFiles());
-        addHintBlock(blocks, "delete_files_hint", expectedFileHints.deleteFiles());
-        addHintBlock(blocks, "new_files_hint", expectedFileHints.newFiles());
-        if (blocks.isEmpty()) {
-            return "";
-        }
-        return "\n\nPrefer to solve this task using these exact file paths when possible.\n\n"
-                + String.join("\n\n", blocks);
-    }
-
-    private static void addHintBlock(List<String> blocks, String tagName, List<String> paths) {
-        if (paths.isEmpty()) {
-            return;
-        }
-        String instruction =
-                switch (tagName) {
-                    case "modify_files_hint" -> "Modify the following files:";
-                    case "delete_files_hint" -> "Delete the following files:";
-                    case "new_files_hint" -> "Create the following new files:";
-                    default -> throw new IllegalArgumentException("Unknown expected file hint tag: " + tagName);
-                };
-        blocks.add("<%s>\n%s\n\n%s\n</%s>".formatted(tagName, instruction, String.join("\n", paths), tagName));
-    }
 
     static {
         Handlebars handlebars = new Handlebars().with(EscapingStrategy.NOOP);

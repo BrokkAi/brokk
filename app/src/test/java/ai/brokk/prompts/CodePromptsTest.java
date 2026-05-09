@@ -15,7 +15,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -456,56 +455,5 @@ class CodePromptsTest {
                         .anyMatch(m ->
                                 m instanceof UserMessage um && um.singleText().contains("<tasklog>")),
                 "History should include a <tasklog> wrapper message");
-    }
-
-    @Test
-    void collectCodeMessages_appendsSplitExpectedFileHints() throws Exception {
-        var cm = new TestContextManager(Files.createTempDirectory("codeprompts-test"), new NoOpConsoleIO());
-        var ctx = new Context(cm);
-        var request = new UserMessage("Please fix things");
-
-        var messages = CodePrompts.instance.collectCodeMessages(
-                cm.getCodeModel(),
-                null,
-                ctx,
-                List.of(),
-                List.of(),
-                request,
-                EnumSet.noneOf(ai.brokk.context.SpecialTextType.class),
-                Messages.getText(request),
-                new CodePrompts.ExpectedFileHints(
-                        List.of("src/code.py"), List.of("obsolete/file.go"), List.of("new/file.go")));
-
-        var lastMessage = (UserMessage) messages.getLast();
-        var text = Messages.getText(lastMessage);
-        assertTrue(
-                text.contains("<modify_files_hint>\nModify the following files:\n\nsrc/code.py\n</modify_files_hint>"));
-        assertTrue(text.contains(
-                "<delete_files_hint>\nDelete the following files:\n\nobsolete/file.go\n</delete_files_hint>"));
-        assertTrue(
-                text.contains("<new_files_hint>\nCreate the following new files:\n\nnew/file.go\n</new_files_hint>"));
-    }
-
-    @Test
-    void collectCodeMessages_omitsExpectedFileHintsWhenEmpty() throws Exception {
-        var cm = new TestContextManager(Files.createTempDirectory("codeprompts-test"), new NoOpConsoleIO());
-        var ctx = new Context(cm);
-        var request = new UserMessage("Please fix things");
-
-        var messages = CodePrompts.instance.collectCodeMessages(
-                cm.getCodeModel(),
-                null,
-                ctx,
-                List.of(),
-                List.of(),
-                request,
-                EnumSet.noneOf(ai.brokk.context.SpecialTextType.class),
-                Messages.getText(request),
-                new CodePrompts.ExpectedFileHints(List.of(), List.of(), List.of()));
-
-        var text = Messages.getText(messages.getLast());
-        assertFalse(text.contains("<modify_files_hint>"));
-        assertFalse(text.contains("<delete_files_hint>"));
-        assertFalse(text.contains("<new_files_hint>"));
     }
 }

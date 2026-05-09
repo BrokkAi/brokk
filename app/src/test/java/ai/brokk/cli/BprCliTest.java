@@ -19,7 +19,6 @@ import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Environment;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -123,23 +122,6 @@ class BprCliTest {
     }
 
     @Test
-    void expectedFileHintOptionsParseAsCommaDelimitedLists() throws Exception {
-        var cli = new BprCli();
-        new CommandLine(cli)
-                .parseArgs(
-                        "--modify-files-hint",
-                        "src/A.java,src/B.java",
-                        "--delete-files-hint",
-                        "old/A.java",
-                        "--new-files-hint",
-                        "new/A.java,new/B.java");
-
-        assertEquals(List.of("src/A.java", "src/B.java"), readPrivateList(cli, "modifyFilesHint"));
-        assertEquals(List.of("old/A.java"), readPrivateList(cli, "deleteFilesHint"));
-        assertEquals(List.of("new/A.java", "new/B.java"), readPrivateList(cli, "newFilesHint"));
-    }
-
-    @Test
     void codeGateModelRequiresMultiModelCodeRun() {
         var exitCode = new CommandLine(new BprCli())
                 .execute(
@@ -204,12 +186,5 @@ class BprCliTest {
 
         assertEquals("NO_EDITS", normalize.invoke(null, TaskResult.StopReason.SUCCESS, ""));
         assertEquals("SUCCESS", normalize.invoke(null, TaskResult.StopReason.SUCCESS, "diff --git a/foo b/foo\n"));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<String> readPrivateList(BprCli cli, String fieldName) throws Exception {
-        Field field = BprCli.class.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        return (List<String>) field.get(cli);
     }
 }
