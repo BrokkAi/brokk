@@ -153,7 +153,8 @@ class BprCliTest {
                         String.class,
                         String.class,
                         String.class,
-                        boolean.class);
+                        boolean.class,
+                        double.class);
         entryCtor.setAccessible(true);
         Object entry = entryCtor.newInstance(
                 0,
@@ -163,7 +164,8 @@ class BprCliTest {
                 "SUCCESS",
                 null,
                 "diff --git a/foo b/foo\n",
-                true);
+                true,
+                1.25d);
 
         Method writeManifest =
                 BprCli.class.getDeclaredMethod("writeSftGenManifest", Path.class, String.class, List.class, List.class);
@@ -176,6 +178,7 @@ class BprCliTest {
         assertTrue(manifest.contains("\"requestedModels\""));
         assertTrue(manifest.contains("\"model-a\""));
         assertTrue(manifest.contains("\"codeHistoryDir\" : \".brokk/llm-history/2026-01-01 Code Goal\""));
+        assertTrue(manifest.contains("\"elapsedSeconds\" : 1.25"));
     }
 
     @Test

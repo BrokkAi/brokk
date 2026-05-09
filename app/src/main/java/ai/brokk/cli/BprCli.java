@@ -89,7 +89,8 @@ public final class BprCli implements Callable<Integer> {
             String stopReason,
             @Nullable String stopExplanation,
             String diff,
-            boolean oneshotSuccessful) {}
+            boolean oneshotSuccessful,
+            double elapsedSeconds) {}
 
     private record CodeAttemptManifest(
             @Nullable String gateModel, List<String> requestedModels, List<CodeAttemptManifestEntry> attempts) {}
@@ -1020,7 +1021,9 @@ public final class BprCli implements Callable<Integer> {
             var baselineHead = gitHead(project.getRoot());
             var beforeHistoryDirs = listCodeHistoryDirs(project.getRoot());
             var agent = new CodeAgent(cm, attempt.model());
+            var attemptStartedAt = System.nanoTime();
             var attemptResult = agent.execute(prompt, Set.of());
+            var elapsedSeconds = (System.nanoTime() - attemptStartedAt) / 1_000_000_000.0;
             var afterHistoryDirs = listCodeHistoryDirs(project.getRoot());
             var codeHistoryDir = findAttemptCodeHistoryDir(project.getRoot(), beforeHistoryDirs, afterHistoryDirs);
             var diff = captureWorkspaceDiff(project.getRoot(), baselineHead);
@@ -1038,7 +1041,8 @@ public final class BprCli implements Callable<Integer> {
                     manifestStopReason,
                     stopDetails.explanation(),
                     diff,
-                    oneshotSuccessful));
+                    oneshotSuccessful,
+                    elapsedSeconds));
             finalResult = attemptResult;
 
             boolean stopAfterGate = false;
