@@ -219,8 +219,7 @@ public class CodePrompts {
             UserMessage request,
             Set<SpecialTextType> suppressedTypes,
             String goal) {
-        return collectCodeMessages(
-                model, taskMeta, ctx, prologue, taskMessages, request, suppressedTypes, goal, null);
+        return collectCodeMessages(model, taskMeta, ctx, prologue, taskMessages, request, suppressedTypes, goal, null);
     }
 
     public final List<ChatMessage> collectCodeMessages(
@@ -264,7 +263,8 @@ public class CodePrompts {
                 \n
                 %s%s
                 """
-                .formatted(WorkspacePrompts.formatToc(ctx, suppressedTypes), formatExpectedFileHints(expectedFileHints));
+                .formatted(
+                        WorkspacePrompts.formatToc(ctx, suppressedTypes), formatExpectedFileHints(expectedFileHints));
         var augmentedRequest = new UserMessage(Messages.getText(request) + tocReminder);
         messages.add(augmentedRequest);
 
@@ -460,7 +460,14 @@ public class CodePrompts {
         if (paths.isEmpty()) {
             return;
         }
-        blocks.add("<%s>\n%s\n</%s>".formatted(tagName, String.join("\n", paths), tagName));
+        String instruction =
+                switch (tagName) {
+                    case "modify_files_hint" -> "Modify the following files:";
+                    case "delete_files_hint" -> "Delete the following files:";
+                    case "new_files_hint" -> "Create the following new files:";
+                    default -> throw new IllegalArgumentException("Unknown expected file hint tag: " + tagName);
+                };
+        blocks.add("<%s>\n%s\n\n%s\n</%s>".formatted(tagName, instruction, String.join("\n", paths), tagName));
     }
 
     static {
