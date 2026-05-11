@@ -57,14 +57,21 @@ pub enum SandboxPolicy {
 impl SandboxPolicy {
     /// Map a session's `PermissionMode` to a sandbox tier.
     ///
-    /// `Default` resolves to `ReadOnly` because in default mode shell calls
-    /// still hit the per-call permission prompt; the sandbox bounds what
-    /// "Allow" actually grants. `BypassPermissions` is the explicit opt-out.
+    /// `Default` resolves to `WorkspaceWrite` so the per-call permission
+    /// prompt is the meaningful gate -- when the user clicks "Allow" the
+    /// shell call can actually write under cwd, mirroring what `writeFile`
+    /// (which bypasses the sandbox entirely) already does in this mode.
+    /// Previously `Default` mapped to `ReadOnly`, which silently turned the
+    /// "Allow" prompt into a no-op for shell writes and contradicted the
+    /// README contract ("Prompts the user for approval before every mutating
+    /// tool call"). `ReadOnly` mode still maps to `ReadOnly` for "no writes
+    /// at all", and `BypassPermissions` is the explicit opt-out from
+    /// sandboxing entirely.
     pub fn from_permission_mode(mode: PermissionMode) -> Self {
         match mode {
             PermissionMode::BypassPermissions => Self::None,
             PermissionMode::ReadOnly => Self::ReadOnly,
-            PermissionMode::Default => Self::ReadOnly,
+            PermissionMode::Default => Self::WorkspaceWrite,
             PermissionMode::AcceptEdits => Self::WorkspaceWrite,
         }
     }
@@ -162,9 +169,18 @@ fn wrap_platform(
     command: &str,
 ) -> std::io::Result<WrappedCommand> {
     let policy_content = build_seatbelt_policy(policy, cwd);
+    let has_write_rule = policy_content.contains("file-write*");
     let path = std::env::temp_dir().join(format!("brokk-seatbelt-{}.sb", uuid::Uuid::new_v4()));
     write_policy_file_secure(&path, &policy_content)
         .map_err(|e| sandbox_io_error(format!("write seatbelt profile: {e}")))?;
+    tracing::debug!(
+        target: "brokk_acp_rust::tools::sandbox",
+        policy = ?policy,
+        cwd = %cwd.display(),
+        profile_path = %path.display(),
+        has_workspace_write_rule = has_write_rule,
+        "materialized seatbelt profile",
+    );
     let temp = TempPolicyFile::new(path.clone());
 
     let argv = vec![
@@ -196,6 +212,15 @@ fn wrap_platform(
     }
 
     let argv = build_bwrap_argv(policy, cwd, command);
+    let has_workspace_bind = argv.windows(2).any(|w| w[0] == "--bind");
+    tracing::debug!(
+        target: "brokk_acp_rust::tools::sandbox",
+        policy = ?policy,
+        cwd = %cwd.display(),
+        has_workspace_bind = has_workspace_bind,
+        argv_len = argv.len(),
+        "prepared bwrap invocation",
+    );
     Ok(WrappedCommand {
         argv,
         sandboxed: true,
@@ -781,11 +806,36 @@ mod tests {
         );
         assert_eq!(
             SandboxPolicy::from_permission_mode(PermissionMode::Default),
-            SandboxPolicy::ReadOnly
+            SandboxPolicy::WorkspaceWrite
         );
         assert_eq!(
             SandboxPolicy::from_permission_mode(PermissionMode::AcceptEdits),
             SandboxPolicy::WorkspaceWrite
+        );
+    }
+
+    /// Regression for the bug where Default mode produced a seatbelt profile
+    /// with no `file-write*` rule, so clicking "Allow" on the per-call
+    /// permission prompt could not actually let shell writes through.
+    /// `writeFile` (which bypasses the sandbox entirely) succeeded in the
+    /// same mode, making the user experience appear arbitrary.
+    #[test]
+    fn default_mode_seatbelt_profile_grants_workspace_writes() {
+        let policy = SandboxPolicy::from_permission_mode(PermissionMode::Default);
+        let scheme = build_seatbelt_policy(policy, Path::new("/tmp"));
+        assert!(
+            scheme.contains("file-write*"),
+            "Default mode must emit a file-write* rule so an approved shell call can write under cwd; got:\n{scheme}"
+        );
+    }
+
+    #[test]
+    fn read_only_mode_seatbelt_profile_still_blocks_writes() {
+        let policy = SandboxPolicy::from_permission_mode(PermissionMode::ReadOnly);
+        let scheme = build_seatbelt_policy(policy, Path::new("/tmp"));
+        assert!(
+            !scheme.contains("file-write*"),
+            "ReadOnly mode must never emit a file-write* rule; got:\n{scheme}"
         );
     }
 
