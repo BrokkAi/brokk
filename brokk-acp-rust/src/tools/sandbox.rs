@@ -397,7 +397,7 @@ pub fn cleanup_stale_policy_files() {
 /// (`Environment.java:521-529`), which binds the parent roots and so leaves
 /// `~/.cargo/credentials.toml`, `~/.gradle/gradle.properties`, and
 /// `~/.m2/settings.xml` exposed to the sandboxed command alongside the cache.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 const HOME_CACHE_SUBDIRS: &[&str] = &[
     ".cargo/registry",
     ".cargo/git",
@@ -417,9 +417,244 @@ const HOME_CACHE_SUBDIRS: &[&str] = &[
 /// than Java, which inherits the parent process env wholesale (see
 /// `Environment.java:647-661`). LD_PRELOAD, DYLD_*, and any `*_TOKEN` /
 /// `*_KEY` / `*_SECRET` parent secrets are not listed and therefore stripped.
-pub const ENV_WHITELIST: &[&str] = &["HOME", "USER", "LOGNAME", "LANG", "LC_ALL"];
+///
+/// The toolchain-manager entries (CARGO_HOME, RUSTUP_HOME, NVM_DIR, ...) are
+/// pure path pointers into the user's home directory; they do not carry
+/// credentials. Without them, commands like `cargo` and `rustup` can still
+/// fail even when `~/.cargo/bin` is on PATH (e.g. `RUSTUP_HOME` redirected to
+/// a non-default location).
+pub const ENV_WHITELIST: &[&str] = &[
+    // Core identity / locale
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    // Terminal width hints (ripgrep, fd, ls --color, less, ...)
+    "COLUMNS",
+    "LINES",
+    // Toolchain-manager pointers (paths into $HOME; not credentials)
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "NVM_DIR",
+    "FNM_DIR",
+    "ASDF_DIR",
+    "ASDF_DATA_DIR",
+    "MISE_DATA_DIR",
+    "MISE_CONFIG_DIR",
+    "PYENV_ROOT",
+    "BUN_INSTALL",
+    "DENO_INSTALL",
+];
 
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+/// Operator-supplied override that fully replaces the discovered PATH inside
+/// the sandbox. Lets sophisticated users opt into custom toolchain layouts
+/// without us having to enumerate every package manager.
+#[cfg(unix)]
+pub const BROKK_ACP_PATH_ENV: &str = "BROKK_ACP_PATH";
+
+/// Static fallback PATH segments, appended last. Mirrors the historic
+/// hardcoded value so commands that resolve only through `/usr/bin` etc.
+/// keep working when discovery turns up nothing.
+#[cfg(unix)]
+const STATIC_PATH_FALLBACK: &[&str] = &["/usr/local/bin", "/usr/bin", "/bin"];
+
+/// Well-known toolchain-manager dirs that live under `$HOME`. Each is checked
+/// individually for existence, ownership, and mode bits before being added
+/// to PATH. Order is preference order (first match wins for `command -v`).
+#[cfg(unix)]
+const HOME_TOOL_DIRS: &[&str] = &[
+    ".cargo/bin",
+    ".local/bin",
+    ".local/share/mise/shims",
+    ".asdf/shims",
+    ".pyenv/shims",
+    ".bun/bin",
+    ".deno/bin",
+];
+
+/// Well-known toolchain-manager dirs at fixed absolute paths. Not owned by
+/// the user (typically by the brew admin user or root), so they're checked
+/// only for existence and "not world-writable".
+#[cfg(unix)]
+const SYSTEM_TOOL_DIRS: &[&str] = &["/opt/homebrew/bin", "/opt/homebrew/sbin"];
+
+/// Build the PATH used inside the sandbox.
+///
+/// Order: home tool dirs that pass `is_safe_home_dir`, then well-known system
+/// tool dirs that pass `is_safe_system_dir`, then parent `$PATH` entries that
+/// pass `is_safe_parent_path_entry`, then `STATIC_PATH_FALLBACK`. Duplicates
+/// are dropped in first-seen order so the preference layering above is
+/// preserved.
+///
+/// `BROKK_ACP_PATH` short-circuits the whole pipeline: if set to a non-empty
+/// value the override is returned verbatim, leaving safety enforcement to the
+/// operator. Used by ops who run brokk-acp under bespoke toolchain layouts.
+///
+/// Unix-only: the sandbox itself (`sandbox-exec`, `bwrap`) is unimplemented
+/// on Windows, and the path layout we discover here (`~/.cargo/bin`,
+/// `/opt/homebrew/bin`, `/usr/local/bin`, ...) is meaningless under Win32.
+/// On Windows the caller in `shell.rs` falls through to the parent process'
+/// own PATH, which is the desired no-op-when-no-sandbox behavior.
+#[cfg(unix)]
+pub fn discover_sandbox_path() -> String {
+    if let Ok(override_val) = std::env::var(BROKK_ACP_PATH_ENV)
+        && !override_val.trim().is_empty()
+    {
+        return override_val;
+    }
+
+    let mut entries: Vec<String> = Vec::with_capacity(16);
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut push = |dir: String| {
+        if seen.insert(dir.clone()) {
+            entries.push(dir);
+        }
+    };
+
+    // Canonicalize $HOME once so `is_safe_home_dir` can require each
+    // candidate's canonical path to stay inside it (rejects symlinks
+    // under $HOME that escape to elsewhere on disk, per #3543).
+    let canonical_home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .and_then(|h| h.canonicalize().ok());
+    if let Some(ref h_canon) = canonical_home {
+        for rel in HOME_TOOL_DIRS {
+            let path = h_canon.join(rel);
+            if !is_safe_home_dir(&path, h_canon) {
+                continue;
+            }
+            if let Some(s) = path.to_str() {
+                push(s.to_string());
+            }
+        }
+    }
+
+    for abs in SYSTEM_TOOL_DIRS {
+        let path = PathBuf::from(abs);
+        if is_safe_system_dir(&path)
+            && let Some(s) = path.to_str()
+        {
+            push(s.to_string());
+        }
+    }
+
+    if let Some(parent_path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&parent_path) {
+            if !is_safe_parent_path_entry(&dir) {
+                if dir.exists() {
+                    tracing::warn!(
+                        path = %dir.display(),
+                        "skipping unsafe parent PATH entry (world-writable or non-directory)"
+                    );
+                }
+                continue;
+            }
+            if let Some(s) = dir.to_str() {
+                push(s.to_string());
+            }
+        }
+    }
+
+    for abs in STATIC_PATH_FALLBACK {
+        push((*abs).to_string());
+    }
+
+    entries.join(":")
+}
+
+/// A `~`-relative tool dir is safe iff: its canonical path remains under
+/// `canonical_home`, exists as a directory, is owned by the current uid,
+/// and has no group/world write bits set.
+///
+/// The canonicalize-and-contain check rejects symlinks under `$HOME` whose
+/// targets land elsewhere on disk — even when the target is owned by the
+/// current user and has tight mode bits, e.g. `~/.cargo/bin -> /tmp/bin`.
+/// #3543's acceptance criterion explicitly calls this case out: "PATH
+/// discovery skips ... symlinks pointing outside the user's home". Without
+/// this check, an attacker who could plant a symlink in $HOME (e.g. via a
+/// careless tarball extraction) could redirect tool resolution to a path
+/// they control.
+///
+/// The ownership check on top of that catches the case where the target
+/// *is* under $HOME but somehow ended up owned by another principal.
+#[cfg(unix)]
+fn is_safe_home_dir(path: &Path, canonical_home: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    // Resolve symlinks fully and require the result to stay under
+    // canonical $HOME. canonicalize() returns Err for non-existent paths,
+    // which is the right answer here too: a missing dir is just not on
+    // PATH, no warning needed.
+    let canonical = match path.canonicalize() {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    if !canonical.starts_with(canonical_home) {
+        tracing::warn!(
+            path = %path.display(),
+            canonical = %canonical.display(),
+            home = %canonical_home.display(),
+            "skipping home tool dir whose canonical path escapes $HOME (symlink redirect)"
+        );
+        return false;
+    }
+
+    let Ok(meta) = std::fs::metadata(&canonical) else {
+        return false;
+    };
+    if !meta.is_dir() {
+        return false;
+    }
+    // SAFETY: getuid() is async-signal-safe and always succeeds.
+    let current_uid = unsafe { libc::getuid() };
+    if meta.uid() != current_uid {
+        tracing::warn!(
+            path = %canonical.display(),
+            owner_uid = meta.uid(),
+            current_uid,
+            "skipping home tool dir not owned by current user"
+        );
+        return false;
+    }
+    if meta.mode() & 0o022 != 0 {
+        tracing::warn!(
+            path = %canonical.display(),
+            mode = format!("{:o}", meta.mode() & 0o777),
+            "skipping home tool dir with group/world write bits set"
+        );
+        return false;
+    }
+    true
+}
+
+/// A fixed system tool dir (e.g. `/opt/homebrew/bin`) is safe iff: it exists
+/// as a directory and isn't world-writable. We don't require ownership-by-user
+/// because Homebrew is typically owned by the admin user, not the LLM-driving
+/// user; the deny boundary here is "any user can write to it" (mode bit 0o002).
+#[cfg(unix)]
+fn is_safe_system_dir(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_dir() {
+        return false;
+    }
+    meta.mode() & 0o002 == 0
+}
+
+/// Parent-`$PATH` entries get the lightest filter: exists + not world-writable.
+/// Anything more restrictive (e.g. ownership) is too noisy in practice — devs
+/// commonly inherit dirs from package managers, distros, and CI images that
+/// they don't personally own but trust to host binaries.
+#[cfg(unix)]
+fn is_safe_parent_path_entry(path: &Path) -> bool {
+    is_safe_system_dir(path)
+}
+
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn build_bwrap_argv(policy: SandboxPolicy, cwd: &Path, command: &str) -> Vec<String> {
     let mut a: Vec<String> = Vec::with_capacity(48);
     a.push("bwrap".into());
@@ -462,13 +697,11 @@ fn build_bwrap_argv(policy: SandboxPolicy, cwd: &Path, command: &str) -> Vec<Str
 
     // Strip the parent process environment (PATH manipulation, LD_PRELOAD,
     // OPENAI_API_KEY/GITHUB_TOKEN/AWS_*, ...). Replace with a small whitelist
-    // plus a sanitized PATH and TERM=dumb.
+    // plus a sanitized PATH and TERM=dumb. PATH is discovered (not hardcoded)
+    // so toolchains under ~/.cargo/bin, /opt/homebrew/bin, mise/asdf shims,
+    // etc. are reachable inside the sandbox without per-host config.
     a.push("--clearenv".into());
-    a.extend([
-        "--setenv".into(),
-        "PATH".into(),
-        "/usr/local/bin:/usr/bin:/bin".into(),
-    ]);
+    a.extend(["--setenv".into(), "PATH".into(), discover_sandbox_path()]);
     a.extend(["--setenv".into(), "TERM".into(), "dumb".into()]);
     for key in ENV_WHITELIST {
         if let Some(value) = std::env::var_os(key)
@@ -684,6 +917,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn bwrap_argv_read_only_has_no_workspace_bind() {
         let argv = build_bwrap_argv(SandboxPolicy::ReadOnly, Path::new("/workspace"), "echo hi");
@@ -701,6 +935,7 @@ mod tests {
         assert_eq!(&argv[dash_idx + 1..], &["sh", "-c", "echo hi"]);
     }
 
+    #[cfg(unix)]
     #[test]
     fn bwrap_argv_workspace_write_binds_root_rw() {
         let argv = build_bwrap_argv(
@@ -715,6 +950,7 @@ mod tests {
         assert!(argv.contains(&"--tmpfs".to_string()));
     }
 
+    #[cfg(unix)]
     #[test]
     fn bwrap_argv_clearenv_with_path_and_term() {
         let argv = build_bwrap_argv(SandboxPolicy::ReadOnly, Path::new("/workspace"), "echo hi");
@@ -726,17 +962,35 @@ mod tests {
             clearenv_idx < setenv_idx,
             "--clearenv must precede --setenv"
         );
-        // PATH and TERM must be set explicitly.
-        let has_path = argv.windows(3).any(|w| {
-            w[0] == "--setenv" && w[1] == "PATH" && w[2] == "/usr/local/bin:/usr/bin:/bin"
-        });
+        // PATH must be set via --setenv to a non-empty discovered value that
+        // still contains the static fallback dirs at the tail. We assert
+        // structurally (substring match) rather than against a fixed string
+        // because discover_sandbox_path() reflects the host's installed
+        // toolchains and varies per machine.
+        let path_value = argv
+            .windows(3)
+            .find_map(|w| {
+                if w[0] == "--setenv" && w[1] == "PATH" {
+                    Some(w[2].clone())
+                } else {
+                    None
+                }
+            })
+            .expect("PATH must be sanitized via --setenv");
+        assert!(!path_value.is_empty(), "discovered PATH must not be empty");
+        for fallback in ["/usr/local/bin", "/usr/bin", "/bin"] {
+            assert!(
+                path_value.split(':').any(|p| p == fallback),
+                "discovered PATH must keep static fallback '{fallback}', got '{path_value}'"
+            );
+        }
         let has_term = argv
             .windows(3)
             .any(|w| w[0] == "--setenv" && w[1] == "TERM" && w[2] == "dumb");
-        assert!(has_path, "PATH must be sanitized via --setenv");
         assert!(has_term, "TERM must be set to dumb via --setenv");
     }
 
+    #[cfg(unix)]
     #[test]
     fn bwrap_argv_no_credential_root_binds() {
         // Stricter than Java: we must NOT bind ~/.cargo or ~/.gradle as
@@ -760,6 +1014,334 @@ mod tests {
                 !bound,
                 "credential-bearing root '{}' must not be bound",
                 forbidden
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // PATH discovery (Unix-only: discover_sandbox_path and the
+    // is_safe_* helpers are cfg(unix); these tests follow suit.)
+    // -----------------------------------------------------------------
+
+    /// Serializes tests that mutate process-wide env vars touched by
+    /// `discover_sandbox_path` (BROKK_ACP_PATH, PATH). `cargo test` runs
+    /// `#[test]` cases in parallel inside one binary, so any test that
+    /// `set_var` here must hold this lock to avoid racing readers from
+    /// sibling tests.
+    #[cfg(unix)]
+    static SANDBOX_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Restores a single env var on Drop. Pair with `SANDBOX_ENV_LOCK` so
+    /// the drop ordering is deterministic and we don't leak state into
+    /// the next test.
+    #[cfg(unix)]
+    struct SandboxEnvGuard {
+        var: &'static str,
+        prior: Option<std::ffi::OsString>,
+    }
+
+    #[cfg(unix)]
+    impl SandboxEnvGuard {
+        fn set(var: &'static str, value: &str) -> Self {
+            let prior = std::env::var_os(var);
+            // SAFETY: caller holds SANDBOX_ENV_LOCK; the crate's other
+            // env-mutating tests use their own locks for non-overlapping
+            // vars (BROKK_ACP_RLIMIT_*).
+            unsafe {
+                std::env::set_var(var, value);
+            }
+            Self { var, prior }
+        }
+        fn unset(var: &'static str) -> Self {
+            let prior = std::env::var_os(var);
+            // SAFETY: same as set().
+            unsafe {
+                std::env::remove_var(var);
+            }
+            Self { var, prior }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for SandboxEnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: same as set()/unset().
+            unsafe {
+                match self.prior.take() {
+                    Some(v) => std::env::set_var(self.var, v),
+                    None => std::env::remove_var(self.var),
+                }
+            }
+        }
+    }
+
+    /// Acquire `SANDBOX_ENV_LOCK` even if a prior test panicked while
+    /// holding it. The lock protects against parallel env-var mutation,
+    /// not shared in-memory state, so a panic in one test never corrupts
+    /// anything observable here — unpoisoning is the right call.
+    #[cfg(unix)]
+    fn sandbox_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        SANDBOX_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discover_sandbox_path_includes_static_fallback() {
+        // With no override, the result must always contain the static
+        // fallback dirs so the existing behavior is a strict subset of
+        // the new behavior.
+        let _g = sandbox_env_lock();
+        let _clear = SandboxEnvGuard::unset(BROKK_ACP_PATH_ENV);
+        let path = discover_sandbox_path();
+        let entries: Vec<String> = std::env::split_paths(&path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        for fallback in ["/usr/local/bin", "/usr/bin", "/bin"] {
+            assert!(
+                entries.iter().any(|p| p == fallback),
+                "fallback '{fallback}' missing from discovered PATH '{path}'"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discover_sandbox_path_de_duplicates_entries() {
+        // No entry should appear twice even when the parent PATH overlaps
+        // with our static fallback or with home tool dirs. Use
+        // `split_paths` (not `split(':')`) so this works on Windows CI,
+        // where the platform separator is `;` and Unix-style `:` splitting
+        // breaks `D:\a\...` paths into spurious `D` fragments.
+        let _g = sandbox_env_lock();
+        let _clear = SandboxEnvGuard::unset(BROKK_ACP_PATH_ENV);
+        let path = discover_sandbox_path();
+        let mut seen = std::collections::HashSet::new();
+        for entry in std::env::split_paths(&path) {
+            let s = entry.to_string_lossy().into_owned();
+            assert!(
+                seen.insert(s.clone()),
+                "PATH entry '{s}' is duplicated: '{path}'"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discover_sandbox_path_brokk_acp_path_override_returns_verbatim() {
+        let _g = sandbox_env_lock();
+        let _set = SandboxEnvGuard::set(BROKK_ACP_PATH_ENV, "/custom/bin:/another/bin");
+        let path = discover_sandbox_path();
+        assert_eq!(path, "/custom/bin:/another/bin");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discover_sandbox_path_empty_override_falls_through_to_discovery() {
+        // A whitespace-only or empty BROKK_ACP_PATH must not short-circuit
+        // discovery -- otherwise an `export BROKK_ACP_PATH=` in a parent
+        // shell wipes the user's PATH inside the sandbox.
+        let _g = sandbox_env_lock();
+        let _set = SandboxEnvGuard::set(BROKK_ACP_PATH_ENV, "   ");
+        let path = discover_sandbox_path();
+        let entries: Vec<String> = std::env::split_paths(&path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            entries.iter().any(|p| p == "/usr/bin"),
+            "empty override must fall through to discovery, got '{path}'"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn is_safe_system_dir_rejects_world_writable() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!(
+            "brokk-sandbox-test-ww-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        std::fs::create_dir(&tmp).expect("create tmp dir");
+        let mut perms = std::fs::metadata(&tmp).unwrap().permissions();
+        perms.set_mode(0o777);
+        std::fs::set_permissions(&tmp, perms).unwrap();
+
+        assert!(
+            !is_safe_system_dir(&tmp),
+            "world-writable dir must be rejected"
+        );
+
+        // Tighten back to 0o755 and confirm acceptance.
+        let mut perms = std::fs::metadata(&tmp).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&tmp, perms).unwrap();
+        assert!(
+            is_safe_system_dir(&tmp),
+            "0o755 dir must be accepted by is_safe_system_dir"
+        );
+
+        let _ = std::fs::remove_dir(&tmp);
+    }
+
+    /// A scratch "fake home" rooted in `temp_dir()`, returned canonicalized
+    /// so `is_safe_home_dir` containment checks compare apples to apples on
+    /// hosts where `/tmp` -> `/private/tmp` (macOS) or similar. The Drop
+    /// guard removes the tree even if the test asserts midway.
+    #[cfg(unix)]
+    struct FakeHome {
+        canonical: PathBuf,
+        // Kept for drop-time cleanup.
+        original: PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl FakeHome {
+        fn new(tag: &str) -> Self {
+            let original = std::env::temp_dir().join(format!(
+                "brokk-fakehome-{tag}-{}-{:?}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or_default()
+            ));
+            std::fs::create_dir(&original).expect("create fake home");
+            let canonical = original.canonicalize().expect("canonicalize fake home");
+            Self {
+                canonical,
+                original,
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for FakeHome {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.original);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn is_safe_home_dir_rejects_group_writable() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = FakeHome::new("gw");
+        let bin = home.canonical.join("bin");
+        std::fs::create_dir(&bin).expect("create bin");
+        // Group-writable but not world-writable: passes is_safe_system_dir
+        // (which only rejects 0o002) but fails is_safe_home_dir (which
+        // rejects 0o022).
+        let mut perms = std::fs::metadata(&bin).unwrap().permissions();
+        perms.set_mode(0o775);
+        std::fs::set_permissions(&bin, perms).unwrap();
+
+        assert!(
+            is_safe_system_dir(&bin),
+            "0o775 dir is fine as a system dir (only world bit matters)"
+        );
+        assert!(
+            !is_safe_home_dir(&bin, &home.canonical),
+            "group-writable dir must be rejected by is_safe_home_dir"
+        );
+    }
+
+    /// #3543 acceptance: a symlink under `$HOME` whose target lives outside
+    /// `$HOME` is rejected, even when the target is owned by the current
+    /// user and has tight mode bits. Without `canonicalize() + starts_with`
+    /// in is_safe_home_dir, `metadata()` would silently follow the link
+    /// and accept the off-home target.
+    #[cfg(unix)]
+    #[test]
+    fn is_safe_home_dir_rejects_symlink_pointing_outside_home() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = FakeHome::new("symesc-home");
+        let outside = FakeHome::new("symesc-outside");
+        // Outside dir is squeaky-clean so the only thing rejecting it is
+        // the containment check.
+        let mut perms = std::fs::metadata(&outside.canonical).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&outside.canonical, perms).unwrap();
+
+        let link = home.canonical.join("escaped_bin");
+        std::os::unix::fs::symlink(&outside.canonical, &link).expect("create symlink");
+
+        assert!(
+            !is_safe_home_dir(&link, &home.canonical),
+            "symlink under home pointing to {} (outside home {}) must be rejected",
+            outside.canonical.display(),
+            home.canonical.display(),
+        );
+    }
+
+    /// Companion to the symlink-escape test: a symlink under `$HOME` whose
+    /// target is itself inside `$HOME` is fine. Prevents the containment
+    /// check from regressing into "no symlinks at all", which would break
+    /// legit setups like `~/.cargo/bin -> ~/.rustup/toolchains/stable/bin`.
+    #[cfg(unix)]
+    #[test]
+    fn is_safe_home_dir_accepts_symlink_pointing_inside_home() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = FakeHome::new("symok");
+        let inner_target = home.canonical.join("actual_bin");
+        std::fs::create_dir(&inner_target).expect("create inner target");
+        let mut perms = std::fs::metadata(&inner_target).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&inner_target, perms).unwrap();
+
+        let link = home.canonical.join("cargo_bin");
+        std::os::unix::fs::symlink(&inner_target, &link).expect("create symlink");
+
+        assert!(
+            is_safe_home_dir(&link, &home.canonical),
+            "symlink under home whose target is inside home must be accepted"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn is_safe_helpers_reject_nonexistent_path() {
+        let path = Path::new("/this/definitely/does/not/exist/brokk-zzz");
+        let dummy_home = Path::new("/");
+        assert!(!is_safe_home_dir(path, dummy_home));
+        assert!(!is_safe_system_dir(path));
+        assert!(!is_safe_parent_path_entry(path));
+    }
+
+    #[test]
+    fn env_whitelist_excludes_credential_names() {
+        // Defense-in-depth: the test fails if anyone adds a name matching
+        // a credential-shaped pattern to the allowlist.
+        for key in ENV_WHITELIST {
+            let upper = key.to_ascii_uppercase();
+            for forbidden in ["TOKEN", "SECRET", "PASSWORD", "API_KEY", "AWS_", "OPENAI_"] {
+                assert!(
+                    !upper.contains(forbidden),
+                    "ENV_WHITELIST entry '{key}' looks credential-shaped (matches '{forbidden}')"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn env_whitelist_includes_expected_toolchain_pointers() {
+        for required in [
+            "CARGO_HOME",
+            "RUSTUP_HOME",
+            "NVM_DIR",
+            "ASDF_DIR",
+            "MISE_DATA_DIR",
+            "PYENV_ROOT",
+            "BUN_INSTALL",
+            "DENO_INSTALL",
+        ] {
+            assert!(
+                ENV_WHITELIST.contains(&required),
+                "ENV_WHITELIST missing expected toolchain pointer '{required}'"
             );
         }
     }
