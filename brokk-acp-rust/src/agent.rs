@@ -19,7 +19,7 @@ use agent_client_protocol::{
 };
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use crate::llm_client::{ChatMessage, LlmBackend};
+use crate::llm_client::{ChatMessage, LlmBackend, ModelMetadata};
 use crate::multi_backend::MultiBackend;
 use crate::session::{
     ConversationTurn, PermissionMode, SessionMode, SessionSnapshot, SessionStore,
@@ -34,6 +34,14 @@ const BEHAVIOR_CONFIG_ID: &str = "behavior_mode";
 /// Mirrors the Java executor's wire id so cross-implementation clients
 /// (Zed, brokk-code) can drive model selection through one canonical name.
 const MODEL_CONFIG_ID: &str = "model_selection";
+/// Per-session reasoning-effort knob, scoped to the Codex/ChatGPT backend.
+/// Empty string in the wire payload clears the user's pick (back to the
+/// model's `default_reasoning_level`).
+const REASONING_EFFORT_CONFIG_ID: &str = "reasoning_effort";
+/// Sentinel value the client sends to clear the user's pick. We accept
+/// either an empty string or this token so editor implementations that
+/// strip-trim selection ids still work.
+const REASONING_EFFORT_DEFAULT_VALUE: &str = "(default)";
 
 /// Available session modes exposed to ACP clients.
 fn available_modes() -> Vec<AcpSessionMode> {
@@ -116,22 +124,94 @@ fn model_config_option(current: &str, available_models: &[String]) -> Option<Ses
     )
 }
 
+/// Build the reasoning-effort `SessionConfigOption` for the active model.
+/// Returns `None` when the model exposes no presets (e.g. an Ollama model
+/// or a Codex slug whose `supported_reasoning_levels` is empty) -- the
+/// dropdown is omitted entirely in that case rather than shown empty.
+///
+/// Layout: an explicit "(default)" entry at the head represents "no user
+/// pick, server uses `default_reasoning_level`". The user's stored pick
+/// (`current`) selects whichever option matches; when no pick exists, the
+/// default entry is selected so the picker reflects actual intent.
+fn reasoning_effort_config_option(
+    current: Option<&str>,
+    catalog: &[ModelMetadata],
+    current_model: &str,
+) -> Option<SessionConfigOption> {
+    let model = catalog.iter().find(|m| m.id == current_model)?;
+    if model.supported_reasoning_levels.is_empty() {
+        return None;
+    }
+    let default_label = match &model.default_reasoning_level {
+        Some(d) => format!("Default ({d})"),
+        None => "Default".to_string(),
+    };
+    let mut options = vec![
+        SessionConfigSelectOption::new(REASONING_EFFORT_DEFAULT_VALUE, default_label)
+            .description("Use the model's default reasoning effort."),
+    ];
+    options.extend(model.supported_reasoning_levels.iter().map(|preset| {
+        let opt = SessionConfigSelectOption::new(preset.effort.clone(), preset.effort.clone());
+        if preset.description.is_empty() {
+            opt
+        } else {
+            opt.description(preset.description.clone())
+        }
+    }));
+    // Coerce out-of-catalog picks (e.g. stale from before a slug bump)
+    // to the default sentinel so the picker always renders against an
+    // entry it advertises.
+    let current_value = match current {
+        Some(eff)
+            if model
+                .supported_reasoning_levels
+                .iter()
+                .any(|p| p.effort == eff) =>
+        {
+            eff.to_string()
+        }
+        _ => REASONING_EFFORT_DEFAULT_VALUE.to_string(),
+    };
+    Some(
+        SessionConfigOption::select(
+            REASONING_EFFORT_CONFIG_ID,
+            "Reasoning effort",
+            current_value,
+            options,
+        )
+        .description(
+            "Controls how much chain-of-thought the model spends on each turn. \
+             Higher levels are deeper but slower and cost more against your plan's quota.",
+        )
+        .category(SessionConfigOptionCategory::Model),
+    )
+}
+
 /// All configOption selectors we expose, in display order. The model
 /// selector is appended only when the LLM catalog is known; clients that
 /// drive model selection through the meta extension still see the current
-/// model via `meta.brokk.modelId`.
+/// model via `meta.brokk.modelId`. The reasoning-effort selector is appended
+/// only when the active model publishes presets (Codex/ChatGPT models do,
+/// Ollama models don't).
 fn all_config_options(
     behavior: SessionMode,
     permission: PermissionMode,
     current_model: &str,
-    available_models: &[String],
+    available_models: &[ModelMetadata],
+    current_reasoning_effort: Option<&str>,
 ) -> Vec<SessionConfigOption> {
+    let model_ids: Vec<String> = available_models.iter().map(|m| m.id.clone()).collect();
     let mut opts = vec![
         behavior_config_option(behavior),
         permission_config_option(permission),
     ];
-    if let Some(model_opt) = model_config_option(current_model, available_models) {
+    if let Some(model_opt) = model_config_option(current_model, &model_ids) {
         opts.push(model_opt);
+    }
+    if let Some(re_opt) =
+        reasoning_effort_config_option(current_reasoning_effort, available_models, current_model)
+    {
+        opts.push(re_opt);
     }
     opts
 }
@@ -177,7 +257,7 @@ fn spawn_throttled_refresh(
             // next try_lock observes "in flight". Drop is implicit at
             // the end of the spawned future.
             let _refresh_guard = guard;
-            match llm.list_models().await {
+            match llm.list_model_metadata().await {
                 Ok(models) => {
                     tracing::debug!(
                         count = models.len(),
@@ -247,7 +327,7 @@ pub async fn run_agent(
                 tracing::info!("ACP initialize");
 
                 // Try to discover models at startup and cache them for session/new.
-                let models = match llm_init.list_models().await {
+                let models = match llm_init.list_model_metadata().await {
                     Ok(m) => m,
                     Err(e) => {
                         tracing::warn!("model discovery failed during init: {e}");
@@ -255,7 +335,7 @@ pub async fn run_agent(
                     }
                 };
                 if let Some(first) = models.first() {
-                    sessions_init.set_default_model(first.clone()).await;
+                    sessions_init.set_default_model(first.id.clone()).await;
                 }
                 sessions_init.set_available_models(models).await;
 
@@ -296,16 +376,19 @@ pub async fn run_agent(
                     sessions_new.clone(),
                 );
 
-                // Use the cached list populated at init; fall back to the session's own model.
-                let mut models = sessions_new.available_models().await;
-                if models.is_empty() && !session.model.is_empty() {
-                    models = vec![session.model.clone()];
+                // Use the cached catalog populated at init; fall back to a
+                // single-entry catalog from the session's own model so the
+                // dropdown still renders something on a fresh discovery miss.
+                let mut catalog = sessions_new.available_model_metadata().await;
+                if catalog.is_empty() && !session.model.is_empty() {
+                    catalog = vec![ModelMetadata::id_only(&session.model)];
                 }
+                let model_ids: Vec<String> = catalog.iter().map(|m| m.id.clone()).collect();
 
                 let meta_value = serde_json::json!({
                     "brokk": {
                         "modelId": session.model,
-                        "availableModels": models,
+                        "availableModels": model_ids,
                     }
                 });
                 let meta_map = match meta_value {
@@ -319,7 +402,8 @@ pub async fn run_agent(
                         session.mode,
                         session.permission_mode,
                         &session.model,
-                        &models,
+                        &catalog,
+                        session.selected_reasoning_effort.as_deref(),
                     ))
                     .meta(meta_map);
 
@@ -361,7 +445,7 @@ pub async fn run_agent(
                     }
                 }
 
-                let models = sessions_load.available_models().await;
+                let catalog = sessions_load.available_model_metadata().await;
                 send_available_commands_update(&cx, &session_id);
 
                 responder.respond(
@@ -371,7 +455,8 @@ pub async fn run_agent(
                             session.mode,
                             session.permission_mode,
                             &session.model,
-                            &models,
+                            &catalog,
+                            session.selected_reasoning_effort.as_deref(),
                         )),
                 )
             },
@@ -389,7 +474,7 @@ pub async fn run_agent(
                 match sessions_resume.get_session(&session_id, &cwd).await {
                     Some(session) => {
                         sessions_resume.update_cwd(&session_id, cwd).await;
-                        let models = sessions_resume.available_models().await;
+                        let catalog = sessions_resume.available_model_metadata().await;
                         send_available_commands_update(&cx, &session_id);
                         responder.respond(
                             ResumeSessionResponse::new()
@@ -398,7 +483,8 @@ pub async fn run_agent(
                                     session.mode,
                                     session.permission_mode,
                                     &session.model,
-                                    &models,
+                                    &catalog,
+                                    session.selected_reasoning_effort.as_deref(),
                                 )),
                         )
                     }
@@ -527,6 +613,7 @@ pub async fn run_agent(
                 let session_id_for_loop = session_id.clone();
                 let prompt_text_for_turn = prompt_text;
                 let model_for_loop = snap.model;
+                let reasoning_effort_for_loop = snap.reasoning_effort;
 
                 cx.spawn(async move {
                     use futures::FutureExt;
@@ -534,11 +621,21 @@ pub async fn run_agent(
 
                     let cx_text = cx_for_loop.clone();
                     let sid_text = session_id_for_loop.clone();
+                    let cx_thought = cx_for_loop.clone();
+                    let sid_thought = session_id_for_loop.clone();
 
                     // Text tokens stream to the client in real time via this shared sink.
                     let text_sink: crate::tool_loop::TextSink = std::sync::Arc::new(
                         std::sync::Mutex::new(move |token: &str| {
                             send_message(&cx_text, &sid_text, token);
+                        }),
+                    );
+                    // Reasoning deltas stream into the dedicated ACP
+                    // thought channel so the client can render them as
+                    // a collapsible block separate from the final answer.
+                    let thought_sink: crate::tool_loop::TextSink = std::sync::Arc::new(
+                        std::sync::Mutex::new(move |token: &str| {
+                            send_thought(&cx_thought, &sid_thought, token);
                         }),
                     );
 
@@ -555,10 +652,12 @@ pub async fn run_agent(
                         &llm_for_loop,
                         &registry,
                         &model_for_loop,
+                        reasoning_effort_for_loop.as_deref(),
                         messages,
                         max_turns,
                         cancel,
                         text_sink,
+                        thought_sink,
                         spawned_cx,
                         session_id_for_loop.clone(),
                         sessions_for_loop.clone(),
@@ -781,7 +880,82 @@ pub async fn run_agent(
                                 ),
                             );
                         }
-                        if !sessions_perm.set_model(&session_id, value.clone()).await {
+                        let (ok, cleared_effort) =
+                            sessions_perm.set_model(&session_id, value.clone()).await;
+                        if !ok {
+                            return responder.respond_with_error(
+                                agent_client_protocol::Error::invalid_params().data(
+                                    serde_json::json!({
+                                        "reason": format!("unknown session '{session_id}'"),
+                                    }),
+                                ),
+                            );
+                        }
+                        // Auto-fallback notice: when the previous
+                        // reasoning_effort pick isn't in the new model's
+                        // supported set, the store drops it. Surface a
+                        // one-line system note so the silent change
+                        // isn't mysterious next time the user wonders
+                        // why thoughts shortened.
+                        if let Some(prev) = cleared_effort {
+                            send_message(
+                                &cx,
+                                &session_id,
+                                &format!(
+                                    "Reasoning effort reset: `{prev}` is not supported by `{value}`. \
+                                     Using model default until you pick a level."
+                                ),
+                            );
+                        }
+                    }
+                    REASONING_EFFORT_CONFIG_ID => {
+                        // Empty string or the "(default)" sentinel both
+                        // mean "clear my pick, use the model default".
+                        let effort = if value.is_empty() || value == REASONING_EFFORT_DEFAULT_VALUE
+                        {
+                            None
+                        } else {
+                            Some(value.clone())
+                        };
+                        // Validate against the active model's published
+                        // levels when one is known. An unknown catalog
+                        // (e.g. discovery never finished) accepts any
+                        // string so a manually-configured backend still
+                        // works.
+                        if let Some(eff) = &effort {
+                            let fallback_cwd = std::env::current_dir().unwrap_or_default();
+                            let active_model = sessions_perm
+                                .get_session(&session_id, &fallback_cwd)
+                                .await
+                                .map(|s| s.model);
+                            let catalog = sessions_perm.available_model_metadata().await;
+                            if let Some(model_id) = active_model
+                                && let Some(meta) =
+                                    catalog.iter().find(|m| m.id == model_id)
+                                && !meta.supported_reasoning_levels.is_empty()
+                                && !meta
+                                    .supported_reasoning_levels
+                                    .iter()
+                                    .any(|p| &p.effort == eff)
+                            {
+                                let supported: Vec<String> = meta
+                                    .supported_reasoning_levels
+                                    .iter()
+                                    .map(|p| p.effort.clone())
+                                    .collect();
+                                return responder.respond_with_error(
+                                    agent_client_protocol::Error::invalid_params().data(
+                                        serde_json::json!({
+                                            "reason": format!(
+                                                "reasoning effort '{eff}' is not supported by model '{model_id}'"
+                                            ),
+                                            "supported": supported,
+                                        }),
+                                    ),
+                                );
+                            }
+                        }
+                        if !sessions_perm.set_reasoning_effort(&session_id, effort).await {
                             return responder.respond_with_error(
                                 agent_client_protocol::Error::invalid_params().data(
                                     serde_json::json!({
@@ -800,6 +974,7 @@ pub async fn run_agent(
                                         BEHAVIOR_CONFIG_ID,
                                         PERMISSION_CONFIG_ID,
                                         MODEL_CONFIG_ID,
+                                        REASONING_EFFORT_CONFIG_ID,
                                     ],
                                 }),
                             ),
@@ -820,12 +995,13 @@ pub async fn run_agent(
                         })),
                     );
                 };
-                let models = sessions_perm.available_models().await;
+                let catalog = sessions_perm.available_model_metadata().await;
                 let updated_options = all_config_options(
                     session.mode,
                     session.permission_mode,
                     &session.model,
-                    &models,
+                    &catalog,
+                    session.selected_reasoning_effort.as_deref(),
                 );
 
                 let notification = SessionNotification::new(
@@ -889,6 +1065,20 @@ fn send_user_message(cx: &ConnectionTo<Client>, session_id: &str, text: &str) {
     let notification = SessionNotification::new(session_id.to_string(), update);
     if let Err(e) = cx.send_notification(notification) {
         tracing::warn!("failed to send user session update: {e}");
+    }
+}
+
+/// Send an agent_thought_chunk session update to the client. Mirrors
+/// `send_message` but routes through ACP 0.12's `AgentThoughtChunk`
+/// variant so the client renders reasoning text as a distinct,
+/// typically-collapsible block instead of interleaving it with the
+/// final answer.
+fn send_thought(cx: &ConnectionTo<Client>, session_id: &str, text: &str) {
+    let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)));
+    let update = SessionUpdate::AgentThoughtChunk(chunk);
+    let notification = SessionNotification::new(session_id.to_string(), update);
+    if let Err(e) = cx.send_notification(notification) {
+        tracing::warn!("failed to send thought session update: {e}");
     }
 }
 
@@ -1311,6 +1501,7 @@ mod tests {
                 agent_response: "ok".repeat(8),
                 ..Default::default()
             }],
+            reasoning_effort: None,
         };
         let report = render_context_report(&snap, PermissionMode::AcceptEdits, &["gpt-99".into()]);
 
@@ -1333,6 +1524,7 @@ mod tests {
             mode: SessionMode::Lutz,
             model: String::new(),
             history: vec![],
+            reasoning_effort: None,
         };
         let report = render_context_report(&snap, PermissionMode::Default, &[]);
         assert!(report.contains("Model: `(none)`"));
@@ -1355,6 +1547,7 @@ mod tests {
                 agent_response: "a language".into(),
                 ..Default::default()
             }],
+            reasoning_effort: None,
         };
         let msgs = build_prompt_messages(&snap, "follow up");
         // system + user(history) + assistant(history) + user(new)
@@ -1397,6 +1590,7 @@ mod tests {
                     },
                 ],
             }],
+            reasoning_effort: None,
         };
         let msgs = build_prompt_messages(&snap, "now fix them");
 
@@ -1443,6 +1637,7 @@ mod tests {
             mode: SessionMode::Lutz,
             model: "m".into(),
             history: vec![],
+            reasoning_effort: None,
         };
         let msgs = build_prompt_messages(&snap, "hi");
         assert_eq!(msgs.len(), 2);
@@ -1476,6 +1671,7 @@ mod tests {
                     result: "no matches".into(),
                 }],
             }],
+            reasoning_effort: None,
         };
         let msgs = build_prompt_messages(&snap, "next");
 

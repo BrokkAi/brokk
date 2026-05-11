@@ -14,6 +14,7 @@
 //! `/config` model picker would get a "no backend for model" error even
 //! though the picker also offers `ollama::llama3:latest`.
 
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
@@ -24,7 +25,7 @@ use crate::discovery::{
     DiscoveredModel, ModelSource, OLLAMA_DEFAULT_URL, discover_all, discovery_http_client,
     split_wire_id,
 };
-use crate::llm_client::{ChatMessage, LlmBackend, LlmResponse, ToolDefinition};
+use crate::llm_client::{ChatMessage, LlmBackend, LlmResponse, ModelMetadata, ToolDefinition};
 
 /// LLM backend that routes by `<source>::<id>` prefix. Either inner
 /// backend may be absent (e.g. no `auth.json`, or no Ollama on the
@@ -133,24 +134,63 @@ impl MultiBackend {
 
 impl LlmBackend for MultiBackend {
     fn list_models(&self) -> BoxFuture<'_, Result<Vec<String>>> {
+        // Thin adapter over `list_model_metadata` so the bare-id and
+        // metadata paths can't drift -- e.g. forgetting to pick up a
+        // freshly-installed Codex backend on only one of the two.
         Box::pin(async move {
-            let http = discovery_http_client();
-            // Codex lookup is delegated to the configured backend's own
-            // `list_models` so we keep auth-mode handling, fallback slugs,
-            // and Cloudflare cookie state where they already live.
-            // Snapshotting under the read lock and dropping the guard
-            // before the discovery future means a concurrent
-            // `install_codex` call still observes a consistent state.
+            Ok(self
+                .list_model_metadata()
+                .await?
+                .into_iter()
+                .map(|m| m.id)
+                .collect())
+        })
+    }
+
+    fn list_model_metadata(&self) -> BoxFuture<'_, Result<Vec<ModelMetadata>>> {
+        Box::pin(async move {
+            // Snapshot the Codex backend once and pull its enriched
+            // catalog (slugs + per-model reasoning presets). Holding
+            // only an `Arc` clone here means a concurrent
+            // `install_codex` doesn't perturb this discovery pass.
             let codex = self.codex_snapshot();
-            let codex_lookup = || async move {
-                match codex {
-                    Some(c) => c.list_models().await,
-                    None => Ok(Vec::new()),
-                }
+            let codex_metadata: Vec<ModelMetadata> = match &codex {
+                Some(c) => c.list_model_metadata().await.unwrap_or_default(),
+                None => Vec::new(),
             };
+            // Index by bare slug so we can re-attach reasoning data
+            // to the wire-prefixed records returned by discover_all.
+            let codex_by_id: HashMap<String, ModelMetadata> = codex_metadata
+                .iter()
+                .map(|m| (m.id.clone(), m.clone()))
+                .collect();
+            // Hand discover_all the bare slugs we already have so we
+            // don't hit `/models` twice during a single list call.
+            let codex_ids: Vec<String> = codex_metadata.iter().map(|m| m.id.clone()).collect();
+            let codex_lookup = || async move { Ok::<_, anyhow::Error>(codex_ids) };
+            let http = discovery_http_client();
             let discovered: Vec<DiscoveredModel> =
                 discover_all(&http, OLLAMA_DEFAULT_URL, codex_lookup).await;
-            Ok(discovered.into_iter().map(|m| m.wire_id()).collect())
+            Ok(discovered
+                .into_iter()
+                .map(|m| {
+                    let wire = m.wire_id();
+                    match m.source {
+                        ModelSource::Codex => codex_by_id
+                            .get(&m.id)
+                            .map(|meta| ModelMetadata {
+                                id: wire.clone(),
+                                default_reasoning_level: meta.default_reasoning_level.clone(),
+                                supported_reasoning_levels: meta.supported_reasoning_levels.clone(),
+                            })
+                            .unwrap_or_else(|| ModelMetadata::id_only(wire)),
+                        // Ollama doesn't publish reasoning presets;
+                        // ids surface with empty metadata so the picker
+                        // simply omits the effort selector for them.
+                        ModelSource::Ollama => ModelMetadata::id_only(wire),
+                    }
+                })
+                .collect())
         })
     }
 
@@ -159,14 +199,25 @@ impl LlmBackend for MultiBackend {
         model: &str,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<ToolDefinition>>,
+        reasoning_effort: Option<&str>,
         on_token: Box<dyn FnMut(&str) + Send>,
+        on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
     ) -> BoxFuture<'_, Result<LlmResponse>> {
         let resolution = self.resolve(model);
+        let reasoning_effort = reasoning_effort.map(str::to_string);
         Box::pin(async move {
             let (backend, bare) = resolution?;
             backend
-                .stream_chat(&bare, messages, tools, on_token, cancel)
+                .stream_chat(
+                    &bare,
+                    messages,
+                    tools,
+                    reasoning_effort.as_deref(),
+                    on_token,
+                    on_thought,
+                    cancel,
+                )
                 .await
         })
     }
@@ -178,13 +229,16 @@ mod tests {
     use futures::future::FutureExt;
     use std::sync::Mutex;
 
-    /// Test double that records the model id it was called with. Lets us
-    /// assert that `MultiBackend` strips the `<source>::` prefix before
-    /// delegating, so the inner client receives the bare id Ollama or
-    /// the Responses API actually expects.
+    /// Test double that records the model id and reasoning effort it was
+    /// called with. Lets us assert that `MultiBackend` strips the
+    /// `<source>::` prefix before delegating, so the inner client
+    /// receives the bare id Ollama or the Responses API actually expects,
+    /// and that the per-session reasoning_effort threads all the way
+    /// through the dispatcher unchanged.
     struct RecordingBackend {
         name: &'static str,
         last_model: Arc<Mutex<Option<String>>>,
+        last_reasoning_effort: Arc<Mutex<Option<String>>>,
     }
 
     impl LlmBackend for RecordingBackend {
@@ -198,22 +252,39 @@ mod tests {
             model: &str,
             _messages: Vec<ChatMessage>,
             _tools: Option<Vec<ToolDefinition>>,
+            reasoning_effort: Option<&str>,
             _on_token: Box<dyn FnMut(&str) + Send>,
+            _on_thought: Box<dyn FnMut(&str) + Send>,
             _cancel: CancellationToken,
         ) -> BoxFuture<'_, Result<LlmResponse>> {
             *self.last_model.lock().unwrap() = Some(model.to_string());
+            *self.last_reasoning_effort.lock().unwrap() = reasoning_effort.map(str::to_string);
             let response = LlmResponse::Text(format!("hello from {}", self.name));
             async move { Ok(response) }.boxed()
         }
     }
 
-    fn recording(name: &'static str) -> (Arc<dyn LlmBackend>, Arc<Mutex<Option<String>>>) {
-        let last = Arc::new(Mutex::new(None));
+    /// Captured per-call state for assertions.
+    struct RecordingHandles {
+        last_model: Arc<Mutex<Option<String>>>,
+        last_reasoning_effort: Arc<Mutex<Option<String>>>,
+    }
+
+    fn recording(name: &'static str) -> (Arc<dyn LlmBackend>, RecordingHandles) {
+        let last_model = Arc::new(Mutex::new(None));
+        let last_reasoning_effort = Arc::new(Mutex::new(None));
         let backend = Arc::new(RecordingBackend {
             name,
-            last_model: last.clone(),
+            last_model: last_model.clone(),
+            last_reasoning_effort: last_reasoning_effort.clone(),
         });
-        (backend, last)
+        (
+            backend,
+            RecordingHandles {
+                last_model,
+                last_reasoning_effort,
+            },
+        )
     }
 
     /// Wire ids tagged `codex::` route to the Codex backend with the bare
@@ -221,8 +292,8 @@ mod tests {
     /// model string it received so we can assert the prefix was stripped.
     #[tokio::test]
     async fn stream_chat_routes_by_wire_prefix() {
-        let (codex_backend, codex_last) = recording("codex");
-        let (ollama_backend, ollama_last) = recording("ollama");
+        let (codex_backend, codex_handles) = recording("codex");
+        let (ollama_backend, ollama_handles) = recording("ollama");
         let multi = MultiBackend::new(Some(codex_backend), Some(ollama_backend));
 
         let _ = multi
@@ -230,19 +301,26 @@ mod tests {
                 "codex::gpt-5-codex",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
             .await
             .expect("codex route");
-        assert_eq!(codex_last.lock().unwrap().as_deref(), Some("gpt-5-codex"));
-        assert!(ollama_last.lock().unwrap().is_none());
+        assert_eq!(
+            codex_handles.last_model.lock().unwrap().as_deref(),
+            Some("gpt-5-codex")
+        );
+        assert!(ollama_handles.last_model.lock().unwrap().is_none());
 
         let _ = multi
             .stream_chat(
                 "ollama::llama3:latest",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
@@ -250,7 +328,7 @@ mod tests {
             .expect("ollama route");
         // The Ollama tag suffix must survive prefix stripping.
         assert_eq!(
-            ollama_last.lock().unwrap().as_deref(),
+            ollama_handles.last_model.lock().unwrap().as_deref(),
             Some("llama3:latest")
         );
     }
@@ -260,8 +338,8 @@ mod tests {
     /// capable choice and the more likely user intent for a bare id.
     #[tokio::test]
     async fn bare_id_routes_to_codex_fallback_when_both_configured() {
-        let (codex_backend, codex_last) = recording("codex");
-        let (ollama_backend, ollama_last) = recording("ollama");
+        let (codex_backend, codex_handles) = recording("codex");
+        let (ollama_backend, ollama_handles) = recording("ollama");
         let multi = MultiBackend::new(Some(codex_backend), Some(ollama_backend));
 
         let _ = multi
@@ -269,13 +347,18 @@ mod tests {
                 "gpt-5-codex",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
             .await
             .expect("bare id falls back to codex");
-        assert_eq!(codex_last.lock().unwrap().as_deref(), Some("gpt-5-codex"));
-        assert!(ollama_last.lock().unwrap().is_none());
+        assert_eq!(
+            codex_handles.last_model.lock().unwrap().as_deref(),
+            Some("gpt-5-codex")
+        );
+        assert!(ollama_handles.last_model.lock().unwrap().is_none());
     }
 
     /// Bare id with only Ollama configured: falls through to Ollama
@@ -283,7 +366,7 @@ mod tests {
     /// raw model ids into `/config`.
     #[tokio::test]
     async fn bare_id_routes_to_ollama_when_codex_absent() {
-        let (ollama_backend, ollama_last) = recording("ollama");
+        let (ollama_backend, ollama_handles) = recording("ollama");
         let multi = MultiBackend::new(None, Some(ollama_backend));
 
         let _ = multi
@@ -291,12 +374,17 @@ mod tests {
                 "llama3",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
             .await
             .expect("bare id falls back to ollama");
-        assert_eq!(ollama_last.lock().unwrap().as_deref(), Some("llama3"));
+        assert_eq!(
+            ollama_handles.last_model.lock().unwrap().as_deref(),
+            Some("llama3")
+        );
     }
 
     /// Wire id requesting an absent backend errors loudly instead of
@@ -306,7 +394,7 @@ mod tests {
     #[tokio::test]
     async fn wire_id_for_absent_backend_returns_error() {
         // Only Ollama is configured; a `codex::` wire id must error.
-        let (ollama_backend, _ollama_last) = recording("ollama");
+        let (ollama_backend, _ollama_handles) = recording("ollama");
         let multi = MultiBackend::new(None, Some(ollama_backend));
 
         let err = multi
@@ -314,6 +402,8 @@ mod tests {
                 "codex::gpt-5",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
@@ -335,6 +425,8 @@ mod tests {
                 "anything",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
@@ -364,6 +456,8 @@ mod tests {
                 "codex::gpt-5-codex",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
@@ -373,7 +467,7 @@ mod tests {
 
         // User runs `/codex-login` successfully -- the handler installs
         // a freshly-built Codex backend.
-        let (codex_backend, codex_last) = recording("codex");
+        let (codex_backend, codex_handles) = recording("codex");
         multi.install_codex(codex_backend);
 
         // Now the same request routes through Codex with the prefix
@@ -384,12 +478,17 @@ mod tests {
                 "codex::gpt-5-codex",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
             .await
             .expect("codex route must succeed after install");
-        assert_eq!(codex_last.lock().unwrap().as_deref(), Some("gpt-5-codex"));
+        assert_eq!(
+            codex_handles.last_model.lock().unwrap().as_deref(),
+            Some("gpt-5-codex")
+        );
     }
 
     /// Bare ids must also start routing to Codex once it's installed.
@@ -401,7 +500,7 @@ mod tests {
     async fn bare_id_falls_back_to_codex_after_install() {
         let multi = MultiBackend::new(None, None);
 
-        let (codex_backend, codex_last) = recording("codex");
+        let (codex_backend, codex_handles) = recording("codex");
         multi.install_codex(codex_backend);
 
         let _ = multi
@@ -409,12 +508,17 @@ mod tests {
                 "gpt-5-codex",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
             .await
             .expect("bare id must route to newly-installed codex");
-        assert_eq!(codex_last.lock().unwrap().as_deref(), Some("gpt-5-codex"));
+        assert_eq!(
+            codex_handles.last_model.lock().unwrap().as_deref(),
+            Some("gpt-5-codex")
+        );
     }
 
     /// `list_models` must consult the currently-installed Codex backend,
@@ -425,7 +529,7 @@ mod tests {
     #[tokio::test]
     async fn list_models_reflects_installed_codex() {
         let multi = MultiBackend::new(None, None);
-        let (codex_backend, _codex_last) = recording("codex");
+        let (codex_backend, _codex_handles) = recording("codex");
         multi.install_codex(codex_backend);
 
         // RecordingBackend::list_models returns ["codex-stub"].
@@ -451,7 +555,7 @@ mod tests {
     #[tokio::test]
     async fn codex_uninstall_unroutes_codex_requests() {
         let multi = MultiBackend::new(None, None);
-        let (codex_backend, _codex_last) = recording("codex");
+        let (codex_backend, _codex_handles) = recording("codex");
         multi.install_codex(codex_backend);
 
         // Sanity check: routable while installed.
@@ -460,6 +564,8 @@ mod tests {
                 "codex::gpt-5-codex",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
@@ -474,6 +580,8 @@ mod tests {
                 "codex::gpt-5-codex",
                 vec![],
                 None,
+                None,
+                Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
             )
@@ -482,6 +590,39 @@ mod tests {
         assert!(
             format!("{err:#}").contains("codex"),
             "error must mention codex backend"
+        );
+    }
+
+    /// `reasoning_effort` threads through the dispatcher unchanged --
+    /// it must arrive at the resolved inner backend, not get swallowed
+    /// or coerced. (This protects the Codex picker's per-session
+    /// selection from being silently lost on its way through
+    /// `MultiBackend`.)
+    #[tokio::test]
+    async fn stream_chat_forwards_reasoning_effort() {
+        let (codex_backend, codex_handles) = recording("codex");
+        let multi = MultiBackend::new(Some(codex_backend), None);
+
+        let _ = multi
+            .stream_chat(
+                "codex::gpt-5.2",
+                vec![],
+                None,
+                Some("xhigh"),
+                Box::new(|_| {}),
+                Box::new(|_| {}),
+                CancellationToken::new(),
+            )
+            .await
+            .expect("codex route");
+        assert_eq!(
+            codex_handles
+                .last_reasoning_effort
+                .lock()
+                .unwrap()
+                .as_deref(),
+            Some("xhigh"),
+            "reasoning_effort must arrive at the inner backend unchanged"
         );
     }
 }

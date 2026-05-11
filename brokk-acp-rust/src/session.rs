@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use crate::llm_client::ModelMetadata;
 use crate::tools::ToolRegistry;
 
 // ---------------------------------------------------------------------------
@@ -216,6 +217,12 @@ pub struct Session {
     /// Tool names the user has chosen "Always allow" for this session.
     /// In-memory only (matches `claude-agent-acp` behavior).
     pub always_allow_tools: HashSet<String>,
+    /// User's explicit pick from the reasoning-effort dropdown, if any.
+    /// `None` means "use the active model's `default_reasoning_level`";
+    /// `Some(_)` means "honor this exact level, fail if unsupported".
+    /// In-memory only -- the issue scope explicitly excludes
+    /// workspace-level persistence for this knob.
+    pub selected_reasoning_effort: Option<String>,
 }
 
 impl Session {
@@ -248,6 +255,7 @@ impl Session {
             manifest,
             permission_mode,
             always_allow_tools: HashSet::new(),
+            selected_reasoning_effort: None,
         }
     }
 
@@ -288,6 +296,11 @@ impl Session {
             manifest,
             permission_mode: PermissionMode::Default,
             always_allow_tools: HashSet::new(),
+            // Reset reasoning effort on load -- it's a transient
+            // per-session preference (per issue scope), so a
+            // reloaded zip starts at "use model default" until the
+            // user picks again.
+            selected_reasoning_effort: None,
         })
     }
 }
@@ -326,6 +339,11 @@ pub struct SessionSnapshot {
     pub mode: SessionMode,
     pub model: String,
     pub history: Vec<ConversationTurn>,
+    /// Reasoning-effort level to send on this turn, already resolved
+    /// against the user's pick and the active model's
+    /// `default_reasoning_level`. `None` means the model exposes no
+    /// effort presets, so the backend will simply omit the field.
+    pub reasoning_effort: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,9 +1027,15 @@ fn list_manifests_from_disk(cwd: &Path) -> Vec<SessionManifest> {
 pub struct SessionStore {
     sessions: Arc<RwLock<HashMap<String, Session>>>,
     default_model: Arc<RwLock<String>>,
-    /// Last-known list of models, populated by `set_available_models` from the LLM endpoint.
-    /// Used to fulfil `session/new` without re-fetching on every call.
-    available_models: Arc<RwLock<Vec<String>>>,
+    /// Last-known catalog of models, populated by `set_available_models`
+    /// from the LLM endpoint. Used to fulfil `session/new` without
+    /// re-fetching on every call, and to look up per-model reasoning
+    /// presets when the agent needs to resolve "no user pick" to the
+    /// model's `default_reasoning_level`. Stored as full
+    /// `ModelMetadata` records so the picker and the reasoning resolver
+    /// share one source of truth -- string ids alone would force a
+    /// parallel cache to avoid drift.
+    available_models: Arc<RwLock<Vec<ModelMetadata>>>,
     cancel_tokens: Arc<RwLock<HashMap<String, CancellationToken>>>,
     /// One ToolRegistry per session, kept warm across turns so any bifrost
     /// subprocess survives. Populated lazily on first prompt.
@@ -1136,11 +1160,28 @@ impl SessionStore {
         registry
     }
 
-    pub async fn set_available_models(&self, models: Vec<String>) {
+    pub async fn set_available_models(&self, models: Vec<ModelMetadata>) {
         *self.available_models.write().await = models;
     }
 
+    /// Bare ids only, in display order. Existing callers (the picker
+    /// builder, the model-validation arm of `set_model`) just want the
+    /// catalog of ids; metadata-aware callers reach for
+    /// `available_model_metadata` instead.
     pub async fn available_models(&self) -> Vec<String> {
+        self.available_models
+            .read()
+            .await
+            .iter()
+            .map(|m| m.id.clone())
+            .collect()
+    }
+
+    /// Full catalog snapshot, including per-model reasoning presets.
+    /// Used by the agent to render the reasoning-effort picker and to
+    /// resolve "user has no pick" to the model's
+    /// `default_reasoning_level` before issuing a request.
+    pub async fn available_model_metadata(&self) -> Vec<ModelMetadata> {
         self.available_models.read().await.clone()
     }
 
@@ -1273,18 +1314,42 @@ impl SessionStore {
         if !self.load_into_memory_if_cold(id, fallback_cwd).await {
             return None;
         }
-        let snap = {
+        // Build the snapshot under the sessions read lock, then resolve
+        // reasoning effort under the available_models lock outside it.
+        // Holding both at once is unnecessary and would invite a lock
+        // ordering hazard with set_model (which writes sessions then
+        // reads available_models on auto-fallback).
+        let (snap_base, selected_effort) = {
             let sessions = self.sessions.read().await;
             let s = sessions.get(id)?;
-            SessionSnapshot {
-                cwd: s.cwd.clone(),
-                mode: s.mode,
-                model: s.model.clone(),
-                history: s.history.clone(),
-            }
+            (
+                (s.cwd.clone(), s.mode, s.model.clone(), s.history.clone()),
+                s.selected_reasoning_effort.clone(),
+            )
+        };
+        let (cwd, mode, model, history) = snap_base;
+        // Resolve "user has no pick" to the model's
+        // default_reasoning_level so the backend gets a concrete
+        // intent. Models that publish no presets resolve to None and
+        // the backend omits the field entirely.
+        let reasoning_effort = match selected_effort {
+            Some(eff) => Some(eff),
+            None => self
+                .available_models
+                .read()
+                .await
+                .iter()
+                .find(|m| m.id == model)
+                .and_then(|m| m.default_reasoning_level.clone()),
         };
         self.touch(id);
-        Some(snap)
+        Some(SessionSnapshot {
+            cwd,
+            mode,
+            model,
+            history,
+            reasoning_effort,
+        })
     }
 
     pub async fn update_cwd(&self, id: &str, cwd: PathBuf) {
@@ -1391,16 +1456,59 @@ impl SessionStore {
     /// Update the per-session LLM model. Returns false if the session is
     /// unknown. Persists the new model into the session manifest so it
     /// survives a reload, mirroring `set_mode`.
-    pub async fn set_model(&self, id: &str, model: String) -> bool {
-        let snapshot = {
+    ///
+    /// When the previously-selected reasoning effort isn't in the new
+    /// model's supported set, the selection is auto-cleared so the next
+    /// turn falls back to the new model's `default_reasoning_level`.
+    /// Returns the cleared value (if any) so the caller can notify the
+    /// user, since silently dropping the pick would look like a bug
+    /// next time they wonder why thoughts shortened.
+    pub async fn set_model(&self, id: &str, model: String) -> (bool, Option<String>) {
+        // Pull the supported-effort set for the new model BEFORE
+        // acquiring the sessions write lock -- the available_models
+        // store and the sessions store are separate locks, and reading
+        // available_models while holding sessions in write would
+        // invert the lock order taken by `snapshot()`.
+        let supported_effort: Option<Vec<String>> = {
+            let catalog = self.available_models.read().await;
+            catalog.iter().find(|m| m.id == model).map(|m| {
+                m.supported_reasoning_levels
+                    .iter()
+                    .map(|p| p.effort.clone())
+                    .collect()
+            })
+        };
+
+        let (snapshot, cleared_effort) = {
             let mut sessions = self.sessions.write().await;
             match sessions.get_mut(id) {
                 Some(session) => {
                     session.model = model.clone();
-                    session.manifest.model = if model.is_empty() { None } else { Some(model) };
-                    Some((session.cwd.clone(), session.manifest.clone()))
+                    session.manifest.model = if model.is_empty() {
+                        None
+                    } else {
+                        Some(model.clone())
+                    };
+                    // Auto-fallback: if the user had a pick but the new
+                    // model doesn't advertise it, drop the pick. The
+                    // next snapshot resolves to the new model's default.
+                    let cleared = match (&session.selected_reasoning_effort, &supported_effort) {
+                        (Some(eff), Some(supported)) if !supported.iter().any(|s| s == eff) => {
+                            session.selected_reasoning_effort.take()
+                        }
+                        // No catalog metadata for the new model (e.g.
+                        // Ollama, or model discovery hasn't run yet):
+                        // leave the pick as-is. We don't have evidence
+                        // the pick is invalid; let the server be the
+                        // arbiter rather than dropping silently.
+                        _ => None,
+                    };
+                    (
+                        Some((session.cwd.clone(), session.manifest.clone())),
+                        cleared,
+                    )
                 }
-                None => None,
+                None => (None, None),
             }
         };
         match snapshot {
@@ -1410,6 +1518,21 @@ impl SessionStore {
                     rewrite_manifest_in_zip(&zip_path, &manifest)
                 })
                 .await;
+                (true, cleared_effort)
+            }
+            None => (false, None),
+        }
+    }
+
+    /// Record the user's reasoning-effort pick for this session.
+    /// `None` clears it (back to "use model default"). Returns false
+    /// if the session is unknown. In-memory only -- not persisted to
+    /// the manifest, by issue scope.
+    pub async fn set_reasoning_effort(&self, id: &str, effort: Option<String>) -> bool {
+        let mut sessions = self.sessions.write().await;
+        match sessions.get_mut(id) {
+            Some(session) => {
+                session.selected_reasoning_effort = effort;
                 true
             }
             None => false,
@@ -1913,7 +2036,12 @@ mod tests {
         let session = store.create_session(cwd).await;
         let id = session.id.clone();
 
-        assert!(store.set_model(&id, "next-model".to_string()).await);
+        let (ok, cleared) = store.set_model(&id, "next-model".to_string()).await;
+        assert!(ok);
+        assert!(
+            cleared.is_none(),
+            "no reasoning effort was selected, nothing to clear"
+        );
         let sessions = store.sessions.read().await;
         let s = sessions.get(&id).expect("session still in memory");
         assert_eq!(s.model, "next-model");
@@ -1923,11 +2051,11 @@ mod tests {
     #[tokio::test]
     async fn set_model_returns_false_for_unknown_session() {
         let store = SessionStore::new("initial-model".to_string());
-        assert!(
-            !store
-                .set_model("no-such-session", "next-model".into())
-                .await
-        );
+        let (ok, cleared) = store
+            .set_model("no-such-session", "next-model".into())
+            .await;
+        assert!(!ok);
+        assert!(cleared.is_none());
     }
 
     /// `SessionMode::parse` round-trips every variant via its wire id, with
@@ -2165,13 +2293,156 @@ mod tests {
         let store = SessionStore::new("m".to_string());
         assert!(store.available_models().await.is_empty());
 
-        let models = vec!["a".to_string(), "b".to_string()];
-        store.set_available_models(models.clone()).await;
-        assert_eq!(store.available_models().await, models);
+        let models = vec![ModelMetadata::id_only("a"), ModelMetadata::id_only("b")];
+        store.set_available_models(models).await;
+        assert_eq!(
+            store.available_models().await,
+            vec!["a".to_string(), "b".to_string()]
+        );
 
         // Setting an empty list is allowed (model discovery cleared).
         store.set_available_models(vec![]).await;
         assert!(store.available_models().await.is_empty());
+    }
+
+    /// When the user picks a reasoning effort that the new model
+    /// doesn't advertise, `set_model` clears the pick and surfaces the
+    /// cleared value so the caller can notify the user. Auto-fallback
+    /// to the new model's default happens at the next `snapshot()`.
+    #[tokio::test]
+    async fn set_model_clears_reasoning_effort_when_unsupported() {
+        use crate::llm_client::ReasoningLevelPreset;
+
+        let store = SessionStore::new("gpt-big".to_string());
+        store
+            .set_available_models(vec![
+                ModelMetadata {
+                    id: "gpt-big".to_string(),
+                    default_reasoning_level: Some("medium".to_string()),
+                    supported_reasoning_levels: vec![
+                        ReasoningLevelPreset {
+                            effort: "low".to_string(),
+                            description: "".to_string(),
+                        },
+                        ReasoningLevelPreset {
+                            effort: "medium".to_string(),
+                            description: "".to_string(),
+                        },
+                        ReasoningLevelPreset {
+                            effort: "high".to_string(),
+                            description: "".to_string(),
+                        },
+                        ReasoningLevelPreset {
+                            effort: "xhigh".to_string(),
+                            description: "".to_string(),
+                        },
+                    ],
+                },
+                ModelMetadata {
+                    id: "gpt-mini".to_string(),
+                    default_reasoning_level: Some("medium".to_string()),
+                    supported_reasoning_levels: vec![
+                        ReasoningLevelPreset {
+                            effort: "low".to_string(),
+                            description: "".to_string(),
+                        },
+                        ReasoningLevelPreset {
+                            effort: "medium".to_string(),
+                            description: "".to_string(),
+                        },
+                        ReasoningLevelPreset {
+                            effort: "high".to_string(),
+                            description: "".to_string(),
+                        },
+                    ],
+                },
+            ])
+            .await;
+        let cwd = std::env::temp_dir().join(format!(
+            "brokk-acp-rust-set-model-clears-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let session = store.create_session(cwd.clone()).await;
+        let id = session.id.clone();
+        assert!(
+            store
+                .set_reasoning_effort(&id, Some("xhigh".to_string()))
+                .await
+        );
+
+        // Switch to gpt-mini, which doesn't advertise xhigh.
+        let (ok, cleared) = store.set_model(&id, "gpt-mini".to_string()).await;
+        assert!(ok);
+        assert_eq!(cleared.as_deref(), Some("xhigh"));
+
+        // The snapshot now resolves to gpt-mini's default.
+        let snap = store
+            .snapshot(&id, &cwd)
+            .await
+            .expect("session still loadable");
+        assert_eq!(snap.reasoning_effort.as_deref(), Some("medium"));
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// Picking a level that *is* still supported by the new model
+    /// must NOT be cleared -- this protects the user's intent across
+    /// a slug bump within the same family (e.g. gpt-5.4 -> gpt-5.5).
+    #[tokio::test]
+    async fn set_model_preserves_reasoning_effort_when_supported() {
+        use crate::llm_client::ReasoningLevelPreset;
+
+        let supported = vec![
+            ReasoningLevelPreset {
+                effort: "low".to_string(),
+                description: "".to_string(),
+            },
+            ReasoningLevelPreset {
+                effort: "medium".to_string(),
+                description: "".to_string(),
+            },
+            ReasoningLevelPreset {
+                effort: "high".to_string(),
+                description: "".to_string(),
+            },
+        ];
+        let store = SessionStore::new("gpt-a".to_string());
+        store
+            .set_available_models(vec![
+                ModelMetadata {
+                    id: "gpt-a".to_string(),
+                    default_reasoning_level: Some("medium".to_string()),
+                    supported_reasoning_levels: supported.clone(),
+                },
+                ModelMetadata {
+                    id: "gpt-b".to_string(),
+                    default_reasoning_level: Some("medium".to_string()),
+                    supported_reasoning_levels: supported,
+                },
+            ])
+            .await;
+        let cwd = std::env::temp_dir().join(format!(
+            "brokk-acp-rust-set-model-preserves-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let session = store.create_session(cwd.clone()).await;
+        let id = session.id.clone();
+        assert!(
+            store
+                .set_reasoning_effort(&id, Some("high".to_string()))
+                .await
+        );
+
+        let (ok, cleared) = store.set_model(&id, "gpt-b".to_string()).await;
+        assert!(ok);
+        assert!(cleared.is_none(), "high is still supported by gpt-b");
+        let snap = store
+            .snapshot(&id, &cwd)
+            .await
+            .expect("session still loadable");
+        assert_eq!(snap.reasoning_effort.as_deref(), Some("high"));
+
+        let _ = std::fs::remove_dir_all(&cwd);
     }
 
     /// `list_sessions_from_disk` ignores non-zip files in the sessions
