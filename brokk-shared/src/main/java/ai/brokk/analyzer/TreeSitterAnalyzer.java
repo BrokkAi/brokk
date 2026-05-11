@@ -1356,6 +1356,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     @Override
+    public boolean isEmpty() {
+        return this.state.codeUnitState.isEmpty();
+    }
+
+    @Override
     public Set<CodeUnit> searchDefinitions(String pattern, boolean autoQuote) {
         // Validate pattern
         if (pattern.isEmpty()) {

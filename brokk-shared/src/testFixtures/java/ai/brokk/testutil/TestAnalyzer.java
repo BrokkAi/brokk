@@ -1,7 +1,7 @@
 package ai.brokk.testutil;
 
 import ai.brokk.analyzer.*;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -30,10 +30,10 @@ public class TestAnalyzer
     private final Map<CodeUnit, List<Range>> rangesByCodeUnit = new HashMap<>();
     private final Map<ProjectFile, List<ImportInfo>> importInfoByFile = new HashMap<>();
     private final Map<CodeUnit, Set<String>> relevantImportsByCodeUnit = new LinkedHashMap<>();
-    private @Nullable IProject testProject;
+    private @Nullable ICoreProject testProject;
 
     public TestAnalyzer(
-            List<CodeUnit> allClasses, Map<String, List<CodeUnit>> methodsMap, @Nullable IProject testProject) {
+            List<CodeUnit> allClasses, Map<String, List<CodeUnit>> methodsMap, @Nullable ICoreProject testProject) {
         this.allClasses = allClasses;
         this.methodsMap = methodsMap;
         this.testProject = testProject;
@@ -85,7 +85,7 @@ public class TestAnalyzer
     }
 
     @Override
-    public IProject getProject() {
+    public ICoreProject getProject() {
         if (testProject == null) {
             throw new UnsupportedOperationException();
         }
