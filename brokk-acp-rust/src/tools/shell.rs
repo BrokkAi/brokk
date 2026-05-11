@@ -336,6 +336,14 @@ pub async fn run_shell_command(
             };
         }
     };
+    tracing::debug!(
+        target: "brokk_acp_rust::tools::shell",
+        policy = ?policy,
+        cwd = %cwd.display(),
+        sandboxed = wrapped.sandboxed,
+        argv0 = %wrapped.argv[0],
+        "runShellCommand: wrapped command ready",
+    );
 
     // The user requested a sandbox tier (ReadOnly / WorkspaceWrite) but the
     // platform tooling was missing. We still execute -- matching Java's
