@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Parser;
+use clap::builder::RangedU64ValueParser;
 
 mod agent;
 mod agents_md;
@@ -63,10 +64,14 @@ struct Args {
     /// keepalive comments and unparseable chunks do not reset the timer.
     /// Bump higher for slow local models with large context (e.g. 600+ on a
     /// MacBook running a 70B). Overridable per-session via `/idle-timeout`.
+    /// Bounds match the `/idle-timeout` slash command for a single,
+    /// consistent UX between boot config and runtime override.
     #[arg(
         long,
         env = "BROKK_ACP_LLM_IDLE_TIMEOUT_SECS",
         default_value_t = llm_client::DEFAULT_IDLE_CHUNK_TIMEOUT_SECS,
+        value_parser = RangedU64ValueParser::<u64>::new()
+            .range(llm_client::MIN_IDLE_CHUNK_TIMEOUT_SECS..=llm_client::MAX_IDLE_CHUNK_TIMEOUT_SECS),
     )]
     llm_idle_timeout_secs: u64,
 
@@ -251,12 +256,13 @@ async fn main() -> Result<()> {
     let sessions = session::SessionStore::with_limits(args.default_model, limits);
 
     let max_turns = args.max_turns.max(1);
-    let llm_idle_timeout_secs = args.llm_idle_timeout_secs.max(1);
+    // Bounds on `llm_idle_timeout_secs` are enforced by the clap
+    // `value_parser`, so the value reaches us already validated.
     agent::run_agent(
         llm,
         sessions,
         max_turns,
-        llm_idle_timeout_secs,
+        args.llm_idle_timeout_secs,
         args.bifrost_binary,
     )
     .await

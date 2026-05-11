@@ -7,11 +7,10 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-/// Fallback for `stream_chat` callers that don't pass an explicit idle
-/// timeout (today: only the unit tests in this module). The real
-/// production path threads a per-call value from the CLI flag
-/// `--llm-idle-timeout-secs` (default 300) with a per-session override
-/// via the `/idle-timeout` slash command.
+/// Default value for the `--llm-idle-timeout-secs` CLI flag (and the
+/// env var `BROKK_ACP_LLM_IDLE_TIMEOUT_SECS`). The actual value used
+/// per request is a required parameter on `LlmBackend::stream_chat` --
+/// callers cannot fall back to this implicitly.
 ///
 /// Idle timeout semantics: maximum gap between two pieces of
 /// *meaningful* SSE progress before we abort the request. "Meaningful
@@ -23,6 +22,17 @@ use tokio_util::sync::CancellationToken;
 ///
 /// Distinct from the reqwest client's overall `.timeout()` (wall-clock).
 pub const DEFAULT_IDLE_CHUNK_TIMEOUT_SECS: u64 = 300;
+
+/// Lower bound for both the `--llm-idle-timeout-secs` CLI flag and the
+/// `/idle-timeout` slash command. 0 would mean "abort instantly", which
+/// is never useful.
+pub const MIN_IDLE_CHUNK_TIMEOUT_SECS: u64 = 1;
+
+/// Upper bound for both the `--llm-idle-timeout-secs` CLI flag and the
+/// `/idle-timeout` slash command. 24h is well above any realistic local
+/// LLM prompt processing on consumer hardware and stops a typo'd huge
+/// number from effectively disabling the stall detector.
+pub const MAX_IDLE_CHUNK_TIMEOUT_SECS: u64 = 86_400;
 
 /// Owning callback handed token deltas as the LLM streams them.
 type TokenSink = Box<dyn FnMut(&str) + Send>;

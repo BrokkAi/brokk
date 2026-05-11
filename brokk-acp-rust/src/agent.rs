@@ -1367,17 +1367,11 @@ async fn handle_codex_login(
     }
 }
 
-/// Per-session bounds for the `/idle-timeout` override. Lower bound 1s
-/// avoids a footgun (instant abort); upper bound 86_400s (24h) is well
-/// above any realistic local-LLM prompt processing on consumer hardware
-/// and stops a typo'd huge number from effectively disabling the detector.
-const IDLE_TIMEOUT_MIN_SECS: u64 = 1;
-const IDLE_TIMEOUT_MAX_SECS: u64 = 86_400;
-
 /// Pure parser for `/idle-timeout` arguments. Returns either a successful
 /// action to apply, or a user-facing error string. Factored out from
 /// `handle_idle_timeout` so it can be unit-tested without standing up a
-/// real `SessionStore`.
+/// real `SessionStore`. Bounds are shared with the `--llm-idle-timeout-secs`
+/// CLI flag (see `llm_client::{MIN,MAX}_IDLE_CHUNK_TIMEOUT_SECS`).
 #[derive(Debug, PartialEq, Eq)]
 enum IdleTimeoutAction {
     /// `/idle-timeout` -- caller should render the current value.
@@ -1398,17 +1392,17 @@ fn parse_idle_timeout_arg(prompt_text: &str) -> Result<IdleTimeoutAction, String
         .unwrap_or("")
         .to_ascii_lowercase();
 
+    let min = crate::llm_client::MIN_IDLE_CHUNK_TIMEOUT_SECS;
+    let max = crate::llm_client::MAX_IDLE_CHUNK_TIMEOUT_SECS;
+
     match arg.as_str() {
         "" => Ok(IdleTimeoutAction::Show),
         "default" => Ok(IdleTimeoutAction::Clear),
         other => match other.parse::<u64>() {
-            Ok(secs) if (IDLE_TIMEOUT_MIN_SECS..=IDLE_TIMEOUT_MAX_SECS).contains(&secs) => {
-                Ok(IdleTimeoutAction::Set(secs))
-            }
+            Ok(secs) if (min..=max).contains(&secs) => Ok(IdleTimeoutAction::Set(secs)),
             Ok(out_of_range) => Err(format!(
                 "Value `{out_of_range}` is out of range. Pick a value between \
-                 {IDLE_TIMEOUT_MIN_SECS}s and {IDLE_TIMEOUT_MAX_SECS}s, \
-                 or use `default` to clear the override."
+                 {min}s and {max}s, or use `default` to clear the override."
             )),
             Err(_) => Err(format!(
                 "Unknown subcommand `{other}`. Try: /idle-timeout | \
