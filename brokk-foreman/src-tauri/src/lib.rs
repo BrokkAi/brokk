@@ -1,13 +1,14 @@
 pub mod acp;
+pub mod commands;
 pub mod config;
 pub mod db;
-pub mod issues;
-pub mod llm;
-pub mod worktree;
+pub mod events;
 
 use std::sync::Mutex;
 
 use tauri::Manager;
+
+use crate::acp::client::SessionManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,6 +21,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(SessionManager::new())
         .setup(|app| {
             let db_path = config::data_dir()
                 .ok_or("could not resolve user data dir for foreman")?
@@ -29,6 +31,20 @@ pub fn run() {
             app.manage(Mutex::new(conn));
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            commands::list_agents,
+            commands::add_custom_agent,
+            commands::uninstall_agent,
+            commands::fetch_registry,
+            commands::install_agent,
+            commands::get_config,
+            commands::set_config,
+            commands::start_session,
+            commands::send_prompt,
+            commands::cancel_session,
+            commands::stop_session,
+            commands::respond_permission,
+        ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {
             tracing::error!(error = ?e, "foreman failed to start");
