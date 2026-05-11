@@ -134,18 +134,75 @@ impl ChatMessage {
 }
 
 // ---------------------------------------------------------------------------
+// Model metadata
+// ---------------------------------------------------------------------------
+
+/// One reasoning-effort preset advertised by the server for a given model.
+/// Mirrors the `supported_reasoning_levels[]` entries returned by the
+/// ChatGPT `/models` endpoint. Backends without per-effort presets (Ollama,
+/// OpenAI `/v1/models`) simply leave the per-model vec empty.
+#[derive(Debug, Clone)]
+pub struct ReasoningLevelPreset {
+    pub effort: String,
+    pub description: String,
+}
+
+/// Richer model descriptor surfaced through `LlmBackend::list_model_metadata`.
+/// The `id` is the wire identifier the backend expects in `stream_chat`;
+/// the optional reasoning fields are populated only for backends whose
+/// catalog publishes them (today: `CodexClient`).
+#[derive(Debug, Clone)]
+pub struct ModelMetadata {
+    pub id: String,
+    pub default_reasoning_level: Option<String>,
+    pub supported_reasoning_levels: Vec<ReasoningLevelPreset>,
+}
+
+impl ModelMetadata {
+    /// Lift a bare model id to a metadata record with no reasoning data.
+    /// Used by backends that don't publish reasoning presets, and by the
+    /// default impl of `list_model_metadata` so existing `list_models`
+    /// impls don't have to be rewritten.
+    pub fn id_only(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            default_reasoning_level: None,
+            supported_reasoning_levels: Vec::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // LLM backend trait
 // ---------------------------------------------------------------------------
 
 pub trait LlmBackend: Send + Sync {
     fn list_models(&self) -> BoxFuture<'_, Result<Vec<String>>>;
 
+    /// Same catalog as `list_models`, but carrying any per-model
+    /// reasoning-effort presets the backend's discovery endpoint
+    /// publishes. The default impl lifts each id to `ModelMetadata::id_only`,
+    /// so backends that don't expose reasoning data don't need to override.
+    fn list_model_metadata(&self) -> BoxFuture<'_, Result<Vec<ModelMetadata>>> {
+        let fut = self.list_models();
+        Box::pin(async move { Ok(fut.await?.into_iter().map(ModelMetadata::id_only).collect()) })
+    }
+
+    /// Stream a chat completion. `reasoning_effort` is honored only by
+    /// backends that route to a reasoning-capable endpoint (today,
+    /// `CodexClient` via the ChatGPT Responses API); other backends
+    /// ignore it. `on_thought` receives chain-of-thought / reasoning
+    /// text deltas separate from the assistant text on `on_token`;
+    /// backends that don't surface reasoning never invoke it.
+    #[allow(clippy::too_many_arguments)]
     fn stream_chat(
         &self,
         model: &str,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<ToolDefinition>>,
+        reasoning_effort: Option<&str>,
         on_token: Box<dyn FnMut(&str) + Send>,
+        on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
     ) -> BoxFuture<'_, Result<LlmResponse>>;
 }
@@ -313,7 +370,13 @@ impl LlmBackend for OpenAiClient {
         model: &str,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<ToolDefinition>>,
+        // Chat Completions doesn't take a reasoning_effort dimension on
+        // non-reasoning models, and the reasoning-capable o1/o3 family
+        // routes its own dedicated parameter -- not in scope here.
+        _reasoning_effort: Option<&str>,
         on_token: Box<dyn FnMut(&str) + Send>,
+        // No chain-of-thought stream on the Chat Completions SSE schema.
+        _on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
     ) -> BoxFuture<'_, Result<LlmResponse>> {
         let model = model.to_string();

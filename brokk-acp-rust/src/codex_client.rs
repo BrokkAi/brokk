@@ -35,7 +35,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::codex_auth::{AuthDotJson, is_stale, read_auth_dot_json, refresh_if_stale, urlencode};
 use crate::llm_client::{
-    ChatMessage, FunctionCall, LlmBackend, LlmResponse, ToolCall, ToolDefinition,
+    ChatMessage, FunctionCall, LlmBackend, LlmResponse, ModelMetadata, ReasoningLevelPreset,
+    ToolCall, ToolDefinition,
 };
 
 // Codex CLI's `chatgpt_base_url` default is
@@ -215,30 +216,39 @@ impl CodexClient {
         ChatGptCredentials::from_auth(&auth)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn stream_chat_impl(
         &self,
         model: String,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<ToolDefinition>>,
+        reasoning_effort: Option<String>,
         on_token: Box<dyn FnMut(&str) + Send>,
+        on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
     ) -> Result<LlmResponse> {
         let creds = self.load_credentials().await?;
-        let body = build_responses_request(&model, &messages, tools.as_deref());
+        let body = build_responses_request(
+            &model,
+            &messages,
+            tools.as_deref(),
+            reasoning_effort.as_deref(),
+        );
         match self
-            .send_responses_request(&creds, &body, on_token, cancel.clone())
+            .send_responses_request(&creds, &body, on_token, on_thought, cancel.clone())
             .await
         {
             Ok(resp) => Ok(resp),
             Err(e) if is_unauthorized(&e) => {
                 tracing::info!("ChatGPT backend returned 401; refreshing tokens and retrying once");
                 let creds = self.force_refresh().await?;
-                // Caller's on_token sink is consumed by the first attempt;
-                // build a no-op sink for the retry so the trait stays
-                // FnMut-only. Streaming text from the retry still flows
-                // back via `LlmResponse::Text`.
-                let noop: Box<dyn FnMut(&str) + Send> = Box::new(|_| {});
-                self.send_responses_request(&creds, &body, noop, cancel)
+                // Caller's on_token/on_thought sinks are consumed by the first
+                // attempt; build no-op sinks for the retry so the trait stays
+                // FnMut-only. Streaming text from the retry still flows back
+                // via `LlmResponse::Text`.
+                let noop_token: Box<dyn FnMut(&str) + Send> = Box::new(|_| {});
+                let noop_thought: Box<dyn FnMut(&str) + Send> = Box::new(|_| {});
+                self.send_responses_request(&creds, &body, noop_token, noop_thought, cancel)
                     .await
             }
             Err(e) => Err(e),
@@ -250,6 +260,7 @@ impl CodexClient {
         creds: &ChatGptCredentials,
         body: &ResponsesRequest,
         on_token: Box<dyn FnMut(&str) + Send>,
+        on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
     ) -> Result<LlmResponse> {
         let req = self
@@ -275,10 +286,10 @@ impl CodexClient {
             .bytes_stream()
             .map(|r| r.map(|b| b.to_vec()).map_err(anyhow::Error::from));
 
-        drive_responses_sse_stream(stream, on_token, cancel, IDLE_CHUNK_TIMEOUT).await
+        drive_responses_sse_stream(stream, on_token, on_thought, cancel, IDLE_CHUNK_TIMEOUT).await
     }
 
-    /// Discover usable model slugs by hitting `chatgpt.com/backend-api/codex/models`.
+    /// Discover usable models by hitting `chatgpt.com/backend-api/codex/models`.
     /// We deliberately don't ship a hardcoded picker any more: the
     /// model lineup moves faster than our release cadence, and shipping
     /// stale slugs (e.g. `gpt-5-pro` after that family is retired)
@@ -287,27 +298,27 @@ impl CodexClient {
     /// (`FALLBACK_CHATGPT_MODEL`) so ACP `initialize` still advertises
     /// *something*; the user can override via `--default-model` or the
     /// `/config` model picker.
-    async fn list_models_impl(&self) -> Result<Vec<String>> {
+    async fn list_model_metadata_impl(&self) -> Result<Vec<ModelMetadata>> {
         let creds = match self.load_credentials().await {
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!("skipping ChatGPT model discovery (credentials not ready): {e:#}");
-                return Ok(vec![FALLBACK_CHATGPT_MODEL.to_string()]);
+                return Ok(vec![ModelMetadata::id_only(FALLBACK_CHATGPT_MODEL)]);
             }
         };
         match fetch_chatgpt_models(&self.http, &creds).await {
-            Ok(slugs) if !slugs.is_empty() => Ok(slugs),
+            Ok(models) if !models.is_empty() => Ok(models),
             Ok(_) => {
                 tracing::warn!(
                     "ChatGPT /models endpoint returned no slugs; falling back to {FALLBACK_CHATGPT_MODEL}"
                 );
-                Ok(vec![FALLBACK_CHATGPT_MODEL.to_string()])
+                Ok(vec![ModelMetadata::id_only(FALLBACK_CHATGPT_MODEL)])
             }
             Err(e) => {
                 tracing::warn!(
                     "ChatGPT model discovery failed ({CHATGPT_MODELS_URL}): {e:#}; falling back to {FALLBACK_CHATGPT_MODEL}"
                 );
-                Ok(vec![FALLBACK_CHATGPT_MODEL.to_string()])
+                Ok(vec![ModelMetadata::id_only(FALLBACK_CHATGPT_MODEL)])
             }
         }
     }
@@ -327,7 +338,7 @@ impl CodexClient {
 async fn fetch_chatgpt_models(
     http: &reqwest::Client,
     creds: &ChatGptCredentials,
-) -> Result<Vec<String>> {
+) -> Result<Vec<ModelMetadata>> {
     let url = format!(
         "{CHATGPT_MODELS_URL}?client_version={}",
         urlencode(CODEX_COMPAT_CLIENT_VERSION)
@@ -394,7 +405,18 @@ async fn fetch_chatgpt_models(
         models.len(),
         models.iter().map(|m| m.slug.as_str()).collect::<Vec<_>>()
     );
-    Ok(models.into_iter().map(|m| m.slug).collect())
+    Ok(models
+        .into_iter()
+        .map(|m| ModelMetadata {
+            id: m.slug,
+            default_reasoning_level: m.default_reasoning_level,
+            supported_reasoning_levels: m
+                .supported_reasoning_levels
+                .into_iter()
+                .map(ReasoningLevelPreset::from)
+                .collect(),
+        })
+        .collect())
 }
 
 /// Render up to `limit` bytes of `body` as a debug-safe string. Used
@@ -430,11 +452,50 @@ struct ChatGptModelEntry {
     /// picker. Default to 0 if absent so missing-field models sort last.
     #[serde(default)]
     priority: i32,
+    /// Effort preset the server applies when the client doesn't specify
+    /// one. Used as the picker's initial value and as the fallback when
+    /// the user switches to a model that doesn't advertise their current
+    /// pick.
+    #[serde(default)]
+    default_reasoning_level: Option<String>,
+    /// Distinct reasoning-effort presets the model accepts. Each entry
+    /// carries the wire `effort` token (low/medium/high/xhigh) and a
+    /// server-written description we surface in the ACP picker so users
+    /// know what each level actually means.
+    #[serde(default)]
+    supported_reasoning_levels: Vec<ChatGptReasoningLevel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatGptReasoningLevel {
+    effort: String,
+    #[serde(default)]
+    description: String,
+}
+
+impl From<ChatGptReasoningLevel> for ReasoningLevelPreset {
+    fn from(value: ChatGptReasoningLevel) -> Self {
+        Self {
+            effort: value.effort,
+            description: value.description,
+        }
+    }
 }
 
 impl LlmBackend for CodexClient {
     fn list_models(&self) -> BoxFuture<'_, Result<Vec<String>>> {
-        Box::pin(self.list_models_impl())
+        Box::pin(async move {
+            Ok(self
+                .list_model_metadata_impl()
+                .await?
+                .into_iter()
+                .map(|m| m.id)
+                .collect())
+        })
+    }
+
+    fn list_model_metadata(&self) -> BoxFuture<'_, Result<Vec<ModelMetadata>>> {
+        Box::pin(self.list_model_metadata_impl())
     }
 
     fn stream_chat(
@@ -442,11 +503,22 @@ impl LlmBackend for CodexClient {
         model: &str,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<ToolDefinition>>,
+        reasoning_effort: Option<&str>,
         on_token: Box<dyn FnMut(&str) + Send>,
+        on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
     ) -> BoxFuture<'_, Result<LlmResponse>> {
         let model = model.to_string();
-        Box::pin(self.stream_chat_impl(model, messages, tools, on_token, cancel))
+        let reasoning_effort = reasoning_effort.map(str::to_string);
+        Box::pin(self.stream_chat_impl(
+            model,
+            messages,
+            tools,
+            reasoning_effort,
+            on_token,
+            on_thought,
+            cancel,
+        ))
     }
 }
 
@@ -539,6 +611,18 @@ pub(crate) struct ResponsesRequest {
     /// session/turn persistence and we don't want a side-channel copy
     /// living on OpenAI's storage tied to the user's subscription.
     pub(crate) store: bool,
+    /// Optional per-request reasoning-effort override. The agent layer
+    /// resolves "no pick" to the active model's `default_reasoning_level`
+    /// upstream so the omitted-vs-explicit distinction here directly
+    /// reflects user intent: omit (None) = let the server pick; present =
+    /// honor the level the user asked for in the picker.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reasoning: Option<ReasoningConfig>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ReasoningConfig {
+    pub(crate) effort: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -587,6 +671,7 @@ pub(crate) fn build_responses_request(
     model: &str,
     messages: &[ChatMessage],
     tools: Option<&[ToolDefinition]>,
+    reasoning_effort: Option<&str>,
 ) -> ResponsesRequest {
     let mut instructions_parts: Vec<String> = Vec::new();
     let mut input: Vec<ResponsesInputItem> = Vec::new();
@@ -674,6 +759,10 @@ pub(crate) fn build_responses_request(
         Some(instructions_parts.join("\n\n"))
     };
 
+    let reasoning = reasoning_effort.map(|effort| ReasoningConfig {
+        effort: effort.to_string(),
+    });
+
     ResponsesRequest {
         model: model.to_string(),
         instructions,
@@ -683,6 +772,7 @@ pub(crate) fn build_responses_request(
         parallel_tool_calls: true,
         stream: true,
         store: false,
+        reasoning,
     }
 }
 
@@ -691,9 +781,10 @@ pub(crate) fn build_responses_request(
 // ---------------------------------------------------------------------------
 
 /// Subset of `ResponsesStreamEvent` from codex-rs we actually consume.
-/// Unknown event types (`response.reasoning_summary_text.delta`,
-/// `response.metadata`, etc.) deserialize successfully but contribute
-/// nothing -- we surface only text deltas and final-shape items.
+/// Text deltas surface via `on_token`; reasoning deltas (`response.reasoning_text.delta`,
+/// `response.reasoning_summary_text.delta`) route to `on_thought`; other unknown event
+/// types (`response.metadata`, rate-limit snapshots, etc.) deserialize successfully but
+/// contribute nothing beyond resetting the idle timer.
 #[derive(Debug, Deserialize)]
 struct StreamEvent {
     #[serde(rename = "type")]
@@ -771,6 +862,7 @@ enum OutputItemContent {
 async fn drive_responses_sse_stream<S>(
     mut stream: S,
     mut on_token: Box<dyn FnMut(&str) + Send>,
+    mut on_thought: Box<dyn FnMut(&str) + Send>,
     cancel: CancellationToken,
     idle: Duration,
 ) -> Result<LlmResponse>
@@ -919,10 +1011,28 @@ where
                             completed = true;
                             break;
                         }
-                        // Reasoning summaries, metadata, rate-limit
-                        // snapshots, etc. -- we don't surface them but
-                        // count them as activity so the idle timer
-                        // doesn't fire mid-think.
+                        // Chain-of-thought deltas: route to the
+                        // dedicated `on_thought` sink (the agent layer
+                        // wraps it as an ACP `AgentThoughtChunk` so
+                        // clients can render reasoning text in a
+                        // collapsible block rather than interleaved
+                        // with the final answer). Both event names
+                        // exist because Codex publishes raw reasoning
+                        // text on the high-effort path and condensed
+                        // summaries elsewhere; both belong in the
+                        // same channel for the client.
+                        "response.reasoning_text.delta"
+                        | "response.reasoning_summary_text.delta" => {
+                            if let Some(delta) = event.delta {
+                                made_progress = true;
+                                on_thought(&delta);
+                            }
+                        }
+                        // Other unmodeled events (metadata, rate-limit
+                        // snapshots, output_item.added etc.) -- we
+                        // don't surface them but count them as
+                        // activity so the idle timer doesn't fire
+                        // mid-think.
                         _ => {
                             made_progress = true;
                         }
@@ -969,6 +1079,12 @@ mod tests {
         Box::new(move |t: &str| buf.lock().unwrap().push_str(t))
     }
 
+    /// Throwaway thought sink for SSE tests that don't care about
+    /// reasoning text. Kept inline so each test reads top-to-bottom.
+    fn noop_sink() -> Box<dyn FnMut(&str) + Send> {
+        Box::new(|_| {})
+    }
+
     #[test]
     fn build_request_collapses_system_messages_into_instructions() {
         let messages = vec![
@@ -976,7 +1092,7 @@ mod tests {
             ChatMessage::system("also be brief"),
             ChatMessage::user("hi"),
         ];
-        let req = build_responses_request("gpt-5-codex", &messages, None);
+        let req = build_responses_request("gpt-5-codex", &messages, None, None);
         assert_eq!(
             req.instructions.as_deref(),
             Some("be helpful\n\nalso be brief")
@@ -1013,7 +1129,7 @@ mod tests {
             }]),
             ChatMessage::tool_result("fc_abc", "search", "no results"),
         ];
-        let req = build_responses_request("gpt-5-codex", &messages, None);
+        let req = build_responses_request("gpt-5-codex", &messages, None, None);
         assert_eq!(req.input.len(), 3);
         match &req.input[1] {
             ResponsesInputItem::FunctionCall {
@@ -1046,7 +1162,7 @@ mod tests {
                 parameters: json!({"type": "object", "properties": {}}),
             },
         }];
-        let req = build_responses_request("gpt-5", &[ChatMessage::user("hi")], Some(&tools));
+        let req = build_responses_request("gpt-5", &[ChatMessage::user("hi")], Some(&tools), None);
         let serialized = serde_json::to_value(&req).unwrap();
         let tools = serialized.get("tools").unwrap().as_array().unwrap();
         assert_eq!(tools.len(), 1);
@@ -1079,12 +1195,42 @@ mod tests {
             tool_call_id: None,
             name: None,
         }];
-        let req = build_responses_request("gpt-5", &messages, None);
+        let req = build_responses_request("gpt-5", &messages, None, None);
         assert_eq!(req.input.len(), 1);
         assert!(matches!(
             req.input[0],
             ResponsesInputItem::FunctionCall { .. }
         ));
+    }
+
+    #[test]
+    fn build_request_emits_reasoning_when_effort_is_set() {
+        // The Responses API takes `reasoning: { "effort": "..." }`. The
+        // agent layer is responsible for resolving "user has no pick"
+        // to either the model's `default_reasoning_level` or None
+        // before reaching here, so an explicit Some(_) here is direct
+        // user intent and must appear on the wire.
+        let req =
+            build_responses_request("gpt-5.5", &[ChatMessage::user("hi")], None, Some("xhigh"));
+        let serialized = serde_json::to_value(&req).unwrap();
+        assert_eq!(
+            serialized.get("reasoning"),
+            Some(&serde_json::json!({"effort": "xhigh"}))
+        );
+    }
+
+    #[test]
+    fn build_request_omits_reasoning_when_effort_is_none() {
+        // No pick = let the server use its own default. The field is
+        // skip_serializing_if=Option::is_none so it must not appear at
+        // all (vs. being present with a null/empty value, which the
+        // server would reject as an invalid effort).
+        let req = build_responses_request("gpt-5.5", &[ChatMessage::user("hi")], None, None);
+        let serialized = serde_json::to_value(&req).unwrap();
+        assert!(
+            serialized.get("reasoning").is_none(),
+            "reasoning field must be omitted entirely when effort is None"
+        );
     }
 
     #[tokio::test]
@@ -1100,9 +1246,10 @@ mod tests {
         let collected = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         let cb = sink_collecting(collected.clone());
         let cancel = CancellationToken::new();
-        let resp = drive_responses_sse_stream(stream, cb, cancel, Duration::from_secs(5))
-            .await
-            .expect("stream completes");
+        let resp =
+            drive_responses_sse_stream(stream, cb, noop_sink(), cancel, Duration::from_secs(5))
+                .await
+                .expect("stream completes");
         match resp {
             LlmResponse::ToolCalls { text, calls } => {
                 assert_eq!(text, "hello");
@@ -1128,9 +1275,10 @@ mod tests {
         let collected = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         let cb = sink_collecting(collected.clone());
         let cancel = CancellationToken::new();
-        let resp = drive_responses_sse_stream(stream, cb, cancel, Duration::from_secs(5))
-            .await
-            .expect("stream completes");
+        let resp =
+            drive_responses_sse_stream(stream, cb, noop_sink(), cancel, Duration::from_secs(5))
+                .await
+                .expect("stream completes");
         match resp {
             LlmResponse::Text(text) => assert_eq!(text, "ok"),
             other => panic!("expected Text, got {other:?}"),
@@ -1155,9 +1303,10 @@ mod tests {
         let collected = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         let cb = sink_collecting(collected.clone());
         let cancel = CancellationToken::new();
-        let resp = drive_responses_sse_stream(stream, cb, cancel, Duration::from_secs(5))
-            .await
-            .expect("stream completes");
+        let resp =
+            drive_responses_sse_stream(stream, cb, noop_sink(), cancel, Duration::from_secs(5))
+                .await
+                .expect("stream completes");
         match resp {
             LlmResponse::Text(text) => assert_eq!(text, "hello"),
             other => panic!("expected Text, got {other:?}"),
@@ -1172,9 +1321,10 @@ mod tests {
         let collected = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         let cb = sink_collecting(collected.clone());
         let cancel = CancellationToken::new();
-        let err = drive_responses_sse_stream(stream, cb, cancel, Duration::from_secs(5))
-            .await
-            .expect_err("response.failed must surface as Err");
+        let err =
+            drive_responses_sse_stream(stream, cb, noop_sink(), cancel, Duration::from_secs(5))
+                .await
+                .expect_err("response.failed must surface as Err");
         let msg = format!("{err:#}");
         assert!(msg.contains("rate_limit_exceeded"), "got: {msg}");
         assert!(msg.contains("slow down"), "got: {msg}");
@@ -1182,11 +1332,15 @@ mod tests {
 
     #[tokio::test]
     async fn sse_parser_ignores_unknown_event_types() {
-        // New event types (reasoning summaries, rate-limit metadata,
-        // etc.) must not poison the stream -- they should keep the
-        // idle timer alive but contribute nothing to the result.
+        // Unmodeled event types (rate-limit metadata, new shapes we
+        // haven't taught the parser about) must not poison the stream
+        // -- they should keep the idle timer alive but contribute
+        // nothing to the result. (Reasoning deltas USED to fall in
+        // this bucket and now route to on_thought -- see
+        // `sse_parser_routes_reasoning_deltas_to_on_thought` for that
+        // coverage.)
         let raw = concat!(
-            "data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"thinking\"}\n\n",
+            "data: {\"type\":\"response.audio.delta\",\"delta\":\"<binary>\"}\n\n",
             "data: {\"type\":\"response.metadata\",\"metadata\":{}}\n\n",
             "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n",
             "data: {\"type\":\"response.completed\",\"response\":{}}\n\n",
@@ -1195,13 +1349,50 @@ mod tests {
         let collected = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         let cb = sink_collecting(collected.clone());
         let cancel = CancellationToken::new();
-        let resp = drive_responses_sse_stream(stream, cb, cancel, Duration::from_secs(5))
-            .await
-            .expect("stream completes");
+        let resp =
+            drive_responses_sse_stream(stream, cb, noop_sink(), cancel, Duration::from_secs(5))
+                .await
+                .expect("stream completes");
         match resp {
             LlmResponse::Text(text) => assert_eq!(text, "hi"),
             other => panic!("expected Text, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn sse_parser_routes_reasoning_deltas_to_on_thought() {
+        // Reasoning text and reasoning summary deltas go to the
+        // dedicated on_thought sink. They must NOT contaminate the
+        // primary text (which the assistant message is built from)
+        // because the ACP client renders them as a separate block.
+        let raw = concat!(
+            "data: {\"type\":\"response.reasoning_text.delta\",\"delta\":\"weigh \"}\n\n",
+            "data: {\"type\":\"response.reasoning_text.delta\",\"delta\":\"options\"}\n\n",
+            "data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\" => pick A\"}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"answer is A\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{}}\n\n",
+        );
+        let stream = futures::stream::iter(vec![Ok(raw.as_bytes().to_vec())]);
+        let text = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let thought = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let token_sink = sink_collecting(text.clone());
+        let thought_sink = sink_collecting(thought.clone());
+        let cancel = CancellationToken::new();
+        let resp = drive_responses_sse_stream(
+            stream,
+            token_sink,
+            thought_sink,
+            cancel,
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("stream completes");
+        match resp {
+            LlmResponse::Text(t) => assert_eq!(t, "answer is A"),
+            other => panic!("expected Text, got {other:?}"),
+        }
+        assert_eq!(text.lock().unwrap().as_str(), "answer is A");
+        assert_eq!(thought.lock().unwrap().as_str(), "weigh options => pick A");
     }
 
     #[test]
@@ -1265,7 +1456,7 @@ mod tests {
     #[test]
     fn parses_models_response_with_unknown_fields() {
         // The real payload carries dozens of fields we don't model
-        // (reasoning levels, instructions templates, etc.). Make sure
+        // (instructions templates, truncation policy, etc.). Make sure
         // they don't break our deserializer.
         let raw = r#"{
             "models": [
@@ -1293,5 +1484,50 @@ mod tests {
         let parsed: ChatGptModelsResponse = serde_json::from_str(raw).unwrap();
         assert_eq!(parsed.models.len(), 1);
         assert_eq!(parsed.models[0].slug, "gpt-future");
+    }
+
+    #[test]
+    fn parses_models_response_with_reasoning_levels() {
+        // The real /models payload carries `default_reasoning_level`
+        // and `supported_reasoning_levels[]`; both surface in the
+        // ACP picker. Mirror a slimmed but representative entry.
+        let raw = r#"{
+            "models": [
+                {
+                    "slug": "gpt-5.2",
+                    "priority": 50,
+                    "visibility": "list",
+                    "default_reasoning_level": "medium",
+                    "supported_reasoning_levels": [
+                        {"effort": "low",    "description": "Balances speed with some reasoning"},
+                        {"effort": "medium", "description": "Solid balance of depth and latency"},
+                        {"effort": "high",   "description": "Maximize reasoning depth"},
+                        {"effort": "xhigh",  "description": "Extra high reasoning for complex problems"}
+                    ]
+                },
+                {
+                    "slug": "gpt-mini",
+                    "priority": 10,
+                    "visibility": "list"
+                }
+            ]
+        }"#;
+        let parsed: ChatGptModelsResponse = serde_json::from_str(raw).unwrap();
+        assert_eq!(parsed.models.len(), 2);
+        let gpt52 = &parsed.models[0];
+        assert_eq!(gpt52.slug, "gpt-5.2");
+        assert_eq!(gpt52.default_reasoning_level.as_deref(), Some("medium"));
+        assert_eq!(gpt52.supported_reasoning_levels.len(), 4);
+        assert_eq!(gpt52.supported_reasoning_levels[3].effort, "xhigh");
+        assert_eq!(
+            gpt52.supported_reasoning_levels[3].description,
+            "Extra high reasoning for complex problems"
+        );
+        // Models without the reasoning fields deserialize with serde
+        // defaults -- None + empty vec -- so the picker simply omits
+        // the effort selector for them rather than crashing.
+        let gpt_mini = &parsed.models[1];
+        assert!(gpt_mini.default_reasoning_level.is_none());
+        assert!(gpt_mini.supported_reasoning_levels.is_empty());
     }
 }

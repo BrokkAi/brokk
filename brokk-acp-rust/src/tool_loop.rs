@@ -157,10 +157,12 @@ pub(crate) async fn run(
     llm: &Arc<dyn LlmBackend>,
     registry: &ToolRegistry,
     model: &str,
+    reasoning_effort: Option<&str>,
     mut messages: Vec<ChatMessage>,
     max_turns: usize,
     cancel: CancellationToken,
     on_text: TextSink,
+    on_thought: TextSink,
     spawned_cx: SpawnedCx<'_>,
     session_id: String,
     sessions: SessionStore,
@@ -185,9 +187,18 @@ pub(crate) async fn run(
         };
 
         // Forward tokens straight through to the caller; no buffering.
-        let sink = on_text.clone();
+        let text_clone = on_text.clone();
         let on_token: Box<dyn FnMut(&str) + Send> = Box::new(move |token: &str| {
-            if let Ok(mut cb) = sink.lock() {
+            if let Ok(mut cb) = text_clone.lock() {
+                cb(token);
+            }
+        });
+        // Reasoning deltas route to a parallel sink so the agent layer
+        // can emit them as ACP AgentThoughtChunk events; backends that
+        // don't surface reasoning simply never invoke this closure.
+        let thought_clone = on_thought.clone();
+        let on_thought_cb: Box<dyn FnMut(&str) + Send> = Box::new(move |token: &str| {
+            if let Ok(mut cb) = thought_clone.lock() {
                 cb(token);
             }
         });
@@ -202,7 +213,9 @@ pub(crate) async fn run(
                 model,
                 messages.clone(),
                 turn_tools,
+                reasoning_effort,
                 on_token,
+                on_thought_cb,
                 cancel.clone(),
             )
             .await;
