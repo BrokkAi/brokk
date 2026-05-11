@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use agent_client_protocol::schema::{
     AgentCapabilities, AvailableCommand, AvailableCommandsUpdate, CancelNotification,
@@ -229,6 +230,10 @@ fn available_commands() -> Vec<AvailableCommand> {
             "codex-login",
             "Sign in with ChatGPT (or `status` / `disconnect`)",
         ),
+        AvailableCommand::new(
+            "idle-timeout",
+            "Show or set the LLM SSE idle timeout for this session (e.g. `/idle-timeout 600`)",
+        ),
     ]
 }
 
@@ -282,6 +287,7 @@ pub async fn run_agent(
     llm: Arc<MultiBackend>,
     sessions: SessionStore,
     max_turns: usize,
+    default_idle_timeout_secs: u64,
     bifrost_binary: Option<PathBuf>,
 ) -> agent_client_protocol::Result<()> {
     let llm_init = llm.clone();
@@ -578,6 +584,19 @@ pub async fn run_agent(
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
 
+                if is_slash_command(&prompt_text, "idle-timeout") {
+                    let report = handle_idle_timeout(
+                        &prompt_text,
+                        &session_id,
+                        &sessions_prompt,
+                        snap.idle_timeout_secs,
+                        default_idle_timeout_secs,
+                    )
+                    .await;
+                    send_message(&cx, &session_id, &report);
+                    return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                }
+
                 // Validate model is configured
                 if snap.model.is_empty() {
                     send_message(&cx, &session_id, "Error: no model configured. Start the server with --default-model or ensure the LLM endpoint is reachable for model discovery.");
@@ -614,6 +633,14 @@ pub async fn run_agent(
                 let prompt_text_for_turn = prompt_text;
                 let model_for_loop = snap.model;
                 let reasoning_effort_for_loop = snap.reasoning_effort;
+                // Resolve per-turn idle timeout: the session override wins,
+                // otherwise fall back to the binary-wide default from
+                // `--llm-idle-timeout-secs` / `BROKK_ACP_LLM_IDLE_TIMEOUT_SECS`.
+                let idle_timeout_for_loop = Duration::from_secs(
+                    snap.idle_timeout_secs
+                        .unwrap_or(default_idle_timeout_secs)
+                        .max(1),
+                );
 
                 cx.spawn(async move {
                     use futures::FutureExt;
@@ -655,6 +682,7 @@ pub async fn run_agent(
                         reasoning_effort_for_loop.as_deref(),
                         messages,
                         max_turns,
+                        idle_timeout_for_loop,
                         cancel,
                         text_sink,
                         thought_sink,
@@ -1339,6 +1367,114 @@ async fn handle_codex_login(
     }
 }
 
+/// Per-session bounds for the `/idle-timeout` override. Lower bound 1s
+/// avoids a footgun (instant abort); upper bound 86_400s (24h) is well
+/// above any realistic local-LLM prompt processing on consumer hardware
+/// and stops a typo'd huge number from effectively disabling the detector.
+const IDLE_TIMEOUT_MIN_SECS: u64 = 1;
+const IDLE_TIMEOUT_MAX_SECS: u64 = 86_400;
+
+/// Pure parser for `/idle-timeout` arguments. Returns either a successful
+/// action to apply, or a user-facing error string. Factored out from
+/// `handle_idle_timeout` so it can be unit-tested without standing up a
+/// real `SessionStore`.
+#[derive(Debug, PartialEq, Eq)]
+enum IdleTimeoutAction {
+    /// `/idle-timeout` -- caller should render the current value.
+    Show,
+    /// `/idle-timeout default` -- clear the session override.
+    Clear,
+    /// `/idle-timeout <secs>` with a valid value.
+    Set(u64),
+}
+
+fn parse_idle_timeout_arg(prompt_text: &str) -> Result<IdleTimeoutAction, String> {
+    let arg = prompt_text
+        .trim()
+        .strip_prefix('/')
+        .unwrap_or("")
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    match arg.as_str() {
+        "" => Ok(IdleTimeoutAction::Show),
+        "default" => Ok(IdleTimeoutAction::Clear),
+        other => match other.parse::<u64>() {
+            Ok(secs) if (IDLE_TIMEOUT_MIN_SECS..=IDLE_TIMEOUT_MAX_SECS).contains(&secs) => {
+                Ok(IdleTimeoutAction::Set(secs))
+            }
+            Ok(out_of_range) => Err(format!(
+                "Value `{out_of_range}` is out of range. Pick a value between \
+                 {IDLE_TIMEOUT_MIN_SECS}s and {IDLE_TIMEOUT_MAX_SECS}s, \
+                 or use `default` to clear the override."
+            )),
+            Err(_) => Err(format!(
+                "Unknown subcommand `{other}`. Try: /idle-timeout | \
+                 /idle-timeout <secs> | /idle-timeout default"
+            )),
+        },
+    }
+}
+
+/// Handle the `/idle-timeout` slash command. Reads/sets the per-session
+/// LLM SSE idle timeout (in seconds). The session override is in-memory
+/// only -- it does not survive a session reload or a server restart.
+///
+/// Subcommands:
+///   `/idle-timeout`           -> report the active value and where it came from
+///   `/idle-timeout <secs>`    -> set the session override (1..=86_400)
+///   `/idle-timeout default`   -> clear the session override
+async fn handle_idle_timeout(
+    prompt_text: &str,
+    session_id: &str,
+    sessions: &SessionStore,
+    current_session_override: Option<u64>,
+    default_secs: u64,
+) -> String {
+    let action = match parse_idle_timeout_arg(prompt_text) {
+        Ok(action) => action,
+        Err(msg) => return msg,
+    };
+    match action {
+        IdleTimeoutAction::Show => match current_session_override {
+            Some(secs) => format!(
+                "LLM idle timeout: {secs}s (session override).\n\
+                 Server default is {default_secs}s. Use `/idle-timeout default` to clear, \
+                 or `/idle-timeout <secs>` to change."
+            ),
+            None => format!(
+                "LLM idle timeout: {default_secs}s (server default).\n\
+                 Use `/idle-timeout <secs>` to override for this session only, \
+                 or restart with `--llm-idle-timeout-secs` / `BROKK_ACP_LLM_IDLE_TIMEOUT_SECS` \
+                 to change the default."
+            ),
+        },
+        IdleTimeoutAction::Clear => {
+            if sessions.set_idle_timeout_secs(session_id, None).await {
+                format!(
+                    "Cleared session override. LLM idle timeout is back to the server \
+                     default ({default_secs}s)."
+                )
+            } else {
+                "Error: unknown session.".to_string()
+            }
+        }
+        IdleTimeoutAction::Set(secs) => {
+            if sessions.set_idle_timeout_secs(session_id, Some(secs)).await {
+                format!(
+                    "LLM idle timeout set to {secs}s for this session. \
+                     In-memory only -- reload or restart resets to the server \
+                     default ({default_secs}s)."
+                )
+            } else {
+                "Error: unknown session.".to_string()
+            }
+        }
+    }
+}
+
 /// Render the `/context` snapshot. Mirrors the Java executor's report at a
 /// coarser granularity -- the Rust agent does not yet model
 /// editable/readonly/virtual fragments, so the table reports the
@@ -1400,6 +1536,64 @@ mod tests {
         // Case-insensitive: clients sometimes uppercase auto-complete entries.
         assert!(is_slash_command("/Context", "context"));
         assert!(is_slash_command("/CONTEXT", "context"));
+    }
+
+    #[test]
+    fn parse_idle_timeout_arg_routes_to_show_when_bare() {
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout"),
+            Ok(IdleTimeoutAction::Show)
+        );
+        assert_eq!(
+            parse_idle_timeout_arg("  /idle-timeout  "),
+            Ok(IdleTimeoutAction::Show)
+        );
+    }
+
+    #[test]
+    fn parse_idle_timeout_arg_clears_on_default_keyword() {
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout default"),
+            Ok(IdleTimeoutAction::Clear)
+        );
+        // Case-insensitive keyword.
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout DEFAULT"),
+            Ok(IdleTimeoutAction::Clear)
+        );
+    }
+
+    #[test]
+    fn parse_idle_timeout_arg_accepts_numeric_in_range() {
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout 600"),
+            Ok(IdleTimeoutAction::Set(600))
+        );
+        // Bounds inclusive.
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout 1"),
+            Ok(IdleTimeoutAction::Set(1))
+        );
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout 86400"),
+            Ok(IdleTimeoutAction::Set(86_400))
+        );
+    }
+
+    #[test]
+    fn parse_idle_timeout_arg_rejects_out_of_range() {
+        // 0 would mean "abort instantly" -- the lower bound is 1.
+        let err = parse_idle_timeout_arg("/idle-timeout 0").expect_err("zero must reject");
+        assert!(err.contains("out of range"), "got: {err}");
+        // Above the 24h ceiling.
+        let err = parse_idle_timeout_arg("/idle-timeout 999999").expect_err("huge must reject");
+        assert!(err.contains("out of range"), "got: {err}");
+    }
+
+    #[test]
+    fn parse_idle_timeout_arg_rejects_non_numeric_junk() {
+        let err = parse_idle_timeout_arg("/idle-timeout banana").expect_err("junk must reject");
+        assert!(err.contains("Unknown subcommand"), "got: {err}");
     }
 
     #[test]
@@ -1510,6 +1704,7 @@ mod tests {
                 ..Default::default()
             }],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
         };
         let report = render_context_report(&snap, PermissionMode::AcceptEdits, &["gpt-99".into()]);
@@ -1534,6 +1729,7 @@ mod tests {
             model: String::new(),
             history: vec![],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
         };
         let report = render_context_report(&snap, PermissionMode::Default, &[]);
@@ -1558,6 +1754,7 @@ mod tests {
                 ..Default::default()
             }],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "follow up");
@@ -1602,6 +1799,7 @@ mod tests {
                 ],
             }],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "now fix them");
@@ -1650,6 +1848,7 @@ mod tests {
             model: "m".into(),
             history: vec![],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "hi");
@@ -1668,6 +1867,7 @@ mod tests {
             model: "m".into(),
             history: vec![],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: "Use the local style.".into(),
         };
 
@@ -1717,6 +1917,7 @@ mod tests {
                 }],
             }],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "next");

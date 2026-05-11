@@ -19,6 +19,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 use futures::future::BoxFuture;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::discovery::{
@@ -203,6 +204,7 @@ impl LlmBackend for MultiBackend {
         on_token: Box<dyn FnMut(&str) + Send>,
         on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> BoxFuture<'_, Result<LlmResponse>> {
         let resolution = self.resolve(model);
         let reasoning_effort = reasoning_effort.map(str::to_string);
@@ -217,6 +219,7 @@ impl LlmBackend for MultiBackend {
                     on_token,
                     on_thought,
                     cancel,
+                    idle_timeout,
                 )
                 .await
         })
@@ -256,6 +259,7 @@ mod tests {
             _on_token: Box<dyn FnMut(&str) + Send>,
             _on_thought: Box<dyn FnMut(&str) + Send>,
             _cancel: CancellationToken,
+            _idle_timeout: Duration,
         ) -> BoxFuture<'_, Result<LlmResponse>> {
             *self.last_model.lock().unwrap() = Some(model.to_string());
             *self.last_reasoning_effort.lock().unwrap() = reasoning_effort.map(str::to_string);
@@ -305,6 +309,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("codex route");
@@ -323,6 +328,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("ollama route");
@@ -351,6 +357,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("bare id falls back to codex");
@@ -378,6 +385,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("bare id falls back to ollama");
@@ -406,6 +414,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect_err("codex route must fail when codex backend is absent");
@@ -429,6 +438,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect_err("no backend means no route");
@@ -460,6 +470,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect_err("codex route must fail before install");
@@ -482,6 +493,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("codex route must succeed after install");
@@ -512,6 +524,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("bare id must route to newly-installed codex");
@@ -568,6 +581,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("codex route must succeed while installed");
@@ -584,6 +598,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect_err("codex route must fail after uninstall");
@@ -612,6 +627,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("codex route");
