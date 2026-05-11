@@ -160,6 +160,7 @@ pub(crate) async fn run(
     reasoning_effort: Option<&str>,
     mut messages: Vec<ChatMessage>,
     max_turns: usize,
+    idle_timeout: Duration,
     cancel: CancellationToken,
     on_text: TextSink,
     on_thought: TextSink,
@@ -207,7 +208,9 @@ pub(crate) async fn run(
         // own `.timeout(...)` (see `OpenAiClient::new`). Per-chunk idle
         // inactivity (the case in #3366 / #3453: streams that drip
         // occasional bytes and would defeat wall-clock) is enforced inside
-        // `OpenAiClient::stream_chat_impl` via `IDLE_CHUNK_TIMEOUT`.
+        // the SSE driver via `idle_timeout`, threaded here from
+        // `--llm-idle-timeout-secs` and the per-session `/idle-timeout`
+        // override.
         let response = llm
             .stream_chat(
                 model,
@@ -217,6 +220,7 @@ pub(crate) async fn run(
                 on_token,
                 on_thought_cb,
                 cancel.clone(),
+                idle_timeout,
             )
             .await;
 

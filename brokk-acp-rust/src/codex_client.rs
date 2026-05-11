@@ -60,10 +60,10 @@ const CHATGPT_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
 /// the ChatGPT plan and being rejected as an unrecognized client.
 const ORIGINATOR: &str = "codex_cli_rs";
 
-/// Mirror Codex CLI's idle-timeout posture: long reasoning pauses are
-/// fine, but a server that drip-feeds keepalives forever should not
-/// hold the connection open. Aligned with `OpenAiClient`'s constant.
-const IDLE_CHUNK_TIMEOUT: Duration = Duration::from_secs(90);
+// Idle timeout is no longer a const here -- the real value is threaded
+// through `LlmBackend::stream_chat` from the CLI flag
+// `--llm-idle-timeout-secs` (default 300) and the per-session
+// `/idle-timeout` override. See `llm_client::DEFAULT_IDLE_CHUNK_TIMEOUT_SECS`.
 
 /// Last-resort fallback if `/models` is unreachable at startup. Kept
 /// to a single, well-known slug so we don't ship a stale, multi-entry
@@ -226,6 +226,7 @@ impl CodexClient {
         on_token: Box<dyn FnMut(&str) + Send>,
         on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> Result<LlmResponse> {
         let creds = self.load_credentials().await?;
         let body = build_responses_request(
@@ -235,7 +236,14 @@ impl CodexClient {
             reasoning_effort.as_deref(),
         );
         match self
-            .send_responses_request(&creds, &body, on_token, on_thought, cancel.clone())
+            .send_responses_request(
+                &creds,
+                &body,
+                on_token,
+                on_thought,
+                cancel.clone(),
+                idle_timeout,
+            )
             .await
         {
             Ok(resp) => Ok(resp),
@@ -248,13 +256,21 @@ impl CodexClient {
                 // via `LlmResponse::Text`.
                 let noop_token: Box<dyn FnMut(&str) + Send> = Box::new(|_| {});
                 let noop_thought: Box<dyn FnMut(&str) + Send> = Box::new(|_| {});
-                self.send_responses_request(&creds, &body, noop_token, noop_thought, cancel)
-                    .await
+                self.send_responses_request(
+                    &creds,
+                    &body,
+                    noop_token,
+                    noop_thought,
+                    cancel,
+                    idle_timeout,
+                )
+                .await
             }
             Err(e) => Err(e),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn send_responses_request(
         &self,
         creds: &ChatGptCredentials,
@@ -262,6 +278,7 @@ impl CodexClient {
         on_token: Box<dyn FnMut(&str) + Send>,
         on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> Result<LlmResponse> {
         let req = self
             .http
@@ -286,7 +303,7 @@ impl CodexClient {
             .bytes_stream()
             .map(|r| r.map(|b| b.to_vec()).map_err(anyhow::Error::from));
 
-        drive_responses_sse_stream(stream, on_token, on_thought, cancel, IDLE_CHUNK_TIMEOUT).await
+        drive_responses_sse_stream(stream, on_token, on_thought, cancel, idle_timeout).await
     }
 
     /// Discover usable models by hitting `chatgpt.com/backend-api/codex/models`.
@@ -507,6 +524,7 @@ impl LlmBackend for CodexClient {
         on_token: Box<dyn FnMut(&str) + Send>,
         on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> BoxFuture<'_, Result<LlmResponse>> {
         let model = model.to_string();
         let reasoning_effort = reasoning_effort.map(str::to_string);
@@ -518,6 +536,7 @@ impl LlmBackend for CodexClient {
             on_token,
             on_thought,
             cancel,
+            idle_timeout,
         ))
     }
 }

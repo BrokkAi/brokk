@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use agent_client_protocol::schema::{
     AgentCapabilities, AvailableCommand, AvailableCommandsUpdate, CancelNotification,
@@ -229,6 +230,10 @@ fn builtin_commands() -> Vec<AvailableCommand> {
             "codex-login",
             "Sign in with ChatGPT (or `status` / `disconnect`)",
         ),
+        AvailableCommand::new(
+            "idle-timeout",
+            "Show or set the LLM SSE idle timeout for this session (e.g. `/idle-timeout 600`)",
+        ),
     ]
 }
 
@@ -237,7 +242,9 @@ fn builtin_commands() -> Vec<AvailableCommand> {
 /// filtered skills entirely" guidance: don't expose a slash that won't
 /// actually dispatch to the skill).
 fn builtin_command_names() -> std::collections::HashSet<&'static str> {
-    ["context", "codex-login"].into_iter().collect()
+    ["context", "codex-login", "idle-timeout"]
+        .into_iter()
+        .collect()
 }
 
 /// Build the full command list advertised to the client: built-ins plus
@@ -343,6 +350,7 @@ pub async fn run_agent(
     llm: Arc<MultiBackend>,
     sessions: SessionStore,
     max_turns: usize,
+    default_idle_timeout_secs: u64,
     bifrost_binary: Option<PathBuf>,
 ) -> agent_client_protocol::Result<()> {
     let llm_init = llm.clone();
@@ -639,13 +647,27 @@ pub async fn run_agent(
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
 
-                // User-explicit skill activation. Unlike `/context` and
-                // `/codex-login`, a skill slash IS the LLM round-trip:
-                // the SKILL.md body becomes the user's message for this
-                // turn (with any args after the command appended), so
-                // it persists into history and replays correctly. Built-
-                // ins above take precedence so a skill that happens to
-                // name itself `context` can never shadow them.
+                if is_slash_command(&prompt_text, "idle-timeout") {
+                    let report = handle_idle_timeout(
+                        &prompt_text,
+                        &session_id,
+                        &sessions_prompt,
+                        snap.idle_timeout_secs,
+                        default_idle_timeout_secs,
+                    )
+                    .await;
+                    send_message(&cx, &session_id, &report);
+                    return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                }
+
+                // User-explicit skill activation. Unlike the built-in
+                // short-circuit commands above, a skill slash IS the LLM
+                // round-trip: the SKILL.md body becomes the user's
+                // message for this turn (with any args after the command
+                // appended), so it persists into history and replays
+                // correctly. Built-ins are checked first so a skill
+                // that happens to name itself e.g. `context` or
+                // `idle-timeout` can never shadow them.
                 let prompt_text = if let Some((name, args)) = parse_slash_command(&prompt_text)
                     && let Some(meta) = snap.skills.get(&name)
                 {
@@ -699,6 +721,14 @@ pub async fn run_agent(
                 let prompt_text_for_turn = prompt_text;
                 let model_for_loop = snap.model;
                 let reasoning_effort_for_loop = snap.reasoning_effort;
+                // Resolve per-turn idle timeout: the session override wins,
+                // otherwise fall back to the binary-wide default from
+                // `--llm-idle-timeout-secs` / `BROKK_ACP_LLM_IDLE_TIMEOUT_SECS`.
+                let idle_timeout_for_loop = Duration::from_secs(
+                    snap.idle_timeout_secs
+                        .unwrap_or(default_idle_timeout_secs)
+                        .max(1),
+                );
 
                 cx.spawn(async move {
                     use futures::FutureExt;
@@ -740,6 +770,7 @@ pub async fn run_agent(
                         reasoning_effort_for_loop.as_deref(),
                         messages,
                         max_turns,
+                        idle_timeout_for_loop,
                         cancel,
                         text_sink,
                         thought_sink,
@@ -1538,6 +1569,108 @@ async fn handle_codex_login(
     }
 }
 
+/// Pure parser for `/idle-timeout` arguments. Returns either a successful
+/// action to apply, or a user-facing error string. Factored out from
+/// `handle_idle_timeout` so it can be unit-tested without standing up a
+/// real `SessionStore`. Bounds are shared with the `--llm-idle-timeout-secs`
+/// CLI flag (see `llm_client::{MIN,MAX}_IDLE_CHUNK_TIMEOUT_SECS`).
+#[derive(Debug, PartialEq, Eq)]
+enum IdleTimeoutAction {
+    /// `/idle-timeout` -- caller should render the current value.
+    Show,
+    /// `/idle-timeout default` -- clear the session override.
+    Clear,
+    /// `/idle-timeout <secs>` with a valid value.
+    Set(u64),
+}
+
+fn parse_idle_timeout_arg(prompt_text: &str) -> Result<IdleTimeoutAction, String> {
+    let arg = prompt_text
+        .trim()
+        .strip_prefix('/')
+        .unwrap_or("")
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    let min = crate::llm_client::MIN_IDLE_CHUNK_TIMEOUT_SECS;
+    let max = crate::llm_client::MAX_IDLE_CHUNK_TIMEOUT_SECS;
+
+    match arg.as_str() {
+        "" => Ok(IdleTimeoutAction::Show),
+        "default" => Ok(IdleTimeoutAction::Clear),
+        other => match other.parse::<u64>() {
+            Ok(secs) if (min..=max).contains(&secs) => Ok(IdleTimeoutAction::Set(secs)),
+            Ok(out_of_range) => Err(format!(
+                "Value `{out_of_range}` is out of range. Pick a value between \
+                 {min}s and {max}s, or use `default` to clear the override."
+            )),
+            Err(_) => Err(format!(
+                "Unknown subcommand `{other}`. Try: /idle-timeout | \
+                 /idle-timeout <secs> | /idle-timeout default"
+            )),
+        },
+    }
+}
+
+/// Handle the `/idle-timeout` slash command. Reads/sets the per-session
+/// LLM SSE idle timeout (in seconds). The session override is in-memory
+/// only -- it does not survive a session reload or a server restart.
+///
+/// Subcommands:
+///   `/idle-timeout`           -> report the active value and where it came from
+///   `/idle-timeout <secs>`    -> set the session override (1..=86_400)
+///   `/idle-timeout default`   -> clear the session override
+async fn handle_idle_timeout(
+    prompt_text: &str,
+    session_id: &str,
+    sessions: &SessionStore,
+    current_session_override: Option<u64>,
+    default_secs: u64,
+) -> String {
+    let action = match parse_idle_timeout_arg(prompt_text) {
+        Ok(action) => action,
+        Err(msg) => return msg,
+    };
+    match action {
+        IdleTimeoutAction::Show => match current_session_override {
+            Some(secs) => format!(
+                "LLM idle timeout: {secs}s (session override).\n\
+                 Server default is {default_secs}s. Use `/idle-timeout default` to clear, \
+                 or `/idle-timeout <secs>` to change."
+            ),
+            None => format!(
+                "LLM idle timeout: {default_secs}s (server default).\n\
+                 Use `/idle-timeout <secs>` to override for this session only, \
+                 or restart with `--llm-idle-timeout-secs` / `BROKK_ACP_LLM_IDLE_TIMEOUT_SECS` \
+                 to change the default."
+            ),
+        },
+        IdleTimeoutAction::Clear => {
+            if sessions.set_idle_timeout_secs(session_id, None).await {
+                format!(
+                    "Cleared session override. LLM idle timeout is back to the server \
+                     default ({default_secs}s)."
+                )
+            } else {
+                "Error: unknown session.".to_string()
+            }
+        }
+        IdleTimeoutAction::Set(secs) => {
+            if sessions.set_idle_timeout_secs(session_id, Some(secs)).await {
+                format!(
+                    "LLM idle timeout set to {secs}s for this session. \
+                     In-memory only -- reload or restart resets to the server \
+                     default ({default_secs}s)."
+                )
+            } else {
+                "Error: unknown session.".to_string()
+            }
+        }
+    }
+}
+
 /// Render the `/context` snapshot. Mirrors the Java executor's report at a
 /// coarser granularity -- the Rust agent does not yet model
 /// editable/readonly/virtual fragments, so the table reports the
@@ -1599,6 +1732,64 @@ mod tests {
         // Case-insensitive: clients sometimes uppercase auto-complete entries.
         assert!(is_slash_command("/Context", "context"));
         assert!(is_slash_command("/CONTEXT", "context"));
+    }
+
+    #[test]
+    fn parse_idle_timeout_arg_routes_to_show_when_bare() {
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout"),
+            Ok(IdleTimeoutAction::Show)
+        );
+        assert_eq!(
+            parse_idle_timeout_arg("  /idle-timeout  "),
+            Ok(IdleTimeoutAction::Show)
+        );
+    }
+
+    #[test]
+    fn parse_idle_timeout_arg_clears_on_default_keyword() {
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout default"),
+            Ok(IdleTimeoutAction::Clear)
+        );
+        // Case-insensitive keyword.
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout DEFAULT"),
+            Ok(IdleTimeoutAction::Clear)
+        );
+    }
+
+    #[test]
+    fn parse_idle_timeout_arg_accepts_numeric_in_range() {
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout 600"),
+            Ok(IdleTimeoutAction::Set(600))
+        );
+        // Bounds inclusive.
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout 1"),
+            Ok(IdleTimeoutAction::Set(1))
+        );
+        assert_eq!(
+            parse_idle_timeout_arg("/idle-timeout 86400"),
+            Ok(IdleTimeoutAction::Set(86_400))
+        );
+    }
+
+    #[test]
+    fn parse_idle_timeout_arg_rejects_out_of_range() {
+        // 0 would mean "abort instantly" -- the lower bound is 1.
+        let err = parse_idle_timeout_arg("/idle-timeout 0").expect_err("zero must reject");
+        assert!(err.contains("out of range"), "got: {err}");
+        // Above the 24h ceiling.
+        let err = parse_idle_timeout_arg("/idle-timeout 999999").expect_err("huge must reject");
+        assert!(err.contains("out of range"), "got: {err}");
+    }
+
+    #[test]
+    fn parse_idle_timeout_arg_rejects_non_numeric_junk() {
+        let err = parse_idle_timeout_arg("/idle-timeout banana").expect_err("junk must reject");
+        assert!(err.contains("Unknown subcommand"), "got: {err}");
     }
 
     #[test]
@@ -1709,6 +1900,7 @@ mod tests {
                 ..Default::default()
             }],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
             skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
@@ -1734,6 +1926,7 @@ mod tests {
             model: String::new(),
             history: vec![],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
             skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
@@ -1759,6 +1952,7 @@ mod tests {
                 ..Default::default()
             }],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
             skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
@@ -1804,6 +1998,7 @@ mod tests {
                 ],
             }],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
             skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
@@ -1853,6 +2048,7 @@ mod tests {
             model: "m".into(),
             history: vec![],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
             skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
@@ -1872,6 +2068,7 @@ mod tests {
             model: "m".into(),
             history: vec![],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: "Use the local style.".into(),
             skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
@@ -1922,6 +2119,7 @@ mod tests {
                 }],
             }],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
             skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
@@ -1984,6 +2182,7 @@ mod tests {
             model: "m".into(),
             history: vec![],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
             skills: make_registry(vec![
                 ("hello-world", "Greet the user with a single short line."),
@@ -2017,6 +2216,7 @@ mod tests {
             model: "m".into(),
             history: vec![],
             reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions: String::new(),
             skills: std::sync::Arc::new(SkillRegistry::default()),
         };
@@ -2040,7 +2240,10 @@ mod tests {
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         // Built-ins come first in their declared order; skills follow,
         // sorted alphabetically.
-        assert_eq!(names, vec!["context", "codex-login", "apple", "zebra"]);
+        assert_eq!(
+            names,
+            vec!["context", "codex-login", "idle-timeout", "apple", "zebra"]
+        );
     }
 
     #[test]

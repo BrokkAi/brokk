@@ -223,6 +223,12 @@ pub struct Session {
     /// In-memory only -- the issue scope explicitly excludes
     /// workspace-level persistence for this knob.
     pub selected_reasoning_effort: Option<String>,
+    /// Per-session override of the LLM SSE idle timeout (seconds).
+    /// `None` means "use the binary-wide default" (CLI flag
+    /// `--llm-idle-timeout-secs` / env `BROKK_ACP_LLM_IDLE_TIMEOUT_SECS`).
+    /// Set via `/idle-timeout <secs>`, cleared via `/idle-timeout default`.
+    /// In-memory only -- does not survive a reload.
+    pub idle_timeout_secs: Option<u64>,
     /// Concatenated AGENTS.md / CLAUDE.md content discovered under `cwd`
     /// (and the user's global config slot) at session creation or on the
     /// most recent `update_cwd`. Empty string means none found. Not
@@ -278,6 +284,7 @@ impl Session {
             permission_mode,
             always_allow_tools: HashSet::new(),
             selected_reasoning_effort: None,
+            idle_timeout_secs: None,
             project_instructions,
             skills,
             activated_skills: HashSet::new(),
@@ -328,6 +335,8 @@ impl Session {
             // reloaded zip starts at "use model default" until the
             // user picks again.
             selected_reasoning_effort: None,
+            // Same rationale: idle timeout override is in-memory only.
+            idle_timeout_secs: None,
             project_instructions,
             skills,
             activated_skills: HashSet::new(),
@@ -374,6 +383,9 @@ pub struct SessionSnapshot {
     /// `default_reasoning_level`. `None` means the model exposes no
     /// effort presets, so the backend will simply omit the field.
     pub reasoning_effort: Option<String>,
+    /// Per-session override of the LLM SSE idle timeout (seconds).
+    /// `None` means the caller should fall back to the binary-wide default.
+    pub idle_timeout_secs: Option<u64>,
     /// AGENTS.md / CLAUDE.md content discovered for this session,
     /// concatenated general -> specific. Empty when nothing is found.
     pub project_instructions: String,
@@ -1369,12 +1381,13 @@ impl SessionStore {
         // Holding both at once is unnecessary and would invite a lock
         // ordering hazard with set_model (which writes sessions then
         // reads available_models on auto-fallback).
-        let (snap_base, selected_effort, project_instructions, skills) = {
+        let (snap_base, selected_effort, idle_timeout_secs, project_instructions, skills) = {
             let sessions = self.sessions.read().await;
             let s = sessions.get(id)?;
             (
                 (s.cwd.clone(), s.mode, s.model.clone(), s.history.clone()),
                 s.selected_reasoning_effort.clone(),
+                s.idle_timeout_secs,
                 s.project_instructions.clone(),
                 s.skills.clone(),
             )
@@ -1401,6 +1414,7 @@ impl SessionStore {
             model,
             history,
             reasoning_effort,
+            idle_timeout_secs,
             project_instructions,
             skills,
         })
@@ -1612,6 +1626,20 @@ impl SessionStore {
         match sessions.get_mut(id) {
             Some(session) => {
                 session.selected_reasoning_effort = effort;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Record the user's per-session LLM idle-timeout override.
+    /// `None` clears it (back to the binary-wide default). Returns false
+    /// if the session is unknown. In-memory only -- not persisted.
+    pub async fn set_idle_timeout_secs(&self, id: &str, secs: Option<u64>) -> bool {
+        let mut sessions = self.sessions.write().await;
+        match sessions.get_mut(id) {
+            Some(session) => {
+                session.idle_timeout_secs = secs;
                 true
             }
             None => false,

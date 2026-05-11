@@ -7,18 +7,32 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-/// Maximum gap between two pieces of *meaningful* SSE progress before we
-/// abort the request. "Meaningful progress" is a parsed `data:` event
-/// that contributed content, tool-call deltas, or `[DONE]`. Comments
-/// (`:keepalive\n`), blank lines, and partial bytes that don't advance
-/// the parser do NOT reset this timer -- otherwise a server or proxy
-/// could keep us alive forever by drip-feeding pings.
+/// Default value for the `--llm-idle-timeout-secs` CLI flag (and the
+/// env var `BROKK_ACP_LLM_IDLE_TIMEOUT_SECS`). The actual value used
+/// per request is a required parameter on `LlmBackend::stream_chat` --
+/// callers cannot fall back to this implicitly.
+///
+/// Idle timeout semantics: maximum gap between two pieces of
+/// *meaningful* SSE progress before we abort the request. "Meaningful
+/// progress" is a parsed `data:` event that contributed content,
+/// tool-call deltas, or `[DONE]`. Comments (`:keepalive\n`), blank
+/// lines, and partial bytes that don't advance the parser do NOT reset
+/// this timer -- otherwise a server or proxy could keep us alive
+/// forever by drip-feeding pings.
 ///
 /// Distinct from the reqwest client's overall `.timeout()` (wall-clock).
-/// Chosen to stay above realistic reasoning-model "thinking pauses"
-/// (which still emit periodic SSE pings) and well below the 600s
-/// client timeout.
-const IDLE_CHUNK_TIMEOUT: Duration = Duration::from_secs(90);
+pub const DEFAULT_IDLE_CHUNK_TIMEOUT_SECS: u64 = 300;
+
+/// Lower bound for both the `--llm-idle-timeout-secs` CLI flag and the
+/// `/idle-timeout` slash command. 0 would mean "abort instantly", which
+/// is never useful.
+pub const MIN_IDLE_CHUNK_TIMEOUT_SECS: u64 = 1;
+
+/// Upper bound for both the `--llm-idle-timeout-secs` CLI flag and the
+/// `/idle-timeout` slash command. 24h is well above any realistic local
+/// LLM prompt processing on consumer hardware and stops a typo'd huge
+/// number from effectively disabling the stall detector.
+pub const MAX_IDLE_CHUNK_TIMEOUT_SECS: u64 = 86_400;
 
 /// Owning callback handed token deltas as the LLM streams them.
 type TokenSink = Box<dyn FnMut(&str) + Send>;
@@ -194,6 +208,11 @@ pub trait LlmBackend: Send + Sync {
     /// ignore it. `on_thought` receives chain-of-thought / reasoning
     /// text deltas separate from the assistant text on `on_token`;
     /// backends that don't surface reasoning never invoke it.
+    ///
+    /// `idle_timeout` is the maximum gap between two pieces of
+    /// meaningful SSE progress before the backend aborts the stream.
+    /// Threaded from the CLI flag `--llm-idle-timeout-secs` and the
+    /// per-session `/idle-timeout` override.
     #[allow(clippy::too_many_arguments)]
     fn stream_chat(
         &self,
@@ -204,6 +223,7 @@ pub trait LlmBackend: Send + Sync {
         on_token: Box<dyn FnMut(&str) + Send>,
         on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> BoxFuture<'_, Result<LlmResponse>>;
 }
 
@@ -378,9 +398,10 @@ impl LlmBackend for OpenAiClient {
         // No chain-of-thought stream on the Chat Completions SSE schema.
         _on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> BoxFuture<'_, Result<LlmResponse>> {
         let model = model.to_string();
-        Box::pin(self.stream_chat_impl(model, messages, tools, on_token, cancel))
+        Box::pin(self.stream_chat_impl(model, messages, tools, on_token, cancel, idle_timeout))
     }
 }
 
@@ -415,6 +436,7 @@ impl OpenAiClient {
         tools: Option<Vec<ToolDefinition>>,
         on_token: TokenSink,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> Result<LlmResponse> {
         let url = self.api_url("/chat/completions");
 
@@ -446,7 +468,7 @@ impl OpenAiClient {
             .bytes_stream()
             .map(|r| r.map(|b| b.to_vec()).map_err(anyhow::Error::from));
 
-        drive_sse_stream(stream, on_token, cancel, IDLE_CHUNK_TIMEOUT).await
+        drive_sse_stream(stream, on_token, cancel, idle_timeout).await
     }
 }
 
