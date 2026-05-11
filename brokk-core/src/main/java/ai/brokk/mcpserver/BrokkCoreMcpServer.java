@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ICodeIntelligence;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.project.CoreProject;
 import ai.brokk.tools.CodeQualityToolsMcp;
@@ -27,6 +28,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -50,10 +52,11 @@ public class BrokkCoreMcpServer {
     private SearchTools searchTools;
     private CodeQualityToolsMcp codeQualityTools;
     private Path activeWorkspaceRoot;
+    private final CountDownLatch analyzerReady = new CountDownLatch(1);
     private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
 
     public BrokkCoreMcpServer(CoreProject project, ICodeIntelligence intelligence, SearchTools searchTools) {
-        this(project, intelligence, searchTools, null);
+        this(project, intelligence, searchTools, null, true);
     }
 
     public BrokkCoreMcpServer(
@@ -61,12 +64,24 @@ public class BrokkCoreMcpServer {
             ICodeIntelligence intelligence,
             SearchTools searchTools,
             @Nullable Path mcpHistoryPath) {
+        this(project, intelligence, searchTools, mcpHistoryPath, true);
+    }
+
+    private BrokkCoreMcpServer(
+            CoreProject project,
+            ICodeIntelligence intelligence,
+            SearchTools searchTools,
+            @Nullable Path mcpHistoryPath,
+            boolean analyzerReadyAtStartup) {
         this.project = project;
         this.intelligence = intelligence;
         this.searchTools = searchTools;
         this.codeQualityTools = new CodeQualityToolsMcp(intelligence);
         this.activeWorkspaceRoot = project.getRoot();
         this.mcpToolCallHistoryWriter = mcpHistoryPath != null ? createMcpToolCallHistoryWriter(mcpHistoryPath) : null;
+        if (analyzerReadyAtStartup) {
+            analyzerReady.countDown();
+        }
     }
 
     private static @Nullable McpToolCallHistoryWriter createMcpToolCallHistoryWriter(Path historyRootDirectory) {
@@ -115,27 +130,10 @@ public class BrokkCoreMcpServer {
             var langHandle = Languages.aggregate(coreProject.getAnalyzerLanguages());
             logger.info("Detected languages: {}", langHandle.name());
 
-            IAnalyzer analyzer;
-            if (langHandle == Languages.NONE) {
-                logger.warn("No analyzable languages found in {}", projectPath);
-                analyzer = new DisabledAnalyzer(coreProject);
-            } else {
-                logger.info("Building analyzer for {}...", langHandle.name());
-                analyzer = langHandle.createAnalyzer(coreProject, (current, total, phase) -> {
-                    if (total > 0 && current % 100 == 0) {
-                        logger.info("Analyzing [{}]: {}/{} files", phase, current, total);
-                    }
-                });
-                var metrics = analyzer.getMetrics();
-                logger.info(
-                        "Analyzer ready: {} declarations across {} files",
-                        metrics.numberOfDeclarations(),
-                        metrics.numberOfCodeUnits());
-            }
-
-            var coreIntelligence = new StandaloneCodeIntelligence(coreProject, analyzer);
+            var coreIntelligence = new StandaloneCodeIntelligence(coreProject, new DisabledAnalyzer(coreProject));
             var coreSearchTools = new SearchTools(coreIntelligence);
-            var server = new BrokkCoreMcpServer(coreProject, coreIntelligence, coreSearchTools, mcpHistoryPath);
+            var server = new BrokkCoreMcpServer(coreProject, coreIntelligence, coreSearchTools, mcpHistoryPath, false);
+            Thread analyzerThread = server.startAnalyzerBuild(langHandle);
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
@@ -173,6 +171,7 @@ public class BrokkCoreMcpServer {
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
                             () -> {
+                                analyzerThread.interrupt();
                                 var s = serverRef.get();
                                 if (s != null) {
                                     s.closeGracefully();
@@ -192,6 +191,45 @@ public class BrokkCoreMcpServer {
                 coreProject.close();
             }
         }
+    }
+
+    private Thread startAnalyzerBuild(Language langHandle) {
+        var thread = Thread.ofVirtual().name("BrokkCoreMCP-AnalyzerBuild").unstarted(() -> {
+            workspaceLock.writeLock().lock();
+            try {
+                IAnalyzer analyzer;
+                if (langHandle == Languages.NONE) {
+                    logger.warn("No analyzable languages found in {}", activeWorkspaceRoot);
+                    analyzer = new DisabledAnalyzer(project);
+                } else {
+                    logger.info("Building analyzer for {}...", langHandle.name());
+                    analyzer = langHandle.createAnalyzer(project, (current, total, phase) -> {
+                        if (Thread.currentThread().isInterrupted()) {
+                            throw new IllegalStateException("Analyzer build interrupted");
+                        }
+                        if (total > 0 && current % 100 == 0) {
+                            logger.info("Analyzing [{}]: {}/{} files", phase, current, total);
+                        }
+                    });
+                    var metrics = analyzer.getMetrics();
+                    logger.info(
+                            "Analyzer ready: {} declarations across {} files",
+                            metrics.numberOfDeclarations(),
+                            metrics.numberOfCodeUnits());
+                }
+
+                this.intelligence = new StandaloneCodeIntelligence(project, analyzer);
+                this.searchTools = new SearchTools(this.intelligence);
+                this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
+            } catch (Throwable t) {
+                logger.error("Failed to build analyzer", t);
+            } finally {
+                analyzerReady.countDown();
+                workspaceLock.writeLock().unlock();
+            }
+        });
+        thread.start();
+        return thread;
     }
 
     static Path resolveProjectRoot(Path path) {
@@ -721,6 +759,7 @@ public class BrokkCoreMcpServer {
     }
 
     private McpSchema.CallToolResult withReadLock(LockedSupplier supplier) throws Exception {
+        analyzerReady.await();
         workspaceLock.readLock().lock();
         try {
             return supplier.get();
