@@ -543,6 +543,11 @@ pub fn read_skill_body(path: &Path) -> std::io::Result<String> {
 /// the SKILL.md itself and hidden files. Used by the activation path to
 /// fill the `<skill_resources>` block per the spec's structured-wrapping
 /// recommendation.
+///
+/// Paths are normalized to POSIX-style forward slashes regardless of
+/// host OS. The LLM sees these paths and passes them back to `readFile`,
+/// and the spec's examples use `/`; consistent separators across hosts
+/// avoid teaching the model platform-specific path syntax.
 pub fn list_bundled_resources(skill_dir: &Path) -> Vec<String> {
     const MAX_RESOURCES: usize = 50;
     let mut out: Vec<String> = walkdir::WalkDir::new(skill_dir)
@@ -558,12 +563,7 @@ pub fn list_bundled_resources(skill_dir: &Path) -> Vec<String> {
                 .map(|n| !n.starts_with('.'))
                 .unwrap_or(false)
         })
-        .filter_map(|e| {
-            e.path()
-                .strip_prefix(skill_dir)
-                .ok()
-                .map(|rel| rel.to_string_lossy().to_string())
-        })
+        .filter_map(|e| e.path().strip_prefix(skill_dir).ok().map(to_posix_relative))
         .take(MAX_RESOURCES + 1)
         .collect();
     out.sort();
@@ -572,6 +572,15 @@ pub fn list_bundled_resources(skill_dir: &Path) -> Vec<String> {
         out.truncate(MAX_RESOURCES);
     }
     out
+}
+
+/// Render a relative `Path` as a POSIX-style string (`/`-separated). On
+/// Unix this is just `to_string_lossy`; on Windows it swaps `\` for `/`.
+fn to_posix_relative(rel: &Path) -> String {
+    rel.components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 // ---------------------------------------------------------------------------
@@ -648,7 +657,7 @@ mod tests {
     fn missing_description_skipped_with_warning() {
         let project = TempDir::new().unwrap();
         touch_git(project.path());
-        let p = skill_at(
+        skill_at(
             project.path(),
             AGENTS_DIR,
             "broken",
@@ -668,7 +677,14 @@ mod tests {
                     reg.diagnostics()
                 )
             });
-        assert!(diag.contains(&p.display().to_string()));
+        // Compare on the skill folder name only -- the absolute path in
+        // the diagnostic differs by canonicalization on darwin
+        // (`/var` -> `/private/var`) and uses `\` on windows.
+        assert!(
+            diag.contains("broken"),
+            "diagnostic should reference the skill folder name: {diag}"
+        );
+        assert!(diag.contains(SKILL_FILE));
     }
 
     #[test]
@@ -795,16 +811,15 @@ mod tests {
             .iter()
             .find(|d| d.contains("dup"))
             .expect("expected duplicate diagnostic");
-        // Diagnostic carries both vendor-dir paths; compare on the stable
-        // suffix so /var vs /private/var on darwin doesn't matter.
-        let claude_suffix = format!("{CLAUDE_DIR}/{SKILLS_SUBDIR}/dup/{SKILL_FILE}");
-        let agents_suffix = format!("{AGENTS_DIR}/{SKILLS_SUBDIR}/dup/{SKILL_FILE}");
+        // Diagnostic carries both vendor-dir paths; assert on the vendor
+        // and skill-folder names only -- absolute paths differ by darwin
+        // canonicalization and by `\` vs `/` on windows.
         assert!(
-            diag.contains(&claude_suffix),
+            diag.contains(CLAUDE_DIR) && diag.contains("dup"),
             "diag missing claude path: {diag}"
         );
         assert!(
-            diag.contains(&agents_suffix),
+            diag.contains(AGENTS_DIR) && diag.contains("dup"),
             "diag missing agents path: {diag}"
         );
     }
