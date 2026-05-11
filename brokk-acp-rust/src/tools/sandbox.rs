@@ -545,7 +545,22 @@ pub fn discover_sandbox_path() -> String {
         push((*abs).to_string());
     }
 
-    entries.join(":")
+    // Use the platform's native PATH separator (`:` on Unix, `;` on Windows).
+    // The sandbox itself is Unix-only, but `discover_sandbox_path` is called
+    // unconditionally from `shell.rs::run_shell_command`, so on Windows CI
+    // the function must still produce a syntactically valid PATH string.
+    // `join_paths` returns Err only when an entry already contains the
+    // separator; we fall back to a hand-joined string in that case rather
+    // than panicking, since the offending entry would have been silently
+    // dropped from the result anyway.
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    match std::env::join_paths(&entries) {
+        Ok(joined) => joined.to_string_lossy().into_owned(),
+        Err(e) => {
+            tracing::warn!(error = %e, "join_paths failed; falling back to naive join");
+            entries.join(sep)
+        }
+    }
 }
 
 /// A `~`-relative tool dir is safe iff: it exists as a directory, is owned
@@ -1040,17 +1055,30 @@ mod tests {
         }
     }
 
+    /// Acquire `SANDBOX_ENV_LOCK` even if a prior test panicked while
+    /// holding it. The lock protects against parallel env-var mutation,
+    /// not shared in-memory state, so a panic in one test never corrupts
+    /// anything observable here — unpoisoning is the right call.
+    fn sandbox_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        SANDBOX_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn discover_sandbox_path_includes_static_fallback() {
         // With no override, the result must always contain the static
         // fallback dirs so the existing behavior is a strict subset of
         // the new behavior.
-        let _g = SANDBOX_ENV_LOCK.lock().unwrap();
+        let _g = sandbox_env_lock();
         let _clear = SandboxEnvGuard::unset(BROKK_ACP_PATH_ENV);
         let path = discover_sandbox_path();
+        let entries: Vec<String> = std::env::split_paths(&path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
         for fallback in ["/usr/local/bin", "/usr/bin", "/bin"] {
             assert!(
-                path.split(':').any(|p| p == fallback),
+                entries.iter().any(|p| p == fallback),
                 "fallback '{fallback}' missing from discovered PATH '{path}'"
             );
         }
@@ -1059,22 +1087,26 @@ mod tests {
     #[test]
     fn discover_sandbox_path_de_duplicates_entries() {
         // No entry should appear twice even when the parent PATH overlaps
-        // with our static fallback or with home tool dirs.
-        let _g = SANDBOX_ENV_LOCK.lock().unwrap();
+        // with our static fallback or with home tool dirs. Use
+        // `split_paths` (not `split(':')`) so this works on Windows CI,
+        // where the platform separator is `;` and Unix-style `:` splitting
+        // breaks `D:\a\...` paths into spurious `D` fragments.
+        let _g = sandbox_env_lock();
         let _clear = SandboxEnvGuard::unset(BROKK_ACP_PATH_ENV);
         let path = discover_sandbox_path();
         let mut seen = std::collections::HashSet::new();
-        for entry in path.split(':') {
+        for entry in std::env::split_paths(&path) {
+            let s = entry.to_string_lossy().into_owned();
             assert!(
-                seen.insert(entry),
-                "PATH entry '{entry}' is duplicated: '{path}'"
+                seen.insert(s.clone()),
+                "PATH entry '{s}' is duplicated: '{path}'"
             );
         }
     }
 
     #[test]
     fn discover_sandbox_path_brokk_acp_path_override_returns_verbatim() {
-        let _g = SANDBOX_ENV_LOCK.lock().unwrap();
+        let _g = sandbox_env_lock();
         let _set = SandboxEnvGuard::set(BROKK_ACP_PATH_ENV, "/custom/bin:/another/bin");
         let path = discover_sandbox_path();
         assert_eq!(path, "/custom/bin:/another/bin");
@@ -1085,11 +1117,14 @@ mod tests {
         // A whitespace-only or empty BROKK_ACP_PATH must not short-circuit
         // discovery -- otherwise an `export BROKK_ACP_PATH=` in a parent
         // shell wipes the user's PATH inside the sandbox.
-        let _g = SANDBOX_ENV_LOCK.lock().unwrap();
+        let _g = sandbox_env_lock();
         let _set = SandboxEnvGuard::set(BROKK_ACP_PATH_ENV, "   ");
         let path = discover_sandbox_path();
+        let entries: Vec<String> = std::env::split_paths(&path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
         assert!(
-            path.split(':').any(|p| p == "/usr/bin"),
+            entries.iter().any(|p| p == "/usr/bin"),
             "empty override must fall through to discovery, got '{path}'"
         );
     }
