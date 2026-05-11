@@ -167,7 +167,7 @@ pub(crate) async fn run(
     session_id: String,
     sessions: SessionStore,
 ) -> (String, Vec<ToolExchange>) {
-    let tools: Vec<ToolDefinition> = registry.tool_definitions();
+    let tools: Vec<ToolDefinition> = registry.tool_definitions().await;
     let mut full_response = String::new();
     // Captured per-call so the caller can persist them with the turn (#3409),
     // letting a `session/load` re-feed the LLM the same tool context the

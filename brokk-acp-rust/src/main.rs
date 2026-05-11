@@ -13,6 +13,7 @@ mod discovery;
 mod llm_client;
 mod multi_backend;
 mod session;
+mod skills;
 mod tool_loop;
 mod tools;
 

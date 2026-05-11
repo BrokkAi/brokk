@@ -230,6 +230,19 @@ pub struct Session {
     /// file on disk rather than a stale snapshot from when the session
     /// was first created.
     pub project_instructions: String,
+    /// Agent Skills discovered for this session's cwd plus the user's
+    /// home dir. Wrapped in `Arc` so `SessionSnapshot::clone()` stays
+    /// cheap (the registry can hold dozens of skills with their
+    /// descriptions). Refreshed on cwd change just like
+    /// `project_instructions`.
+    pub skills: Arc<crate::skills::SkillRegistry>,
+    /// Names of skills the harness has already injected into the
+    /// conversation context during this session. Used by the
+    /// `activate_skill` tool to skip re-injection (the spec's "Deduplicate
+    /// activations" recommendation). In-memory only; intentionally not
+    /// persisted -- on reload the model re-reads the catalog and decides
+    /// fresh which skills to activate.
+    pub activated_skills: HashSet<String>,
 }
 
 impl Session {
@@ -254,6 +267,7 @@ impl Session {
             },
         };
         let project_instructions = crate::agents_md::discover(&cwd);
+        let skills = Arc::new(crate::skills::discover(&cwd));
         Self {
             id,
             cwd,
@@ -265,6 +279,8 @@ impl Session {
             always_allow_tools: HashSet::new(),
             selected_reasoning_effort: None,
             project_instructions,
+            skills,
+            activated_skills: HashSet::new(),
         }
     }
 
@@ -297,6 +313,7 @@ impl Session {
             });
         }
         let project_instructions = crate::agents_md::discover(&cwd);
+        let skills = Arc::new(crate::skills::discover(&cwd));
         Ok(Self {
             id,
             cwd,
@@ -312,6 +329,8 @@ impl Session {
             // user picks again.
             selected_reasoning_effort: None,
             project_instructions,
+            skills,
+            activated_skills: HashSet::new(),
         })
     }
 }
@@ -358,6 +377,9 @@ pub struct SessionSnapshot {
     /// AGENTS.md / CLAUDE.md content discovered for this session,
     /// concatenated general -> specific. Empty when nothing is found.
     pub project_instructions: String,
+    /// Agent Skills (`SKILL.md`) discovered for this session. Wrapped
+    /// in `Arc` so cloning the snapshot doesn't copy the registry.
+    pub skills: Arc<crate::skills::SkillRegistry>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1157,16 +1179,30 @@ impl SessionStore {
 
     /// Return the cached ToolRegistry for `session_id`, or build one and cache it.
     /// `bifrost_binary` is consulted only on the first call for a given session.
+    ///
+    /// On cache hit we push the latest `SkillRegistry` into the cached
+    /// `ToolRegistry` so the `activate_skill` tool's enum reflects any
+    /// skills added/removed since the last prompt (the session may have
+    /// fired `update_cwd` between turns).
     pub async fn get_or_create_registry(
         &self,
         session_id: &str,
         cwd: PathBuf,
         bifrost_binary: Option<&Path>,
     ) -> Arc<ToolRegistry> {
+        let skills = self
+            .sessions
+            .read()
+            .await
+            .get(session_id)
+            .map(|s| s.skills.clone())
+            .unwrap_or_else(|| Arc::new(crate::skills::SkillRegistry::default()));
+
         if let Some(existing) = self.registries.read().await.get(session_id).cloned() {
+            existing.set_skills(skills).await;
             return existing;
         }
-        let registry = Arc::new(ToolRegistry::new(cwd, bifrost_binary).await);
+        let registry = Arc::new(ToolRegistry::new(cwd, bifrost_binary, skills).await);
         self.registries
             .write()
             .await
@@ -1333,13 +1369,14 @@ impl SessionStore {
         // Holding both at once is unnecessary and would invite a lock
         // ordering hazard with set_model (which writes sessions then
         // reads available_models on auto-fallback).
-        let (snap_base, selected_effort, project_instructions) = {
+        let (snap_base, selected_effort, project_instructions, skills) = {
             let sessions = self.sessions.read().await;
             let s = sessions.get(id)?;
             (
                 (s.cwd.clone(), s.mode, s.model.clone(), s.history.clone()),
                 s.selected_reasoning_effort.clone(),
                 s.project_instructions.clone(),
+                s.skills.clone(),
             )
         };
         let (cwd, mode, model, history) = snap_base;
@@ -1365,18 +1402,38 @@ impl SessionStore {
             history,
             reasoning_effort,
             project_instructions,
+            skills,
         })
     }
 
     pub async fn update_cwd(&self, id: &str, cwd: PathBuf) {
-        // Re-discover AGENTS.md/CLAUDE.md against the new cwd before
-        // taking the write lock: file I/O off the lock keeps prompt
-        // turns and other session mutations unblocked. The discovery
-        // result is then swapped in atomically alongside the cwd.
+        // Re-discover AGENTS.md/CLAUDE.md AND SKILL.md against the new
+        // cwd before taking the write lock: file I/O off the lock keeps
+        // prompt turns and other session mutations unblocked. The
+        // discovery results are then swapped in atomically alongside
+        // the cwd.
         let project_instructions = crate::agents_md::discover(&cwd);
+        let skills = Arc::new(crate::skills::discover(&cwd));
         if let Some(session) = self.sessions.write().await.get_mut(id) {
             session.cwd = cwd;
             session.project_instructions = project_instructions;
+            session.skills = skills;
+            // cwd changed -> previously-activated skills may no longer
+            // be relevant. Clear so the model can re-activate against
+            // the new catalog without stale dedup entries.
+            session.activated_skills.clear();
+        }
+    }
+
+    /// Mark a skill as activated for this session so the
+    /// `activate_skill` tool can short-circuit a re-injection. Returns
+    /// `true` if the name was inserted, `false` if it was already
+    /// present or the session is unknown.
+    pub async fn mark_skill_activated(&self, id: &str, name: &str) -> bool {
+        let mut sessions = self.sessions.write().await;
+        match sessions.get_mut(id) {
+            Some(s) => s.activated_skills.insert(name.to_string()),
+            None => false,
         }
     }
 
