@@ -1,4 +1,4 @@
-//! AGENTS.md / CLAUDE.md discovery for the ACP system prompt.
+//! AGENTS.md / CLAUDE.md discovery for the ACP prompt context.
 //!
 //! Honors the [agents.md](https://agents.md/) open convention plus the
 //! global-config proposal at <https://github.com/agentsmd/agents.md/issues/91>.
@@ -40,15 +40,16 @@ pub fn discover(cwd: &Path) -> String {
 }
 
 fn discover_inner(cwd: &Path, global: Option<(PathBuf, String)>) -> String {
+    let cwd = normalize_path(cwd);
     let mut slots: Vec<(PathBuf, String)> = Vec::new();
 
     if let Some(slot) = global {
         slots.push(slot);
     }
 
-    let git_root = find_git_root(cwd);
-    let dir_chain = build_dir_chain(cwd, git_root.as_deref());
-    let display_base = git_root.as_deref().unwrap_or(cwd);
+    let git_root = find_git_root(&cwd);
+    let dir_chain = build_dir_chain(&cwd, git_root.as_deref());
+    let display_base = git_root.as_deref().unwrap_or(&cwd);
     for dir in dir_chain {
         if let Some((path, content)) = read_preferred(&dir) {
             slots.push((path, content));
@@ -149,6 +150,10 @@ fn find_git_root(start: &Path) -> Option<PathBuf> {
     None
 }
 
+fn normalize_path(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
 fn read_preferred(dir: &Path) -> Option<(PathBuf, String)> {
     if let Some(hit) = read_if_exists(&dir.join(PRIMARY)) {
         return Some(hit);
@@ -157,6 +162,19 @@ fn read_preferred(dir: &Path) -> Option<(PathBuf, String)> {
 }
 
 fn read_if_exists(path: &Path) -> Option<(PathBuf, String)> {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => return None,
+        Err(e) if e.kind() == ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                "AGENTS.md candidate metadata is unreadable: {e}"
+            );
+            return None;
+        }
+    }
+
     match std::fs::read_to_string(path) {
         Ok(content) => Some((path.to_path_buf(), content)),
         Err(e) if e.kind() == ErrorKind::NotFound => None,
@@ -280,6 +298,27 @@ mod tests {
         assert!(out.contains("CLAUDE.md"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn ignores_special_agents_file_and_reads_fallback() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+
+        let tmp = TempDir::new().unwrap();
+        touch_git(tmp.path());
+        let fifo = tmp.path().join(PRIMARY);
+        let c_path = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        let rc = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
+        assert_eq!(rc, 0);
+        write(&tmp.path().join(FALLBACK), "fallback rule");
+
+        let out = discover_inner(tmp.path(), None);
+
+        assert!(out.contains("fallback rule"));
+        assert!(out.contains(FALLBACK));
+        assert!(!out.contains(PRIMARY));
+    }
+
     #[test]
     fn prefers_agents_when_both_present_in_same_dir() {
         let tmp = TempDir::new().unwrap();
@@ -309,6 +348,29 @@ mod tests {
         assert!(
             root_pos < leaf_pos,
             "expected root before leaf (general -> specific); got:\n{out}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn canonicalizes_symlinked_cwd_before_git_root_walk() {
+        use std::os::unix::fs::symlink;
+
+        let repo = TempDir::new().unwrap();
+        touch_git(repo.path());
+        write(&repo.path().join(PRIMARY), "root rule");
+        let real_subdir = repo.path().join("a").join("b");
+        fs::create_dir_all(&real_subdir).unwrap();
+
+        let links = TempDir::new().unwrap();
+        let linked_cwd = links.path().join("linked-cwd");
+        symlink(&real_subdir, &linked_cwd).unwrap();
+
+        let out = discover_inner(&linked_cwd, None);
+
+        assert!(
+            out.contains("root rule"),
+            "symlinked cwd should discover the real repo root; got:\n{out}"
         );
     }
 

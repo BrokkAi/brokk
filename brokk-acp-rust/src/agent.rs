@@ -1084,16 +1084,22 @@ fn send_thought(cx: &ConnectionTo<Client>, session_id: &str, text: &str) {
 
 /// Build a system prompt based on the current session mode and working directory.
 /// Build the `Vec<ChatMessage>` to send to the LLM for a fresh prompt:
-/// system prompt, then replayed history (with tool exchanges, #3409),
-/// then the new user prompt. Pure -- exposed for unit testing the
+/// system prompt, optional project instruction context, then replayed
+/// history (with tool exchanges, #3409), then the new user prompt.
+/// Pure -- exposed for unit testing the
 /// replay shape without spinning up an LLM.
 fn build_prompt_messages(snap: &SessionSnapshot, new_prompt: &str) -> Vec<ChatMessage> {
-    let mut messages = Vec::with_capacity(snap.history.len() * 2 + 2);
+    let mut messages = Vec::with_capacity(snap.history.len() * 2 + 3);
     messages.push(ChatMessage::system(build_system_prompt(
-        &snap.mode,
-        &snap.cwd,
-        &snap.project_instructions,
+        &snap.mode, &snap.cwd,
     )));
+    if !snap.project_instructions.is_empty() {
+        messages.push(ChatMessage::user(format!(
+            "# AGENTS.md instructions for {}\n\n<INSTRUCTIONS>\n{}\n</INSTRUCTIONS>",
+            snap.cwd.display(),
+            snap.project_instructions
+        )));
+    }
     for turn in &snap.history {
         messages.push(ChatMessage::user(turn.user_prompt.clone()));
 
@@ -1154,22 +1160,12 @@ fn build_prompt_messages(snap: &SessionSnapshot, new_prompt: &str) -> Vec<ChatMe
     messages
 }
 
-fn build_system_prompt(mode: &SessionMode, cwd: &Path, project_instructions: &str) -> String {
+fn build_system_prompt(mode: &SessionMode, cwd: &Path) -> String {
     let cwd_context = format!(
         "The user's working directory is: {}\n\
          All file paths should be interpreted relative to this directory.\n\n",
         cwd.display()
     );
-
-    // Position project instructions between cwd context and the mode role
-    // so the assembled prompt reads: "you are in X / the project says Y /
-    // your role is Z" -- matching the AGENTS.md spec intent that project
-    // rules override generic defaults.
-    let project_block = if project_instructions.is_empty() {
-        String::new()
-    } else {
-        format!("Project instructions (AGENTS.md):\n{project_instructions}\n\n")
-    };
 
     let mode_prompt = match mode {
         SessionMode::Lutz => {
@@ -1191,7 +1187,7 @@ fn build_system_prompt(mode: &SessionMode, cwd: &Path, project_instructions: &st
         }
     };
 
-    format!("{cwd_context}{project_block}{mode_prompt}")
+    format!("{cwd_context}{mode_prompt}")
 }
 
 /// Returns true when `prompt_text` invokes the slash command `name`,
@@ -1485,7 +1481,7 @@ mod tests {
             (SessionMode::Ask, "Answer questions about code"),
             (SessionMode::Plan, "focused on planning"),
         ] {
-            let prompt = build_system_prompt(&mode, cwd, "");
+            let prompt = build_system_prompt(&mode, cwd);
             assert!(
                 prompt.contains("/tmp/some-cwd") || prompt.contains("\\tmp\\some-cwd"),
                 "system prompt for {mode:?} must embed the cwd, got: {prompt}"
@@ -1661,6 +1657,38 @@ mod tests {
         assert_eq!(msgs[0].role, "system");
         assert_eq!(msgs[1].role, "user");
         assert_eq!(msgs[1].content.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn build_prompt_messages_puts_project_instructions_in_user_context() {
+        use crate::session::SessionSnapshot;
+        let snap = SessionSnapshot {
+            cwd: std::path::PathBuf::from("/tmp/cwd"),
+            mode: SessionMode::Code,
+            model: "m".into(),
+            history: vec![],
+            reasoning_effort: None,
+            project_instructions: "Use the local style.".into(),
+        };
+
+        let msgs = build_prompt_messages(&snap, "hi");
+
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].role, "system");
+        assert!(
+            !msgs[0]
+                .content
+                .as_deref()
+                .expect("system prompt")
+                .contains("Use the local style."),
+            "project-controlled AGENTS.md content must not be system instructions"
+        );
+        assert_eq!(msgs[1].role, "user");
+        let project_context = msgs[1].content.as_deref().expect("project context");
+        assert!(project_context.starts_with("# AGENTS.md instructions for "));
+        assert!(project_context.contains("<INSTRUCTIONS>\nUse the local style.\n</INSTRUCTIONS>"));
+        assert_eq!(msgs[2].role, "user");
+        assert_eq!(msgs[2].content.as_deref(), Some("hi"));
     }
 
     /// A turn that ended without final assistant text (e.g. tool_loop hit
