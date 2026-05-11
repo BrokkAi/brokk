@@ -8,9 +8,6 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
-import java.nio.file.FileSystems;
-import java.nio.file.Path;
-import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -86,16 +83,15 @@ public final class AlmostGrep {
     public record FileContentSearchResult(String output, int matches) {}
 
     public static List<ProjectFile> findProjectTextFilesByGlob(Set<ProjectFile> allFiles, String globPattern) {
-        PathMatcher matcher = compileGlobPathMatcher(globPattern);
+        // Use FilenamePatternMatcher's glob-to-regex so directory-prefix patterns like
+        // "dir/**/*" also match top-level files in "dir/" (Java's strict glob: PathMatcher
+        // requires at least one intermediate segment after **/, which surprises LLM clients).
+        var regex = FilenamePatternMatcher.globToRegex(toUnixPath(globPattern));
         return allFiles.stream()
                 .filter(ProjectFile::isText)
-                .filter(file -> matcher.matches(Path.of(toUnixPath(file.toString()))))
+                .filter(file -> regex.matcher(toUnixPath(file.toString())).matches())
                 .sorted()
                 .toList();
-    }
-
-    private static PathMatcher compileGlobPathMatcher(String pattern) {
-        return FileSystems.getDefault().getPathMatcher("glob:" + toUnixPath(pattern));
     }
 
     public static FindFilesContainingResult findFilesContainingPatterns(
