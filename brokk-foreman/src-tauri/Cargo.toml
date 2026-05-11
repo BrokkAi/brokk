@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Cross-platform issue manager and ACP client for any Agent Client Protocol agent"
+description = "Cross-platform desktop ACP client for any Agent Client Protocol agent"
 
 [lib]
 name = "brokk_foreman_lib"
@@ -33,9 +33,8 @@ futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# HTTP (registry CDN, GitHub via octocrab, Jira)
+# HTTP (registry CDN)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
-octocrab = { version = "0.50", default-features = false, features = ["rustls", "rustls-ring", "jwt-rust-crypto"] }
 
 # Storage
 rusqlite = { version = "0.36", features = ["bundled"] }

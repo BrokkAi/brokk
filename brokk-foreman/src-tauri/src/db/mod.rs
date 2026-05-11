@@ -103,16 +103,28 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap();
-        for expected in [
-            "agents",
-            "blocking_edges",
-            "config_kv",
-            "issues",
-            "sessions",
-        ] {
+        for expected in ["agents", "config_kv"] {
             assert!(
                 names.iter().any(|n| n == expected),
                 "missing table {expected}; got {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn schema_drops_deferred_tables() {
+        let conn = open_in_memory().unwrap();
+        let names: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        for deferred in ["issues", "blocking_edges", "sessions"] {
+            assert!(
+                !names.iter().any(|n| n == deferred),
+                "v1 schema must not include deferred table {deferred}; got {names:?}"
             );
         }
     }
@@ -138,32 +150,12 @@ mod tests {
     }
 
     #[test]
-    fn fk_cascade_actually_fires() {
+    fn foreign_keys_pragma_is_on() {
         let conn = open_in_memory().unwrap();
-        conn.execute(
-            "INSERT INTO issues(id, provider, external_key, title, imported_at, updated_at) \
-             VALUES ('github:42', 'github', '42', 'a', 0, 0)",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO issues(id, provider, external_key, title, imported_at, updated_at) \
-             VALUES ('github:43', 'github', '43', 'b', 0, 0)",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO blocking_edges(blocker_id, blocked_id, computed_at) \
-             VALUES ('github:42', 'github:43', 0)",
-            [],
-        )
-        .unwrap();
-        conn.execute("DELETE FROM issues WHERE id = 'github:42'", [])
+        let on: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
             .unwrap();
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM blocking_edges", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(count, 0);
+        assert_eq!(on, 1, "foreign_keys pragma must be enabled per connection");
     }
 
     #[test]
