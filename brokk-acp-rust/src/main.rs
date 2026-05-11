@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::Parser;
 
 mod agent;
+mod agents_md;
 mod bifrost_client;
 mod codex_auth;
 mod codex_client;

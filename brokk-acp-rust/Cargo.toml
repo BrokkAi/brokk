@@ -61,3 +61,7 @@ tokio = { version = "1", features = ["test-util"] }
 # extraction, mirroring what `brokk-code/brokk_code/rust_acp_install.py`
 # already does for the production install path.
 sha2 = "0.10"
+# Used by `agents_md` tests to build throwaway project trees (`.git`
+# marker + AGENTS.md/CLAUDE.md fixtures) without polluting the working
+# directory.
+tempfile = "3"

@@ -1090,7 +1090,9 @@ fn send_thought(cx: &ConnectionTo<Client>, session_id: &str, text: &str) {
 fn build_prompt_messages(snap: &SessionSnapshot, new_prompt: &str) -> Vec<ChatMessage> {
     let mut messages = Vec::with_capacity(snap.history.len() * 2 + 2);
     messages.push(ChatMessage::system(build_system_prompt(
-        &snap.mode, &snap.cwd,
+        &snap.mode,
+        &snap.cwd,
+        &snap.project_instructions,
     )));
     for turn in &snap.history {
         messages.push(ChatMessage::user(turn.user_prompt.clone()));
@@ -1152,12 +1154,22 @@ fn build_prompt_messages(snap: &SessionSnapshot, new_prompt: &str) -> Vec<ChatMe
     messages
 }
 
-fn build_system_prompt(mode: &SessionMode, cwd: &Path) -> String {
+fn build_system_prompt(mode: &SessionMode, cwd: &Path, project_instructions: &str) -> String {
     let cwd_context = format!(
         "The user's working directory is: {}\n\
          All file paths should be interpreted relative to this directory.\n\n",
         cwd.display()
     );
+
+    // Position project instructions between cwd context and the mode role
+    // so the assembled prompt reads: "you are in X / the project says Y /
+    // your role is Z" -- matching the AGENTS.md spec intent that project
+    // rules override generic defaults.
+    let project_block = if project_instructions.is_empty() {
+        String::new()
+    } else {
+        format!("Project instructions (AGENTS.md):\n{project_instructions}\n\n")
+    };
 
     let mode_prompt = match mode {
         SessionMode::Lutz => {
@@ -1179,7 +1191,7 @@ fn build_system_prompt(mode: &SessionMode, cwd: &Path) -> String {
         }
     };
 
-    format!("{cwd_context}{mode_prompt}")
+    format!("{cwd_context}{project_block}{mode_prompt}")
 }
 
 /// Returns true when `prompt_text` invokes the slash command `name`,
@@ -1473,7 +1485,7 @@ mod tests {
             (SessionMode::Ask, "Answer questions about code"),
             (SessionMode::Plan, "focused on planning"),
         ] {
-            let prompt = build_system_prompt(&mode, cwd);
+            let prompt = build_system_prompt(&mode, cwd, "");
             assert!(
                 prompt.contains("/tmp/some-cwd") || prompt.contains("\\tmp\\some-cwd"),
                 "system prompt for {mode:?} must embed the cwd, got: {prompt}"
@@ -1502,6 +1514,7 @@ mod tests {
                 ..Default::default()
             }],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let report = render_context_report(&snap, PermissionMode::AcceptEdits, &["gpt-99".into()]);
 
@@ -1525,6 +1538,7 @@ mod tests {
             model: String::new(),
             history: vec![],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let report = render_context_report(&snap, PermissionMode::Default, &[]);
         assert!(report.contains("Model: `(none)`"));
@@ -1548,6 +1562,7 @@ mod tests {
                 ..Default::default()
             }],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "follow up");
         // system + user(history) + assistant(history) + user(new)
@@ -1591,6 +1606,7 @@ mod tests {
                 ],
             }],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "now fix them");
 
@@ -1638,6 +1654,7 @@ mod tests {
             model: "m".into(),
             history: vec![],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "hi");
         assert_eq!(msgs.len(), 2);
@@ -1672,6 +1689,7 @@ mod tests {
                 }],
             }],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "next");
 
