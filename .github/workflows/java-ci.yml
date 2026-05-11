@@ -6,15 +6,19 @@ on:
     paths-ignore:
       - 'brokk-code/**'
       - 'brokk-acp-rust/**'
+      - 'brokk-tui-rust/**'
       - '.github/workflows/brokk-code-ci.yml'
       - '.github/workflows/rust-acp.yml'
+      - '.github/workflows/brokk-tui-ci.yml'
   pull_request:
     branches: [ 'master' ]
     paths-ignore:
       - 'brokk-code/**'
       - 'brokk-acp-rust/**'
+      - 'brokk-tui-rust/**'
       - '.github/workflows/brokk-code-ci.yml'
       - '.github/workflows/rust-acp.yml'
+      - '.github/workflows/brokk-tui-ci.yml'
 
 jobs:
   test:
