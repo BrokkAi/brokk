@@ -1084,14 +1084,22 @@ fn send_thought(cx: &ConnectionTo<Client>, session_id: &str, text: &str) {
 
 /// Build a system prompt based on the current session mode and working directory.
 /// Build the `Vec<ChatMessage>` to send to the LLM for a fresh prompt:
-/// system prompt, then replayed history (with tool exchanges, #3409),
-/// then the new user prompt. Pure -- exposed for unit testing the
+/// system prompt, optional project instruction context, then replayed
+/// history (with tool exchanges, #3409), then the new user prompt.
+/// Pure -- exposed for unit testing the
 /// replay shape without spinning up an LLM.
 fn build_prompt_messages(snap: &SessionSnapshot, new_prompt: &str) -> Vec<ChatMessage> {
-    let mut messages = Vec::with_capacity(snap.history.len() * 2 + 2);
+    let mut messages = Vec::with_capacity(snap.history.len() * 2 + 3);
     messages.push(ChatMessage::system(build_system_prompt(
         &snap.mode, &snap.cwd,
     )));
+    if !snap.project_instructions.is_empty() {
+        messages.push(ChatMessage::user(format!(
+            "# AGENTS.md instructions for {}\n\n<INSTRUCTIONS>\n{}\n</INSTRUCTIONS>",
+            snap.cwd.display(),
+            snap.project_instructions
+        )));
+    }
     for turn in &snap.history {
         messages.push(ChatMessage::user(turn.user_prompt.clone()));
 
@@ -1502,6 +1510,7 @@ mod tests {
                 ..Default::default()
             }],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let report = render_context_report(&snap, PermissionMode::AcceptEdits, &["gpt-99".into()]);
 
@@ -1525,6 +1534,7 @@ mod tests {
             model: String::new(),
             history: vec![],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let report = render_context_report(&snap, PermissionMode::Default, &[]);
         assert!(report.contains("Model: `(none)`"));
@@ -1548,6 +1558,7 @@ mod tests {
                 ..Default::default()
             }],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "follow up");
         // system + user(history) + assistant(history) + user(new)
@@ -1591,6 +1602,7 @@ mod tests {
                 ],
             }],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "now fix them");
 
@@ -1638,12 +1650,45 @@ mod tests {
             model: "m".into(),
             history: vec![],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "hi");
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].role, "system");
         assert_eq!(msgs[1].role, "user");
         assert_eq!(msgs[1].content.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn build_prompt_messages_puts_project_instructions_in_user_context() {
+        use crate::session::SessionSnapshot;
+        let snap = SessionSnapshot {
+            cwd: std::path::PathBuf::from("/tmp/cwd"),
+            mode: SessionMode::Code,
+            model: "m".into(),
+            history: vec![],
+            reasoning_effort: None,
+            project_instructions: "Use the local style.".into(),
+        };
+
+        let msgs = build_prompt_messages(&snap, "hi");
+
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].role, "system");
+        assert!(
+            !msgs[0]
+                .content
+                .as_deref()
+                .expect("system prompt")
+                .contains("Use the local style."),
+            "project-controlled AGENTS.md content must not be system instructions"
+        );
+        assert_eq!(msgs[1].role, "user");
+        let project_context = msgs[1].content.as_deref().expect("project context");
+        assert!(project_context.starts_with("# AGENTS.md instructions for "));
+        assert!(project_context.contains("<INSTRUCTIONS>\nUse the local style.\n</INSTRUCTIONS>"));
+        assert_eq!(msgs[2].role, "user");
+        assert_eq!(msgs[2].content.as_deref(), Some("hi"));
     }
 
     /// A turn that ended without final assistant text (e.g. tool_loop hit
@@ -1672,6 +1717,7 @@ mod tests {
                 }],
             }],
             reasoning_effort: None,
+            project_instructions: String::new(),
         };
         let msgs = build_prompt_messages(&snap, "next");
 

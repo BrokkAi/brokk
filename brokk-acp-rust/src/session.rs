@@ -223,6 +223,13 @@ pub struct Session {
     /// In-memory only -- the issue scope explicitly excludes
     /// workspace-level persistence for this knob.
     pub selected_reasoning_effort: Option<String>,
+    /// Concatenated AGENTS.md / CLAUDE.md content discovered under `cwd`
+    /// (and the user's global config slot) at session creation or on the
+    /// most recent `update_cwd`. Empty string means none found. Not
+    /// persisted -- re-discovered on load so the prompt sees the current
+    /// file on disk rather than a stale snapshot from when the session
+    /// was first created.
+    pub project_instructions: String,
 }
 
 impl Session {
@@ -246,6 +253,7 @@ impl Session {
                 Some(model.clone())
             },
         };
+        let project_instructions = crate::agents_md::discover(&cwd);
         Self {
             id,
             cwd,
@@ -256,6 +264,7 @@ impl Session {
             permission_mode,
             always_allow_tools: HashSet::new(),
             selected_reasoning_effort: None,
+            project_instructions,
         }
     }
 
@@ -287,6 +296,7 @@ impl Session {
                 loaded: manifest.id,
             });
         }
+        let project_instructions = crate::agents_md::discover(&cwd);
         Ok(Self {
             id,
             cwd,
@@ -301,6 +311,7 @@ impl Session {
             // reloaded zip starts at "use model default" until the
             // user picks again.
             selected_reasoning_effort: None,
+            project_instructions,
         })
     }
 }
@@ -344,6 +355,9 @@ pub struct SessionSnapshot {
     /// `default_reasoning_level`. `None` means the model exposes no
     /// effort presets, so the backend will simply omit the field.
     pub reasoning_effort: Option<String>,
+    /// AGENTS.md / CLAUDE.md content discovered for this session,
+    /// concatenated general -> specific. Empty when nothing is found.
+    pub project_instructions: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -1319,12 +1333,13 @@ impl SessionStore {
         // Holding both at once is unnecessary and would invite a lock
         // ordering hazard with set_model (which writes sessions then
         // reads available_models on auto-fallback).
-        let (snap_base, selected_effort) = {
+        let (snap_base, selected_effort, project_instructions) = {
             let sessions = self.sessions.read().await;
             let s = sessions.get(id)?;
             (
                 (s.cwd.clone(), s.mode, s.model.clone(), s.history.clone()),
                 s.selected_reasoning_effort.clone(),
+                s.project_instructions.clone(),
             )
         };
         let (cwd, mode, model, history) = snap_base;
@@ -1349,12 +1364,19 @@ impl SessionStore {
             model,
             history,
             reasoning_effort,
+            project_instructions,
         })
     }
 
     pub async fn update_cwd(&self, id: &str, cwd: PathBuf) {
+        // Re-discover AGENTS.md/CLAUDE.md against the new cwd before
+        // taking the write lock: file I/O off the lock keeps prompt
+        // turns and other session mutations unblocked. The discovery
+        // result is then swapped in atomically alongside the cwd.
+        let project_instructions = crate::agents_md::discover(&cwd);
         if let Some(session) = self.sessions.write().await.get_mut(id) {
             session.cwd = cwd;
+            session.project_instructions = project_instructions;
         }
     }
 
