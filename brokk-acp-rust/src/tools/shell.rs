@@ -16,6 +16,12 @@ const SANDBOX_BYPASS_WARNING: &str = "[WARNING] OS sandbox unavailable on this p
 /// tool is installed somewhere we didn't auto-discover. Helps the LLM and
 /// the user disambiguate "tool missing" from "PATH layout problem" without
 /// either side having to grep the source.
+///
+/// Unix-only: 127 is POSIX-specific ("command not found" from `sh`), the
+/// sandbox PATH discovery is Unix-only, and `BROKK_ACP_PATH` only has an
+/// effect on Unix. On Windows the same exit code can mean unrelated things
+/// from `cmd.exe`/PowerShell-launched children, so we don't surface this.
+#[cfg(unix)]
 const EXIT_127_HINT: &str = "\n\nHint: exit 127 typically means \"command not found\". \
 The brokk-acp sandbox builds PATH from your parent environment plus well-known toolchain \
 dirs (~/.cargo/bin, ~/.local/bin, ~/.local/share/mise/shims, ~/.asdf/shims, ~/.pyenv/shims, \
@@ -342,18 +348,28 @@ pub async fn run_shell_command(
     // so secrets in the parent process (OPENAI_API_KEY, AWS_*, GH tokens,
     // LD_PRELOAD/DYLD_*) cannot leak into LLM-driven shell calls. On Linux
     // the same scrubbing is applied via bwrap's `--clearenv`/`--setenv`.
-    // PATH is discovered (not hardcoded) so toolchains under ~/.cargo/bin,
-    // /opt/homebrew/bin, mise/asdf shims, etc. are reachable from
-    // LLM-driven shell calls. On Linux this PATH only governs how bwrap
-    // itself resolves `sh`; the inner child's PATH is set via
-    // bwrap's --setenv (sandbox.rs). On macOS Seatbelt does not alter env
-    // so this is the PATH the child actually sees.
-    let discovered_path = sandbox::discover_sandbox_path();
+    // On Unix the sandbox PATH is discovered (not hardcoded) so toolchains
+    // under ~/.cargo/bin, /opt/homebrew/bin, mise/asdf shims, etc. are
+    // reachable from LLM-driven shell calls. On Linux this PATH only
+    // governs how bwrap itself resolves `sh`; the inner child's PATH is
+    // set via bwrap's --setenv (sandbox.rs). On macOS Seatbelt does not
+    // alter env so this is the PATH the child actually sees.
+    //
+    // On Windows there is no sandbox (`wrap_platform` is a passthrough),
+    // and the home-tool-dir / Homebrew layout makes no sense, so we
+    // fall back to the historic hardcoded Unix-style PATH the platform
+    // already had. The point is to keep Windows on its prior path of
+    // behavior; deciding what `runShellCommand` *should* do on Windows
+    // is a separate concern from this issue.
+    #[cfg(unix)]
+    let sandbox_path = sandbox::discover_sandbox_path();
+    #[cfg(not(unix))]
+    let sandbox_path: String = String::from("/usr/local/bin:/usr/bin:/bin");
     let mut cmd = Command::new(&wrapped.argv[0]);
     cmd.args(&wrapped.argv[1..])
         .current_dir(cwd)
         .env_clear()
-        .env("PATH", &discovered_path)
+        .env("PATH", &sandbox_path)
         .env("TERM", "dumb")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -421,6 +437,7 @@ pub async fn run_shell_command(
             let exit_code = output.status.code().unwrap_or(-1);
             if !output.status.success() {
                 combined.push_str(&format!("\n\nExit code: {exit_code}"));
+                #[cfg(unix)]
                 if exit_code == 127 {
                     combined.push_str(EXIT_127_HINT);
                 }

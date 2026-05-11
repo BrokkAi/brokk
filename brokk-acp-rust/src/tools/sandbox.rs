@@ -397,7 +397,7 @@ pub fn cleanup_stale_policy_files() {
 /// (`Environment.java:521-529`), which binds the parent roots and so leaves
 /// `~/.cargo/credentials.toml`, `~/.gradle/gradle.properties`, and
 /// `~/.m2/settings.xml` exposed to the sandboxed command alongside the cache.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 const HOME_CACHE_SUBDIRS: &[&str] = &[
     ".cargo/registry",
     ".cargo/git",
@@ -451,16 +451,19 @@ pub const ENV_WHITELIST: &[&str] = &[
 /// Operator-supplied override that fully replaces the discovered PATH inside
 /// the sandbox. Lets sophisticated users opt into custom toolchain layouts
 /// without us having to enumerate every package manager.
+#[cfg(unix)]
 pub const BROKK_ACP_PATH_ENV: &str = "BROKK_ACP_PATH";
 
 /// Static fallback PATH segments, appended last. Mirrors the historic
 /// hardcoded value so commands that resolve only through `/usr/bin` etc.
 /// keep working when discovery turns up nothing.
+#[cfg(unix)]
 const STATIC_PATH_FALLBACK: &[&str] = &["/usr/local/bin", "/usr/bin", "/bin"];
 
 /// Well-known toolchain-manager dirs that live under `$HOME`. Each is checked
 /// individually for existence, ownership, and mode bits before being added
 /// to PATH. Order is preference order (first match wins for `command -v`).
+#[cfg(unix)]
 const HOME_TOOL_DIRS: &[&str] = &[
     ".cargo/bin",
     ".local/bin",
@@ -474,6 +477,7 @@ const HOME_TOOL_DIRS: &[&str] = &[
 /// Well-known toolchain-manager dirs at fixed absolute paths. Not owned by
 /// the user (typically by the brew admin user or root), so they're checked
 /// only for existence and "not world-writable".
+#[cfg(unix)]
 const SYSTEM_TOOL_DIRS: &[&str] = &["/opt/homebrew/bin", "/opt/homebrew/sbin"];
 
 /// Build the PATH used inside the sandbox.
@@ -487,6 +491,13 @@ const SYSTEM_TOOL_DIRS: &[&str] = &["/opt/homebrew/bin", "/opt/homebrew/sbin"];
 /// `BROKK_ACP_PATH` short-circuits the whole pipeline: if set to a non-empty
 /// value the override is returned verbatim, leaving safety enforcement to the
 /// operator. Used by ops who run brokk-acp under bespoke toolchain layouts.
+///
+/// Unix-only: the sandbox itself (`sandbox-exec`, `bwrap`) is unimplemented
+/// on Windows, and the path layout we discover here (`~/.cargo/bin`,
+/// `/opt/homebrew/bin`, `/usr/local/bin`, ...) is meaningless under Win32.
+/// On Windows the caller in `shell.rs` falls through to the parent process'
+/// own PATH, which is the desired no-op-when-no-sandbox behavior.
+#[cfg(unix)]
 pub fn discover_sandbox_path() -> String {
     if let Ok(override_val) = std::env::var(BROKK_ACP_PATH_ENV)
         && !override_val.trim().is_empty()
@@ -545,22 +556,7 @@ pub fn discover_sandbox_path() -> String {
         push((*abs).to_string());
     }
 
-    // Use the platform's native PATH separator (`:` on Unix, `;` on Windows).
-    // The sandbox itself is Unix-only, but `discover_sandbox_path` is called
-    // unconditionally from `shell.rs::run_shell_command`, so on Windows CI
-    // the function must still produce a syntactically valid PATH string.
-    // `join_paths` returns Err only when an entry already contains the
-    // separator; we fall back to a hand-joined string in that case rather
-    // than panicking, since the offending entry would have been silently
-    // dropped from the result anyway.
-    let sep = if cfg!(windows) { ";" } else { ":" };
-    match std::env::join_paths(&entries) {
-        Ok(joined) => joined.to_string_lossy().into_owned(),
-        Err(e) => {
-            tracing::warn!(error = %e, "join_paths failed; falling back to naive join");
-            entries.join(sep)
-        }
-    }
+    entries.join(":")
 }
 
 /// A `~`-relative tool dir is safe iff: it exists as a directory, is owned
@@ -624,26 +620,7 @@ fn is_safe_parent_path_entry(path: &Path) -> bool {
     is_safe_system_dir(path)
 }
 
-/// Non-Unix platforms (Windows) don't have a sandbox here today; the function
-/// is only called via cfg-gated callers, but we provide a portable fallback
-/// for tests and future platforms. Existence is the only enforceable check
-/// without Unix mode bits.
-#[cfg(not(unix))]
-fn is_safe_home_dir(path: &Path) -> bool {
-    path.is_dir()
-}
-
-#[cfg(not(unix))]
-fn is_safe_system_dir(path: &Path) -> bool {
-    path.is_dir()
-}
-
-#[cfg(not(unix))]
-fn is_safe_parent_path_entry(path: &Path) -> bool {
-    path.is_dir()
-}
-
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn build_bwrap_argv(policy: SandboxPolicy, cwd: &Path, command: &str) -> Vec<String> {
     let mut a: Vec<String> = Vec::with_capacity(48);
     a.push("bwrap".into());
@@ -906,6 +883,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn bwrap_argv_read_only_has_no_workspace_bind() {
         let argv = build_bwrap_argv(SandboxPolicy::ReadOnly, Path::new("/workspace"), "echo hi");
@@ -923,6 +901,7 @@ mod tests {
         assert_eq!(&argv[dash_idx + 1..], &["sh", "-c", "echo hi"]);
     }
 
+    #[cfg(unix)]
     #[test]
     fn bwrap_argv_workspace_write_binds_root_rw() {
         let argv = build_bwrap_argv(
@@ -937,6 +916,7 @@ mod tests {
         assert!(argv.contains(&"--tmpfs".to_string()));
     }
 
+    #[cfg(unix)]
     #[test]
     fn bwrap_argv_clearenv_with_path_and_term() {
         let argv = build_bwrap_argv(SandboxPolicy::ReadOnly, Path::new("/workspace"), "echo hi");
@@ -976,6 +956,7 @@ mod tests {
         assert!(has_term, "TERM must be set to dumb via --setenv");
     }
 
+    #[cfg(unix)]
     #[test]
     fn bwrap_argv_no_credential_root_binds() {
         // Stricter than Java: we must NOT bind ~/.cargo or ~/.gradle as
@@ -1004,7 +985,8 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // PATH discovery
+    // PATH discovery (Unix-only: discover_sandbox_path and the
+    // is_safe_* helpers are cfg(unix); these tests follow suit.)
     // -----------------------------------------------------------------
 
     /// Serializes tests that mutate process-wide env vars touched by
@@ -1012,16 +994,19 @@ mod tests {
     /// `#[test]` cases in parallel inside one binary, so any test that
     /// `set_var` here must hold this lock to avoid racing readers from
     /// sibling tests.
+    #[cfg(unix)]
     static SANDBOX_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Restores a single env var on Drop. Pair with `SANDBOX_ENV_LOCK` so
     /// the drop ordering is deterministic and we don't leak state into
     /// the next test.
+    #[cfg(unix)]
     struct SandboxEnvGuard {
         var: &'static str,
         prior: Option<std::ffi::OsString>,
     }
 
+    #[cfg(unix)]
     impl SandboxEnvGuard {
         fn set(var: &'static str, value: &str) -> Self {
             let prior = std::env::var_os(var);
@@ -1043,6 +1028,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     impl Drop for SandboxEnvGuard {
         fn drop(&mut self) {
             // SAFETY: same as set()/unset().
@@ -1059,12 +1045,14 @@ mod tests {
     /// holding it. The lock protects against parallel env-var mutation,
     /// not shared in-memory state, so a panic in one test never corrupts
     /// anything observable here — unpoisoning is the right call.
+    #[cfg(unix)]
     fn sandbox_env_lock() -> std::sync::MutexGuard<'static, ()> {
         SANDBOX_ENV_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    #[cfg(unix)]
     #[test]
     fn discover_sandbox_path_includes_static_fallback() {
         // With no override, the result must always contain the static
@@ -1084,6 +1072,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn discover_sandbox_path_de_duplicates_entries() {
         // No entry should appear twice even when the parent PATH overlaps
@@ -1104,6 +1093,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn discover_sandbox_path_brokk_acp_path_override_returns_verbatim() {
         let _g = sandbox_env_lock();
@@ -1112,6 +1102,7 @@ mod tests {
         assert_eq!(path, "/custom/bin:/another/bin");
     }
 
+    #[cfg(unix)]
     #[test]
     fn discover_sandbox_path_empty_override_falls_through_to_discovery() {
         // A whitespace-only or empty BROKK_ACP_PATH must not short-circuit
@@ -1195,6 +1186,7 @@ mod tests {
         let _ = std::fs::remove_dir(&tmp);
     }
 
+    #[cfg(unix)]
     #[test]
     fn is_safe_helpers_reject_nonexistent_path() {
         let path = Path::new("/this/definitely/does/not/exist/brokk-zzz");
