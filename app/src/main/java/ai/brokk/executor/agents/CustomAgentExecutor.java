@@ -36,7 +36,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.Blocking;
 
 /**
@@ -227,14 +226,20 @@ public class CustomAgentExecutor {
     private String buildTurnDirective(
             int turn, int maxTurns, String taskInput, List<ContextFragment> previousTurnAdditions) {
         String toc = WorkspacePrompts.formatToc(context).trim();
+        var additionFormats =
+                previousTurnAdditions.stream().map(ContextFragment::format).toList();
 
+        return formatTurnDirective(turn, maxTurns, taskInput, additionFormats, toc);
+    }
+
+    static String formatTurnDirective(
+            int turn, int maxTurns, String taskInput, List<String> previousTurnAdditions, String toc) {
         boolean finalTurn = turn == maxTurns;
         String nextToolRequest = finalTurn
                 ? "This is the final turn. Call 'answer' or 'abortSearch' to finish."
                 : "Call as many next tools in parallel as will most effectively advance your work.";
 
-        var additions =
-                previousTurnAdditions.stream().map(ContextFragment::format).collect(Collectors.joining("\n"));
+        var additions = String.join("\n", previousTurnAdditions);
         var additionsBlock = previousTurnAdditions.isEmpty()
                 ? ""
                 : """
@@ -261,7 +266,7 @@ public class CustomAgentExecutor {
 
         return """
                 <turn>
-                <goal>%s</goal>
+                <goal>Continue the custom agent task.</goal>
 
                 %s
 
@@ -270,7 +275,7 @@ public class CustomAgentExecutor {
                 %s
                 </turn>
                 """
-                .formatted(taskInput, additionsBlock, nextToolRequest, toc);
+                .formatted(additionsBlock, nextToolRequest, toc);
     }
 
     private TaskResult errorResult(String message) {
