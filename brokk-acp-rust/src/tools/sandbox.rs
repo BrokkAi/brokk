@@ -513,11 +513,16 @@ pub fn discover_sandbox_path() -> String {
         }
     };
 
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    if let Some(ref h) = home {
+    // Canonicalize $HOME once so `is_safe_home_dir` can require each
+    // candidate's canonical path to stay inside it (rejects symlinks
+    // under $HOME that escape to elsewhere on disk, per #3543).
+    let canonical_home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .and_then(|h| h.canonicalize().ok());
+    if let Some(ref h_canon) = canonical_home {
         for rel in HOME_TOOL_DIRS {
-            let path = h.join(rel);
-            if !is_safe_home_dir(&path) {
+            let path = h_canon.join(rel);
+            if !is_safe_home_dir(&path, h_canon) {
                 continue;
             }
             if let Some(s) = path.to_str() {
@@ -559,15 +564,44 @@ pub fn discover_sandbox_path() -> String {
     entries.join(":")
 }
 
-/// A `~`-relative tool dir is safe iff: it exists as a directory, is owned
-/// by the current uid, and has no group/world write bits set. The ownership
-/// check is the tightest of the three — anything not owned by the user has
-/// presumably been planted by another principal and is denied even if its
-/// mode bits look fine.
+/// A `~`-relative tool dir is safe iff: its canonical path remains under
+/// `canonical_home`, exists as a directory, is owned by the current uid,
+/// and has no group/world write bits set.
+///
+/// The canonicalize-and-contain check rejects symlinks under `$HOME` whose
+/// targets land elsewhere on disk — even when the target is owned by the
+/// current user and has tight mode bits, e.g. `~/.cargo/bin -> /tmp/bin`.
+/// #3543's acceptance criterion explicitly calls this case out: "PATH
+/// discovery skips ... symlinks pointing outside the user's home". Without
+/// this check, an attacker who could plant a symlink in $HOME (e.g. via a
+/// careless tarball extraction) could redirect tool resolution to a path
+/// they control.
+///
+/// The ownership check on top of that catches the case where the target
+/// *is* under $HOME but somehow ended up owned by another principal.
 #[cfg(unix)]
-fn is_safe_home_dir(path: &Path) -> bool {
+fn is_safe_home_dir(path: &Path, canonical_home: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let Ok(meta) = std::fs::metadata(path) else {
+
+    // Resolve symlinks fully and require the result to stay under
+    // canonical $HOME. canonicalize() returns Err for non-existent paths,
+    // which is the right answer here too: a missing dir is just not on
+    // PATH, no warning needed.
+    let canonical = match path.canonicalize() {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    if !canonical.starts_with(canonical_home) {
+        tracing::warn!(
+            path = %path.display(),
+            canonical = %canonical.display(),
+            home = %canonical_home.display(),
+            "skipping home tool dir whose canonical path escapes $HOME (symlink redirect)"
+        );
+        return false;
+    }
+
+    let Ok(meta) = std::fs::metadata(&canonical) else {
         return false;
     };
     if !meta.is_dir() {
@@ -577,7 +611,7 @@ fn is_safe_home_dir(path: &Path) -> bool {
     let current_uid = unsafe { libc::getuid() };
     if meta.uid() != current_uid {
         tracing::warn!(
-            path = %path.display(),
+            path = %canonical.display(),
             owner_uid = meta.uid(),
             current_uid,
             "skipping home tool dir not owned by current user"
@@ -586,7 +620,7 @@ fn is_safe_home_dir(path: &Path) -> bool {
     }
     if meta.mode() & 0o022 != 0 {
         tracing::warn!(
-            path = %path.display(),
+            path = %canonical.display(),
             mode = format!("{:o}", meta.mode() & 0o777),
             "skipping home tool dir with group/world write bits set"
         );
@@ -1154,43 +1188,126 @@ mod tests {
         let _ = std::fs::remove_dir(&tmp);
     }
 
+    /// A scratch "fake home" rooted in `temp_dir()`, returned canonicalized
+    /// so `is_safe_home_dir` containment checks compare apples to apples on
+    /// hosts where `/tmp` -> `/private/tmp` (macOS) or similar. The Drop
+    /// guard removes the tree even if the test asserts midway.
+    #[cfg(unix)]
+    struct FakeHome {
+        canonical: PathBuf,
+        // Kept for drop-time cleanup.
+        original: PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl FakeHome {
+        fn new(tag: &str) -> Self {
+            let original = std::env::temp_dir().join(format!(
+                "brokk-fakehome-{tag}-{}-{:?}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or_default()
+            ));
+            std::fs::create_dir(&original).expect("create fake home");
+            let canonical = original.canonicalize().expect("canonicalize fake home");
+            Self {
+                canonical,
+                original,
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for FakeHome {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.original);
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn is_safe_home_dir_rejects_group_writable() {
         use std::os::unix::fs::PermissionsExt;
-        let tmp = std::env::temp_dir().join(format!(
-            "brokk-sandbox-test-gw-{}-{:?}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or_default()
-        ));
-        std::fs::create_dir(&tmp).expect("create tmp dir");
+        let home = FakeHome::new("gw");
+        let bin = home.canonical.join("bin");
+        std::fs::create_dir(&bin).expect("create bin");
         // Group-writable but not world-writable: passes is_safe_system_dir
         // (which only rejects 0o002) but fails is_safe_home_dir (which
         // rejects 0o022).
-        let mut perms = std::fs::metadata(&tmp).unwrap().permissions();
+        let mut perms = std::fs::metadata(&bin).unwrap().permissions();
         perms.set_mode(0o775);
-        std::fs::set_permissions(&tmp, perms).unwrap();
+        std::fs::set_permissions(&bin, perms).unwrap();
 
         assert!(
-            is_safe_system_dir(&tmp),
+            is_safe_system_dir(&bin),
             "0o775 dir is fine as a system dir (only world bit matters)"
         );
         assert!(
-            !is_safe_home_dir(&tmp),
+            !is_safe_home_dir(&bin, &home.canonical),
             "group-writable dir must be rejected by is_safe_home_dir"
         );
+    }
 
-        let _ = std::fs::remove_dir(&tmp);
+    /// #3543 acceptance: a symlink under `$HOME` whose target lives outside
+    /// `$HOME` is rejected, even when the target is owned by the current
+    /// user and has tight mode bits. Without `canonicalize() + starts_with`
+    /// in is_safe_home_dir, `metadata()` would silently follow the link
+    /// and accept the off-home target.
+    #[cfg(unix)]
+    #[test]
+    fn is_safe_home_dir_rejects_symlink_pointing_outside_home() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = FakeHome::new("symesc-home");
+        let outside = FakeHome::new("symesc-outside");
+        // Outside dir is squeaky-clean so the only thing rejecting it is
+        // the containment check.
+        let mut perms = std::fs::metadata(&outside.canonical).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&outside.canonical, perms).unwrap();
+
+        let link = home.canonical.join("escaped_bin");
+        std::os::unix::fs::symlink(&outside.canonical, &link).expect("create symlink");
+
+        assert!(
+            !is_safe_home_dir(&link, &home.canonical),
+            "symlink under home pointing to {} (outside home {}) must be rejected",
+            outside.canonical.display(),
+            home.canonical.display(),
+        );
+    }
+
+    /// Companion to the symlink-escape test: a symlink under `$HOME` whose
+    /// target is itself inside `$HOME` is fine. Prevents the containment
+    /// check from regressing into "no symlinks at all", which would break
+    /// legit setups like `~/.cargo/bin -> ~/.rustup/toolchains/stable/bin`.
+    #[cfg(unix)]
+    #[test]
+    fn is_safe_home_dir_accepts_symlink_pointing_inside_home() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = FakeHome::new("symok");
+        let inner_target = home.canonical.join("actual_bin");
+        std::fs::create_dir(&inner_target).expect("create inner target");
+        let mut perms = std::fs::metadata(&inner_target).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&inner_target, perms).unwrap();
+
+        let link = home.canonical.join("cargo_bin");
+        std::os::unix::fs::symlink(&inner_target, &link).expect("create symlink");
+
+        assert!(
+            is_safe_home_dir(&link, &home.canonical),
+            "symlink under home whose target is inside home must be accepted"
+        );
     }
 
     #[cfg(unix)]
     #[test]
     fn is_safe_helpers_reject_nonexistent_path() {
         let path = Path::new("/this/definitely/does/not/exist/brokk-zzz");
-        assert!(!is_safe_home_dir(path));
+        let dummy_home = Path::new("/");
+        assert!(!is_safe_home_dir(path, dummy_home));
         assert!(!is_safe_system_dir(path));
         assert!(!is_safe_parent_path_entry(path));
     }
