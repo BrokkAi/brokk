@@ -1,14 +1,17 @@
 package ai.brokk.analyzer.tests;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TestDetectionProvider;
 import ai.brokk.analyzer.TestFileHeuristics;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestAnalyzer;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -163,6 +166,56 @@ public class JavaTestDetectionTest {
             assertTrue(
                     TestFileHeuristics.isTestFile(sqlFile, multiAnalyzer),
                     "SQL file should fall back to filename heuristics because SQL delegate lacks TestDetectionProvider capability");
+        }
+    }
+
+    @Test
+    void multiAnalyzerTestDetectionDoesNotMaterializeUnrelatedDelegateDeclarations() throws Exception {
+        try (var project = InlineTestProjectCreator.code("class Subject {}", "src/Subject.java")
+                .addFileContents("SELECT 1;", "db/QueryTest.sql")
+                .build()) {
+            var javaFile = new ProjectFile(project.getRoot(), "src/Subject.java");
+            var sqlFile = new ProjectFile(project.getRoot(), "db/QueryTest.sql");
+            var javaAnalyzer = new CountingTestAnalyzer(javaFile);
+            var sqlAnalyzer = new ThrowingDeclarationAnalyzer();
+            var multiAnalyzer = new MultiAnalyzer(Map.of(Languages.JAVA, javaAnalyzer, Languages.SQL, sqlAnalyzer));
+
+            assertTrue(TestFileHeuristics.isTestFile(javaFile, multiAnalyzer));
+            assertEquals(1, javaAnalyzer.getAllDeclarationsCalls);
+            assertEquals(0, sqlAnalyzer.getAllDeclarationsCalls);
+
+            assertTrue(TestFileHeuristics.isTestFile(sqlFile, multiAnalyzer));
+            assertEquals(1, javaAnalyzer.getAllDeclarationsCalls);
+            assertEquals(0, sqlAnalyzer.getAllDeclarationsCalls);
+        }
+    }
+
+    private static final class CountingTestAnalyzer extends TestAnalyzer {
+        private int getAllDeclarationsCalls;
+
+        private CountingTestAnalyzer(ProjectFile declarationFile) {
+            addDeclaration(CodeUnit.cls(declarationFile, "", "Subject"));
+            setContainsTests(declarationFile, true);
+        }
+
+        @Override
+        public List<CodeUnit> getAllDeclarations() {
+            getAllDeclarationsCalls++;
+            return super.getAllDeclarations();
+        }
+    }
+
+    private static final class ThrowingDeclarationAnalyzer extends TestAnalyzer {
+        private int getAllDeclarationsCalls;
+
+        private ThrowingDeclarationAnalyzer() {
+            setSupportsTestDetection(false);
+        }
+
+        @Override
+        public List<CodeUnit> getAllDeclarations() {
+            getAllDeclarationsCalls++;
+            throw new AssertionError("Unrelated delegate declarations should not be materialized");
         }
     }
 
