@@ -139,6 +139,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
     }
 
+    public record ModelTokenBudget(int maxInputTokens, int maxOutputTokens, boolean tokensEstimated) {}
+
     public record PriceBand(
             long minTokensInclusive,
             long maxTokensInclusive, // Long.MAX_VALUE means "no upper limit"
@@ -466,6 +468,49 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var value = info.get("max_input_tokens");
         assert value instanceof Integer;
         return (Integer) value;
+    }
+
+    public Optional<ModelTokenBudget> getModelTokenBudget(String modelName) {
+        var explicitInfo = getExplicitModelInfo(modelName);
+        if (explicitInfo.isPresent()) {
+            return parseModelTokenBudget(explicitInfo.get(), MainProject.isCustomProvider());
+        }
+
+        if (MainProject.isCustomProvider()) {
+            return parseModelTokenBudget(CUSTOM_MODEL_DEFAULTS, true);
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<Map<String, Object>> getExplicitModelInfo(String modelName) {
+        var info = modelInfoMap.get(modelName);
+        if (info != null) {
+            return Optional.of(info);
+        }
+
+        return modelInfoMap.values().stream()
+                .filter(m -> modelName.equals(m.get("model_location")))
+                .findFirst();
+    }
+
+    private static Optional<ModelTokenBudget> parseModelTokenBudget(Map<String, Object> info, boolean tokensEstimated) {
+        var maxInputTokens = positiveInt(info.get("max_input_tokens"));
+        var maxOutputTokens = positiveInt(info.get("max_output_tokens"));
+        if (maxInputTokens.isEmpty() || maxOutputTokens.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new ModelTokenBudget(maxInputTokens.get(), maxOutputTokens.get(), tokensEstimated));
+    }
+
+    private static Optional<Integer> positiveInt(@Nullable Object value) {
+        if (value instanceof Number number) {
+            var intValue = number.intValue();
+            if (intValue > 0) {
+                return Optional.of(intValue);
+            }
+        }
+        return Optional.empty();
     }
 
     /**
