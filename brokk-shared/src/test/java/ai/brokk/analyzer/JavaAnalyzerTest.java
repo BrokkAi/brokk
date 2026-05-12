@@ -969,6 +969,10 @@ public class JavaAnalyzerTest {
                     .findFirst()
                     .get();
 
+            assertTrue(constructorCu.isSynthetic(), "Implicit constructor should be synthetic");
+            assertTrue(
+                    analyzer.rangesOf(constructorCu).isEmpty(), "Implicit constructor should not have source ranges");
+
             // Assert direct analyzer methods return empty for synthetic/implicit units
             assertTrue(
                     analyzer.getSources(constructorCu, true).isEmpty(),
