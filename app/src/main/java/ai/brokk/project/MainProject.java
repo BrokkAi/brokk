@@ -1983,8 +1983,7 @@ public final class MainProject extends AbstractProject {
     public static String formatCodexAutoSetupVendorMessage(String previousVendor) {
         return String.format(
                 "\"Vendor for other models\" was switched to \"%s\" (was: %s). To change it, open Settings > Advanced > Model Roles and pick a different entry from the \"Vendor for other models\" dropdown.",
-                ModelProperties.CODEX_VENDOR,
-                previousVendor.isBlank() ? "Default" : previousVendor);
+                ModelProperties.CODEX_VENDOR, previousVendor.isBlank() ? "Default" : previousVendor);
     }
 
     public static String formatCodexDisconnectVendorRestoreMessage(String restoredVendor) {

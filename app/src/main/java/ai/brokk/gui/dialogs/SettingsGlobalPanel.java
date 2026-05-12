@@ -24,7 +24,6 @@ import ai.brokk.mcpclient.McpUtils;
 import ai.brokk.mcpclient.StdioMcpServer;
 import ai.brokk.openai.OpenAiOAuthService;
 import ai.brokk.project.MainProject;
-import ai.brokk.project.ModelProperties;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -2434,9 +2433,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         chrome.getContextManager().submitBackgroundTask("Disconnecting OpenAI", () -> {
             String error = Service.disconnectCodexOauth();
-            var restoredVendor = error == null
-                    ? MainProject.setOpenAiCodexOauthConnected(false)
-                    : Optional.<String>empty();
+            var restoredVendor =
+                    error == null ? MainProject.setOpenAiCodexOauthConnected(false) : Optional.<String>empty();
             SwingUtil.runOnEdt(() -> {
                 if (error == null) {
                     String message = "Successfully disconnected from OpenAI."
