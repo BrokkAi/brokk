@@ -112,12 +112,26 @@ pub struct AppState {
     pub should_quit: bool,
     /// Transient status line (cleared on next event).
     pub status_line: Option<String>,
+    /// Slash-command autocomplete state, recomputed on every input edit.
+    pub autocomplete: Autocomplete,
 }
 
 #[derive(Debug)]
 pub struct PendingPermission {
     pub prompt: PermissionPrompt,
     pub selected: usize,
+}
+
+/// Autocomplete popover for slash-commands.
+///
+/// `matches` holds indices into `AppState.available_commands` so the
+/// popup keeps pointing at the right command even if the agent pushes a
+/// new `AvailableCommandsUpdate` (we just recompute the list).
+#[derive(Debug, Default)]
+pub struct Autocomplete {
+    pub visible: bool,
+    pub selected: usize,
+    pub matches: Vec<usize>,
 }
 
 impl AppState {
@@ -136,6 +150,7 @@ impl AppState {
             scroll_offset: 0,
             should_quit: false,
             status_line: None,
+            autocomplete: Autocomplete::default(),
         }
     }
 
@@ -145,6 +160,118 @@ impl AppState {
         self.transcript.push(Entry::UserPrompt(text));
         self.turn = TurnState::Streaming;
         self.scroll_offset = 0;
+        // Sending the prompt clears the input; tear down any open
+        // autocomplete popover so it doesn't linger over an empty buffer.
+        self.autocomplete = Autocomplete::default();
+    }
+
+    /// Recompute the slash-command autocomplete popover from the current
+    /// `input` buffer. Call this every time the input is mutated.
+    ///
+    /// The popover is shown when:
+    /// - the input starts with `/`,
+    /// - no permission modal is open (it owns the keyboard),
+    /// - we're not mid-stream (the input is greyed-out anyway).
+    ///
+    /// Filtering: case-insensitive prefix match on the slug after `/`,
+    /// and falls back to substring match if no prefix hits, so a typo
+    /// like `/plan` still surfaces `/create_plan`. The original ordering
+    /// of `available_commands` is preserved (the agent's emit order is
+    /// usually significant -- e.g. brokk-acp groups by category).
+    pub fn update_autocomplete(&mut self) {
+        let trigger_active = self.input.starts_with('/')
+            && self.pending_permission.is_none()
+            && self.turn == TurnState::Idle;
+        if !trigger_active {
+            self.autocomplete = Autocomplete::default();
+            return;
+        }
+
+        // Slug = chars between the leading `/` and the first whitespace
+        // or end-of-input. Once the user has typed an argument we stop
+        // suggesting (they've committed to a command).
+        let after_slash = &self.input[1..];
+        if after_slash.contains(char::is_whitespace) {
+            self.autocomplete = Autocomplete::default();
+            return;
+        }
+        let query = after_slash.to_lowercase();
+
+        let prev_selected_name = self
+            .autocomplete
+            .matches
+            .get(self.autocomplete.selected)
+            .and_then(|&i| self.available_commands.get(i))
+            .map(|c| c.name.clone());
+
+        let prefix: Vec<usize> = self
+            .available_commands
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.name.to_lowercase().starts_with(&query))
+            .map(|(i, _)| i)
+            .collect();
+        let matches = if prefix.is_empty() {
+            self.available_commands
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.name.to_lowercase().contains(&query))
+                .map(|(i, _)| i)
+                .collect()
+        } else {
+            prefix
+        };
+
+        // Keep the user's selection on the same command if it survived
+        // the new filter; otherwise reset to the top.
+        let selected = prev_selected_name
+            .and_then(|name| {
+                matches
+                    .iter()
+                    .position(|&i| self.available_commands[i].name == name)
+            })
+            .unwrap_or(0);
+
+        self.autocomplete = Autocomplete {
+            visible: !matches.is_empty(),
+            selected,
+            matches,
+        };
+    }
+
+    /// Move the autocomplete cursor by `delta`, wrapping at both ends.
+    /// No-op when the popover is hidden or empty.
+    pub fn autocomplete_move(&mut self, delta: i32) {
+        let len = self.autocomplete.matches.len();
+        if !self.autocomplete.visible || len == 0 {
+            return;
+        }
+        let cur = self.autocomplete.selected as i32;
+        let new = (cur + delta).rem_euclid(len as i32);
+        self.autocomplete.selected = new as usize;
+    }
+
+    /// Replace the input buffer with the currently-selected command,
+    /// followed by a trailing space so the user can keep typing
+    /// arguments. Returns `true` if a command was actually inserted.
+    pub fn autocomplete_accept(&mut self) -> bool {
+        if !self.autocomplete.visible {
+            return false;
+        }
+        let Some(&idx) = self.autocomplete.matches.get(self.autocomplete.selected) else {
+            return false;
+        };
+        let Some(cmd) = self.available_commands.get(idx) else {
+            return false;
+        };
+        self.input = format!("/{} ", cmd.name);
+        self.autocomplete = Autocomplete::default();
+        true
+    }
+
+    /// Hide the popover without modifying the input buffer.
+    pub fn autocomplete_dismiss(&mut self) {
+        self.autocomplete = Autocomplete::default();
     }
 
     pub fn apply_event(&mut self, event: UiEvent) {
@@ -170,10 +297,12 @@ impl AppState {
                     prompt,
                     selected: 0,
                 });
+                self.update_autocomplete();
             }
             UiEvent::PromptDone { stop_reason } => {
                 self.turn = TurnState::Idle;
                 self.status_line = Some(format!("turn done: {stop_reason:?}"));
+                self.update_autocomplete();
             }
             UiEvent::Warning(msg) => {
                 self.status_line = Some(msg);
@@ -253,6 +382,10 @@ impl AppState {
             }
             SessionUpdate::AvailableCommandsUpdate(u) => {
                 self.available_commands = u.available_commands;
+                // The catalog changed mid-typing; rebuild the popover so
+                // a `/` already in the buffer reflects the new commands
+                // (and so a previously-empty filter can become non-empty).
+                self.update_autocomplete();
             }
             SessionUpdate::CurrentModeUpdate(u) => {
                 let mode = u.current_mode_id.to_string();
@@ -337,7 +470,9 @@ pub fn stop_reason_label(reason: StopReason) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol::schema::{ContentBlock, ContentChunk, TextContent};
+    use agent_client_protocol::schema::{
+        ContentBlock, ContentChunk, PermissionOption, PermissionOptionKind, TextContent,
+    };
 
     fn text_chunk(s: &str) -> ContentChunk {
         ContentChunk::new(ContentBlock::Text(TextContent::new(s)))
@@ -417,5 +552,180 @@ mod tests {
             Entry::UserPrompt(t) => assert_eq!(t, "replayed"),
             other => panic!("unexpected: {other:?}"),
         }
+    }
+
+    fn cmd(name: &str) -> AvailableCommand {
+        AvailableCommand::new(name, format!("does {name}"))
+    }
+
+    fn seed_commands(s: &mut AppState) {
+        s.available_commands = vec![
+            cmd("create_plan"),
+            cmd("review_pr"),
+            cmd("research_codebase"),
+            cmd("clear"),
+        ];
+    }
+
+    fn permission_prompt() -> PermissionPrompt {
+        let (responder, _rx) = tokio::sync::oneshot::channel();
+        PermissionPrompt {
+            tool_call: ToolCallUpdate::new(
+                "call-1",
+                agent_client_protocol::schema::ToolCallUpdateFields::default(),
+            ),
+            options: vec![PermissionOption::new(
+                "allow",
+                "Allow",
+                PermissionOptionKind::AllowOnce,
+            )],
+            responder,
+        }
+    }
+
+    #[test]
+    fn autocomplete_hidden_when_input_does_not_start_with_slash() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "hello".to_string();
+        s.update_autocomplete();
+        assert!(!s.autocomplete.visible);
+        assert!(s.autocomplete.matches.is_empty());
+    }
+
+    #[test]
+    fn autocomplete_filters_by_prefix() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "/cre".to_string();
+        s.update_autocomplete();
+        assert!(s.autocomplete.visible);
+        let names: Vec<&str> = s
+            .autocomplete
+            .matches
+            .iter()
+            .map(|&i| s.available_commands[i].name.as_str())
+            .collect();
+        assert_eq!(names, vec!["create_plan"]);
+    }
+
+    #[test]
+    fn autocomplete_falls_back_to_substring_when_no_prefix_matches() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        // Nothing starts with "plan" but "create_plan" contains it.
+        s.input = "/plan".to_string();
+        s.update_autocomplete();
+        assert!(s.autocomplete.visible);
+        let names: Vec<&str> = s
+            .autocomplete
+            .matches
+            .iter()
+            .map(|&i| s.available_commands[i].name.as_str())
+            .collect();
+        assert_eq!(names, vec!["create_plan"]);
+    }
+
+    #[test]
+    fn autocomplete_hides_once_user_types_an_argument() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "/create_plan ".to_string();
+        s.update_autocomplete();
+        assert!(
+            !s.autocomplete.visible,
+            "popover must close once the user commits to a command + arg"
+        );
+    }
+
+    #[test]
+    fn autocomplete_movement_wraps_at_both_ends() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "/".to_string();
+        s.update_autocomplete();
+        let total = s.autocomplete.matches.len();
+        assert!(total >= 2);
+        assert_eq!(s.autocomplete.selected, 0);
+        s.autocomplete_move(-1);
+        assert_eq!(s.autocomplete.selected, total - 1, "wraps to end on Up");
+        s.autocomplete_move(1);
+        assert_eq!(s.autocomplete.selected, 0, "wraps back to start on Down");
+    }
+
+    #[test]
+    fn autocomplete_accept_replaces_input_with_command_and_trailing_space() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "/cre".to_string();
+        s.update_autocomplete();
+        assert!(s.autocomplete.visible);
+        assert!(s.autocomplete_accept());
+        assert_eq!(s.input, "/create_plan ");
+        assert!(!s.autocomplete.visible, "popover closes after acceptance");
+    }
+
+    #[test]
+    fn autocomplete_keeps_selection_on_same_command_when_filter_narrows() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "/r".to_string();
+        s.update_autocomplete();
+        // Walk down to "research_codebase" (second of the two `/r*` matches).
+        s.autocomplete_move(1);
+        let chosen = s.available_commands[s.autocomplete.matches[s.autocomplete.selected]]
+            .name
+            .clone();
+        assert_eq!(chosen, "research_codebase");
+
+        s.input = "/res".to_string();
+        s.update_autocomplete();
+        let still_chosen = s.available_commands[s.autocomplete.matches[s.autocomplete.selected]]
+            .name
+            .clone();
+        assert_eq!(
+            still_chosen, "research_codebase",
+            "selection should follow the command across filter changes"
+        );
+    }
+
+    #[test]
+    fn autocomplete_hidden_during_streaming_or_with_pending_permission() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "/cre".to_string();
+        s.turn = TurnState::Streaming;
+        s.update_autocomplete();
+        assert!(
+            !s.autocomplete.visible,
+            "input is greyed out during streaming; popover must hide"
+        );
+    }
+
+    #[test]
+    fn autocomplete_reappears_when_streaming_finishes() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "/cre".to_string();
+        s.turn = TurnState::Streaming;
+        s.update_autocomplete();
+        assert!(!s.autocomplete.visible);
+
+        s.apply_event(UiEvent::PromptDone {
+            stop_reason: StopReason::EndTurn,
+        });
+        assert!(s.autocomplete.visible);
+    }
+
+    #[test]
+    fn autocomplete_hides_when_permission_request_arrives() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "/cre".to_string();
+        s.update_autocomplete();
+        assert!(s.autocomplete.visible);
+
+        s.apply_event(UiEvent::PermissionRequest(permission_prompt()));
+        assert!(!s.autocomplete.visible);
     }
 }

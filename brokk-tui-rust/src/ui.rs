@@ -8,6 +8,7 @@
 use std::io::{self, Stdout};
 use std::time::Duration;
 
+use agent_client_protocol::schema::AvailableCommandInput;
 use anyhow::{Context, Result};
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event as CtEvent, EventStream, KeyCode, KeyEventKind,
@@ -111,6 +112,32 @@ fn handle_crossterm(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<UiComma
         return;
     }
 
+    // Slash-command autocomplete owns Tab and Up/Down while it's
+    // visible, and intercepts Enter/Esc before the normal handlers see
+    // them. Plain typing still falls through so the user can refine the
+    // filter.
+    if state.autocomplete.visible {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Tab) | (_, KeyCode::Enter) => {
+                state.autocomplete_accept();
+                return;
+            }
+            (_, KeyCode::Up) => {
+                state.autocomplete_move(-1);
+                return;
+            }
+            (_, KeyCode::Down) => {
+                state.autocomplete_move(1);
+                return;
+            }
+            (_, KeyCode::Esc) => {
+                state.autocomplete_dismiss();
+                return;
+            }
+            _ => {}
+        }
+    }
+
     match (key.modifiers, key.code) {
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
             if state.turn == TurnState::Streaming {
@@ -120,6 +147,7 @@ fn handle_crossterm(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<UiComma
                 state.should_quit = true;
             } else {
                 state.input.clear();
+                state.update_autocomplete();
             }
         }
         (KeyModifiers::CONTROL, KeyCode::Char('d')) if state.input.is_empty() => {
@@ -128,9 +156,11 @@ fn handle_crossterm(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<UiComma
         (_, KeyCode::Enter) => submit_prompt(state, cmd_tx),
         (_, KeyCode::Char(c)) => {
             state.input.push(c);
+            state.update_autocomplete();
         }
         (_, KeyCode::Backspace) => {
             state.input.pop();
+            state.update_autocomplete();
         }
         (_, KeyCode::PageUp) => {
             state.scroll_offset = state.scroll_offset.saturating_add(5);
@@ -140,6 +170,7 @@ fn handle_crossterm(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<UiComma
         }
         (_, KeyCode::Esc) => {
             state.input.clear();
+            state.update_autocomplete();
         }
         _ => {}
     }
@@ -190,10 +221,12 @@ fn handle_permission_key(state: &mut AppState, code: KeyCode) {
                 .map(|o| PermissionDecision::Selected(o.option_id.to_string()))
                 .unwrap_or(PermissionDecision::Cancelled);
             let _ = prompt.responder.send(decision);
+            state.update_autocomplete();
         }
         KeyCode::Esc => {
             let pending = state.pending_permission.take().expect("checked above");
             let _ = pending.prompt.responder.send(PermissionDecision::Cancelled);
+            state.update_autocomplete();
         }
         _ => {}
     }
@@ -234,6 +267,14 @@ fn draw(f: &mut ratatui::Frame, state: &AppState) {
     draw_transcript(f, chunks[1], state);
     draw_input(f, chunks[2], state);
     draw_status(f, chunks[3], state);
+
+    // Autocomplete sits above the input box (so it doesn't collide with
+    // the cursor) and is rendered last among the input-area widgets so
+    // it overlays the transcript pane. The permission modal trumps it
+    // and renders on top.
+    if state.autocomplete.visible {
+        draw_autocomplete_popover(f, chunks[2], state);
+    }
 
     if let Some(pending) = state.pending_permission.as_ref() {
         draw_permission_modal(f, f.area(), pending);
@@ -457,4 +498,97 @@ fn draw_permission_modal(f: &mut ratatui::Frame, area: Rect, pending: &PendingPe
     let footer = Paragraph::new("Up/Down to choose | Enter to confirm | Esc to cancel")
         .style(Style::default().fg(Color::DarkGray));
     f.render_widget(footer, layout[2]);
+}
+
+/// Slash-command autocomplete popover. Anchored to the top edge of the
+/// input box and grows upward into the transcript pane so it never
+/// covers the user's cursor. Width matches the input box; height caps
+/// at 8 visible rows + 2 borders.
+fn draw_autocomplete_popover(f: &mut ratatui::Frame, input_area: Rect, state: &AppState) {
+    let max_visible_rows = 8u16;
+    let desired_rows = (state.autocomplete.matches.len() as u16).min(max_visible_rows);
+    if desired_rows == 0 {
+        return;
+    }
+    // Place the popover so its bottom border sits just above the input
+    // box. If the transcript pane is short, shrink the number of rows
+    // to keep the highlighted item visible.
+    let height = (desired_rows + 2).min(input_area.y);
+    if height < 3 {
+        return;
+    }
+    let visible_rows = (height - 2) as usize;
+    let rect = Rect::new(
+        input_area.x,
+        input_area.y - height,
+        input_area.width,
+        height,
+    );
+
+    f.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" commands (Tab/Enter accept, Esc cancel) ")
+        .style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    // Compute a window of visible rows centered on `selected`.
+    let total = state.autocomplete.matches.len();
+    let selected = state.autocomplete.selected;
+    let view_size = visible_rows;
+    let start = if total <= view_size {
+        0
+    } else {
+        let half = view_size / 2;
+        selected.saturating_sub(half).min(total - view_size)
+    };
+    let end = (start + view_size).min(total);
+
+    let items: Vec<ListItem> = state.autocomplete.matches[start..end]
+        .iter()
+        .enumerate()
+        .map(|(offset, &cmd_idx)| {
+            let absolute = start + offset;
+            let cmd = &state.available_commands[cmd_idx];
+            let marker = if absolute == selected { ">" } else { " " };
+            let hint = cmd
+                .input
+                .as_ref()
+                .map(|i| match i {
+                    AvailableCommandInput::Unstructured(u) => format!(" <{}>", u.hint),
+                    _ => String::new(),
+                })
+                .unwrap_or_default();
+            let mut line = format!("{marker} /{}{hint}", cmd.name);
+            // Append a trimmed description on the same row.
+            let description = cmd.description.trim();
+            if !description.is_empty() {
+                line.push_str("  -- ");
+                line.push_str(description);
+            }
+            // Truncate to the visible width so the description doesn't
+            // wrap and break the row alignment.
+            let cap = inner.width as usize;
+            if line.chars().count() > cap {
+                line = if cap > 3 {
+                    line.chars().take(cap - 3).collect::<String>() + "..."
+                } else {
+                    line.chars().take(cap).collect()
+                };
+            }
+            let style = if absolute == selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            ListItem::new(line).style(style)
+        })
+        .collect();
+
+    let list = List::new(items);
+    f.render_widget(list, inner);
 }
