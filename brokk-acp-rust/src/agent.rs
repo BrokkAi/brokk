@@ -688,9 +688,13 @@ pub async fn run_agent(
                     ))
                     .meta(meta_map);
 
+                // Respond first so the client registers the session ID before
+                // notifications referencing it; ACP uses a single FIFO outbound
+                // channel, so enqueue order is wire order. Notifying first made
+                // Zed drop AvailableCommandsUpdate as "unknown session".
+                let result = responder.respond(response);
                 send_available_commands_update(&cx, &session.id, &session.skills);
-
-                responder.respond(response)
+                result
             },
             on_receive_request!(),
         )
@@ -727,9 +731,7 @@ pub async fn run_agent(
                 }
 
                 let catalog = sessions_load.available_model_metadata().await;
-                send_available_commands_update(&cx, &session_id, &session.skills);
-
-                responder.respond(
+                let result = responder.respond(
                     LoadSessionResponse::new()
                         .modes(mode_state(session.mode.as_str()))
                         .config_options(all_config_options(
@@ -739,7 +741,9 @@ pub async fn run_agent(
                             &catalog,
                             session.selected_reasoning_effort.as_deref(),
                         )),
-                )
+                );
+                send_available_commands_update(&cx, &session_id, &session.skills);
+                result
             },
             on_receive_request!(),
         )
@@ -756,8 +760,7 @@ pub async fn run_agent(
                     Some(session) => {
                         sessions_resume.update_cwd(&session_id, cwd).await;
                         let catalog = sessions_resume.available_model_metadata().await;
-                        send_available_commands_update(&cx, &session_id, &session.skills);
-                        responder.respond(
+                        let result = responder.respond(
                             ResumeSessionResponse::new()
                                 .modes(mode_state(session.mode.as_str()))
                                 .config_options(all_config_options(
@@ -767,7 +770,9 @@ pub async fn run_agent(
                                     &catalog,
                                     session.selected_reasoning_effort.as_deref(),
                                 )),
-                        )
+                        );
+                        send_available_commands_update(&cx, &session_id, &session.skills);
+                        result
                     }
                     None => {
                         tracing::warn!("session/resume: unknown session {session_id}");
