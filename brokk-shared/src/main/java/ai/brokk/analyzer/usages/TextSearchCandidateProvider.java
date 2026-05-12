@@ -6,7 +6,9 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -33,18 +35,32 @@ public final class TextSearchCandidateProvider implements CandidateFileProvider 
         }
 
         var matches = new ConcurrentHashMap<ProjectFile, Boolean>();
-        filesToSearch.parallelStream().forEach(file -> {
+        var tasks = filesToSearch.stream()
+                .<Callable<Void>>map(file -> () -> {
+                    try {
+                        if (!file.isText()) return null;
+                        var contentOpt = file.read();
+                        if (contentOpt.isEmpty()) return null;
+                        if (contentOpt.get().contains(identifier)) {
+                            matches.put(file, true);
+                        }
+                    } catch (Exception e) {
+                        logger.warn("TextSearchCandidateProvider failed for {}: {}", file, e.toString());
+                    }
+                    return null;
+                })
+                .toList();
+        var futures = UsageAnalysisExecutors.ioExecutor().invokeAll(tasks);
+        for (var future : futures) {
             try {
-                if (!file.isText()) return;
-                var contentOpt = file.read();
-                if (contentOpt.isEmpty()) return;
-                if (contentOpt.get().contains(identifier)) {
-                    matches.put(file, true);
+                future.get();
+            } catch (ExecutionException e) {
+                if (e.getCause() instanceof RuntimeException re) {
+                    throw re;
                 }
-            } catch (Exception e) {
-                logger.warn("TextSearchCandidateProvider failed for {}: {}", file, e.toString());
+                throw new RuntimeException("Text search candidate scan failed", e.getCause());
             }
-        });
+        }
         return Set.copyOf(matches.keySet());
     }
 }

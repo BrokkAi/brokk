@@ -11,13 +11,11 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
+import ai.brokk.analyzer.usages.UsageAnalysisExecutors;
 import ai.brokk.analyzer.usages.UsageAnalyzer;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.analyzer.usages.UsagePrompt;
-import ai.brokk.concurrent.ExecutorsUtil;
-import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.project.IProject;
-import ai.brokk.util.ConcurrencyUtil;
 import ai.brokk.util.FileUtil;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -50,9 +48,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class LlmUsageAnalyzer implements UsageAnalyzer {
     private static final Logger logger = LogManager.getLogger(LlmUsageAnalyzer.class);
-    private static final int FUZZY_SCAN_PARALLELISM = ConcurrencyUtil.computeAdaptiveIoConcurrencyCap();
-    private static final LoggingExecutorService FUZZY_SCAN_EXECUTOR =
-            ExecutorsUtil.newVirtualThreadExecutor("fuzzy-usage-scan-", FUZZY_SCAN_PARALLELISM);
 
     private final IProject project;
     private final IAnalyzer analyzer;
@@ -188,7 +183,7 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
                 })
                 .toList();
 
-        var futures = FUZZY_SCAN_EXECUTOR.invokeAll(tasks);
+        var futures = UsageAnalysisExecutors.ioExecutor().invokeAll(tasks);
         for (var future : futures) {
             try {
                 future.get();
