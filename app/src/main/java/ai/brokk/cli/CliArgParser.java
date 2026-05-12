@@ -151,7 +151,7 @@ public final class CliArgParser {
             MainProject.setOtherModelsVendorPreference("");
             logger.info("Cleared other-models vendor preference and internal role overrides");
         } else {
-            if ("OpenAI - Codex".equals(canonicalVendor) && !MainProject.isOpenAiCodexOauthConnected()) {
+            if (ModelProperties.CODEX_VENDOR.equals(canonicalVendor) && !MainProject.isOpenAiCodexOauthConnected()) {
                 throw new IllegalArgumentException(
                         "OpenAI - Codex selected but Codex OAuth is not connected; connect/login first.");
             }
