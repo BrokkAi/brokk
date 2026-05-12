@@ -21,9 +21,10 @@ pub struct AcpRuntimeConfig {
     pub command: PathBuf,
     pub args: Vec<String>,
     pub cwd: PathBuf,
-    /// Where the agent's stderr should go. `None` redirects to /dev/null
-    /// so the agent's logs don't bleed into the TUI. Pass a path to capture
-    /// for debugging.
+    /// Where the agent's stderr should go. `None` discards it (via
+    /// `Stdio::null()`, which maps to /dev/null on Unix and NUL on
+    /// Windows) so the agent's logs don't bleed into the TUI. Pass a
+    /// path to capture for debugging.
     pub agent_stderr: Option<PathBuf>,
 }
 

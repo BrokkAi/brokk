@@ -33,8 +33,8 @@ struct Cli {
     log_file: Option<PathBuf>,
 
     /// Capture the agent subprocess's stderr to this file. When unset
-    /// the agent's stderr is redirected to /dev/null so it doesn't
-    /// scribble over the TUI.
+    /// the agent's stderr is discarded via `Stdio::null()` (/dev/null on
+    /// Unix, NUL on Windows) so it doesn't scribble over the TUI.
     #[arg(long, env = "BROKK_TUI_AGENT_STDERR")]
     agent_stderr: Option<PathBuf>,
 }
