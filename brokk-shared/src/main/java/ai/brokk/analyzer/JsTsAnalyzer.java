@@ -6,6 +6,7 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.JsTsAnalyzerCache;
 import ai.brokk.analyzer.javascript.CognitiveComplexityAnalysis;
 import ai.brokk.analyzer.javascript.JsTsExportUsageExtractor;
+import ai.brokk.analyzer.javascript.JsTsModuleResolution;
 import ai.brokk.analyzer.javascript.TsConfigPathsResolver;
 import ai.brokk.analyzer.usages.ExportIndex;
 import ai.brokk.analyzer.usages.ImportBinder;
@@ -54,7 +55,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     public record ExportResolutionData(
             Set<CodeUnit> targets, Set<ProjectFile> frontier, Set<String> externalFrontier) {}
 
-    protected static final List<String> KNOWN_EXTENSIONS = List.of(".js", ".jsx", ".ts", ".tsx");
+    protected static final List<String> KNOWN_EXTENSIONS = JsTsModuleResolution.KNOWN_EXTENSIONS;
 
     private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern ES6_SIDE_EFFECT_IMPORT_PATTERN = Pattern.compile("^\\s*import\\s+['\"]([^'\"]+)['\"]");
@@ -347,12 +348,11 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     public ResolutionOutcome resolveEsmModuleOutcome(ProjectFile importingFile, String moduleSpecifier) {
-        JsTsAnalyzerCache.ResolutionOutcome outcome = jsTsCache()
+        return jsTsCache()
                 .moduleResolutionCache()
                 .get(
                         new JsTsAnalyzerCache.ModulePathKey(importingFile, moduleSpecifier),
-                        key -> toCacheOutcome(resolveEsmModuleOutcomeUncached(key.importingFile(), key.modulePath())));
-        return fromCacheOutcome(outcome);
+                        key -> resolveEsmModuleOutcomeUncached(key.importingFile(), key.modulePath()));
     }
 
     private ResolutionOutcome resolveEsmModuleOutcomeUncached(ProjectFile importingFile, String moduleSpecifier) {
@@ -1332,7 +1332,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             return null;
         }
 
-        for (Path candidatePath : JsTsAnalyzerCache.candidatePaths(baseDir, modulePath)) {
+        for (Path candidatePath : JsTsModuleResolution.candidatePaths(baseDir, modulePath)) {
             if (absolutePaths.contains(candidatePath) && candidatePath.startsWith(projectRoot)) {
                 return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
             }
@@ -1343,14 +1343,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private JsTsAnalyzerCache jsTsCache() {
         return (JsTsAnalyzerCache) cache();
-    }
-
-    private static JsTsAnalyzerCache.ResolutionOutcome toCacheOutcome(ResolutionOutcome outcome) {
-        return new JsTsAnalyzerCache.ResolutionOutcome(outcome.resolved(), outcome.externalFrontier());
-    }
-
-    private static ResolutionOutcome fromCacheOutcome(JsTsAnalyzerCache.ResolutionOutcome outcome) {
-        return new ResolutionOutcome(outcome.resolved(), outcome.externalFrontier());
     }
 
     protected static void extractCommonJsRequireImport(

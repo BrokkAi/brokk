@@ -4,6 +4,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.Json;
 import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,15 +46,17 @@ public final class TsConfigPathsResolver {
 
     private final Path projectRoot;
     private final Map<Path, Optional<ParsedConfig>> configCache = new ConcurrentHashMap<>();
-    private final Map<ProjectFile, Optional<ParsedConfig>> nearestConfigCache = new ConcurrentHashMap<>();
-    private final Map<ExpansionKey, Expansion> expansionCache = new ConcurrentHashMap<>();
+    private final Cache<ProjectFile, Optional<ParsedConfig>> nearestConfigCache =
+            Caffeine.newBuilder().maximumSize(10_000).build();
+    private final Cache<ExpansionKey, Expansion> expansionCache =
+            Caffeine.newBuilder().maximumSize(20_000).build();
 
     public TsConfigPathsResolver(Path projectRoot) {
         this.projectRoot = projectRoot.normalize();
     }
 
     public Expansion expand(ProjectFile importingFile, String specifier) {
-        return expansionCache.computeIfAbsent(
+        return expansionCache.get(
                 new ExpansionKey(importingFile, specifier), key -> expandUncached(importingFile, specifier));
     }
 
@@ -131,7 +135,7 @@ public final class TsConfigPathsResolver {
     }
 
     private Optional<ParsedConfig> nearestConfigFor(ProjectFile importingFile) {
-        return nearestConfigCache.computeIfAbsent(importingFile, this::nearestConfigForUncached);
+        return nearestConfigCache.get(importingFile, this::nearestConfigForUncached);
     }
 
     private Optional<ParsedConfig> nearestConfigForUncached(ProjectFile importingFile) {
