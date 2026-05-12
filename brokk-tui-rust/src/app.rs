@@ -190,7 +190,18 @@ impl AppState {
         self.scroll_offset = 0;
         match update {
             SessionUpdate::UserMessageChunk(c) => {
-                // Server-side replay of a user message: append.
+                // During an active prompt turn (`Streaming`), the user's
+                // message was already echoed locally via
+                // `record_user_prompt` for immediate feedback. The agent
+                // may replay the same text as a `UserMessageChunk`;
+                // suppressing it here keeps the transcript from showing
+                // the prompt twice. When the session is `Idle`, this
+                // chunk is part of a session replay (e.g. from
+                // `session/load`) and the only source of that user
+                // message, so we render it.
+                if self.turn == TurnState::Streaming {
+                    return;
+                }
                 let text = content_block_text(&c.content);
                 append_or_start(&mut self.transcript, EntryKind::User, text);
             }
@@ -373,5 +384,38 @@ mod tests {
             stop_reason: StopReason::EndTurn,
         });
         assert_eq!(s.turn, TurnState::Idle);
+    }
+
+    #[test]
+    fn user_chunk_suppressed_during_streaming_but_kept_on_replay() {
+        // While a prompt is in flight, the local echo from
+        // `record_user_prompt` is the source of truth -- any
+        // `UserMessageChunk` the agent sends back is a duplicate and
+        // must be dropped.
+        let mut s = AppState::new();
+        s.record_user_prompt("hello".to_string());
+        assert_eq!(s.transcript.len(), 1);
+        s.apply_event(UiEvent::SessionUpdate(SessionUpdate::UserMessageChunk(
+            text_chunk("hello"),
+        )));
+        assert_eq!(
+            s.transcript.len(),
+            1,
+            "agent echo must not double the user prompt while streaming"
+        );
+
+        // When the session is idle (e.g. mid-`session/load` replay), the
+        // same chunk is the only source of truth for the user message
+        // and must be rendered.
+        let mut s = AppState::new();
+        assert_eq!(s.turn, TurnState::Idle);
+        s.apply_event(UiEvent::SessionUpdate(SessionUpdate::UserMessageChunk(
+            text_chunk("replayed"),
+        )));
+        assert_eq!(s.transcript.len(), 1);
+        match &s.transcript[0] {
+            Entry::UserPrompt(t) => assert_eq!(t, "replayed"),
+            other => panic!("unexpected: {other:?}"),
+        }
     }
 }

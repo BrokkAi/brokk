@@ -350,4 +350,51 @@ mod tests {
         let _ = tokio::time::timeout(Duration::from_secs(2), client_task).await;
         agent_task.abort();
     }
+
+    /// Dropping the command channel must drive `drive_client` to a clean
+    /// return promptly -- this is the graceful shutdown path the main
+    /// binary relies on (UI exits, `cmd_tx` is dropped, the ACP task
+    /// joins within the timeout instead of needing `abort()`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn drive_client_returns_when_command_channel_drops() {
+        let (client_side, agent_side) = tokio::io::duplex(64 * 1024);
+        let (cr, cw) = split(client_side);
+        let client_transport = ByteStreams::new(cw.compat_write(), cr.compat());
+
+        let agent_task = tokio::spawn(run_mock_agent(agent_side));
+
+        let (ui_tx, mut ui_rx) = mpsc::unbounded_channel::<UiEvent>();
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<UiCommand>();
+
+        let client_task = tokio::spawn(drive_client(
+            client_transport,
+            std::env::temp_dir(),
+            ui_tx,
+            cmd_rx,
+        ));
+
+        // Wait for the handshake so we know the loop is actually inside
+        // its `recv()` waiting on commands.
+        let mut saw_session = false;
+        while !saw_session {
+            let ev = tokio::time::timeout(Duration::from_secs(5), ui_rx.recv())
+                .await
+                .expect("handshake timeout")
+                .expect("channel closed");
+            if matches!(ev, UiEvent::SessionStarted { .. }) {
+                saw_session = true;
+            }
+        }
+
+        // Drop the sender side. drive_session sees `None` on its
+        // `recv()` and must return; drive_client must then resolve.
+        drop(cmd_tx);
+
+        let join = tokio::time::timeout(Duration::from_secs(2), client_task)
+            .await
+            .expect("drive_client did not return after cmd channel drop");
+        join.expect("client task panicked")
+            .expect("drive_client returned error");
+        agent_task.abort();
+    }
 }

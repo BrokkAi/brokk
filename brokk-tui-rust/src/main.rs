@@ -72,10 +72,27 @@ async fn main() -> Result<()> {
 
     let ui_result = ui::run(cmd_tx, event_rx).await;
 
-    // UI exited (user quit or runtime closed channel); ensure the ACP
-    // task observes shutdown and join it.
-    acp_handle.abort();
-    let _ = acp_handle.await;
+    // UI exited. `cmd_tx` was moved into `ui::run` and is now dropped,
+    // which causes `drive_session` to see `None` on its `recv()` and
+    // return, after which `acp::run` calls `child.kill().await` and
+    // cleans up. Wait for that natural shutdown for a bounded window so
+    // the agent process is reaped, and only abort as a last resort if
+    // the runtime is wedged (e.g. blocked on a `block_task().await` for
+    // a never-arriving response).
+    let abort_handle = acp_handle.abort_handle();
+    match tokio::time::timeout(std::time::Duration::from_secs(2), acp_handle).await {
+        Ok(join_res) => {
+            if let Err(e) = join_res {
+                tracing::warn!("acp task join: {e}");
+            }
+        }
+        Err(_elapsed) => {
+            tracing::warn!(
+                "acp runtime did not exit within 2s; aborting (child may not be reaped)"
+            );
+            abort_handle.abort();
+        }
+    }
 
     ui_result
 }

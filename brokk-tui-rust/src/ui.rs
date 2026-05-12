@@ -69,8 +69,21 @@ async fn ui_loop(
                     None => break,
                 }
             }
-            Some(ev) = event_rx.recv() => {
-                state.apply_event(ev);
+            // Use the unconditional form (no `Some(ev) = ...`) so the
+            // None case (runtime dropped the sender) reaches the match
+            // arm and exits the loop. The conditional pattern disables
+            // the branch when the channel closes, which would leave the
+            // TUI spinning on tick + crossterm forever.
+            maybe_ev = event_rx.recv() => {
+                match maybe_ev {
+                    Some(ev) => state.apply_event(ev),
+                    None => {
+                        state.status_line =
+                            Some("acp runtime closed; exiting".to_string());
+                        terminal.draw(|f| draw(f, &state))?;
+                        break;
+                    }
+                }
             }
             _ = tick.tick() => {}
         }
