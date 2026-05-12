@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
@@ -4849,7 +4850,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 .map(cu -> buildCloneCandidateData(cu, resolved))
                 .flatMap(Optional::stream)
                 .map(candidate -> new CloneCandidateProfile(
-                        candidate, hashedShingles(candidate.normalizedTokens(), resolved.shingleSize())))
+                        candidate, hashedShingleArray(candidate.normalizedTokens(), resolved.shingleSize())))
                 .toList();
         if (allCandidates.isEmpty()) {
             return List.of();
@@ -4941,12 +4942,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected int computeCloneTokenSimilarity(
             List<String> leftTokens, List<String> rightTokens, CloneSmellWeights weights) {
-        Set<Long> leftShingles = hashedShingles(leftTokens, weights.shingleSize());
-        Set<Long> rightShingles = hashedShingles(rightTokens, weights.shingleSize());
+        LongShingles leftShingles = hashedShingleArray(leftTokens, weights.shingleSize());
+        LongShingles rightShingles = hashedShingleArray(rightTokens, weights.shingleSize());
         return computeCloneTokenSimilarity(leftShingles, rightShingles, weights);
     }
 
     static int computeCloneTokenSimilarity(Set<Long> leftShingles, Set<Long> rightShingles, CloneSmellWeights weights) {
+        return computeCloneTokenSimilarity(LongShingles.from(leftShingles), LongShingles.from(rightShingles), weights);
+    }
+
+    static int computeCloneTokenSimilarity(
+            LongShingles leftShingles, LongShingles rightShingles, CloneSmellWeights weights) {
         if (leftShingles.size() < weights.minSharedShingles() || rightShingles.size() < weights.minSharedShingles()) {
             return 0;
         }
@@ -4976,13 +4982,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return left.unit().fqName().compareTo(right.unit().fqName());
     }
 
-    private static int intersectionSize(Set<Long> left, Set<Long> right) {
-        Set<Long> smaller = left.size() <= right.size() ? left : right;
-        Set<Long> larger = left.size() <= right.size() ? right : left;
+    private static int intersectionSize(LongShingles left, LongShingles right) {
+        long[] smaller = left.size() <= right.size() ? left.values() : right.values();
+        long[] larger = left.size() <= right.size() ? right.values() : left.values();
         int count = 0;
-        for (Long shingle : smaller) {
-            if (larger.contains(shingle)) {
+        int smallerIndex = 0;
+        int largerIndex = 0;
+        while (smallerIndex < smaller.length && largerIndex < larger.length) {
+            long smallerValue = smaller[smallerIndex];
+            long largerValue = larger[largerIndex];
+            if (smallerValue == largerValue) {
                 count++;
+                smallerIndex++;
+                largerIndex++;
+            } else if (smallerValue < largerValue) {
+                smallerIndex++;
+            } else {
+                largerIndex++;
             }
         }
         return count;
@@ -5072,15 +5088,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     static Set<Long> hashedShingles(List<String> tokens, int shingleSize) {
-        int k = Math.max(1, shingleSize);
-        if (tokens.size() < k) {
+        LongShingles shingles = hashedShingleArray(tokens, shingleSize);
+        if (shingles.size() == 0) {
             return Set.of();
         }
-        var shingles = new LinkedHashSet<Long>();
-        for (int i = 0; i <= tokens.size() - k; i++) {
-            shingles.add(hashShingle(tokens, i, k));
+        return Arrays.stream(shingles.values()).boxed().collect(Collectors.toUnmodifiableSet());
+    }
+
+    private static LongShingles hashedShingleArray(List<String> tokens, int shingleSize) {
+        int k = Math.max(1, shingleSize);
+        if (tokens.size() < k) {
+            return LongShingles.empty();
         }
-        return shingles;
+        long[] shingles = new long[tokens.size() - k + 1];
+        int count = 0;
+        for (int i = 0; i <= tokens.size() - k; i++) {
+            shingles[count++] = hashShingle(tokens, i, k);
+        }
+        return LongShingles.fromUnsorted(shingles, count);
     }
 
     private static long hashShingle(List<String> tokens, int start, int length) {
@@ -5171,7 +5196,62 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected record CloneCandidateData(
             CodeUnit unit, List<String> normalizedTokens, String astSignature, String excerpt) {}
 
-    private record CloneCandidateProfile(CloneCandidateData data, Set<Long> shingles) {}
+    static final class LongShingles {
+
+        private static final LongShingles EMPTY = new LongShingles(new long[0]);
+        private final long[] values;
+
+        private LongShingles(long[] values) {
+            this.values = values;
+        }
+
+        static LongShingles empty() {
+            return EMPTY;
+        }
+
+        static LongShingles from(Set<Long> shingles) {
+            if (shingles.isEmpty()) {
+                return EMPTY;
+            }
+            long[] values = new long[shingles.size()];
+            int i = 0;
+            for (long shingle : shingles) {
+                values[i++] = shingle;
+            }
+            return fromUnsorted(values, values.length);
+        }
+
+        static LongShingles from(long[] shingles, int count) {
+            return fromUnsorted(Arrays.copyOf(shingles, count), count);
+        }
+
+        private static LongShingles fromUnsorted(long[] values, int count) {
+            if (count == 0) {
+                return EMPTY;
+            }
+            if (count < values.length) {
+                values = Arrays.copyOf(values, count);
+            }
+            Arrays.sort(values, 0, count);
+            int uniqueCount = 1;
+            for (int i = 1; i < count; i++) {
+                if (values[i] != values[uniqueCount - 1]) {
+                    values[uniqueCount++] = values[i];
+                }
+            }
+            return new LongShingles(Arrays.copyOf(values, uniqueCount));
+        }
+
+        int size() {
+            return values.length;
+        }
+
+        long[] values() {
+            return values;
+        }
+    }
+
+    private record CloneCandidateProfile(CloneCandidateData data, LongShingles shingles) {}
 
     /**
      * Extracts potential type identifiers from source code.
