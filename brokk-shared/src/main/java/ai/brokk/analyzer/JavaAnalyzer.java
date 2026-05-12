@@ -599,6 +599,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     @Override
+    protected boolean warnOnSignatureInFqNameLookup() {
+        return true;
+    }
+
+    @Override
     protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         // Special handling for Java lambdas: synthesize a bytecode-style anonymous name
         if (nodeType(LAMBDA_EXPRESSION).equals(decl.getType())) {

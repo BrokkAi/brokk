@@ -1281,7 +1281,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         checkStale("getDefinitions");
         String normalizedFqName = normalizeFullName(fqName);
 
-        if (normalizedFqName.contains("(")) {
+        if (warnOnSignatureInFqNameLookup() && normalizedFqName.contains("(")) {
             log.warn(
                     "getDefinitions called with signature in fqName '{}'; filter by CodeUnit.signature() after lookup instead",
                     fqName);
@@ -1640,6 +1640,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected String normalizeFullName(String fqName) {
         // Should be overridden by the subclasses
         return fqName;
+    }
+
+    /**
+     * Whether this language should warn when callers pass a signature-shaped fqName to {@link #getDefinitions(String)}.
+     * Many languages use filesystem-derived fqNames where parentheses can be valid path segments, so this is opt-in.
+     */
+    protected boolean warnOnSignatureInFqNameLookup() {
+        return false;
     }
 
     /**

@@ -272,6 +272,11 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected boolean warnOnSignatureInFqNameLookup() {
+        return true;
+    }
+
+    @Override
     public List<ExceptionHandlingSmell> findExceptionHandlingSmells(ProjectFile file, ExceptionSmellWeights weights) {
         checkStale("findExceptionHandlingSmells");
         ExceptionSmellWeights resolvedWeights = weights != null ? weights : ExceptionSmellWeights.defaults();
