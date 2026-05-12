@@ -1722,6 +1722,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         List<Range> rangesForOverloads = rangesOf(cu);
         if (rangesForOverloads.isEmpty()) {
+            if (cu.isSynthetic()) {
+                return Collections.emptySet();
+            }
             log.warn("No source ranges found for CU {} (fqName {}) although definition was found.", cu, cu.fqName());
             return Collections.emptySet();
         }
