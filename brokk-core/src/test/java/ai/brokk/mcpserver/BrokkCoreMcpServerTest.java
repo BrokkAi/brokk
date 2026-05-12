@@ -89,10 +89,13 @@ class BrokkCoreMcpServerTest {
                 "xmlSkim",
                 "xmlSelect",
                 "computeCyclomaticComplexity",
+                "computeCognitiveComplexity",
                 "reportCommentDensityForCodeUnit",
                 "reportCommentDensityForFiles",
+                "reportLongMethodAndGodObjectSmells",
                 "reportExceptionHandlingSmells",
-                "reportStructuralCloneSmells");
+                "reportStructuralCloneSmells",
+                "reportTestAssertionSmells");
 
         for (var expected : expectedTools) {
             assertTrue(toolNames.contains(expected), "Missing tool: " + expected);
@@ -249,6 +252,22 @@ class BrokkCoreMcpServerTest {
     }
 
     @Test
+    void computeCognitiveComplexityRunsWithoutError() {
+        var result = callTool("computeCognitiveComplexity", Map.of("filePaths", List.of("README.md"), "threshold", 15));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportLongMethodAndGodObjectSmellsRunsWithoutError() {
+        var result = callTool("reportLongMethodAndGodObjectSmells", Map.of("filePaths", List.of("README.md")));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
     void reportCommentDensityForCodeUnitRunsWithoutError() {
         var result = callTool(
                 "reportCommentDensityForCodeUnit", Map.of("fqName", "com.example.NonExistent", "maxLines", 120));
@@ -281,6 +300,14 @@ class BrokkCoreMcpServerTest {
     @Test
     void reportStructuralCloneSmellsRunsWithoutError() {
         var result = callTool("reportStructuralCloneSmells", Map.of("filePaths", List.of("README.md")));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportTestAssertionSmellsRunsWithoutError() {
+        var result = callTool("reportTestAssertionSmells", Map.of("filePaths", List.of("README.md")));
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());

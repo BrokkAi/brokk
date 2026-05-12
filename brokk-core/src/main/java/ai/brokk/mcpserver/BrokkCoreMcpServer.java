@@ -574,6 +574,24 @@ public class BrokkCoreMcpServer {
                 })));
 
         specs.add(tool(
+                "computeCognitiveComplexity",
+                "Computes heuristic cognitive complexity for methods in the given files. "
+                        + "Flags methods above the threshold (typical default 15) for maintainability-focused review or refactor. "
+                        + "Returns a markdown-friendly report of flagged methods.",
+                schema(
+                        Map.of(
+                                "filePaths", arrayProp("File paths relative to the project root."),
+                                "threshold",
+                                        intProp(
+                                                "Complexity threshold; methods above this are flagged. Use 0 or negative for default (15).")),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    var threshold = intArg(request, "threshold", 0);
+                    return textResult(codeQualityTools.computeCognitiveComplexity(filePaths, threshold));
+                })));
+
+        specs.add(tool(
                 "reportCommentDensityForCodeUnit",
                 "Java comment density for one symbol identified by fully qualified name. "
                         + "Reports header vs inline comment line counts, declaration span lines, and rolled-up totals for class-like units.",
@@ -608,6 +626,57 @@ public class BrokkCoreMcpServer {
                     var maxFiles = intArg(request, "maxFiles", 0);
                     return textResult(
                             codeQualityTools.reportCommentDensityForFiles(filePaths, maxTopLevelRows, maxFiles));
+                })));
+
+        specs.add(tool(
+                "reportLongMethodAndGodObjectSmells",
+                "Reports long methods/functions, god objects/modules, and helper sprawl in the given files. "
+                        + "Uses analyzer code-unit hierarchy and declaration ranges, then ranks bounded findings by "
+                        + "maintainability impact. Includes file path, symbol, line range, size/responsibility signals, "
+                        + "and concise rationale.",
+                schema(
+                        Map.ofEntries(
+                                entry("filePaths", arrayProp("File paths relative to the project root.")),
+                                entry("maxFindings", intProp("Maximum findings to return; values <= 0 default to 20.")),
+                                entry(
+                                        "maxFiles",
+                                        intProp("Maximum existing files to analyze; values <= 0 default to 25.")),
+                                entry(
+                                        "longMethodSpanLines",
+                                        intProp("Long method/function line threshold; values <= 0 use default.")),
+                                entry(
+                                        "highComplexityThreshold",
+                                        intProp("High cyclomatic complexity threshold; values <= 0 use default.")),
+                                entry(
+                                        "godObjectSpanLines",
+                                        intProp("God object/module line threshold; values <= 0 use default.")),
+                                entry(
+                                        "godObjectDirectChildren",
+                                        intProp("God object/module direct-child threshold; values <= 0 use default.")),
+                                entry(
+                                        "godObjectFunctions",
+                                        intProp(
+                                                "God object/module function-count threshold; values <= 0 use default.")),
+                                entry(
+                                        "helperSprawlFunctions",
+                                        intProp("Helper-sprawl function-count threshold; values <= 0 use default.")),
+                                entry(
+                                        "helperSprawlWorkflowLines",
+                                        intProp("Helper-sprawl workflow line threshold; values <= 0 use default."))),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    return textResult(codeQualityTools.reportLongMethodAndGodObjectSmells(
+                            filePaths,
+                            intArg(request, "maxFindings", 0),
+                            intArg(request, "maxFiles", 0),
+                            intArg(request, "longMethodSpanLines", 0),
+                            intArg(request, "highComplexityThreshold", 0),
+                            intArg(request, "godObjectSpanLines", 0),
+                            intArg(request, "godObjectDirectChildren", 0),
+                            intArg(request, "godObjectFunctions", 0),
+                            intArg(request, "helperSprawlFunctions", 0),
+                            intArg(request, "helperSprawlWorkflowLines", 0)));
                 })));
 
         specs.add(tool(
@@ -705,6 +774,84 @@ public class BrokkCoreMcpServer {
                             intArg(request, "minSharedShingles", -1),
                             intArg(request, "astSimilarityPercent", -1),
                             intArg(request, "maxFindings", -1)));
+                })));
+
+        specs.add(tool(
+                "reportTestAssertionSmells",
+                "Detects low-value or brittle test assertion smells using language-aware weighted heuristics. "
+                        + "Uses analyzer test-marker detection as a fast filter, then scores tautological assertions, "
+                        + "shallow assertion-only tests, oversized exact literals, snapshots, and Java anonymous test doubles.",
+                schema(
+                        Map.ofEntries(
+                                entry("filePaths", arrayProp("File paths relative to the project root.")),
+                                entry(
+                                        "minScore",
+                                        intProp("Minimum score to include a finding; values <= 0 default to 4.")),
+                                entry("maxFindings", intProp("Maximum findings to emit; values <= 0 default to 80.")),
+                                entry(
+                                        "noAssertionWeight",
+                                        intProp(
+                                                "Weight for tests with no assertion-equivalent calls; values < 0 use default.")),
+                                entry(
+                                        "tautologicalAssertionWeight",
+                                        intProp(
+                                                "Weight for self-comparison or tautological assertions; values < 0 use default.")),
+                                entry(
+                                        "constantTruthWeight",
+                                        intProp(
+                                                "Weight for assertTrue(true), assertFalse(false), and similar constants; values < 0 use default.")),
+                                entry(
+                                        "constantEqualityWeight",
+                                        intProp(
+                                                "Weight for comparing two constant expressions; values < 0 use default.")),
+                                entry(
+                                        "nullnessOnlyWeight",
+                                        intProp("Weight for nullness-only assertions; values < 0 use default.")),
+                                entry(
+                                        "shallowAssertionOnlyWeight",
+                                        intProp(
+                                                "Weight for tests whose assertions are all shallow; values < 0 use default.")),
+                                entry(
+                                        "overspecifiedLiteralWeight",
+                                        intProp("Weight for oversized exact string literals; values < 0 use default.")),
+                                entry(
+                                        "anonymousTestDoubleWeight",
+                                        intProp("Weight for inline anonymous test doubles; values < 0 use default.")),
+                                entry(
+                                        "repeatedAnonymousTestDoubleWeight",
+                                        intProp(
+                                                "Weight for repeated anonymous test double shapes; values < 0 use default.")),
+                                entry(
+                                        "meaningfulAssertionCredit",
+                                        intProp(
+                                                "Score credit subtracted per meaningful assertion; values < 0 use default.")),
+                                entry(
+                                        "meaningfulAssertionCreditCap",
+                                        intProp(
+                                                "Maximum meaningful assertions that earn credit; values < 0 use default.")),
+                                entry(
+                                        "largeLiteralLengthThreshold",
+                                        intProp(
+                                                "String literal length considered oversized; values < 0 use default."))),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    return textResult(codeQualityTools.reportTestAssertionSmells(
+                            filePaths,
+                            intArg(request, "minScore", -1),
+                            intArg(request, "maxFindings", -1),
+                            intArg(request, "noAssertionWeight", -1),
+                            intArg(request, "tautologicalAssertionWeight", -1),
+                            intArg(request, "constantTruthWeight", -1),
+                            intArg(request, "constantEqualityWeight", -1),
+                            intArg(request, "nullnessOnlyWeight", -1),
+                            intArg(request, "shallowAssertionOnlyWeight", -1),
+                            intArg(request, "overspecifiedLiteralWeight", -1),
+                            intArg(request, "anonymousTestDoubleWeight", -1),
+                            intArg(request, "repeatedAnonymousTestDoubleWeight", -1),
+                            intArg(request, "meaningfulAssertionCredit", -1),
+                            intArg(request, "meaningfulAssertionCreditCap", -1),
+                            intArg(request, "largeLiteralLengthThreshold", -1)));
                 })));
 
         // NOTE: analyzeGitHotspots is not exposed here because GitHotspotAnalyzer
