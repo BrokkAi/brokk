@@ -221,10 +221,12 @@ fn handle_permission_key(state: &mut AppState, code: KeyCode) {
                 .map(|o| PermissionDecision::Selected(o.option_id.to_string()))
                 .unwrap_or(PermissionDecision::Cancelled);
             let _ = prompt.responder.send(decision);
+            state.update_autocomplete();
         }
         KeyCode::Esc => {
             let pending = state.pending_permission.take().expect("checked above");
             let _ = pending.prompt.responder.send(PermissionDecision::Cancelled);
+            state.update_autocomplete();
         }
         _ => {}
     }
@@ -504,22 +506,24 @@ fn draw_permission_modal(f: &mut ratatui::Frame, area: Rect, pending: &PendingPe
 /// at 8 visible rows + 2 borders.
 fn draw_autocomplete_popover(f: &mut ratatui::Frame, input_area: Rect, state: &AppState) {
     let max_visible_rows = 8u16;
-    let row_count = (state.autocomplete.matches.len() as u16).min(max_visible_rows);
-    if row_count == 0 {
+    let desired_rows = (state.autocomplete.matches.len() as u16).min(max_visible_rows);
+    if desired_rows == 0 {
         return;
     }
-    let height = row_count + 2; // +2 for borders
-    let width = input_area.width;
-    // Place the popover so its bottom edge sits one row above the input
-    // box's top border, which keeps both visible.
-    let bottom = input_area.y;
-    let top = bottom.saturating_sub(height);
-    // If the transcript pane is too small to fit the popover, clamp.
-    let height = bottom.saturating_sub(top);
+    // Place the popover so its bottom border sits just above the input
+    // box. If the transcript pane is short, shrink the number of rows
+    // to keep the highlighted item visible.
+    let height = (desired_rows + 2).min(input_area.y);
     if height < 3 {
         return;
     }
-    let rect = Rect::new(input_area.x, top, width, height);
+    let visible_rows = (height - 2) as usize;
+    let rect = Rect::new(
+        input_area.x,
+        input_area.y - height,
+        input_area.width,
+        height,
+    );
 
     f.render_widget(Clear, rect);
     let block = Block::default()
@@ -529,10 +533,10 @@ fn draw_autocomplete_popover(f: &mut ratatui::Frame, input_area: Rect, state: &A
     let inner = block.inner(rect);
     f.render_widget(block, rect);
 
-    // Compute a window of `row_count` rows centered on `selected`.
+    // Compute a window of visible rows centered on `selected`.
     let total = state.autocomplete.matches.len();
     let selected = state.autocomplete.selected;
-    let view_size = row_count as usize;
+    let view_size = visible_rows;
     let start = if total <= view_size {
         0
     } else {
@@ -565,9 +569,13 @@ fn draw_autocomplete_popover(f: &mut ratatui::Frame, input_area: Rect, state: &A
             }
             // Truncate to the visible width so the description doesn't
             // wrap and break the row alignment.
-            let cap = (inner.width as usize).saturating_sub(1);
+            let cap = inner.width as usize;
             if line.chars().count() > cap {
-                line = line.chars().take(cap.saturating_sub(3)).collect::<String>() + "...";
+                line = if cap > 3 {
+                    line.chars().take(cap - 3).collect::<String>() + "..."
+                } else {
+                    line.chars().take(cap).collect()
+                };
             }
             let style = if absolute == selected {
                 Style::default()

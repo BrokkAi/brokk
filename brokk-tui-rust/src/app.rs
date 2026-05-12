@@ -297,10 +297,12 @@ impl AppState {
                     prompt,
                     selected: 0,
                 });
+                self.update_autocomplete();
             }
             UiEvent::PromptDone { stop_reason } => {
                 self.turn = TurnState::Idle;
                 self.status_line = Some(format!("turn done: {stop_reason:?}"));
+                self.update_autocomplete();
             }
             UiEvent::Warning(msg) => {
                 self.status_line = Some(msg);
@@ -468,7 +470,9 @@ pub fn stop_reason_label(reason: StopReason) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol::schema::{ContentBlock, ContentChunk, TextContent};
+    use agent_client_protocol::schema::{
+        ContentBlock, ContentChunk, PermissionOption, PermissionOptionKind, TextContent,
+    };
 
     fn text_chunk(s: &str) -> ContentChunk {
         ContentChunk::new(ContentBlock::Text(TextContent::new(s)))
@@ -561,6 +565,22 @@ mod tests {
             cmd("research_codebase"),
             cmd("clear"),
         ];
+    }
+
+    fn permission_prompt() -> PermissionPrompt {
+        let (responder, _rx) = tokio::sync::oneshot::channel();
+        PermissionPrompt {
+            tool_call: ToolCallUpdate::new(
+                "call-1",
+                agent_client_protocol::schema::ToolCallUpdateFields::default(),
+            ),
+            options: vec![PermissionOption::new(
+                "allow",
+                "Allow",
+                PermissionOptionKind::AllowOnce,
+            )],
+            responder,
+        }
     }
 
     #[test]
@@ -680,5 +700,32 @@ mod tests {
             !s.autocomplete.visible,
             "input is greyed out during streaming; popover must hide"
         );
+    }
+
+    #[test]
+    fn autocomplete_reappears_when_streaming_finishes() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "/cre".to_string();
+        s.turn = TurnState::Streaming;
+        s.update_autocomplete();
+        assert!(!s.autocomplete.visible);
+
+        s.apply_event(UiEvent::PromptDone {
+            stop_reason: StopReason::EndTurn,
+        });
+        assert!(s.autocomplete.visible);
+    }
+
+    #[test]
+    fn autocomplete_hides_when_permission_request_arrives() {
+        let mut s = AppState::new();
+        seed_commands(&mut s);
+        s.input = "/cre".to_string();
+        s.update_autocomplete();
+        assert!(s.autocomplete.visible);
+
+        s.apply_event(UiEvent::PermissionRequest(permission_prompt()));
+        assert!(!s.autocomplete.visible);
     }
 }
