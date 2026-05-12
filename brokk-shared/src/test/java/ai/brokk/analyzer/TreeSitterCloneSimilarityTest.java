@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 class TreeSitterCloneSimilarityTest {
@@ -69,6 +70,27 @@ class TreeSitterCloneSimilarityTest {
         assertEquals(70, TreeSitterAnalyzer.computeCloneTokenSimilarity(left, right, weights));
     }
 
+    @Test
+    @Tag("benchmark")
+    void computeCloneTokenSimilarity_RealisticPrimitiveShingleCardinalityBenchmark() {
+        var left = TreeSitterAnalyzer.LongShingles.from(overlappingShingles(8_000, 0), 8_000);
+        var right = TreeSitterAnalyzer.LongShingles.from(overlappingShingles(8_000, 1_700), 8_000);
+        var weights = new IAnalyzer.CloneSmellWeights(1, 50, 1, 1, 70);
+        int iterations = 20_000;
+
+        long startNanos = System.nanoTime();
+        int result = 0;
+        for (int i = 0; i < iterations; i++) {
+            result += TreeSitterAnalyzer.computeCloneTokenSimilarity(left, right, weights);
+        }
+        long elapsedNanos = System.nanoTime() - startNanos;
+
+        System.out.printf(
+                "clone-similarity primitive benchmark: %,d iterations, %.3f ms, checksum=%d%n",
+                iterations, elapsedNanos / 1_000_000.0, result);
+        assertEquals(65 * iterations, result);
+    }
+
     private static void assertSimilarityMatchesStringShingles(
             List<String> left, List<String> right, IAnalyzer.CloneSmellWeights weights) {
         int expected = stringShingleSimilarity(left, right, weights);
@@ -107,6 +129,14 @@ class TreeSitterCloneSimilarityTest {
         var shingles = new LinkedHashSet<String>();
         for (int i = 0; i <= tokens.size() - k; i++) {
             shingles.add(String.join("|", tokens.subList(i, i + k)));
+        }
+        return shingles;
+    }
+
+    private static long[] overlappingShingles(int count, int offset) {
+        long[] shingles = new long[count];
+        for (int i = 0; i < shingles.length; i++) {
+            shingles[i] = i + offset;
         }
         return shingles;
     }
