@@ -1,20 +1,25 @@
-//! Auto-discover available LLM models from Codex (`~/.codex/auth.json`) and
-//! a local Ollama daemon (`http://localhost:11434/api/tags`).
+//! Auto-discover available LLM models from Codex (`~/.codex/auth.json`),
+//! a local Ollama daemon (`http://localhost:11434/api/tags`), and
+//! OpenRouter (`https://openrouter.ai/api/v1/models`, gated on the
+//! `OPENROUTER_API_KEY` env var).
 //!
 //! Zero-config by design: the Ollama URL is fixed at the daemon's default
 //! port. If your daemon listens elsewhere, the catalog will simply not
 //! include Ollama models -- run `ollama serve` on `:11434` to make them
-//! discoverable.
+//! discoverable. OpenRouter is enabled only when `OPENROUTER_API_KEY` is
+//! set in the environment; absent the key, the catalog simply omits its
+//! models with no warning.
 //!
 //! Each discovered model carries a `ModelSource` tag so the routing backend
 //! (`MultiBackend`) can pick the right HTTP client at request time. The
 //! catalog is presented to ACP clients as `<source>::<id>` wire ids, e.g.
-//! `codex::gpt-5-codex` and `ollama::llama3:latest`. The double-colon
-//! separator avoids collision with Ollama tags (which themselves contain a
-//! single colon, `model:tag`).
+//! `codex::gpt-5-codex`, `ollama::llama3:latest`, and
+//! `openrouter::anthropic/claude-3.5-sonnet`. The double-colon separator
+//! avoids collision with Ollama tags (`model:tag`) and with OpenRouter
+//! ids (`vendor/model`).
 //!
 //! Failure posture: missing or unreachable sources are logged and skipped,
-//! never propagated. A user with neither Codex nor Ollama still gets a
+//! never propagated. A user with none of the three configured still gets a
 //! working server -- they just see an empty model picker until one of the
 //! sources comes online (and can re-run discovery via `session/new`, which
 //! refreshes the cache).
@@ -30,6 +35,7 @@ use serde::Deserialize;
 pub enum ModelSource {
     Codex,
     Ollama,
+    OpenRouter,
 }
 
 impl ModelSource {
@@ -37,6 +43,7 @@ impl ModelSource {
         match self {
             Self::Codex => "codex",
             Self::Ollama => "ollama",
+            Self::OpenRouter => "openrouter",
         }
     }
 }
@@ -65,6 +72,7 @@ pub fn split_wire_id(wire: &str) -> Option<(ModelSource, &str)> {
     let source = match prefix {
         "codex" => ModelSource::Codex,
         "ollama" => ModelSource::Ollama,
+        "openrouter" => ModelSource::OpenRouter,
         _ => return None,
     };
     Some((source, rest))
@@ -74,6 +82,19 @@ pub fn split_wire_id(wire: &str) -> Option<(ModelSource, &str)> {
 /// zero-config posture is that the user doesn't pick a port -- if the
 /// daemon isn't here, it's not discoverable.
 pub const OLLAMA_DEFAULT_URL: &str = "http://localhost:11434";
+
+/// OpenRouter cloud base URL. Hardcoded; OpenRouter is a single SaaS
+/// endpoint with no self-hosted variant to point at. `OpenAiClient` will
+/// append `/v1/...` when it sees this base URL (already covered by the
+/// existing `api_url` logic).
+pub const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
+
+/// Environment variable name carrying the OpenRouter API key. Mirrors the
+/// `OPENROUTER_API_KEY` convention used by OpenRouter's own SDK docs --
+/// brokk-acp-rust deliberately does NOT introduce a `BROKK_OPENROUTER_*`
+/// alias so the same shell that already works with `openrouter` / OpenAI
+/// SDK / litellm works here too.
+pub const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
 
 // ---------------------------------------------------------------------------
 // Ollama discovery (native /api/tags)
@@ -134,27 +155,39 @@ pub async fn discover_ollama(
 // Top-level orchestrator
 // ---------------------------------------------------------------------------
 
-/// Run both discovery sources concurrently and merge results. Failures
-/// are logged and treated as "no models from this source" so a dead
-/// Ollama daemon doesn't shadow a working Codex login (or vice versa).
+/// Run all configured discovery sources concurrently and merge results.
+/// Failures are logged and treated as "no models from this source" so a
+/// dead Ollama daemon doesn't shadow a working Codex login (or vice versa).
 ///
 /// `ollama_url` is a parameter purely for test injection -- production
 /// always passes `OLLAMA_DEFAULT_URL`. There's no CLI flag for this; the
 /// zero-config posture means the user doesn't pick a port.
 ///
-/// Codex discovery is delegated to a caller-provided closure because the
-/// `CodexClient` it relies on lives in a sibling module that already
-/// handles auth.json parsing, fallback slugs, and `chatgpt`/`apikey` mode
-/// branching. Keeping the closure here lets `discovery.rs` stay agnostic
-/// of those concerns while still running both sources in parallel.
-pub async fn discover_all<F, Fut>(
+/// Codex and OpenRouter discovery are delegated to caller-provided
+/// closures. For Codex, the `CodexClient` lives in a sibling module that
+/// already handles auth.json parsing, fallback slugs, and
+/// `chatgpt`/`apikey` mode branching. For OpenRouter, the closure lets
+/// the caller short-circuit cleanly when no `OPENROUTER_API_KEY` is set
+/// (returning `Err`) without `discovery.rs` having to know about env
+/// vars. Each closure keeps `discovery.rs` agnostic of those concerns
+/// while still running all sources in parallel.
+///
+/// Output ordering is fixed: Codex first, then OpenRouter, then Ollama.
+/// The first model in the merged list is auto-selected as the session
+/// default elsewhere -- keeping ordering deterministic stops users from
+/// seeing a different default just because one source happened to be
+/// slow on a given boot.
+pub async fn discover_all<FC, FutC, FOR, FutOR>(
     http: &reqwest::Client,
     ollama_url: &str,
-    codex_lookup: F,
+    codex_lookup: FC,
+    openrouter_lookup: FOR,
 ) -> Vec<DiscoveredModel>
 where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<Vec<String>>>,
+    FC: FnOnce() -> FutC,
+    FutC: std::future::Future<Output = Result<Vec<String>>>,
+    FOR: FnOnce() -> FutOR,
+    FutOR: std::future::Future<Output = Result<Vec<String>>>,
 {
     let codex_fut = async {
         match codex_lookup().await {
@@ -172,6 +205,22 @@ where
         }
     };
 
+    let openrouter_fut = async {
+        match openrouter_lookup().await {
+            Ok(ids) => ids
+                .into_iter()
+                .map(|id| DiscoveredModel {
+                    id,
+                    source: ModelSource::OpenRouter,
+                })
+                .collect(),
+            Err(e) => {
+                tracing::info!("openrouter model discovery skipped: {e:#}");
+                Vec::new()
+            }
+        }
+    };
+
     let ollama_fut = async {
         match discover_ollama(http, ollama_url).await {
             Ok(models) => models,
@@ -182,9 +231,10 @@ where
         }
     };
 
-    let (codex, ollama) = tokio::join!(codex_fut, ollama_fut);
-    let mut all = Vec::with_capacity(codex.len() + ollama.len());
+    let (codex, openrouter, ollama) = tokio::join!(codex_fut, openrouter_fut, ollama_fut);
+    let mut all = Vec::with_capacity(codex.len() + openrouter.len() + ollama.len());
     all.extend(codex);
+    all.extend(openrouter);
     all.extend(ollama);
     all
 }
@@ -193,10 +243,12 @@ where
 mod tests {
     use super::*;
 
-    /// `wire_id` round-trips through `split_wire_id` for both sources, and
-    /// preserves Ollama tag suffixes (the inner colon in `llama3:latest`).
+    /// `wire_id` round-trips through `split_wire_id` for every source,
+    /// preserves Ollama tag suffixes (the inner colon in `llama3:latest`),
+    /// and preserves OpenRouter vendor-prefixed ids (the inner slash in
+    /// `anthropic/claude-3.5-sonnet`).
     #[test]
-    fn wire_id_round_trips_for_both_sources() {
+    fn wire_id_round_trips_for_every_source() {
         let codex = DiscoveredModel {
             id: "gpt-5-codex".into(),
             source: ModelSource::Codex,
@@ -218,6 +270,18 @@ mod tests {
         // The inner `:` survives -- our separator is the double-colon, so
         // the bare id keeps its tag suffix and routes correctly to Ollama.
         assert_eq!(id, "llama3:latest");
+
+        let openrouter = DiscoveredModel {
+            id: "anthropic/claude-3.5-sonnet".into(),
+            source: ModelSource::OpenRouter,
+        };
+        let openrouter_wire = openrouter.wire_id();
+        assert_eq!(openrouter_wire, "openrouter::anthropic/claude-3.5-sonnet");
+        let (src, id) = split_wire_id(&openrouter_wire).expect("must parse");
+        assert_eq!(src, ModelSource::OpenRouter);
+        // The inner `/` survives -- OpenRouter's `vendor/model` format
+        // round-trips through the wire id without escaping.
+        assert_eq!(id, "anthropic/claude-3.5-sonnet");
     }
 
     /// Wire ids without the `::` separator or with an unknown source are
@@ -227,6 +291,7 @@ mod tests {
     fn split_wire_id_rejects_bare_or_unknown_prefix() {
         assert!(split_wire_id("gpt-5-codex").is_none());
         assert!(split_wire_id("llama3:latest").is_none());
+        assert!(split_wire_id("anthropic/claude-3.5-sonnet").is_none());
         assert!(split_wire_id("unknown::foo").is_none());
         // Single colon is not enough -- `llama3:latest` is a bare Ollama id,
         // not a wire id, so we must NOT treat it as `source=llama3`.
@@ -238,34 +303,71 @@ mod tests {
     /// happens to have a real Ollama running on the default port.
     const TEST_DEAD_OLLAMA_URL: &str = "http://127.0.0.1:1";
 
-    /// `discover_all` returns Codex first, then Ollama, regardless of which
-    /// future resolves first. Stable ordering matters because the first
-    /// model in the catalog is auto-selected as the session default; we
-    /// don't want users to see a different default just because their
-    /// Ollama daemon was slow to respond on a particular boot.
+    /// `discover_all` returns Codex first, then OpenRouter, then Ollama,
+    /// regardless of which future resolves first. Stable ordering matters
+    /// because the first model in the catalog is auto-selected as the
+    /// session default; we don't want users to see a different default
+    /// just because their Ollama daemon was slow to respond on a
+    /// particular boot.
     #[tokio::test]
-    async fn discover_all_orders_codex_before_ollama() {
+    async fn discover_all_orders_codex_openrouter_ollama() {
         let http = discovery_http_client();
-        let models = discover_all(&http, TEST_DEAD_OLLAMA_URL, || async {
-            Ok(vec!["gpt-5-codex".to_string(), "gpt-4o".to_string()])
-        })
+        let models = discover_all(
+            &http,
+            TEST_DEAD_OLLAMA_URL,
+            || async { Ok(vec!["gpt-5-codex".to_string(), "gpt-4o".to_string()]) },
+            || async {
+                Ok(vec![
+                    "anthropic/claude-3.5-sonnet".to_string(),
+                    "openai/gpt-4o".to_string(),
+                ])
+            },
+        )
         .await;
-        // Codex returned 2; Ollama failed -> 0.
-        assert_eq!(models.len(), 2);
-        assert!(models.iter().all(|m| m.source == ModelSource::Codex));
+        // Codex returned 2; OpenRouter returned 2; Ollama failed -> 0.
+        assert_eq!(models.len(), 4);
+        assert_eq!(models[0].source, ModelSource::Codex);
         assert_eq!(models[0].id, "gpt-5-codex");
+        assert_eq!(models[1].source, ModelSource::Codex);
+        assert_eq!(models[2].source, ModelSource::OpenRouter);
+        assert_eq!(models[2].id, "anthropic/claude-3.5-sonnet");
+        assert_eq!(models[3].source, ModelSource::OpenRouter);
     }
 
-    /// When both sources fail, the merged vec is empty rather than an
-    /// error -- the server still starts and the user can run /codex-login
-    /// or start Ollama, then re-run discovery via the next session/new.
+    /// When every source fails, the merged vec is empty rather than an
+    /// error -- the server still starts and the user can run /codex-login,
+    /// start Ollama, or export `OPENROUTER_API_KEY`, then re-run discovery
+    /// via the next session/new.
     #[tokio::test]
-    async fn discover_all_returns_empty_when_both_sources_fail() {
+    async fn discover_all_returns_empty_when_every_source_fails() {
         let http = discovery_http_client();
-        let models = discover_all(&http, TEST_DEAD_OLLAMA_URL, || async {
-            anyhow::bail!("no auth.json")
-        })
+        let models = discover_all(
+            &http,
+            TEST_DEAD_OLLAMA_URL,
+            || async { anyhow::bail!("no auth.json") },
+            || async { anyhow::bail!("no OPENROUTER_API_KEY") },
+        )
         .await;
         assert!(models.is_empty());
+    }
+
+    /// OpenRouter discovery is treated independently from Codex: a Codex
+    /// failure (no auth.json) must not suppress OpenRouter results, and
+    /// vice versa. Regression for the "missing source shadows working
+    /// source" failure mode the orchestrator is specifically designed to
+    /// prevent.
+    #[tokio::test]
+    async fn discover_all_keeps_openrouter_when_codex_fails() {
+        let http = discovery_http_client();
+        let models = discover_all(
+            &http,
+            TEST_DEAD_OLLAMA_URL,
+            || async { anyhow::bail!("no auth.json") },
+            || async { Ok(vec!["anthropic/claude-3.5-sonnet".to_string()]) },
+        )
+        .await;
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].source, ModelSource::OpenRouter);
+        assert_eq!(models[0].id, "anthropic/claude-3.5-sonnet");
     }
 }
