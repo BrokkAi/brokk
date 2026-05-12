@@ -23,7 +23,7 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use crate::llm_client::{ChatMessage, LlmBackend, ModelMetadata};
 use crate::multi_backend::MultiBackend;
 use crate::session::{
-    ConversationTurn, PermissionMode, SessionMode, SessionSnapshot, SessionStore,
+    ConversationTurn, PermissionMode, Session, SessionMode, SessionSnapshot, SessionStore,
 };
 
 /// Stable ids for our `SessionConfigOption` selectors. We expose both
@@ -217,6 +217,214 @@ fn all_config_options(
     opts
 }
 
+/// Wire ids accepted by `apply_config_option`. Kept in a single slice so
+/// every caller (the `setSessionConfigOption` request handler and the
+/// `/configure` slash command) reports identical "supported keys" lists.
+const CONFIGURE_KNOWN_KEYS: &[&str] = &[
+    BEHAVIOR_CONFIG_ID,
+    PERMISSION_CONFIG_ID,
+    MODEL_CONFIG_ID,
+    REASONING_EFFORT_CONFIG_ID,
+];
+
+/// Outcome of a successful `apply_config_option` call. Carries the full
+/// re-derived option list so the caller can re-emit a `ConfigOptionUpdate`
+/// notification with the spec-required complete state.
+#[derive(Debug)]
+struct ConfigApplyOutcome {
+    updated_options: Vec<SessionConfigOption>,
+    /// Set only by the `model` arm when the previous reasoning_effort pick
+    /// is not in the new model's supported set and the store dropped it.
+    /// Both callers surface this to the user.
+    cleared_reasoning: Option<String>,
+}
+
+/// Validation / dispatch errors from `apply_config_option`. The request
+/// handler maps these into JSON error data; the slash command formats them
+/// into a one-line user message via `human_message`.
+#[derive(Debug)]
+enum ConfigApplyError {
+    UnknownConfigId,
+    InvalidValue {
+        reason: String,
+        supported: Vec<String>,
+    },
+    UnknownSession,
+    PersistFailed {
+        details: String,
+    },
+}
+
+impl ConfigApplyError {
+    fn human_message(&self) -> String {
+        match self {
+            ConfigApplyError::UnknownConfigId => format!(
+                "unknown config key. Supported: {}",
+                CONFIGURE_KNOWN_KEYS.join(", ")
+            ),
+            ConfigApplyError::InvalidValue { reason, supported } => {
+                if supported.is_empty() {
+                    reason.clone()
+                } else {
+                    format!("{reason}. Supported: {}", supported.join(", "))
+                }
+            }
+            ConfigApplyError::UnknownSession => "unknown session".to_string(),
+            ConfigApplyError::PersistFailed { details } => {
+                format!("failed to persist setting: {details}")
+            }
+        }
+    }
+}
+
+/// Apply a single `configOptions` change. Single source of truth shared by
+/// the `setSessionConfigOption` ACP request and the `/configure` slash
+/// command: validates the value, mutates session state, and returns the
+/// full re-derived options list so the caller can emit a
+/// `ConfigOptionUpdate` notification with the spec-required complete state.
+async fn apply_config_option(
+    sessions: &SessionStore,
+    session_id: &str,
+    config_id: &str,
+    value: &str,
+) -> Result<ConfigApplyOutcome, ConfigApplyError> {
+    let mut cleared_reasoning: Option<String> = None;
+
+    match config_id {
+        PERMISSION_CONFIG_ID => {
+            let Some(permission_mode) = PermissionMode::parse(value) else {
+                return Err(ConfigApplyError::InvalidValue {
+                    reason: format!("unknown permission mode '{value}'"),
+                    supported: vec![
+                        "default".to_string(),
+                        "acceptEdits".to_string(),
+                        "readOnly".to_string(),
+                        "bypassPermissions".to_string(),
+                    ],
+                });
+            };
+            if !sessions
+                .set_permission_mode(session_id, permission_mode)
+                .await
+            {
+                return Err(ConfigApplyError::UnknownSession);
+            }
+        }
+        BEHAVIOR_CONFIG_ID => {
+            let Some(behavior_mode) = SessionMode::parse(value) else {
+                return Err(ConfigApplyError::InvalidValue {
+                    reason: format!("unknown behavior mode '{value}'"),
+                    supported: vec![
+                        "LUTZ".to_string(),
+                        "CODE".to_string(),
+                        "ASK".to_string(),
+                        "PLAN".to_string(),
+                    ],
+                });
+            };
+            match sessions.set_mode(session_id, behavior_mode).await {
+                Ok(true) => {}
+                Ok(false) => return Err(ConfigApplyError::UnknownSession),
+                Err(e) => {
+                    return Err(ConfigApplyError::PersistFailed {
+                        details: format!("{e:#}"),
+                    });
+                }
+            }
+        }
+        MODEL_CONFIG_ID => {
+            if value.is_empty() {
+                return Err(ConfigApplyError::InvalidValue {
+                    reason: "model id must be a non-empty string".to_string(),
+                    supported: Vec::new(),
+                });
+            }
+            // Reject ids that drift out of the catalog when one is known.
+            // An empty catalog means model discovery never succeeded;
+            // accept anything in that case so the user can still drive
+            // the agent against a manually-configured backend.
+            let known = sessions.available_models().await;
+            if !known.is_empty() && !known.iter().any(|m| m == value) {
+                return Err(ConfigApplyError::InvalidValue {
+                    reason: format!("unknown model '{value}'"),
+                    supported: known,
+                });
+            }
+            let (ok, cleared) = sessions.set_model(session_id, value.to_string()).await;
+            if !ok {
+                return Err(ConfigApplyError::UnknownSession);
+            }
+            cleared_reasoning = cleared;
+        }
+        REASONING_EFFORT_CONFIG_ID => {
+            // Empty string or the "(default)" sentinel both mean "clear my
+            // pick, use the model default".
+            let effort = if value.is_empty() || value == REASONING_EFFORT_DEFAULT_VALUE {
+                None
+            } else {
+                Some(value.to_string())
+            };
+            // Validate against the active model's published levels when
+            // one is known. An unknown catalog (e.g. discovery never
+            // finished) accepts any string so a manually-configured
+            // backend still works.
+            if let Some(eff) = &effort {
+                let fallback_cwd = std::env::current_dir().unwrap_or_default();
+                let active_model = sessions
+                    .get_session(session_id, &fallback_cwd)
+                    .await
+                    .map(|s| s.model);
+                let catalog = sessions.available_model_metadata().await;
+                if let Some(model_id) = active_model
+                    && let Some(meta) = catalog.iter().find(|m| m.id == model_id)
+                    && !meta.supported_reasoning_levels.is_empty()
+                    && !meta
+                        .supported_reasoning_levels
+                        .iter()
+                        .any(|p| &p.effort == eff)
+                {
+                    let supported: Vec<String> = meta
+                        .supported_reasoning_levels
+                        .iter()
+                        .map(|p| p.effort.clone())
+                        .collect();
+                    return Err(ConfigApplyError::InvalidValue {
+                        reason: format!(
+                            "reasoning effort '{eff}' is not supported by model '{model_id}'"
+                        ),
+                        supported,
+                    });
+                }
+            }
+            if !sessions.set_reasoning_effort(session_id, effort).await {
+                return Err(ConfigApplyError::UnknownSession);
+            }
+        }
+        _ => return Err(ConfigApplyError::UnknownConfigId),
+    }
+
+    // Re-fetch the session so the returned options reflect the latest
+    // values for *all* selectors. The spec says the response carries the
+    // full updated set, not just the one we changed.
+    let fallback_cwd = std::env::current_dir().unwrap_or_default();
+    let Some(session) = sessions.get_session(session_id, &fallback_cwd).await else {
+        return Err(ConfigApplyError::UnknownSession);
+    };
+    let catalog = sessions.available_model_metadata().await;
+    let updated_options = all_config_options(
+        session.mode,
+        session.permission_mode,
+        &session.model,
+        &catalog,
+        session.selected_reasoning_effort.as_deref(),
+    );
+
+    Ok(ConfigApplyOutcome {
+        updated_options,
+        cleared_reasoning,
+    })
+}
+
 /// Slash commands advertised to clients via `available_commands_update`.
 /// Mirrors the Java executor's `/context` command (other Java commands are
 /// intentionally omitted -- they depend on the live workspace context that
@@ -234,6 +442,10 @@ fn builtin_commands() -> Vec<AvailableCommand> {
             "idle-timeout",
             "Show or set the LLM SSE idle timeout for this session (e.g. `/idle-timeout 600`)",
         ),
+        AvailableCommand::new(
+            "configure",
+            "Show or change session settings (e.g. `/configure model_selection gpt-5`)",
+        ),
     ]
 }
 
@@ -242,7 +454,7 @@ fn builtin_commands() -> Vec<AvailableCommand> {
 /// filtered skills entirely" guidance: don't expose a slash that won't
 /// actually dispatch to the skill).
 fn builtin_command_names() -> std::collections::HashSet<&'static str> {
-    ["context", "codex-login", "idle-timeout"]
+    ["context", "codex-login", "idle-timeout", "configure"]
         .into_iter()
         .collect()
 }
@@ -660,6 +872,13 @@ pub async fn run_agent(
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
 
+                if is_slash_command(&prompt_text, "configure") {
+                    let report =
+                        handle_configure(&cx, &prompt_text, &session_id, &sessions_prompt).await;
+                    send_message(&cx, &session_id, &report);
+                    return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                }
+
                 // User-explicit skill activation. Unlike the built-in
                 // short-circuit commands above, a skill slash IS the LLM
                 // round-trip: the SKILL.md body becomes the user's
@@ -907,230 +1126,83 @@ pub async fn run_agent(
                     "ACP set_config_option session={session_id} config={config_id} value={value}"
                 );
 
-                match config_id.as_str() {
-                    PERMISSION_CONFIG_ID => {
-                        let Some(permission_mode) = PermissionMode::parse(&value) else {
-                            return responder.respond_with_error(
-                                agent_client_protocol::Error::invalid_params().data(
-                                    serde_json::json!({
-                                        "reason": format!("unknown permission mode '{value}'"),
-                                        "supported": [
-                                            "default",
-                                            "acceptEdits",
-                                            "readOnly",
-                                            "bypassPermissions",
-                                        ],
-                                    }),
-                                ),
-                            );
-                        };
-                        if !sessions_perm
-                            .set_permission_mode(&session_id, permission_mode)
-                            .await
-                        {
-                            return responder.respond_with_error(
-                                agent_client_protocol::Error::invalid_params().data(
-                                    serde_json::json!({
-                                        "reason": format!("unknown session '{session_id}'"),
-                                    }),
-                                ),
-                            );
-                        }
-                    }
-                    BEHAVIOR_CONFIG_ID => {
-                        let Some(behavior_mode) = SessionMode::parse(&value) else {
-                            return responder.respond_with_error(
-                                agent_client_protocol::Error::invalid_params().data(
-                                    serde_json::json!({
-                                        "reason": format!("unknown behavior mode '{value}'"),
-                                        "supported": ["LUTZ", "CODE", "ASK", "PLAN"],
-                                    }),
-                                ),
-                            );
-                        };
-                        match sessions_perm.set_mode(&session_id, behavior_mode).await {
-                            Ok(true) => {}
-                            Ok(false) => {
-                                return responder.respond_with_error(
-                                    agent_client_protocol::Error::invalid_params().data(
-                                        serde_json::json!({
-                                            "reason": format!("unknown session '{session_id}'"),
-                                        }),
-                                    ),
-                                );
-                            }
-                            Err(e) => {
-                                return responder.respond_with_error(
-                                    agent_client_protocol::Error::internal_error().data(
-                                        serde_json::json!({
-                                            "reason": "failed to persist session mode",
-                                            "details": format!("{e:#}"),
-                                        }),
-                                    ),
-                                );
-                            }
-                        }
-                    }
-                    MODEL_CONFIG_ID => {
-                        if value.is_empty() {
-                            return responder.respond_with_error(
-                                agent_client_protocol::Error::invalid_params().data(
-                                    serde_json::json!({
-                                        "reason": "model id must be a non-empty string",
-                                    }),
-                                ),
-                            );
-                        }
-                        // Reject ids that drift out of the catalog when one is known.
-                        // An empty catalog means model discovery never succeeded;
-                        // accept anything in that case so the user can still drive
-                        // the agent against a manually-configured backend.
-                        let known = sessions_perm.available_models().await;
-                        if !known.is_empty() && !known.iter().any(|m| m == &value) {
-                            return responder.respond_with_error(
-                                agent_client_protocol::Error::invalid_params().data(
-                                    serde_json::json!({
-                                        "reason": format!("unknown model '{value}'"),
-                                        "supported": known,
-                                    }),
-                                ),
-                            );
-                        }
-                        let (ok, cleared_effort) =
-                            sessions_perm.set_model(&session_id, value.clone()).await;
-                        if !ok {
-                            return responder.respond_with_error(
-                                agent_client_protocol::Error::invalid_params().data(
-                                    serde_json::json!({
-                                        "reason": format!("unknown session '{session_id}'"),
-                                    }),
-                                ),
-                            );
-                        }
-                        // Auto-fallback notice: when the previous
-                        // reasoning_effort pick isn't in the new model's
-                        // supported set, the store drops it. Surface a
-                        // one-line system note so the silent change
-                        // isn't mysterious next time the user wonders
-                        // why thoughts shortened.
-                        if let Some(prev) = cleared_effort {
-                            send_message(
-                                &cx,
-                                &session_id,
-                                &format!(
-                                    "Reasoning effort reset: `{prev}` is not supported by `{value}`. \
-                                     Using model default until you pick a level."
-                                ),
-                            );
-                        }
-                    }
-                    REASONING_EFFORT_CONFIG_ID => {
-                        // Empty string or the "(default)" sentinel both
-                        // mean "clear my pick, use the model default".
-                        let effort = if value.is_empty() || value == REASONING_EFFORT_DEFAULT_VALUE
-                        {
-                            None
-                        } else {
-                            Some(value.clone())
-                        };
-                        // Validate against the active model's published
-                        // levels when one is known. An unknown catalog
-                        // (e.g. discovery never finished) accepts any
-                        // string so a manually-configured backend still
-                        // works.
-                        if let Some(eff) = &effort {
-                            let fallback_cwd = std::env::current_dir().unwrap_or_default();
-                            let active_model = sessions_perm
-                                .get_session(&session_id, &fallback_cwd)
-                                .await
-                                .map(|s| s.model);
-                            let catalog = sessions_perm.available_model_metadata().await;
-                            if let Some(model_id) = active_model
-                                && let Some(meta) =
-                                    catalog.iter().find(|m| m.id == model_id)
-                                && !meta.supported_reasoning_levels.is_empty()
-                                && !meta
-                                    .supported_reasoning_levels
-                                    .iter()
-                                    .any(|p| &p.effort == eff)
-                            {
-                                let supported: Vec<String> = meta
-                                    .supported_reasoning_levels
-                                    .iter()
-                                    .map(|p| p.effort.clone())
-                                    .collect();
-                                return responder.respond_with_error(
-                                    agent_client_protocol::Error::invalid_params().data(
-                                        serde_json::json!({
-                                            "reason": format!(
-                                                "reasoning effort '{eff}' is not supported by model '{model_id}'"
-                                            ),
-                                            "supported": supported,
-                                        }),
-                                    ),
-                                );
-                            }
-                        }
-                        if !sessions_perm.set_reasoning_effort(&session_id, effort).await {
-                            return responder.respond_with_error(
-                                agent_client_protocol::Error::invalid_params().data(
-                                    serde_json::json!({
-                                        "reason": format!("unknown session '{session_id}'"),
-                                    }),
-                                ),
-                            );
-                        }
-                    }
-                    other => {
+                let outcome = match apply_config_option(
+                    &sessions_perm,
+                    &session_id,
+                    &config_id,
+                    &value,
+                )
+                .await
+                {
+                    Ok(out) => out,
+                    Err(ConfigApplyError::UnknownConfigId) => {
                         return responder.respond_with_error(
                             agent_client_protocol::Error::invalid_params().data(
                                 serde_json::json!({
-                                    "reason": format!("unknown configOption '{other}'"),
-                                    "supported": [
-                                        BEHAVIOR_CONFIG_ID,
-                                        PERMISSION_CONFIG_ID,
-                                        MODEL_CONFIG_ID,
-                                        REASONING_EFFORT_CONFIG_ID,
-                                    ],
+                                    "reason": format!("unknown configOption '{config_id}'"),
+                                    "supported": CONFIGURE_KNOWN_KEYS,
                                 }),
                             ),
                         );
                     }
-                }
-
-                // Re-fetch the session so the returned options reflect the
-                // latest values for *all* selectors (the spec says the
-                // response carries the full updated set, not just the one we
-                // changed).
-                let fallback_cwd = std::env::current_dir().unwrap_or_default();
-                let Some(session) = sessions_perm.get_session(&session_id, &fallback_cwd).await
-                else {
-                    return responder.respond_with_error(
-                        agent_client_protocol::Error::invalid_params().data(serde_json::json!({
-                            "reason": format!("unknown session '{session_id}'"),
-                        })),
-                    );
+                    Err(ConfigApplyError::InvalidValue { reason, supported }) => {
+                        return responder.respond_with_error(
+                            agent_client_protocol::Error::invalid_params().data(
+                                serde_json::json!({
+                                    "reason": reason,
+                                    "supported": supported,
+                                }),
+                            ),
+                        );
+                    }
+                    Err(ConfigApplyError::UnknownSession) => {
+                        return responder.respond_with_error(
+                            agent_client_protocol::Error::invalid_params().data(
+                                serde_json::json!({
+                                    "reason": format!("unknown session '{session_id}'"),
+                                }),
+                            ),
+                        );
+                    }
+                    Err(ConfigApplyError::PersistFailed { details }) => {
+                        return responder.respond_with_error(
+                            agent_client_protocol::Error::internal_error().data(
+                                serde_json::json!({
+                                    "reason": "failed to persist session mode",
+                                    "details": details,
+                                }),
+                            ),
+                        );
+                    }
                 };
-                let catalog = sessions_perm.available_model_metadata().await;
-                let updated_options = all_config_options(
-                    session.mode,
-                    session.permission_mode,
-                    &session.model,
-                    &catalog,
-                    session.selected_reasoning_effort.as_deref(),
-                );
+
+                // Auto-fallback notice: when changing the model dropped a
+                // now-unsupported reasoning_effort pick, surface a
+                // one-line system note so the silent change isn't
+                // mysterious next time the user wonders why thoughts
+                // shortened.
+                if let Some(prev) = &outcome.cleared_reasoning {
+                    send_message(
+                        &cx,
+                        &session_id,
+                        &format!(
+                            "Reasoning effort reset: `{prev}` is not supported by `{value}`. \
+                             Using model default until you pick a level."
+                        ),
+                    );
+                }
 
                 let notification = SessionNotification::new(
                     session_id.clone(),
                     SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(
-                        updated_options.clone(),
+                        outcome.updated_options.clone(),
                     )),
                 );
                 if let Err(e) = cx.send_notification(notification) {
                     tracing::warn!("failed to send config_option_update: {e}");
                 }
 
-                responder.respond(SetSessionConfigOptionResponse::new(updated_options))
+                responder.respond(SetSessionConfigOptionResponse::new(outcome.updated_options))
             },
             on_receive_request!(),
         )
@@ -1668,6 +1740,114 @@ async fn handle_idle_timeout(
                 "Error: unknown session.".to_string()
             }
         }
+    }
+}
+
+/// Handle the `/configure` slash command. Thin façade over
+/// `apply_config_option` so users on clients without the
+/// `configOptions` dropdown UI can drive the same four session knobs
+/// (behavior_mode, permission_mode, model_selection, reasoning_effort)
+/// via text. New keys are added explicitly to `CONFIGURE_KNOWN_KEYS`,
+/// never inferred -- the goal is to mirror the structured surface, not
+/// open a parallel state channel.
+///
+/// Subcommands:
+///   `/configure`                 -> dump current values for every key
+///   `/configure <key>`           -> dump the current value of <key>
+///   `/configure <key> <value>`   -> set <key> to <value>, re-emit
+///                                   `ConfigOptionUpdate` so dropdown UIs
+///                                   stay in sync.
+async fn handle_configure(
+    cx: &ConnectionTo<Client>,
+    prompt_text: &str,
+    session_id: &str,
+    sessions: &SessionStore,
+) -> String {
+    let args = parse_slash_command(prompt_text)
+        .map(|(_, a)| a)
+        .unwrap_or_default();
+    let trimmed = args.trim();
+
+    // No args, or a single token: show current state.
+    if trimmed.is_empty() || trimmed.split_whitespace().count() == 1 {
+        let fallback_cwd = std::env::current_dir().unwrap_or_default();
+        let Some(session) = sessions.get_session(session_id, &fallback_cwd).await else {
+            return "Error: unknown session.".to_string();
+        };
+        if trimmed.is_empty() {
+            return render_configure_dump(&session);
+        }
+        return render_configure_single(trimmed, &session);
+    }
+
+    let mut parts = trimmed.splitn(2, char::is_whitespace);
+    let key = parts.next().unwrap_or("");
+    let value = parts.next().unwrap_or("").trim();
+
+    match apply_config_option(sessions, session_id, key, value).await {
+        Ok(outcome) => {
+            let notification = SessionNotification::new(
+                session_id.to_string(),
+                SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(outcome.updated_options)),
+            );
+            if let Err(e) = cx.send_notification(notification) {
+                tracing::warn!("failed to send config_option_update from /configure: {e}");
+            }
+            let mut msg = format!("Set `{key}` to `{value}`.");
+            if let Some(prev) = outcome.cleared_reasoning {
+                msg.push_str(&format!(
+                    "\nReasoning effort reset: `{prev}` is not supported by the new model. \
+                     Using model default until you pick a level."
+                ));
+            }
+            msg
+        }
+        Err(e) => format!("Error: {}", e.human_message()),
+    }
+}
+
+/// Render the `/configure` dump of all four session knobs as a single
+/// readable block. Mirrors `all_config_options` field-for-field so the
+/// text view never drifts from the structured view.
+fn render_configure_dump(session: &Session) -> String {
+    let effort = session
+        .selected_reasoning_effort
+        .clone()
+        .unwrap_or_else(|| REASONING_EFFORT_DEFAULT_VALUE.to_string());
+    format!(
+        "**Configuration**\n\n\
+         - `{BEHAVIOR_CONFIG_ID}`: `{behavior}`\n\
+         - `{PERMISSION_CONFIG_ID}`: `{permission}`\n\
+         - `{MODEL_CONFIG_ID}`: `{model}`\n\
+         - `{REASONING_EFFORT_CONFIG_ID}`: `{effort}`\n\n\
+         Set a value with `/configure <key> <value>`. \
+         Supported keys: {keys}.",
+        behavior = session.mode.as_str(),
+        permission = session.permission_mode.as_str(),
+        model = session.model,
+        keys = CONFIGURE_KNOWN_KEYS.join(", "),
+    )
+}
+
+/// Render a single key's current value. Unknown keys return the same
+/// error string `apply_config_option` would produce so the user gets
+/// consistent feedback whether they're reading or writing.
+fn render_configure_single(key: &str, session: &Session) -> String {
+    match key {
+        BEHAVIOR_CONFIG_ID => format!("`{key}`: `{}`", session.mode.as_str()),
+        PERMISSION_CONFIG_ID => format!("`{key}`: `{}`", session.permission_mode.as_str()),
+        MODEL_CONFIG_ID => format!("`{key}`: `{}`", session.model),
+        REASONING_EFFORT_CONFIG_ID => format!(
+            "`{key}`: `{}`",
+            session
+                .selected_reasoning_effort
+                .clone()
+                .unwrap_or_else(|| REASONING_EFFORT_DEFAULT_VALUE.to_string())
+        ),
+        other => format!(
+            "Error: unknown config key '{other}'. Supported: {}",
+            CONFIGURE_KNOWN_KEYS.join(", ")
+        ),
     }
 }
 
@@ -2242,7 +2422,14 @@ mod tests {
         // sorted alphabetically.
         assert_eq!(
             names,
-            vec!["context", "codex-login", "idle-timeout", "apple", "zebra"]
+            vec![
+                "context",
+                "codex-login",
+                "idle-timeout",
+                "configure",
+                "apple",
+                "zebra",
+            ]
         );
     }
 
@@ -2316,5 +2503,170 @@ mod tests {
         assert_eq!(parse_slash_command("hello"), None);
         assert_eq!(parse_slash_command("/"), None);
         assert_eq!(parse_slash_command(""), None);
+    }
+
+    /// Build a `SessionStore` with one session for the apply/render tests
+    /// below. The cwd is randomized so concurrent test runs don't clobber.
+    async fn make_store_with_session(default_model: &str) -> (SessionStore, String) {
+        let store = SessionStore::new(default_model.to_string());
+        let cwd =
+            std::env::temp_dir().join(format!("brokk-acp-configure-{}", uuid::Uuid::new_v4()));
+        let session = store.create_session(cwd).await;
+        (store, session.id)
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_sets_permission_mode() {
+        let (store, id) = make_store_with_session("m").await;
+        let outcome = apply_config_option(&store, &id, PERMISSION_CONFIG_ID, "acceptEdits")
+            .await
+            .expect("permission mode update");
+        assert!(outcome.cleared_reasoning.is_none());
+        let pm = store.permission_mode(&id).await.expect("session present");
+        assert_eq!(pm, PermissionMode::AcceptEdits);
+        // updated_options must reflect the new value.
+        assert!(!outcome.updated_options.is_empty());
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_sets_behavior_mode() {
+        let (store, id) = make_store_with_session("m").await;
+        apply_config_option(&store, &id, BEHAVIOR_CONFIG_ID, "PLAN")
+            .await
+            .expect("behavior mode update");
+        let snap = store
+            .snapshot(&id, &std::env::temp_dir())
+            .await
+            .expect("session present");
+        assert_eq!(snap.mode, SessionMode::Plan);
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_sets_model_when_catalog_empty() {
+        let (store, id) = make_store_with_session("initial").await;
+        // Empty catalog must accept any id so a manually-configured
+        // backend still works.
+        apply_config_option(&store, &id, MODEL_CONFIG_ID, "custom/model")
+            .await
+            .expect("model update");
+        let snap = store
+            .snapshot(&id, &std::env::temp_dir())
+            .await
+            .expect("session present");
+        assert_eq!(snap.model, "custom/model");
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_rejects_unknown_model_when_catalog_known() {
+        let (store, id) = make_store_with_session("initial").await;
+        store
+            .set_available_models(vec![
+                ModelMetadata::id_only("known-1"),
+                ModelMetadata::id_only("known-2"),
+            ])
+            .await;
+        let err = apply_config_option(&store, &id, MODEL_CONFIG_ID, "ghost")
+            .await
+            .expect_err("ghost model is not in the catalog");
+        match err {
+            ConfigApplyError::InvalidValue { supported, .. } => {
+                assert_eq!(
+                    supported,
+                    vec!["known-1".to_string(), "known-2".to_string()]
+                );
+            }
+            other => panic!("expected InvalidValue, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_clears_reasoning_when_model_drops_it() {
+        use crate::llm_client::ReasoningLevelPreset;
+        let (store, id) = make_store_with_session("model-a").await;
+        // model-a publishes a "high" preset; model-b publishes nothing,
+        // so swapping to it forces the store to drop the user's pick.
+        store
+            .set_available_models(vec![
+                ModelMetadata {
+                    id: "model-a".into(),
+                    default_reasoning_level: Some("high".into()),
+                    supported_reasoning_levels: vec![ReasoningLevelPreset {
+                        effort: "high".into(),
+                        description: "High".into(),
+                    }],
+                },
+                ModelMetadata::id_only("model-b"),
+            ])
+            .await;
+        apply_config_option(&store, &id, REASONING_EFFORT_CONFIG_ID, "high")
+            .await
+            .expect("set reasoning effort");
+        let outcome = apply_config_option(&store, &id, MODEL_CONFIG_ID, "model-b")
+            .await
+            .expect("swap model");
+        assert_eq!(outcome.cleared_reasoning.as_deref(), Some("high"));
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_rejects_invalid_permission_mode() {
+        let (store, id) = make_store_with_session("m").await;
+        let err = apply_config_option(&store, &id, PERMISSION_CONFIG_ID, "bogus")
+            .await
+            .expect_err("bogus is not a permission mode");
+        match err {
+            ConfigApplyError::InvalidValue { reason, supported } => {
+                assert!(reason.contains("bogus"));
+                assert!(supported.contains(&"acceptEdits".to_string()));
+            }
+            other => panic!("expected InvalidValue, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_rejects_unknown_key() {
+        let (store, id) = make_store_with_session("m").await;
+        let err = apply_config_option(&store, &id, "no_such_knob", "value")
+            .await
+            .expect_err("unknown key");
+        assert!(matches!(err, ConfigApplyError::UnknownConfigId));
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_reports_unknown_session() {
+        let store = SessionStore::new("m".into());
+        let err = apply_config_option(&store, "no-session", PERMISSION_CONFIG_ID, "default")
+            .await
+            .expect_err("session does not exist");
+        assert!(matches!(err, ConfigApplyError::UnknownSession));
+    }
+
+    #[test]
+    fn render_configure_dump_contains_all_keys() {
+        let session = Session::new(
+            "id".into(),
+            std::path::PathBuf::from("/tmp"),
+            "model-x".into(),
+            "name".into(),
+        );
+        let dump = render_configure_dump(&session);
+        for key in CONFIGURE_KNOWN_KEYS {
+            assert!(dump.contains(key), "dump missing key `{key}`: {dump}");
+        }
+        assert!(dump.contains("model-x"));
+    }
+
+    #[test]
+    fn render_configure_single_unknown_key_lists_supported() {
+        let session = Session::new(
+            "id".into(),
+            std::path::PathBuf::from("/tmp"),
+            "model-x".into(),
+            "name".into(),
+        );
+        let out = render_configure_single("bogus", &session);
+        assert!(out.starts_with("Error:"));
+        for key in CONFIGURE_KNOWN_KEYS {
+            assert!(out.contains(key), "missing key `{key}` in error: {out}");
+        }
     }
 }
