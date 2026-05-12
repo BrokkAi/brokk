@@ -3,7 +3,7 @@ name = "brokk-tui"
 version = "0.0.1"
 edition = "2024"
 description = "Terminal UI client for the Agent Client Protocol (ACP)"
-license = "LGPL-3.0"
+license = "GPL-3.0"
 publish = false
 
 [[bin]]

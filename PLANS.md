@@ -136,16 +136,23 @@ every invocation to today's Python/JVM `brokk` via `execvp`.
 
 - New crate `brokk-launcher/`:
   - `Cargo.toml` -- `name = "brokk-launcher"`, `[[bin]] name = "brokk"`,
-    edition 2024, LGPL-3.0.
+    edition 2024, GPL-3.0.
   - `src/main.rs` -- argv parse; locate the legacy `brokk` (search
     `$BROKK_LEGACY_BIN`, then `uv run brokk` inside `brokk-code/`, then
     a hashed location under `~/.local/share/brokk/legacy-brokk`);
     `execvp` it with all argv passed through.
   - `README.md` -- what the launcher is and how to add a subcommand
     dispatch.
-- Root `Cargo.toml` workspace listing `brokk-acp-rust`, `brokk-tui-rust`,
-  `brokk-launcher`. Keep `brokk-acp-rust`'s nested `xtask` working
-  (`default-members = ["."]`).
+  - Its own `Cargo.lock` (binary crate; committed).
+- **No root Cargo workspace.** Each Rust crate (`brokk-acp-rust`,
+  `brokk-tui-rust`, `brokk-launcher`) is built and released
+  independently. `brokk-acp-rust` keeps its existing internal workspace
+  (with `xtask/` as a member); `brokk-tui-rust` and `brokk-launcher`
+  stand alone. No top-level `Cargo.toml` is added.
+- Sweep crate licenses to GPL-3.0 to match root `LICENSE.txt`:
+  `brokk-acp-rust`, `brokk-acp-rust/xtask`, `brokk-tui-rust` move from
+  LGPL-3.0 to GPL-3.0 (alongside `brokk-launcher` shipping GPL-3.0
+  from inception).
 - `.github/workflows/launcher-ci.yml` -- `cargo fmt --check`,
   `cargo clippy -D warnings`, `cargo build --release` on
   `x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`,
@@ -543,10 +550,12 @@ JDK or Python, the SBOM clears out a couple hundred Java/Python deps.
    `installer/install.sh`; (b) rely on Homebrew/winget/apt; (c)
    background self-update (rejected -- surprise updates are user-hostile
    in a CLI). Default to (a); document (b) as the happy path.
-8. **License and SPDX.** Java/Python tree declares GPL-3.0-only; the
-   existing Rust crates declare LGPL-3.0. Pick one for the unified
-   binary before Phase 5 lands. Update `LICENSE.txt`, `NOTICE.txt`, and
-   every Cargo.toml together.
+8. **License and SPDX.** RESOLVED: unified license is **GPL-3.0**
+   (matches root `LICENSE.txt` and `brokk-code`'s `GPL-3.0-only`
+   declaration). Phase 1 updates `brokk-acp-rust`, `brokk-acp-rust/xtask`,
+   `brokk-tui-rust`, and the new `brokk-launcher` from LGPL-3.0 to
+   GPL-3.0. Phase 5 regenerates `NOTICE.txt` against the Rust-only dep
+   tree; `LICENSE.txt` already aligns.
 9. **jbang catalog and legacy installs in the wild.** Many users have
    `brokk` via `jbang app install brokk@brokkai/brokk-releases`. After
    deletion, the catalog still resolves to old JARs. Decide: freeze the

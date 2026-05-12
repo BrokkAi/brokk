@@ -3,7 +3,7 @@ name = "xtask"
 version = "0.1.0"
 edition = "2024"
 publish = false
-license = "LGPL-3.0"
+license = "GPL-3.0"
 description = "Workspace developer helpers for brokk-acp-rust (build + editor wiring)."
 
 [[bin]]

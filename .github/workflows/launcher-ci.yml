@@ -1,0 +1,59 @@
+name: brokk-launcher CI
+
+on:
+  push:
+    branches: [ 'master', 'ci/**' ]
+    paths:
+      - 'brokk-launcher/**'
+      - '.github/workflows/launcher-ci.yml'
+  pull_request:
+    branches: [ 'master' ]
+    paths:
+      - 'brokk-launcher/**'
+      - '.github/workflows/launcher-ci.yml'
+
+jobs:
+  launcher:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+        targets: ${{ matrix.target }}
+
+    - name: Cache cargo registry and build
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          brokk-launcher/target
+        key: ${{ runner.os }}-brokk-launcher-cargo-${{ hashFiles('brokk-launcher/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-brokk-launcher-cargo-
+
+    - name: Check Rust formatting
+      working-directory: brokk-launcher
+      run: cargo fmt --check
+
+    - name: Run Clippy lints
+      working-directory: brokk-launcher
+      run: cargo clippy --all-targets --target ${{ matrix.target }} -- -D warnings
+
+    - name: Build brokk-launcher
+      working-directory: brokk-launcher
+      run: cargo build --release --target ${{ matrix.target }}
