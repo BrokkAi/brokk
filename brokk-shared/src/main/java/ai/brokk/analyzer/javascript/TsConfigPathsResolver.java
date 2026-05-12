@@ -40,14 +40,23 @@ public final class TsConfigPathsResolver {
 
     private record ParsedConfig(Path tsconfigDir, @Nullable Path baseUrlAbs, Map<String, List<String>> paths) {}
 
+    private record ExpansionKey(ProjectFile importingFile, String specifier) {}
+
     private final Path projectRoot;
     private final Map<Path, Optional<ParsedConfig>> configCache = new ConcurrentHashMap<>();
+    private final Map<ProjectFile, Optional<ParsedConfig>> nearestConfigCache = new ConcurrentHashMap<>();
+    private final Map<ExpansionKey, Expansion> expansionCache = new ConcurrentHashMap<>();
 
     public TsConfigPathsResolver(Path projectRoot) {
         this.projectRoot = projectRoot.normalize();
     }
 
     public Expansion expand(ProjectFile importingFile, String specifier) {
+        return expansionCache.computeIfAbsent(
+                new ExpansionKey(importingFile, specifier), key -> expandUncached(importingFile, specifier));
+    }
+
+    private Expansion expandUncached(ProjectFile importingFile, String specifier) {
         Optional<ParsedConfig> cfgOpt = nearestConfigFor(importingFile);
         if (cfgOpt.isEmpty()) {
             return Expansion.emptyNoMapping();
@@ -122,6 +131,10 @@ public final class TsConfigPathsResolver {
     }
 
     private Optional<ParsedConfig> nearestConfigFor(ProjectFile importingFile) {
+        return nearestConfigCache.computeIfAbsent(importingFile, this::nearestConfigForUncached);
+    }
+
+    private Optional<ParsedConfig> nearestConfigForUncached(ProjectFile importingFile) {
         Path parent = importingFile.absPath().getParent();
         if (parent == null) {
             return Optional.empty();

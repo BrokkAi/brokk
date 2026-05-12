@@ -7,6 +7,7 @@ import static ai.brokk.analyzer.typescript.Constants.TS_SYNTAX_PROFILE;
 
 import ai.brokk.analyzer.TreeSitterAnalyzer.AnalyzerState;
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cache.JsTsAnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
@@ -38,7 +39,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
     private TypescriptAnalyzer(
             ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
-        super(project, Languages.TYPESCRIPT, state, listener, cache);
+        super(project, Languages.TYPESCRIPT, state, listener, cache != null ? cache : new JsTsAnalyzerCache());
     }
 
     /**
@@ -52,6 +53,18 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     protected TypescriptAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
         return new TypescriptAnalyzer(getProject(), state, listener, previousCache);
+    }
+
+    @Override
+    protected AnalyzerCache createEmptyCache() {
+        return new JsTsAnalyzerCache();
+    }
+
+    @Override
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return previous instanceof JsTsAnalyzerCache jsTsCache
+                ? new JsTsAnalyzerCache(jsTsCache, changedFiles)
+                : new JsTsAnalyzerCache();
     }
 
     @Override

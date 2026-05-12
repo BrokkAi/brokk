@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cache.JsTsAnalyzerCache;
 import ai.brokk.project.ICoreProject;
 import java.util.*;
 import org.jetbrains.annotations.Nullable;
@@ -55,7 +56,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
     private JavascriptAnalyzer(
             ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
-        super(project, Languages.JAVASCRIPT, state, listener, cache);
+        super(project, Languages.JAVASCRIPT, state, listener, cache != null ? cache : new JsTsAnalyzerCache());
     }
 
     public static JavascriptAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
@@ -66,6 +67,18 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     protected JavascriptAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
         return new JavascriptAnalyzer(getProject(), state, listener, previousCache);
+    }
+
+    @Override
+    protected AnalyzerCache createEmptyCache() {
+        return new JsTsAnalyzerCache();
+    }
+
+    @Override
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return previous instanceof JsTsAnalyzerCache jsTsCache
+                ? new JsTsAnalyzerCache(jsTsCache, changedFiles)
+                : new JsTsAnalyzerCache();
     }
 
     @Override
