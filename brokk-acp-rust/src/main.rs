@@ -204,6 +204,54 @@ fn build_ollama_backend() -> Arc<dyn LlmBackend> {
     Arc::new(llm_client::OpenAiClient::new(chat_url, None))
 }
 
+/// Build the OpenRouter chat backend if `OPENROUTER_API_KEY` is set.
+/// OpenRouter speaks the OpenAI Chat Completions wire format verbatim,
+/// so we reuse `OpenAiClient` with the OpenRouter base URL and attach
+/// the optional `HTTP-Referer` / `X-Title` attribution headers (these
+/// drive the openrouter.ai leaderboard rankings; both are documented as
+/// optional but we always set them so the app shows up consistently).
+///
+/// Auth posture mirrors Codex: zero-config -- if the env var is absent
+/// the backend is skipped silently, no CLI flag, no warning. Whitespace
+/// is trimmed so accidental shell quoting (`export OPENROUTER_API_KEY=" sk-..."`)
+/// doesn't 401 every request.
+fn build_openrouter_backend() -> Option<Arc<dyn LlmBackend>> {
+    let raw = std::env::var(discovery::OPENROUTER_API_KEY_ENV).ok()?;
+    let key = raw.trim();
+    if key.is_empty() {
+        tracing::info!(
+            "{} is set but empty; OpenRouter backend skipped",
+            discovery::OPENROUTER_API_KEY_ENV
+        );
+        return None;
+    }
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    // Both header values are well-known ASCII strings the API expects;
+    // `from_static` panics only on invalid header bytes, which these
+    // literals are not. Doing this once at startup means we don't pay
+    // header-construction overhead per request.
+    headers.insert(
+        reqwest::header::HeaderName::from_static("http-referer"),
+        reqwest::header::HeaderValue::from_static("https://github.com/BrokkAi/brokk"),
+    );
+    headers.insert(
+        reqwest::header::HeaderName::from_static("x-title"),
+        reqwest::header::HeaderValue::from_static("brokk-acp-rust"),
+    );
+
+    tracing::info!(
+        "OpenRouter backend wired at {} (chat + discovery); key length={}",
+        discovery::OPENROUTER_BASE_URL,
+        key.len()
+    );
+    Some(Arc::new(llm_client::OpenAiClient::with_default_headers(
+        discovery::OPENROUTER_BASE_URL.to_string(),
+        Some(key.to_string()),
+        headers,
+    )))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Configure tracing to stderr only (stdout is reserved for JSON-RPC)
@@ -238,17 +286,29 @@ async fn main() -> Result<()> {
     }
 
     let codex_backend = build_codex_backend().await;
+    let openrouter_backend = build_openrouter_backend();
     let ollama_backend = Some(build_ollama_backend());
 
     if codex_backend.is_none() {
         tracing::info!(
-            "Codex backend not available; the picker will only show Ollama models. \
-             Run /codex-login from a session to add Codex -- the new credentials \
-             are picked up on the next discovery refresh, no restart required."
+            "Codex backend not available; the picker will fall back to OpenRouter \
+             and Ollama (if discovered). Run /codex-login from a session to add \
+             Codex -- the new credentials are picked up on the next discovery \
+             refresh, no restart required."
+        );
+    }
+    if openrouter_backend.is_none() {
+        tracing::info!(
+            "OpenRouter backend not available; set {} to enable it.",
+            discovery::OPENROUTER_API_KEY_ENV
         );
     }
 
-    let llm: Arc<MultiBackend> = Arc::new(MultiBackend::new(codex_backend, ollama_backend));
+    let llm: Arc<MultiBackend> = Arc::new(MultiBackend::new(
+        codex_backend,
+        openrouter_backend,
+        ollama_backend,
+    ));
 
     let limits = session::SessionLimits {
         max_sessions: args.max_sessions,

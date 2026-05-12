@@ -358,9 +358,23 @@ impl std::fmt::Debug for OpenAiClient {
 
 impl OpenAiClient {
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
+        Self::with_default_headers(base_url, api_key, reqwest::header::HeaderMap::new())
+    }
+
+    /// Like `new`, but attaches `default_headers` to every request the
+    /// resulting `reqwest::Client` makes. Used by providers that require
+    /// out-of-band attribution headers on every call (today, OpenRouter's
+    /// optional `HTTP-Referer` / `X-Title` leaderboard headers). Plain
+    /// OpenAI / Ollama callers should keep using `new`.
+    pub fn with_default_headers(
+        base_url: String,
+        api_key: Option<String>,
+        default_headers: reqwest::header::HeaderMap,
+    ) -> Self {
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(600))
+            .default_headers(default_headers)
             .build()
             .expect("failed to build HTTP client");
         let base_url = base_url.trim_end_matches('/').to_string();
@@ -926,5 +940,79 @@ mod tests {
         assert_eq!(calls[0].function.arguments, r#"{"path":"x.txt"}"#);
         assert_eq!(calls[1].id, "call_1");
         assert_eq!(calls[1].function.name, "writeFile");
+    }
+
+    /// `OpenAiClient::with_default_headers` produces an instance that
+    /// `LlmBackend` can be cast over (no panic on construction, headers
+    /// accepted as-is). Wire path is exercised by the integration with
+    /// `MultiBackend` -- this test pins the constructor contract that
+    /// OpenRouter's `HTTP-Referer` / `X-Title` attribution headers rely
+    /// on (`main.rs::build_openrouter_backend`).
+    #[test]
+    fn with_default_headers_constructs_with_attribution_headers() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::HeaderName::from_static("http-referer"),
+            reqwest::header::HeaderValue::from_static("https://example.test"),
+        );
+        headers.insert(
+            reqwest::header::HeaderName::from_static("x-title"),
+            reqwest::header::HeaderValue::from_static("brokk-acp-rust"),
+        );
+        let client = OpenAiClient::with_default_headers(
+            "https://openrouter.ai/api/v1".to_string(),
+            Some("sk-test-key".to_string()),
+            headers,
+        );
+        // Trailing slashes are stripped by both constructors so callers
+        // can interchange `.../v1` and `.../v1/` without double-slashes
+        // showing up in the request URL.
+        let debug = format!("{client:?}");
+        assert!(debug.contains("openrouter.ai"), "got {debug}");
+        assert!(
+            debug.contains("[REDACTED]"),
+            "api_key must be redacted from Debug output: {debug}"
+        );
+    }
+
+    /// OpenRouter's `/v1/models` response carries strictly more fields
+    /// than OpenAI's (`name`, `canonical_slug`, `pricing`, `architecture`,
+    /// etc.). The shared `ModelsResponse` deserializer must round-trip
+    /// the catalog without choking on the extra fields, leaving the
+    /// caller with just the bare `id` strings the routing layer expects.
+    /// Sample shape distilled from a live `GET https://openrouter.ai/api/v1/models`
+    /// response (vendor/model ids, with nested `pricing` and
+    /// `architecture` objects) so a future serde-rename regression is
+    /// caught here rather than at runtime on the user's first session.
+    #[test]
+    fn models_response_parses_openrouter_shape_ignoring_extra_fields() {
+        let raw = r#"{
+            "data": [
+                {
+                    "id": "anthropic/claude-3.5-sonnet",
+                    "name": "Anthropic: Claude 3.5 Sonnet",
+                    "canonical_slug": "anthropic/claude-3.5-sonnet",
+                    "context_length": 200000,
+                    "pricing": {"prompt": "0.000003", "completion": "0.000015"},
+                    "architecture": {"input_modalities": ["text", "image"]},
+                    "top_provider": {"context_length": 200000}
+                },
+                {
+                    "id": "openai/gpt-4o",
+                    "name": "OpenAI: GPT-4o",
+                    "context_length": 128000,
+                    "pricing": {"prompt": "0.0000025", "completion": "0.00001"}
+                }
+            ]
+        }"#;
+        let parsed: ModelsResponse = serde_json::from_str(raw).expect("OpenRouter /models parses");
+        let ids: Vec<String> = parsed.data.into_iter().map(|m| m.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "anthropic/claude-3.5-sonnet".to_string(),
+                "openai/gpt-4o".to_string(),
+            ]
+        );
     }
 }
