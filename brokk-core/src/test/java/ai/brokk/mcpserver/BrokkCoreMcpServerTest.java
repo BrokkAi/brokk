@@ -89,6 +89,7 @@ class BrokkCoreMcpServerTest {
                 "xmlSkim",
                 "xmlSelect",
                 "computeCyclomaticComplexity",
+                "computeCognitiveComplexity",
                 "reportCommentDensityForCodeUnit",
                 "reportCommentDensityForFiles",
                 "reportExceptionHandlingSmells",
@@ -243,6 +244,14 @@ class BrokkCoreMcpServerTest {
     void computeCyclomaticComplexityRunsWithoutError() {
         var result =
                 callTool("computeCyclomaticComplexity", Map.of("filePaths", List.of("README.md"), "threshold", 10));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void computeCognitiveComplexityRunsWithoutError() {
+        var result = callTool("computeCognitiveComplexity", Map.of("filePaths", List.of("README.md"), "threshold", 15));
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());

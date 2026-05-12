@@ -574,6 +574,24 @@ public class BrokkCoreMcpServer {
                 })));
 
         specs.add(tool(
+                "computeCognitiveComplexity",
+                "Computes heuristic cognitive complexity for methods in the given files. "
+                        + "Flags methods above the threshold (typical default 15) for maintainability-focused review or refactor. "
+                        + "Returns a markdown-friendly report of flagged methods.",
+                schema(
+                        Map.of(
+                                "filePaths", arrayProp("File paths relative to the project root."),
+                                "threshold",
+                                        intProp(
+                                                "Complexity threshold; methods above this are flagged. Use 0 or negative for default (15).")),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    var threshold = intArg(request, "threshold", 0);
+                    return textResult(codeQualityTools.computeCognitiveComplexity(filePaths, threshold));
+                })));
+
+        specs.add(tool(
                 "reportCommentDensityForCodeUnit",
                 "Java comment density for one symbol identified by fully qualified name. "
                         + "Reports header vs inline comment line counts, declaration span lines, and rolled-up totals for class-like units.",

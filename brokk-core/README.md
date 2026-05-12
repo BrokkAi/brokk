@@ -89,6 +89,15 @@ Computes heuristic cyclomatic complexity for methods in the given files. Flags m
 | `filePaths` | string[] | yes | -- | File paths relative to project root |
 | `threshold` | int | no | 10 | Complexity threshold; methods above this are flagged |
 
+#### `computeCognitiveComplexity`
+
+Computes heuristic cognitive complexity for methods in the given files. Cognitive complexity grows with control-flow breaks and nested control flow, complementing cyclomatic complexity for maintainability triage. Flags methods above the threshold and returns a markdown report.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePaths` | string[] | yes | -- | File paths relative to project root |
+| `threshold` | int | no | 15 | Complexity threshold; methods above this are flagged |
+
 #### `reportCommentDensityForCodeUnit`
 
 Comment density for one symbol identified by fully qualified name. Reports header vs inline comment line counts, declaration span lines, and rolled-up totals for class-like units. Currently Java only.

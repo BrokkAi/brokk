@@ -62,6 +62,38 @@ public class CodeQualityToolsMcp {
         return flagged;
     }
 
+    // -- computeCognitiveComplexity --
+
+    public String computeCognitiveComplexity(List<String> filePaths, int threshold) {
+        int limit = threshold > 0 ? threshold : 15;
+        IAnalyzer analyzer = intelligence.getAnalyzer();
+        var lines = new ArrayList<String>();
+        lines.add("Cognitive complexity (threshold: " + limit + "):");
+        boolean foundAny = false;
+
+        for (String path : filePaths) {
+            ProjectFile file = intelligence.toFile(path);
+            if (!file.exists()) continue;
+
+            var complexities = analyzer.computeCognitiveComplexities(file);
+            for (var entry : complexities.entrySet()) {
+                foundAny |= analyzeUnitCognitiveComplexity(entry.getKey(), entry.getValue(), limit, lines);
+            }
+        }
+
+        return foundAny
+                ? String.join("\n", lines)
+                : "No methods exceeded the cognitive complexity threshold of " + limit + ".";
+    }
+
+    private boolean analyzeUnitCognitiveComplexity(CodeUnit cu, int complexity, int threshold, List<String> lines) {
+        if (cu.isSynthetic() || complexity <= threshold) {
+            return false;
+        }
+        lines.add("- " + cu.fqName() + ": " + complexity);
+        return true;
+    }
+
     // -- reportCommentDensityForCodeUnit --
 
     public String reportCommentDensityForCodeUnit(String fqName, int maxLines) {
