@@ -2237,6 +2237,65 @@ mod tests {
         let _ = std::fs::remove_dir_all(&cwd);
     }
 
+    /// SECURITY: a non-empty `always_allow_tools` set must NOT survive a
+    /// `session/load` round-trip. `get_session_loads_from_disk_when_cold`
+    /// already asserts an empty set reloads empty, but that proves nothing
+    /// about reset -- empty in, empty out is the trivial case. This test
+    /// populates the set, evicts the in-memory session, reloads from the
+    /// on-disk zip, and asserts the prior approvals were dropped.
+    ///
+    /// If a future change persists `always_allow_tools` into the manifest
+    /// (intentionally or by accident), this test fails. Issue #3188
+    /// explicitly defers persisted-across-reload approval as out of scope:
+    /// a stolen or tampered zip must never carry carte-blanche permissions
+    /// into the next session.
+    #[tokio::test]
+    async fn always_allow_set_does_not_survive_session_reload() {
+        let store = SessionStore::new("m".to_string());
+        let cwd = std::env::temp_dir().join(format!(
+            "brokk-acp-rust-always-allow-reload-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let created = store.create_session(cwd.clone()).await;
+        let id = created.id.clone();
+
+        // Populate the in-memory set with two distinct tool names so the
+        // assertion below distinguishes "empty by reset" from "empty by
+        // happenstance" (e.g. a typo'd tool name silently dropped).
+        store.add_always_allow(&id, "writeFile").await;
+        store.add_always_allow(&id, "get_summaries").await;
+        assert!(store.is_always_allowed(&id, "writeFile").await);
+        assert!(store.is_always_allowed(&id, "get_summaries").await);
+
+        // Evict from memory; the on-disk zip is unaffected. This mirrors
+        // the process-restart path: a fresh `SessionStore` would do the
+        // same lazy load via `get_session`.
+        store.sessions.write().await.remove(&id);
+        store.registries.write().await.remove(&id);
+
+        let reloaded = store
+            .get_session(&id, &cwd)
+            .await
+            .expect("session must reload from disk");
+        assert_eq!(reloaded.id, id);
+        assert!(
+            reloaded.always_allow_tools.is_empty(),
+            "always_allow_tools must be reset on reload (security guarantee); \
+             got {:?}",
+            reloaded.always_allow_tools
+        );
+        assert!(
+            !store.is_always_allowed(&id, "writeFile").await,
+            "writeFile must re-prompt after a reload"
+        );
+        assert!(
+            !store.is_always_allowed(&id, "get_summaries").await,
+            "get_summaries must re-prompt after a reload"
+        );
+
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
     /// Permission-mode setters/getters round-trip, default to `Default`,
     /// and report `false` for unknown sessions instead of silently
     /// inserting an entry.

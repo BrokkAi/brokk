@@ -839,4 +839,129 @@ mod tests {
             );
         }
     }
+
+    /// Anti-bypass audit: every tool advertised to the LLM must route
+    /// through `pure_gate_decision`, and that decision must NEVER be
+    /// `Allow` for a mutating kind in `Default` mode without an
+    /// explicit "Always allow" record.
+    ///
+    /// `tool_definitions()` is the registry's contract with the LLM --
+    /// any tool name returned there is callable. The single call site
+    /// of `ToolRegistry::execute` (in `execute_tool` above) consults
+    /// the gate first, so as long as every advertised tool produces a
+    /// well-defined gate decision, no new tool can be smuggled past
+    /// user consent by simply being added to the registry.
+    ///
+    /// Fails if a future tool is added with a `ToolKind` that would
+    /// auto-allow mutating work in `Default` mode (the gate's pure
+    /// decision matrix is the actual classifier; the assertions below
+    /// pin its invariants per kind). Also fails if `tool_definitions()`
+    /// returns the empty set, which would make the audit vacuous.
+    #[tokio::test]
+    async fn every_advertised_tool_routes_through_the_gate() {
+        use crate::tools::ToolRegistry;
+        use agent_client_protocol::schema::ToolKind;
+
+        // Bifrost intentionally disabled: we want a deterministic,
+        // offline set of tools driven by the built-in dispatch arms.
+        // Tests covering the bifrost handshake live separately under
+        // `bifrost_client::tests` and cross-check the `TOOLS` table
+        // against the running subprocess's advertised tools.
+        let registry = ToolRegistry::new(std::env::temp_dir(), None).await;
+        let advertised: Vec<String> = registry
+            .tool_definitions()
+            .into_iter()
+            .map(|d| d.function.name)
+            .collect();
+        assert!(
+            !advertised.is_empty(),
+            "registry must advertise at least one built-in tool; \
+             otherwise this gate audit is vacuous and a future regression \
+             that drops tool_definitions() would pass silently"
+        );
+
+        for name in &advertised {
+            let kind = ToolRegistry::tool_kind(name);
+            let is_info = matches!(
+                kind,
+                ToolKind::Read | ToolKind::Search | ToolKind::Think | ToolKind::Fetch
+            );
+            let is_edit = matches!(kind, ToolKind::Edit);
+
+            // Bypass: explicit user opt-out -- always allow.
+            assert_eq!(
+                decide(PermissionMode::BypassPermissions, kind, name, false),
+                PureGateDecision::Allow,
+                "{name} ({kind:?}): BypassPermissions must allow without consulting always-allow"
+            );
+
+            // ReadOnly: info-kinds only; everything else must be rejected
+            // even if a prior session had it in always-allow (regression
+            // covered by `read_only_rejects_mutating_kinds_even_when_always_allowed`).
+            let ro = decide(PermissionMode::ReadOnly, kind, name, false);
+            if is_info {
+                assert_eq!(
+                    ro,
+                    PureGateDecision::Allow,
+                    "{name} ({kind:?}): ReadOnly must auto-allow info kinds"
+                );
+            } else {
+                assert!(
+                    matches!(ro, PureGateDecision::Reject(_)),
+                    "{name} ({kind:?}): ReadOnly must reject non-info kinds, got {ro:?}"
+                );
+            }
+
+            // Default: info kinds auto-allow; mutating tools must prompt
+            // when there is no prior "Always allow" record. This is the
+            // core anti-bypass invariant -- a brand-new mutating tool
+            // cannot reach `Allow` without user consent.
+            let def = decide(PermissionMode::Default, kind, name, false);
+            if is_info {
+                assert_eq!(
+                    def,
+                    PureGateDecision::Allow,
+                    "{name} ({kind:?}): Default must auto-allow info kinds"
+                );
+            } else {
+                assert_eq!(
+                    def,
+                    PureGateDecision::Prompt,
+                    "{name} ({kind:?}): Default must prompt for mutating kinds; \
+                     reaching Allow without consent would be a gate bypass"
+                );
+            }
+
+            // AcceptEdits: like Default, but Edit gets a free pass.
+            let ae = decide(PermissionMode::AcceptEdits, kind, name, false);
+            if is_info || is_edit {
+                assert_eq!(
+                    ae,
+                    PureGateDecision::Allow,
+                    "{name} ({kind:?}): AcceptEdits must auto-allow info/edit kinds"
+                );
+            } else {
+                assert_eq!(
+                    ae,
+                    PureGateDecision::Prompt,
+                    "{name} ({kind:?}): AcceptEdits must prompt for non-info, non-edit kinds"
+                );
+            }
+        }
+
+        // Anti-sticky-shell: pin the runShellCommand carve-out against
+        // the registry's actual advertised list rather than a string
+        // literal, so a rename surfaces here. Even with always_allow=true
+        // the gate must prompt every call until #3390 lands an OS sandbox.
+        assert!(
+            advertised.iter().any(|n| n == "runShellCommand"),
+            "runShellCommand must be advertised; otherwise the anti-sticky-shell check is a no-op"
+        );
+        let shell_kind = ToolRegistry::tool_kind("runShellCommand");
+        assert_eq!(
+            decide(PermissionMode::Default, shell_kind, "runShellCommand", true),
+            PureGateDecision::Prompt,
+            "runShellCommand must re-prompt every call even when always-allowed (#3390)"
+        );
+    }
 }
