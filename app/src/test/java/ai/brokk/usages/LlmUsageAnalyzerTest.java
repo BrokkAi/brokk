@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import ai.brokk.OfflineService;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestAnalyzer;
@@ -106,6 +107,37 @@ class LlmUsageAnalyzerTest {
         }
     }
 
+    @Test
+    void skipsPatternScanWhenFileDoesNotContainIdentifier() throws IOException, InterruptedException {
+        String source =
+                """
+                package com.example;
+                class Caller {
+                    void call(Target target) {
+                        target.bar();
+                    }
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.empty().build()) {
+            var file = new CountingProjectFile(project.getRoot(), "src/main/java/com/example/Caller.java");
+            Files.createDirectories(file.absPath().getParent());
+            Files.writeString(file.absPath(), source);
+
+            var caller = new CodeUnit(file, CodeUnitType.CLASS, "com.example", "Caller");
+            var foo = new CodeUnit(file, CodeUnitType.FUNCTION, "com.example", "Target.foo");
+
+            var analyzer = new CountingAnalyzer(List.of(caller, foo), project);
+            analyzer.setRanges(caller, List.of(new IAnalyzer.Range(0, source.length(), 1, 6, 6)));
+
+            var usageAnalyzer = new LlmUsageAnalyzer(project, analyzer, new OfflineService(project), null);
+
+            usageAnalyzer.findUsages(List.of(foo), Set.of(file), 100);
+
+            assertEquals(0, analyzer.accessExpressionCheckCount());
+        }
+    }
+
     private static final class CountingProjectFile extends ProjectFile {
         private final AtomicInteger readCount = new AtomicInteger();
         private final AtomicInteger mtime = new AtomicInteger(1);
@@ -131,6 +163,24 @@ class LlmUsageAnalyzerTest {
 
         private void advanceMtime() {
             mtime.incrementAndGet();
+        }
+    }
+
+    private static final class CountingAnalyzer extends TestAnalyzer {
+        private final AtomicInteger accessExpressionCheckCount = new AtomicInteger();
+
+        private CountingAnalyzer(List<CodeUnit> declarations, ai.brokk.project.ICoreProject project) {
+            super(declarations, java.util.Map.of(), project);
+        }
+
+        @Override
+        public boolean isAccessExpression(ProjectFile file, int startByte, int endByte) {
+            accessExpressionCheckCount.incrementAndGet();
+            return true;
+        }
+
+        private int accessExpressionCheckCount() {
+            return accessExpressionCheckCount.get();
         }
     }
 }

@@ -28,6 +28,7 @@ import ai.brokk.util.FilenamePatternMatcher;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import ai.brokk.util.SearchToolSupport;
+import ai.brokk.util.TextMatcher;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -60,7 +61,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.xml.XMLConstants;
@@ -155,7 +155,7 @@ public class SearchTools {
                     .maximumSize(4L * Runtime.getRuntime().availableProcessors())
                     .build());
 
-    private static final ThreadLocal<Cache<String, Pattern>> searchPatterns =
+    private static final ThreadLocal<Cache<String, TextMatcher>> searchPatterns =
             ThreadLocal.withInitial(() -> Caffeine.newBuilder()
                     .maximumSize(64L * Runtime.getRuntime().availableProcessors())
                     .build());
@@ -687,35 +687,30 @@ public class SearchTools {
         return String.join("\n", lines);
     }
 
-    public static List<Pattern> compilePatterns(List<String> patterns) {
+    public static List<TextMatcher> compilePatterns(List<String> patterns) {
         List<String> nonBlank = patterns.stream().filter(p -> !p.isBlank()).toList();
         if (nonBlank.isEmpty()) {
             return List.of();
         }
 
-        Cache<String, Pattern> cache = searchPatterns.get();
+        Cache<String, TextMatcher> cache = searchPatterns.get();
 
-        List<Pattern> compiled = new ArrayList<>(nonBlank.size());
+        List<TextMatcher> compiled = new ArrayList<>(nonBlank.size());
         List<String> errors = new ArrayList<>();
 
         for (String pat : nonBlank) {
             try {
-                Pattern cached = cache.getIfPresent(pat);
+                TextMatcher cached = cache.getIfPresent(pat);
                 if (cached != null) {
                     compiled.add(cached);
                     continue;
                 }
 
-                Pattern newlyCompiled = Pattern.compile(pat);
+                TextMatcher newlyCompiled = TextMatcher.compile(pat, 0);
                 cache.put(pat, newlyCompiled);
                 compiled.add(newlyCompiled);
             } catch (StackOverflowError e) {
                 errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
-            } catch (PatternSyntaxException e) {
-                logger.debug("Pattern '{}' is not valid regex, falling back to literal match", pat);
-                Pattern literal = Pattern.compile(Pattern.quote(pat));
-                cache.put(pat, literal);
-                compiled.add(literal);
             } catch (RuntimeException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 errors.add("'%s': %s".formatted(pat, message));
@@ -729,36 +724,31 @@ public class SearchTools {
         return List.copyOf(compiled);
     }
 
-    private static List<Pattern> compilePatternsWithFlags(List<String> patterns, int flags) {
+    private static List<TextMatcher> compilePatternsWithFlags(List<String> patterns, int flags) {
         List<String> nonBlank = patterns.stream().filter(p -> !p.isBlank()).toList();
         if (nonBlank.isEmpty()) {
             return List.of();
         }
 
-        Cache<String, Pattern> cache = searchPatterns.get();
+        Cache<String, TextMatcher> cache = searchPatterns.get();
 
-        List<Pattern> compiled = new ArrayList<>(nonBlank.size());
+        List<TextMatcher> compiled = new ArrayList<>(nonBlank.size());
         List<String> errors = new ArrayList<>();
 
         for (String pat : nonBlank) {
             String cacheKey = pat + "::flags=" + flags;
             try {
-                Pattern cached = cache.getIfPresent(cacheKey);
+                TextMatcher cached = cache.getIfPresent(cacheKey);
                 if (cached != null) {
                     compiled.add(cached);
                     continue;
                 }
 
-                Pattern newlyCompiled = Pattern.compile(pat, flags);
+                TextMatcher newlyCompiled = TextMatcher.compile(pat, flags);
                 cache.put(cacheKey, newlyCompiled);
                 compiled.add(newlyCompiled);
             } catch (StackOverflowError e) {
                 errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
-            } catch (PatternSyntaxException e) {
-                logger.debug("Pattern '{}' is not valid regex, falling back to literal match", pat);
-                Pattern literal = Pattern.compile(Pattern.quote(pat), flags);
-                cache.put(cacheKey, literal);
-                compiled.add(literal);
             } catch (RuntimeException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 errors.add("'%s': %s".formatted(pat, message));
@@ -1549,7 +1539,7 @@ public class SearchTools {
 
         logger.debug("Searching file contents for patterns: {}", patterns);
 
-        final List<Pattern> compiledPatterns;
+        final List<TextMatcher> compiledPatterns;
         try {
             compiledPatterns = compilePatterns(patterns);
         } catch (IllegalArgumentException e) {
@@ -1602,7 +1592,7 @@ public class SearchTools {
     }
 
     public static AlmostGrep.FindFilesContainingResult findFilesContainingPatterns(
-            List<Pattern> patterns, Set<ProjectFile> filesToSearch) throws InterruptedException {
+            List<TextMatcher> patterns, Set<ProjectFile> filesToSearch) throws InterruptedException {
         return AlmostGrep.findFilesContainingPatterns(patterns, filesToSearch);
     }
 
@@ -1757,7 +1747,7 @@ public class SearchTools {
             flags |= Pattern.MULTILINE;
         }
 
-        final List<Pattern> compiledPatterns;
+        final List<TextMatcher> compiledPatterns;
         try {
             compiledPatterns = compilePatternsWithFlags(patterns, flags);
             if (compiledPatterns.isEmpty()) {

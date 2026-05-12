@@ -88,7 +88,7 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
                         .collect(Collectors.toSet());
         var isUnique = matchingCodeUnits.size() == 1;
 
-        var hits = extractUsageHits(candidateFiles, searchPatterns).stream()
+        var hits = extractUsageHits(candidateFiles, identifier, searchPatterns).stream()
                 .filter(h -> !h.enclosing().equals(target))
                 .collect(Collectors.toSet());
         logger.debug(
@@ -171,14 +171,15 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
         return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, Map.of(target, hits));
     }
 
-    private Set<UsageHit> extractUsageHits(Set<ProjectFile> candidateFiles, Set<String> searchPatterns)
+    private Set<UsageHit> extractUsageHits(
+            Set<ProjectFile> candidateFiles, String identifier, Set<String> searchPatterns)
             throws InterruptedException {
         var hits = new ConcurrentHashMap<UsageHit, Boolean>();
         final var patterns = searchPatterns.stream().map(Pattern::compile).toList();
 
         List<Callable<Void>> tasks = candidateFiles.stream()
                 .map(file -> (Callable<Void>) () -> {
-                    scanFileForUsageHits(file, patterns, hits);
+                    scanFileForUsageHits(file, identifier, patterns, hits);
                     return null;
                 })
                 .toList();
@@ -195,12 +196,13 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
     }
 
     private void scanFileForUsageHits(
-            ProjectFile file, List<Pattern> patterns, ConcurrentHashMap<UsageHit, Boolean> hits) {
+            ProjectFile file, String identifier, List<Pattern> patterns, ConcurrentHashMap<UsageHit, Boolean> hits) {
         try {
             var scanInputOpt = scanInput(file);
             if (scanInputOpt.isEmpty()) return;
             var scanInput = scanInputOpt.get();
             var content = scanInput.content();
+            if (!content.contains(identifier)) return;
 
             for (var pattern : patterns) {
                 var matcher = pattern.matcher(content);
