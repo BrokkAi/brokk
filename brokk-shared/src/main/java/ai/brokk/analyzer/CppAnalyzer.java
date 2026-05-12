@@ -243,6 +243,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     @Override
+    protected boolean warnOnSignatureInFqNameLookup() {
+        return true;
+    }
+
+    @Override
     public int computeCognitiveComplexity(CodeUnit cu) {
         return computeCognitiveComplexity(cu, CognitiveComplexityAnalysis::compute);
     }
