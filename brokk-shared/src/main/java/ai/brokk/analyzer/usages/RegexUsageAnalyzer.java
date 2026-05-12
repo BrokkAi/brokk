@@ -11,7 +11,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -70,56 +72,71 @@ public final class RegexUsageAnalyzer implements UsageAnalyzer {
         return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, Map.of(target, hits));
     }
 
-    private Set<UsageHit> extractUsageHits(Set<ProjectFile> candidateFiles, Set<String> searchPatterns) {
+    private Set<UsageHit> extractUsageHits(Set<ProjectFile> candidateFiles, Set<String> searchPatterns)
+            throws InterruptedException {
         var hits = new ConcurrentHashMap<UsageHit, Boolean>();
         final var patterns = searchPatterns.stream().map(Pattern::compile).toList();
 
-        candidateFiles.parallelStream().forEach(file -> {
-            try {
-                if (!file.isText()) return;
-                var contentOpt = file.read();
-                if (contentOpt.isEmpty()) return;
-                var content = contentOpt.get();
-                if (content.isEmpty()) return;
+        var tasks = candidateFiles.stream()
+                .<Callable<Void>>map(file -> () -> {
+                    try {
+                        if (!file.isText()) return null;
+                        var contentOpt = file.read();
+                        if (contentOpt.isEmpty()) return null;
+                        var content = contentOpt.get();
+                        if (content.isEmpty()) return null;
 
-                String[] lines = null;
-                int[] lineStarts = null;
+                        String[] lines = null;
+                        int[] lineStarts = null;
 
-                for (var pattern : patterns) {
-                    var matcher = pattern.matcher(content);
-                    while (matcher.find()) {
-                        int start = matcher.start();
-                        int end = matcher.end();
-                        int startByte = ASTTraversalUtils.charPositionToUtf8ByteOffset(content, start);
-                        int endByte = ASTTraversalUtils.charPositionToUtf8ByteOffset(content, end);
+                        for (var pattern : patterns) {
+                            var matcher = pattern.matcher(content);
+                            while (matcher.find()) {
+                                int start = matcher.start();
+                                int end = matcher.end();
+                                int startByte = ASTTraversalUtils.charPositionToUtf8ByteOffset(content, start);
+                                int endByte = ASTTraversalUtils.charPositionToUtf8ByteOffset(content, end);
 
-                        if (!analyzer.isAccessExpression(file, startByte, endByte)) continue;
+                                if (!analyzer.isAccessExpression(file, startByte, endByte)) continue;
 
-                        if (lines == null) {
-                            lines = content.split("\\R", -1);
-                            lineStarts = FileUtil.computeLineStarts(content);
+                                if (lines == null) {
+                                    lines = content.split("\\R", -1);
+                                    lineStarts = FileUtil.computeLineStarts(content);
+                                }
+                                int[] starts = Objects.requireNonNull(lineStarts);
+
+                                int lineIdx = FileUtil.findLineIndexForOffset(starts, start);
+                                int startLine = Math.max(0, lineIdx - 3);
+                                int endLine = Math.min(lines.length - 1, lineIdx + 3);
+                                String[] snippetLines = lines;
+                                var snippet = IntStream.rangeClosed(startLine, endLine)
+                                        .mapToObj(i -> snippetLines[i])
+                                        .collect(Collectors.joining("\n"));
+
+                                var range = new IAnalyzer.Range(startByte, endByte, lineIdx, lineIdx, lineIdx);
+                                var enclosingCodeUnit = analyzer.enclosingCodeUnit(file, range);
+
+                                enclosingCodeUnit.ifPresent(codeUnit -> hits.put(
+                                        new UsageHit(file, lineIdx + 1, start, end, codeUnit, 1.0, snippet), true));
+                            }
                         }
-                        int[] starts = Objects.requireNonNull(lineStarts);
-
-                        int lineIdx = FileUtil.findLineIndexForOffset(starts, start);
-                        int startLine = Math.max(0, lineIdx - 3);
-                        int endLine = Math.min(lines.length - 1, lineIdx + 3);
-                        String[] snippetLines = lines;
-                        var snippet = IntStream.rangeClosed(startLine, endLine)
-                                .mapToObj(i -> snippetLines[i])
-                                .collect(Collectors.joining("\n"));
-
-                        var range = new IAnalyzer.Range(startByte, endByte, lineIdx, lineIdx, lineIdx);
-                        var enclosingCodeUnit = analyzer.enclosingCodeUnit(file, range);
-
-                        enclosingCodeUnit.ifPresent(codeUnit ->
-                                hits.put(new UsageHit(file, lineIdx + 1, start, end, codeUnit, 1.0, snippet), true));
+                    } catch (Exception e) {
+                        logger.warn("Failed to extract usage hits from {}: {}", file, e.toString());
                     }
+                    return null;
+                })
+                .toList();
+        var futures = UsageAnalysisExecutors.ioExecutor().invokeAll(tasks);
+        for (var future : futures) {
+            try {
+                future.get();
+            } catch (ExecutionException e) {
+                if (e.getCause() instanceof RuntimeException re) {
+                    throw re;
                 }
-            } catch (Exception e) {
-                logger.warn("Failed to extract usage hits from {}: {}", file, e.toString());
+                throw new RuntimeException("Regex usage scan failed", e.getCause());
             }
-        });
+        }
         return Set.copyOf(hits.keySet());
     }
 }
