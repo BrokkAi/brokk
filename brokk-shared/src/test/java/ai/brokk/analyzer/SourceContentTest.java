@@ -240,6 +240,27 @@ class SourceContentTest {
     }
 
     @Test
+    @DisplayName("charPositionToByteOffset remains stable across repeated calls")
+    void testCharPositionToByteOffsetRepeatedCalls() {
+        SourceContent content = SourceContent.of("ascii Target\nCafé Target\nemoji \uD83D\uDE80 Target");
+
+        int asciiTarget = content.text().indexOf("Target");
+        int cafeTarget = content.text().indexOf("Target", asciiTarget + 1);
+        int emojiTarget = content.text().indexOf("Target", cafeTarget + 1);
+
+        assertEquals(asciiTarget, content.charPositionToByteOffset(asciiTarget));
+        assertEquals(asciiTarget, content.charPositionToByteOffset(asciiTarget));
+
+        int expectedCafeByte = content.text().substring(0, cafeTarget).getBytes(StandardCharsets.UTF_8).length;
+        assertEquals(expectedCafeByte, content.charPositionToByteOffset(cafeTarget));
+        assertEquals(expectedCafeByte, content.charPositionToByteOffset(cafeTarget));
+
+        int expectedEmojiByte = content.text().substring(0, emojiTarget).getBytes(StandardCharsets.UTF_8).length;
+        assertEquals(expectedEmojiByte, content.charPositionToByteOffset(emojiTarget));
+        assertEquals(expectedEmojiByte, content.charPositionToByteOffset(emojiTarget));
+    }
+
+    @Test
     @DisplayName("Round-trip conversion between byte offset and char position")
     void testRoundTripOffsetConversion() {
         SourceContent content = SourceContent.of("Hello Café World");

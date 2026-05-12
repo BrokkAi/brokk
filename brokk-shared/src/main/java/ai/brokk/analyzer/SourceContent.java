@@ -19,6 +19,7 @@ public final class SourceContent {
 
     private final String text;
     private final byte[] utf8Bytes;
+    private int @Nullable [] charToByteOffsets;
 
     private SourceContent(String text, byte[] utf8Bytes) {
         this.text = text;
@@ -96,7 +97,13 @@ public final class SourceContent {
      * If charPosition <= 0 returns 0. If charPosition >= source.length() returns byteLength.
      */
     public int charPositionToByteOffset(int charPosition) {
-        return ASTTraversalUtils.charPositionToUtf8ByteOffset(text, charPosition);
+        if (charPosition <= 0) {
+            return 0;
+        }
+        if (charPosition >= text.length()) {
+            return utf8Bytes.length;
+        }
+        return charToByteOffsets()[charPosition];
     }
 
     public String text() {
@@ -137,5 +144,32 @@ public final class SourceContent {
             return "";
         }
         return substringFromBytes(node.getStartByte(), node.getEndByte());
+    }
+
+    private int[] charToByteOffsets() {
+        if (charToByteOffsets == null) {
+            charToByteOffsets = computeCharToByteOffsets();
+        }
+        return charToByteOffsets;
+    }
+
+    private int[] computeCharToByteOffsets() {
+        var offsets = new int[text.length() + 1];
+        int byteOffset = 0;
+        int charIndex = 0;
+        while (charIndex < text.length()) {
+            offsets[charIndex] = byteOffset;
+            int codePoint = text.codePointAt(charIndex);
+            int charCount = Character.charCount(codePoint);
+            int nextByteOffset =
+                    byteOffset + new String(Character.toChars(codePoint)).getBytes(StandardCharsets.UTF_8).length;
+            if (charCount == 2) {
+                offsets[charIndex + 1] = byteOffset;
+            }
+            charIndex += charCount;
+            byteOffset = nextByteOffset;
+            offsets[charIndex] = byteOffset;
+        }
+        return offsets;
     }
 }
