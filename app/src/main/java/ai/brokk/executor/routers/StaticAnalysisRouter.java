@@ -14,21 +14,30 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
 public final class StaticAnalysisRouter implements SimpleHttpServer.CheckedHttpHandler {
     private final StaticAnalysisSeedService seedService;
     private final StaticAnalysisLeadExpansionService expansionService;
+    private final Supplier<IAppContextManager.AnalyzerStatus> analyzerStatusSupplier;
     private final ExecutorService expansionExecutor;
 
     public StaticAnalysisRouter(IAppContextManager contextManager) {
-        this(new StaticAnalysisSeedService(contextManager), new StaticAnalysisLeadExpansionService(contextManager));
+        this(
+                new StaticAnalysisSeedService(contextManager),
+                new StaticAnalysisLeadExpansionService(contextManager),
+                contextManager::getAnalyzerStatus);
     }
 
-    StaticAnalysisRouter(StaticAnalysisSeedService seedService, StaticAnalysisLeadExpansionService expansionService) {
+    StaticAnalysisRouter(
+            StaticAnalysisSeedService seedService,
+            StaticAnalysisLeadExpansionService expansionService,
+            Supplier<IAppContextManager.AnalyzerStatus> analyzerStatusSupplier) {
         this.seedService = seedService;
         this.expansionService = expansionService;
+        this.analyzerStatusSupplier = analyzerStatusSupplier;
         this.expansionExecutor = Executors.newSingleThreadExecutor(r -> {
             var thread = new Thread(r, "StaticAnalysisLeadExpansion");
             thread.setDaemon(true);
@@ -41,6 +50,15 @@ public final class StaticAnalysisRouter implements SimpleHttpServer.CheckedHttpH
         var method = exchange.getRequestMethod();
         var path = exchange.getRequestURI().getPath();
         var normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
+
+        if (normalizedPath.equals("/v1/static-analysis/status")) {
+            if (!"GET".equals(method)) {
+                RouterUtil.sendMethodNotAllowed(exchange);
+                return;
+            }
+            SimpleHttpServer.sendJsonResponse(exchange, analyzerStatusSupplier.get());
+            return;
+        }
 
         if (normalizedPath.equals("/v1/static-analysis/seeds")) {
             if (!"POST".equals(method)) {

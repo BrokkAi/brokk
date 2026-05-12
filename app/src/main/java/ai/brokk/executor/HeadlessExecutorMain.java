@@ -555,6 +555,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    GET  /v1/dependencies             - list all imported dependencies");
             System.out.println("    GET  /v1/settings                 - get all project settings");
             System.out.println("    POST /v1/settings                 - update all project settings");
+            System.out.println("    GET  /v1/static-analysis/status   - get code intelligence readiness");
             System.out.println("    GET  /v1/agents                   - list custom agent definitions");
             System.out.println("    POST /v1/agents                   - create a custom agent");
             System.out.println("    GET  /v1/agents/{name}            - get an agent definition");
