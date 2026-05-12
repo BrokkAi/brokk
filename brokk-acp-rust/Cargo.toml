@@ -46,6 +46,10 @@ webbrowser = "1"
 base64 = "0.22"
 dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
+# YAML frontmatter parser for Agent Skills (`SKILL.md`). `serde_yaml` is
+# archived but stable and is what codex's core-skills uses; staying on it
+# avoids ecosystem churn. Revisit only on CVE.
+serde_yaml = "0.9"
 
 # Unix-only: `setrlimit` via `Command::pre_exec` for per-process resource caps
 # applied to `runShellCommand`. See `tools/shell.rs::apply_rlimits`.

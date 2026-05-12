@@ -223,7 +223,7 @@ fn all_config_options(
 /// the Rust agent does not yet model). `/codex-login` is published so it
 /// shows up in editor autocomplete (Zed, JetBrains ACP) -- without this
 /// the slash command works when typed but is invisible to discovery.
-fn available_commands() -> Vec<AvailableCommand> {
+fn builtin_commands() -> Vec<AvailableCommand> {
     vec![
         AvailableCommand::new("context", "Show current session context snapshot"),
         AvailableCommand::new(
@@ -237,9 +237,72 @@ fn available_commands() -> Vec<AvailableCommand> {
     ]
 }
 
-fn send_available_commands_update(cx: &ConnectionTo<Client>, session_id: &str) {
-    let update =
-        SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(available_commands()));
+/// Set of built-in slash command names, used to detect collisions with
+/// skill names so the built-in always wins (matches the spec's "Hide
+/// filtered skills entirely" guidance: don't expose a slash that won't
+/// actually dispatch to the skill).
+fn builtin_command_names() -> std::collections::HashSet<&'static str> {
+    ["context", "codex-login", "idle-timeout"]
+        .into_iter()
+        .collect()
+}
+
+/// Build the full command list advertised to the client: built-ins plus
+/// one entry per discovered skill. Skill commands whose names collide
+/// with a built-in are dropped (with a warning) so the user doesn't see
+/// ambiguous autocomplete -- the skill remains reachable to the model
+/// via the `activate_skill` tool.
+fn available_commands(registry: &crate::skills::SkillRegistry) -> Vec<AvailableCommand> {
+    let mut commands = builtin_commands();
+    if registry.is_empty() {
+        return commands;
+    }
+    let builtins = builtin_command_names();
+    for meta in registry.iter_sorted() {
+        if builtins.contains(meta.name.as_str()) {
+            tracing::warn!(
+                skill = %meta.name,
+                location = %meta.location.display(),
+                "skill name collides with a built-in slash command; hiding from autocomplete"
+            );
+            continue;
+        }
+        commands.push(AvailableCommand::new(
+            meta.name.clone(),
+            shorten_for_autocomplete(&meta.description),
+        ));
+    }
+    commands
+}
+
+/// Editor autocomplete widgets render the command description inline,
+/// so wrap long descriptions to keep the dropdown legible. The spec
+/// caps descriptions at 1024 chars; ~200 chars is plenty for a tooltip.
+fn shorten_for_autocomplete(s: &str) -> String {
+    const MAX: usize = 200;
+    let trimmed = s.trim();
+    if trimmed.chars().count() <= MAX {
+        return trimmed.to_string();
+    }
+    let mut acc = String::with_capacity(MAX + 3);
+    for (i, ch) in trimmed.chars().enumerate() {
+        if i >= MAX - 1 {
+            break;
+        }
+        acc.push(ch);
+    }
+    acc.push('…');
+    acc
+}
+
+fn send_available_commands_update(
+    cx: &ConnectionTo<Client>,
+    session_id: &str,
+    registry: &crate::skills::SkillRegistry,
+) {
+    let update = SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(
+        available_commands(registry),
+    ));
     let notification = SessionNotification::new(session_id.to_string(), update);
     if let Err(e) = cx.send_notification(notification) {
         tracing::warn!("failed to send available_commands_update: {e}");
@@ -413,7 +476,7 @@ pub async fn run_agent(
                     ))
                     .meta(meta_map);
 
-                send_available_commands_update(&cx, &session.id);
+                send_available_commands_update(&cx, &session.id, &session.skills);
 
                 responder.respond(response)
             },
@@ -452,7 +515,7 @@ pub async fn run_agent(
                 }
 
                 let catalog = sessions_load.available_model_metadata().await;
-                send_available_commands_update(&cx, &session_id);
+                send_available_commands_update(&cx, &session_id, &session.skills);
 
                 responder.respond(
                     LoadSessionResponse::new()
@@ -481,7 +544,7 @@ pub async fn run_agent(
                     Some(session) => {
                         sessions_resume.update_cwd(&session_id, cwd).await;
                         let catalog = sessions_resume.available_model_metadata().await;
-                        send_available_commands_update(&cx, &session_id);
+                        send_available_commands_update(&cx, &session_id, &session.skills);
                         responder.respond(
                             ResumeSessionResponse::new()
                                 .modes(mode_state(session.mode.as_str()))
@@ -596,6 +659,31 @@ pub async fn run_agent(
                     send_message(&cx, &session_id, &report);
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
+
+                // User-explicit skill activation. Unlike the built-in
+                // short-circuit commands above, a skill slash IS the LLM
+                // round-trip: the SKILL.md body becomes the user's
+                // message for this turn (with any args after the command
+                // appended), so it persists into history and replays
+                // correctly. Built-ins are checked first so a skill
+                // that happens to name itself e.g. `context` or
+                // `idle-timeout` can never shadow them.
+                let prompt_text = if let Some((name, args)) = parse_slash_command(&prompt_text)
+                    && let Some(meta) = snap.skills.get(&name)
+                {
+                    tracing::info!(skill = %name, "slash-command activating skill");
+                    sessions_prompt
+                        .mark_skill_activated(&session_id, &name)
+                        .await;
+                    let body = build_skill_payload(meta);
+                    if args.is_empty() {
+                        body
+                    } else {
+                        format!("{body}\n\nUser input: {args}")
+                    }
+                } else {
+                    prompt_text
+                };
 
                 // Validate model is configured
                 if snap.model.is_empty() {
@@ -1128,6 +1216,13 @@ fn build_prompt_messages(snap: &SessionSnapshot, new_prompt: &str) -> Vec<ChatMe
             snap.project_instructions
         )));
     }
+    // Tier-1 disclosure: list each discovered skill's name+description
+    // so the model can decide to auto-activate via `activate_skill`.
+    // Skipped entirely when the registry is empty -- per the spec, an
+    // empty `<available_skills/>` block would just confuse the model.
+    if let Some(catalog) = build_skills_catalog(&snap.skills) {
+        messages.push(ChatMessage::user(catalog));
+    }
     for turn in &snap.history {
         messages.push(ChatMessage::user(turn.user_prompt.clone()));
 
@@ -1232,6 +1327,113 @@ fn is_slash_command(prompt_text: &str, name: &str) -> bool {
         .unwrap_or("")
         .to_ascii_lowercase();
     head == name
+}
+
+/// Parse `/<name> <args...>` out of a prompt. Returns `None` when the
+/// prompt isn't a slash command. The `name` is lowercased for
+/// case-insensitive lookup; the `args` slice preserves the original
+/// casing/whitespace after the command head.
+fn parse_slash_command(prompt_text: &str) -> Option<(String, String)> {
+    let stripped = prompt_text.trim();
+    let rest = stripped.strip_prefix('/')?;
+    if rest.is_empty() {
+        return None;
+    }
+    let (head, tail) = match rest.find(char::is_whitespace) {
+        Some(i) => (&rest[..i], rest[i..].trim_start()),
+        None => (rest, ""),
+    };
+    if head.is_empty() {
+        return None;
+    }
+    Some((head.to_ascii_lowercase(), tail.to_string()))
+}
+
+/// Build the `<available_skills>` tier-1 disclosure block for the system
+/// prompt. Returns `None` when the registry is empty so the caller can
+/// skip the injection entirely (per the spec's "When no skills are
+/// available" guidance: never emit an empty block).
+fn build_skills_catalog(registry: &crate::skills::SkillRegistry) -> Option<String> {
+    if registry.is_empty() {
+        return None;
+    }
+    let mut out = String::from("<available_skills>\n");
+    for meta in registry.iter_sorted() {
+        out.push_str("  <skill>\n");
+        out.push_str(&format!("    <name>{}</name>\n", xml_escape(&meta.name)));
+        out.push_str(&format!(
+            "    <description>{}</description>\n",
+            xml_escape(&meta.description)
+        ));
+        out.push_str(&format!(
+            "    <location>{}</location>\n",
+            xml_escape(&meta.location.display().to_string())
+        ));
+        out.push_str("  </skill>\n");
+    }
+    out.push_str("</available_skills>\n\n");
+    out.push_str(
+        "The skills above provide specialized instructions for specific tasks. \
+        When a task matches a skill's description, call the `activate_skill` tool \
+        with the skill's name to load its full instructions. Users can also invoke \
+        a skill directly by typing `/<skill-name>` as a slash command.",
+    );
+    Some(out)
+}
+
+/// Build the structured-wrapping payload sent to the LLM when a skill is
+/// activated (whether via slash command or the `activate_skill` tool).
+/// Format follows the spec's recommended "Structured wrapping" example:
+/// the skill body inside `<skill_content name="...">` tags, with the
+/// skill directory and a `<skill_resources>` listing so the model can
+/// pull bundled scripts/references with its existing file-read tool.
+pub(crate) fn build_skill_payload(meta: &crate::skills::SkillMeta) -> String {
+    let body = match crate::skills::read_skill_body(&meta.location) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(
+                path = %meta.location.display(),
+                "SKILL.md became unreadable between discovery and activation: {e}"
+            );
+            return format!(
+                "<skill_content name=\"{}\">\n[skill file {} could not be read: {e}]\n</skill_content>",
+                xml_escape(&meta.name),
+                meta.location.display()
+            );
+        }
+    };
+    let resources = crate::skills::list_bundled_resources(&meta.skill_dir);
+    let mut out = format!("<skill_content name=\"{}\">\n", xml_escape(&meta.name));
+    out.push_str(&body);
+    if !body.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push('\n');
+    out.push_str(&format!("Skill directory: {}\n", meta.skill_dir.display()));
+    out.push_str("Relative paths inside this skill resolve against the skill directory.\n");
+    if !resources.is_empty() {
+        out.push_str("\n<skill_resources>\n");
+        for rel in &resources {
+            out.push_str(&format!("  <file>{}</file>\n", xml_escape(rel)));
+        }
+        out.push_str("</skill_resources>\n");
+    }
+    out.push_str("</skill_content>");
+    out
+}
+
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Handle the `/codex-login` slash command and its subcommands.
@@ -1700,6 +1902,7 @@ mod tests {
             reasoning_effort: None,
             idle_timeout_secs: None,
             project_instructions: String::new(),
+            skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
         let report = render_context_report(&snap, PermissionMode::AcceptEdits, &["gpt-99".into()]);
 
@@ -1725,6 +1928,7 @@ mod tests {
             reasoning_effort: None,
             idle_timeout_secs: None,
             project_instructions: String::new(),
+            skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
         let report = render_context_report(&snap, PermissionMode::Default, &[]);
         assert!(report.contains("Model: `(none)`"));
@@ -1750,6 +1954,7 @@ mod tests {
             reasoning_effort: None,
             idle_timeout_secs: None,
             project_instructions: String::new(),
+            skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
         let msgs = build_prompt_messages(&snap, "follow up");
         // system + user(history) + assistant(history) + user(new)
@@ -1795,6 +2000,7 @@ mod tests {
             reasoning_effort: None,
             idle_timeout_secs: None,
             project_instructions: String::new(),
+            skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
         let msgs = build_prompt_messages(&snap, "now fix them");
 
@@ -1844,6 +2050,7 @@ mod tests {
             reasoning_effort: None,
             idle_timeout_secs: None,
             project_instructions: String::new(),
+            skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
         let msgs = build_prompt_messages(&snap, "hi");
         assert_eq!(msgs.len(), 2);
@@ -1863,6 +2070,7 @@ mod tests {
             reasoning_effort: None,
             idle_timeout_secs: None,
             project_instructions: "Use the local style.".into(),
+            skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
 
         let msgs = build_prompt_messages(&snap, "hi");
@@ -1913,6 +2121,7 @@ mod tests {
             reasoning_effort: None,
             idle_timeout_secs: None,
             project_instructions: String::new(),
+            skills: std::sync::Arc::new(crate::skills::SkillRegistry::default()),
         };
         let msgs = build_prompt_messages(&snap, "next");
 
@@ -1927,5 +2136,185 @@ mod tests {
         assert_eq!(msgs[3].role, "tool");
         assert_eq!(msgs[4].role, "user");
         assert_eq!(msgs[4].content.as_deref(), Some("next"));
+    }
+
+    // ---------------------------------------------------------------
+    // Agent Skills integration (catalog injection, slash dispatch,
+    // built-in collision precedence, command merging, payload format).
+    // ---------------------------------------------------------------
+
+    use crate::skills::{SkillMeta, SkillRegistry, SkillScope};
+    use std::path::PathBuf as TestPathBuf;
+
+    fn make_registry(skills: Vec<(&str, &str)>) -> std::sync::Arc<SkillRegistry> {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut reg = SkillRegistry::default();
+        for (name, description) in skills {
+            // Write a real SKILL.md so `build_skill_payload` can read it.
+            let skill_dir = tmp.path().join(name);
+            std::fs::create_dir_all(&skill_dir).unwrap();
+            let location = skill_dir.join("SKILL.md");
+            std::fs::write(
+                &location,
+                format!("---\nname: {name}\ndescription: {description}\n---\nBody for {name}"),
+            )
+            .unwrap();
+            reg.insert_for_test(SkillMeta {
+                name: name.to_string(),
+                description: description.to_string(),
+                location: location.clone(),
+                skill_dir: skill_dir.clone(),
+                scope: SkillScope::Project,
+            });
+        }
+        // Leak the TempDir so files survive the test (we don't manage
+        // lifetime here; the worker thread cleans up the system tmpdir).
+        std::mem::forget(tmp);
+        std::sync::Arc::new(reg)
+    }
+
+    #[test]
+    fn build_prompt_messages_injects_catalog_when_skills_present() {
+        use crate::session::SessionSnapshot;
+        let snap = SessionSnapshot {
+            cwd: TestPathBuf::from("/tmp/cwd"),
+            mode: SessionMode::Code,
+            model: "m".into(),
+            history: vec![],
+            reasoning_effort: None,
+            idle_timeout_secs: None,
+            project_instructions: String::new(),
+            skills: make_registry(vec![
+                ("hello-world", "Greet the user with a single short line."),
+                ("pdf-processing", "Extract text from PDFs."),
+            ]),
+        };
+        let msgs = build_prompt_messages(&snap, "hi");
+        // system, catalog (user context), user(new) -> 3
+        assert_eq!(msgs.len(), 3);
+        let catalog = msgs[1]
+            .content
+            .as_ref()
+            .expect("catalog message has content");
+        assert!(catalog.contains("<available_skills>"));
+        assert!(catalog.contains("<name>hello-world</name>"));
+        assert!(catalog.contains("<name>pdf-processing</name>"));
+        // Sorted: hello-world before pdf-processing.
+        let hw = catalog.find("<name>hello-world</name>").unwrap();
+        let pdf = catalog.find("<name>pdf-processing</name>").unwrap();
+        assert!(hw < pdf, "catalog must be alphabetically sorted");
+        // Behavioral instruction tells the model to call activate_skill.
+        assert!(catalog.contains("activate_skill"));
+    }
+
+    #[test]
+    fn build_prompt_messages_skips_catalog_when_empty() {
+        use crate::session::SessionSnapshot;
+        let snap = SessionSnapshot {
+            cwd: TestPathBuf::from("/tmp/cwd"),
+            mode: SessionMode::Code,
+            model: "m".into(),
+            history: vec![],
+            reasoning_effort: None,
+            idle_timeout_secs: None,
+            project_instructions: String::new(),
+            skills: std::sync::Arc::new(SkillRegistry::default()),
+        };
+        let msgs = build_prompt_messages(&snap, "hi");
+        // Just system + the user prompt -- no catalog message.
+        assert_eq!(msgs.len(), 2);
+        for m in &msgs {
+            if let Some(c) = m.content.as_deref() {
+                assert!(
+                    !c.contains("<available_skills>"),
+                    "empty registry must not emit an empty catalog block"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn available_commands_merges_builtins_and_skills() {
+        let registry = make_registry(vec![("zebra", "Z skill"), ("apple", "A skill")]);
+        let cmds = available_commands(&registry);
+        let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
+        // Built-ins come first in their declared order; skills follow,
+        // sorted alphabetically.
+        assert_eq!(
+            names,
+            vec!["context", "codex-login", "idle-timeout", "apple", "zebra"]
+        );
+    }
+
+    #[test]
+    fn slash_collision_with_builtin_keeps_builtin_warns() {
+        // A skill named `context` must NOT shadow the `/context` builtin
+        // in autocomplete (the dispatcher checks built-ins first, so the
+        // slash still hits the builtin, but the duplicate command entry
+        // would confuse the user).
+        let registry = make_registry(vec![
+            ("context", "this should be hidden"),
+            ("ok-skill", "this should show"),
+        ]);
+        let cmds = available_commands(&registry);
+        let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
+        // Built-in `context` exactly once; skill `context` dropped.
+        assert_eq!(names.iter().filter(|n| **n == "context").count(), 1);
+        // Non-colliding skill still appears.
+        assert!(names.contains(&"ok-skill"));
+    }
+
+    #[test]
+    fn build_skill_payload_wraps_body_with_resources_listing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let skill_dir = tmp.path().join("demo");
+        std::fs::create_dir_all(skill_dir.join("scripts")).unwrap();
+        std::fs::create_dir_all(skill_dir.join("references")).unwrap();
+        let location = skill_dir.join("SKILL.md");
+        std::fs::write(
+            &location,
+            "---\nname: demo\ndescription: demo skill\n---\nDo a thing.\n",
+        )
+        .unwrap();
+        std::fs::write(skill_dir.join("scripts").join("run.sh"), "#!/bin/sh\n").unwrap();
+        std::fs::write(skill_dir.join("references").join("notes.md"), "n").unwrap();
+
+        let meta = SkillMeta {
+            name: "demo".into(),
+            description: "demo skill".into(),
+            location,
+            skill_dir: skill_dir.clone(),
+            scope: SkillScope::Project,
+        };
+        let payload = build_skill_payload(&meta);
+        assert!(payload.starts_with("<skill_content name=\"demo\">"));
+        assert!(payload.contains("Do a thing."));
+        // Frontmatter must be stripped.
+        assert!(!payload.contains("---\nname:"));
+        // Resources listed.
+        assert!(payload.contains("<file>scripts/run.sh</file>"));
+        assert!(payload.contains("<file>references/notes.md</file>"));
+        // Skill directory + relative-path hint present.
+        assert!(payload.contains(&format!("Skill directory: {}", skill_dir.display())));
+        assert!(payload.ends_with("</skill_content>"));
+    }
+
+    #[test]
+    fn parse_slash_command_splits_name_and_args() {
+        assert_eq!(
+            parse_slash_command("/hello world"),
+            Some(("hello".into(), "world".into()))
+        );
+        assert_eq!(
+            parse_slash_command("/hello"),
+            Some(("hello".into(), String::new()))
+        );
+        assert_eq!(
+            parse_slash_command("/Hello   foo bar"),
+            Some(("hello".into(), "foo bar".into()))
+        );
+        assert_eq!(parse_slash_command("hello"), None);
+        assert_eq!(parse_slash_command("/"), None);
+        assert_eq!(parse_slash_command(""), None);
     }
 }
