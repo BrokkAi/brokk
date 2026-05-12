@@ -86,6 +86,8 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     @Nullable
     private IAnalyzerWrapper analyzerWrapper; // also initialized in createGui/createHeadless
 
+    private final AtomicReference<AnalyzerStatus> analyzerStatus = new AtomicReference<>(AnalyzerStatus.notReady());
+
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
     // Only one of these can run at a time
     private final UserActionManager userActions;
@@ -449,6 +451,8 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
             @Override
             public void beforeEachBuild() {
+                analyzerStatus.set(AnalyzerStatus.building(0, 0, 0, "Building code intelligence"));
+
                 if (io instanceof Chrome chrome) {
                     chrome.showAnalyzerRebuildStatus();
                 }
@@ -461,6 +465,14 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
             @Override
             public void afterEachBuild(boolean externalRequest) {
+                analyzerStatus.updateAndGet(status -> {
+                    var nonNullStatus = requireNonNull(status);
+                    if (isAnalyzerReady()) {
+                        return AnalyzerStatus.ready(nonNullStatus.total());
+                    }
+                    return AnalyzerStatus.notReady();
+                });
+
                 submitBackgroundTask("Code Intelligence post-build", () -> {
                     if (io instanceof Chrome chrome) {
                         chrome.hideAnalyzerRebuildStatus();
@@ -500,6 +512,10 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
             @Override
             public void onAnalyzerReady() {
                 logger.debug("Analyzer became ready, triggering symbol lookup refresh");
+                analyzerStatus.updateAndGet(status -> {
+                    var nonNullStatus = requireNonNull(status);
+                    return isAnalyzerReady() ? AnalyzerStatus.ready(nonNullStatus.total()) : AnalyzerStatus.notReady();
+                });
                 for (var callback : analyzerCallbacks) {
                     submitBackgroundTask("Code Intelligence ready", callback::onAnalyzerReady);
                 }
@@ -507,6 +523,9 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
             @Override
             public void onProgress(int completed, int total, String description) {
+                var percent = total > 0 ? Math.min(100L, Math.max(0L, (completed * 100L) / total)) : 0L;
+                analyzerStatus.set(AnalyzerStatus.building(completed, total, Math.toIntExact(percent), description));
+
                 // Update progress bar on "Rebuilding Code Intelligence" status strip
                 if (io instanceof Chrome chrome) {
                     chrome.updateAnalyzerProgress(completed, total, description);
@@ -1473,6 +1492,18 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     /** Returns current analyzer readiness without blocking. */
     public boolean isAnalyzerReady() {
         return requireNonNull(analyzerWrapper).getNonBlocking() != null;
+    }
+
+    @Override
+    public AnalyzerStatus getAnalyzerStatus() {
+        var status = requireNonNull(analyzerStatus.get());
+        if (!status.ready() && isAnalyzerReady()) {
+            return requireNonNull(analyzerStatus.updateAndGet(current -> {
+                var nonNullCurrent = requireNonNull(current);
+                return AnalyzerStatus.ready(nonNullCurrent.total());
+            }));
+        }
+        return status;
     }
 
     /** Returns the current session's domain-model task list. Always non-null. */

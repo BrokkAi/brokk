@@ -4,12 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.IAppContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.executor.staticanalysis.StaticAnalysisLeadExpansionService;
+import ai.brokk.executor.staticanalysis.StaticAnalysisSeedService;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -25,6 +28,60 @@ import org.junit.jupiter.api.io.TempDir;
 
 class StaticAnalysisRouterTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @Test
+    void handleGetStatus_returnsAnalyzerProgress() throws Exception {
+        var contextManager = contextManager();
+        var router = new StaticAnalysisRouter(
+                new StaticAnalysisSeedService(contextManager),
+                new StaticAnalysisLeadExpansionService(contextManager),
+                () -> IAppContextManager.AnalyzerStatus.building(123, 500, 24, "Indexing Java files"));
+        var exchange = TestHttpExchange.jsonRequest("GET", "/v1/static-analysis/status", "");
+
+        router.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertEquals("ANALYZER_BUILDING", body.get("code"));
+        assertEquals(false, body.get("ready"));
+        assertEquals(true, body.get("building"));
+        assertEquals(123, body.get("completed"));
+        assertEquals(500, body.get("total"));
+        assertEquals(24, body.get("percent"));
+        assertEquals("Indexing Java files", body.get("description"));
+    }
+
+    @Test
+    void handleGetStatus_returnsExplicitNotReadyCode() throws Exception {
+        var contextManager = contextManager();
+        var router = new StaticAnalysisRouter(
+                new StaticAnalysisSeedService(contextManager),
+                new StaticAnalysisLeadExpansionService(contextManager),
+                IAppContextManager.AnalyzerStatus::notReady);
+        var exchange = TestHttpExchange.jsonRequest("GET", "/v1/static-analysis/status", "");
+
+        router.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertEquals("ANALYZER_NOT_READY", body.get("code"));
+        assertEquals(false, body.get("ready"));
+        assertEquals(false, body.get("building"));
+        assertEquals(null, body.get("completed"));
+        assertEquals(null, body.get("total"));
+        assertEquals(null, body.get("percent"));
+        assertEquals("Code intelligence not ready", body.get("description"));
+    }
+
+    @Test
+    void handlePostStatus_rejectsUnsupportedMethod() throws Exception {
+        var router = emptyRouter();
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/static-analysis/status", "{}");
+
+        router.handle(exchange);
+
+        assertEquals(405, exchange.responseCode());
+    }
 
     @Test
     void handlePostSeeds_returnsRealSeeds(@TempDir Path root) throws Exception {
@@ -139,9 +196,13 @@ class StaticAnalysisRouterTest {
     }
 
     private static StaticAnalysisRouter emptyRouter() {
+        return new StaticAnalysisRouter(contextManager());
+    }
+
+    private static TestContextManager contextManager() {
         var root =
                 Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
-        return new StaticAnalysisRouter(new TestContextManager(
-                new TestProject(root, Languages.JAVA), new TestConsoleIO(), java.util.Set.of(), new TestAnalyzer()));
+        return new TestContextManager(
+                new TestProject(root, Languages.JAVA), new TestConsoleIO(), java.util.Set.of(), new TestAnalyzer());
     }
 }
