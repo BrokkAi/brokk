@@ -377,23 +377,32 @@ async fn apply_config_option(
                 let catalog = sessions.available_model_metadata().await;
                 if let Some(model_id) = active_model
                     && let Some(meta) = catalog.iter().find(|m| m.id == model_id)
-                    && !meta.supported_reasoning_levels.is_empty()
-                    && !meta
+                {
+                    if meta.supported_reasoning_levels.is_empty() {
+                        return Err(ConfigApplyError::InvalidValue {
+                            reason: format!(
+                                "model '{model_id}' does not support configurable reasoning effort"
+                            ),
+                            supported: Vec::new(),
+                        });
+                    }
+                    if !meta
                         .supported_reasoning_levels
                         .iter()
                         .any(|p| &p.effort == eff)
-                {
-                    let supported: Vec<String> = meta
-                        .supported_reasoning_levels
-                        .iter()
-                        .map(|p| p.effort.clone())
-                        .collect();
-                    return Err(ConfigApplyError::InvalidValue {
-                        reason: format!(
-                            "reasoning effort '{eff}' is not supported by model '{model_id}'"
-                        ),
-                        supported,
-                    });
+                    {
+                        let supported: Vec<String> = meta
+                            .supported_reasoning_levels
+                            .iter()
+                            .map(|p| p.effort.clone())
+                            .collect();
+                        return Err(ConfigApplyError::InvalidValue {
+                            reason: format!(
+                                "reasoning effort '{eff}' is not supported by model '{model_id}'"
+                            ),
+                            supported,
+                        });
+                    }
                 }
             }
             if !sessions.set_reasoning_effort(session_id, effort).await {
@@ -2610,6 +2619,26 @@ mod tests {
             .await
             .expect("swap model");
         assert_eq!(outcome.cleared_reasoning.as_deref(), Some("high"));
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_rejects_reasoning_effort_for_model_without_presets() {
+        let (store, id) = make_store_with_session("plain-model").await;
+        store
+            .set_available_models(vec![ModelMetadata::id_only("plain-model")])
+            .await;
+
+        let err = apply_config_option(&store, &id, REASONING_EFFORT_CONFIG_ID, "high")
+            .await
+            .expect_err("known model without presets cannot accept reasoning effort");
+
+        match err {
+            ConfigApplyError::InvalidValue { reason, supported } => {
+                assert!(reason.contains("plain-model"));
+                assert!(supported.is_empty());
+            }
+            other => panic!("expected InvalidValue, got {other:?}"),
+        }
     }
 
     #[tokio::test]
