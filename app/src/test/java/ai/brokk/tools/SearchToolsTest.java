@@ -1360,6 +1360,55 @@ public class SearchToolsTest {
         assertTrue(result.contains("dir/file.txt"), "Should find file in subdirectory using literal subpath");
     }
 
+    // Regression: #3197 — dir-prefix globs should match top-level files in that directory,
+    // not only files nested under at least one intermediate segment.
+    @Test
+    void testSearchFileContents_DirPrefixDoubleStarStar_MatchesTopLevel() throws Exception {
+        Path dir = projectRoot.resolve("brokk-code");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("top.txt"), "MATCH");
+        Files.writeString(Files.createDirectories(dir.resolve("sub")).resolve("nested.txt"), "MATCH");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/top.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/sub/nested.txt"));
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "brokk-code/**/*", false, false, 0, 200);
+        assertTrue(
+                result.contains("brokk-code/top.txt"),
+                "dir/**/* must match top-level file (was empty before #3197 fix)");
+        assertTrue(result.contains("brokk-code/sub/nested.txt"), "dir/**/* must still match nested file");
+    }
+
+    @Test
+    void testSearchFileContents_DirPrefixDoubleStar_MatchesAllDepths() throws Exception {
+        Path dir = projectRoot.resolve("brokk-code");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("top.txt"), "MATCH");
+        Files.writeString(Files.createDirectories(dir.resolve("sub")).resolve("nested.txt"), "MATCH");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/top.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/sub/nested.txt"));
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "brokk-code/**", false, false, 0, 200);
+        assertTrue(result.contains("brokk-code/top.txt"));
+        assertTrue(result.contains("brokk-code/sub/nested.txt"));
+    }
+
+    @Test
+    void testSearchFileContents_InfixGlob_MatchesByBasename() throws Exception {
+        Files.writeString(projectRoot.resolve("mcp.py"), "MATCH");
+        Path sub = projectRoot.resolve("server");
+        Files.createDirectories(sub);
+        Files.writeString(sub.resolve("mcp_server.py"), "MATCH");
+        Files.writeString(sub.resolve("unrelated.py"), "MATCH");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "mcp.py"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "server/mcp_server.py"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "server/unrelated.py"));
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "**/*mcp*", false, false, 0, 200);
+        assertTrue(result.contains("mcp.py"), "**/*mcp* must match root-level mcp.py");
+        assertTrue(result.contains("server/mcp_server.py"), "**/*mcp* must match nested mcp_server.py");
+        assertFalse(result.contains("server/unrelated.py"), "**/*mcp* must not match files without 'mcp' in name");
+    }
+
     @Test
     void testSearchFileContents_MultiplePatternsSameLine_Deduped() throws Exception {
         Path txt = projectRoot.resolve("multi_pattern_dedupe.txt");
