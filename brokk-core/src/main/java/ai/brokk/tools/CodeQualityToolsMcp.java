@@ -7,6 +7,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
@@ -60,6 +61,38 @@ public class CodeQualityToolsMcp {
             flagged |= analyzeUnitComplexity(analyzer, child, threshold, lines);
         }
         return flagged;
+    }
+
+    // -- computeCognitiveComplexity --
+
+    public String computeCognitiveComplexity(List<String> filePaths, int threshold) {
+        int limit = threshold > 0 ? threshold : 15;
+        IAnalyzer analyzer = intelligence.getAnalyzer();
+        var lines = new ArrayList<String>();
+        lines.add("Cognitive complexity (threshold: " + limit + "):");
+        boolean foundAny = false;
+
+        for (String path : filePaths) {
+            ProjectFile file = intelligence.toFile(path);
+            if (!file.exists()) continue;
+
+            var complexities = analyzer.computeCognitiveComplexities(file);
+            for (var entry : complexities.entrySet()) {
+                foundAny |= analyzeUnitCognitiveComplexity(entry.getKey(), entry.getValue(), limit, lines);
+            }
+        }
+
+        return foundAny
+                ? String.join("\n", lines)
+                : "No methods exceeded the cognitive complexity threshold of " + limit + ".";
+    }
+
+    private boolean analyzeUnitCognitiveComplexity(CodeUnit cu, int complexity, int threshold, List<String> lines) {
+        if (cu.isSynthetic() || complexity <= threshold) {
+            return false;
+        }
+        lines.add("- " + cu.fqName() + ": " + complexity);
+        return true;
     }
 
     // -- reportCommentDensityForCodeUnit --
@@ -159,6 +192,78 @@ public class CodeQualityToolsMcp {
             footer.add("- Note: narrow the path list or increase caps to see more.");
         }
         lines.addAll(footer);
+        return String.join("\n", lines);
+    }
+
+    // -- reportLongMethodAndGodObjectSmells --
+
+    public String reportLongMethodAndGodObjectSmells(
+            List<String> filePaths,
+            int maxFindings,
+            int maxFiles,
+            int longMethodSpanLines,
+            int highComplexityThreshold,
+            int godObjectSpanLines,
+            int godObjectDirectChildren,
+            int godObjectFunctions,
+            int helperSprawlFunctions,
+            int helperSprawlWorkflowLines) {
+
+        int cap = maxFindings > 0 ? maxFindings : 20;
+        int fileCap = maxFiles > 0 ? maxFiles : 25;
+        var defaults = IAnalyzer.MaintainabilitySizeSmellWeights.defaults();
+        var weights = new IAnalyzer.MaintainabilitySizeSmellWeights(
+                pickPositive(longMethodSpanLines, defaults.longMethodSpanLines()),
+                pickPositive(highComplexityThreshold, defaults.highComplexityThreshold()),
+                pickPositive(godObjectSpanLines, defaults.godObjectSpanLines()),
+                pickPositive(godObjectDirectChildren, defaults.godObjectDirectChildren()),
+                pickPositive(godObjectFunctions, defaults.godObjectFunctions()),
+                pickPositive(helperSprawlFunctions, defaults.helperSprawlFunctions()),
+                pickPositive(helperSprawlWorkflowLines, defaults.helperSprawlWorkflowLines()),
+                defaults.fileModuleLeewayMultiplier());
+
+        IAnalyzer analyzer = intelligence.getAnalyzer();
+        var files = filePaths.stream()
+                .map(intelligence::toFile)
+                .filter(ProjectFile::exists)
+                .limit(fileCap)
+                .toList();
+        var selectedFiles = new HashSet<>(files);
+        var findings = files.stream()
+                .flatMap(file -> analyzer.findLongMethodAndGodObjectSmells(file, weights).stream())
+                .filter(smell -> selectedFiles.contains(smell.codeUnit().source()))
+                .sorted(IAnalyzer.maintainabilitySizeSmellComparator())
+                .limit(cap)
+                .toList();
+
+        var lines = new ArrayList<String>();
+        lines.add("Long method and god object smells (max findings: " + cap + "):");
+        lines.add("- Files analyzed cap: " + fileCap);
+        lines.add("- Weights: " + formatSizeWeights(weights));
+        if (findings.isEmpty()) {
+            lines.add("");
+            lines.add("No long method or god object smells found.");
+            return String.join("\n", lines);
+        }
+        for (var smell : findings) {
+            CodeUnit cu = smell.codeUnit();
+            var range = smell.range();
+            int displayStartLine = range.startLine() + 1;
+            int displayEndLine = range.endLine() + 1;
+            lines.add("- `%s` in `%s:%d-%d` [score %d]"
+                    .formatted(cu.fqName(), cu.source(), displayStartLine, displayEndLine, smell.score()));
+            lines.add(
+                    "  - Signals: own %d lines, descendants %d lines, direct children %d, functions %d, nested types %d, max function %d lines, max CC %d"
+                            .formatted(
+                                    smell.ownSpanLines(),
+                                    smell.descendantSpanLines(),
+                                    smell.directChildCount(),
+                                    smell.functionCount(),
+                                    smell.nestedTypeCount(),
+                                    smell.maxFunctionSpanLines(),
+                                    smell.maxCyclomaticComplexity()));
+            lines.add("  - Rationale: " + String.join("; ", smell.reasons()));
+        }
         return String.join("\n", lines);
     }
 
@@ -329,6 +434,96 @@ public class CodeQualityToolsMcp {
         return String.join("\n", lines);
     }
 
+    // -- reportTestAssertionSmells --
+
+    public String reportTestAssertionSmells(
+            List<String> filePaths,
+            int minScore,
+            int maxFindings,
+            int noAssertionWeight,
+            int tautologicalAssertionWeight,
+            int constantTruthWeight,
+            int constantEqualityWeight,
+            int nullnessOnlyWeight,
+            int shallowAssertionOnlyWeight,
+            int overspecifiedLiteralWeight,
+            int anonymousTestDoubleWeight,
+            int repeatedAnonymousTestDoubleWeight,
+            int meaningfulAssertionCredit,
+            int meaningfulAssertionCreditCap,
+            int largeLiteralLengthThreshold) {
+
+        int threshold = minScore > 0 ? minScore : 4;
+        int findingsCap = maxFindings > 0 ? maxFindings : 80;
+        var defaults = IAnalyzer.TestAssertionWeights.defaults();
+        var weights = new IAnalyzer.TestAssertionWeights(
+                pickWeight(noAssertionWeight, defaults.noAssertionWeight()),
+                pickWeight(tautologicalAssertionWeight, defaults.tautologicalAssertionWeight()),
+                pickWeight(constantTruthWeight, defaults.constantTruthWeight()),
+                pickWeight(constantEqualityWeight, defaults.constantEqualityWeight()),
+                pickWeight(nullnessOnlyWeight, defaults.nullnessOnlyWeight()),
+                pickWeight(shallowAssertionOnlyWeight, defaults.shallowAssertionOnlyWeight()),
+                pickWeight(overspecifiedLiteralWeight, defaults.overspecifiedLiteralWeight()),
+                pickWeight(anonymousTestDoubleWeight, defaults.anonymousTestDoubleWeight()),
+                pickWeight(repeatedAnonymousTestDoubleWeight, defaults.repeatedAnonymousTestDoubleWeight()),
+                pickWeight(meaningfulAssertionCredit, defaults.meaningfulAssertionCredit()),
+                pickWeight(meaningfulAssertionCreditCap, defaults.meaningfulAssertionCreditCap()),
+                pickWeight(largeLiteralLengthThreshold, defaults.largeLiteralLengthThreshold()));
+
+        IAnalyzer analyzer = intelligence.getAnalyzer();
+        var findings = new ArrayList<IAnalyzer.TestAssertionSmell>();
+        for (String path : filePaths) {
+            ProjectFile file = intelligence.toFile(path);
+            if (!file.exists() || !analyzer.containsTests(file)) {
+                continue;
+            }
+            findings.addAll(analyzer.findTestAssertionSmells(file, weights));
+        }
+
+        var filtered = findings.stream()
+                .filter(f -> f.score() >= threshold)
+                .sorted(Comparator.comparingInt(IAnalyzer.TestAssertionSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(IAnalyzer.TestAssertionSmell::enclosingFqName)
+                        .thenComparing(IAnalyzer.TestAssertionSmell::assertionKind))
+                .toList();
+
+        if (filtered.isEmpty()) {
+            return "No test assertion smells met minScore " + threshold + ".";
+        }
+        int shown = Math.min(findingsCap, filtered.size());
+        var lines = new ArrayList<String>();
+        lines.add("## Test assertion smells");
+        lines.add("");
+        lines.add("- Min score: %d".formatted(threshold));
+        lines.add("- Findings shown: %d of %d".formatted(shown, filtered.size()));
+        lines.add("- Weights: %s".formatted(formatTestAssertionWeights(weights)));
+        lines.add("");
+        lines.add("| Score | Kind | Assertions | Symbol | File | Reasons | Excerpt |");
+        lines.add("|------:|------|-----------:|--------|------|---------|---------|");
+        for (IAnalyzer.TestAssertionSmell finding : filtered.subList(0, shown)) {
+            String reasons = sanitizeTableCell(String.join(", ", finding.reasons()));
+            String kind = sanitizeTableCell(finding.assertionKind());
+            String symbol = sanitizeTableCell(finding.enclosingFqName());
+            String file = sanitizeTableCell(finding.file().toString());
+            lines.add("| %d | `%s` | %d | `%s` | `%s` | %s | `%s` |"
+                    .formatted(
+                            finding.score(),
+                            kind,
+                            finding.assertionCount(),
+                            symbol,
+                            file,
+                            "`" + reasons + "`",
+                            sanitizeTableCell(finding.excerpt())));
+        }
+        if (filtered.size() > shown) {
+            lines.add("");
+            lines.add("- Note: output truncated; increase maxFindings to see more.");
+        }
+        return String.join("\n", lines);
+    }
+
     // NOTE: analyzeGitHotspots is not available in brokk-core because GitHotspotAnalyzer
     // lives in the app module with dependencies (ai.brokk.concurrent.*) not available here.
     // It could be added if GitHotspotAnalyzer is moved to brokk-core or brokk-shared.
@@ -361,8 +556,48 @@ public class CodeQualityToolsMcp {
         return candidate >= 0 ? candidate : fallback;
     }
 
+    private static int pickPositive(int candidate, int fallback) {
+        return candidate > 0 ? candidate : fallback;
+    }
+
     private static String sanitizeTableCell(String value) {
         return value.replace("|", "\\|");
+    }
+
+    private static String formatSizeWeights(IAnalyzer.MaintainabilitySizeSmellWeights w) {
+        return "longMethodLines=%d, highComplexity=%d, godObjectLines=%d, godObjectDirectChildren=%d,"
+                        .formatted(
+                                w.longMethodSpanLines(),
+                                w.highComplexityThreshold(),
+                                w.godObjectSpanLines(),
+                                w.godObjectDirectChildren())
+                + " godObjectFunctions=%d, helperSprawlFunctions=%d, helperSprawlWorkflowLines=%d, fileModuleLeeway=%dx"
+                        .formatted(
+                                w.godObjectFunctions(),
+                                w.helperSprawlFunctions(),
+                                w.helperSprawlWorkflowLines(),
+                                w.fileModuleLeewayMultiplier());
+    }
+
+    private static String formatTestAssertionWeights(IAnalyzer.TestAssertionWeights w) {
+        return "noAssertion=%d, tautological=%d, constantTruth=%d, constantEquality=%d, nullnessOnly=%d,"
+                        .formatted(
+                                w.noAssertionWeight(),
+                                w.tautologicalAssertionWeight(),
+                                w.constantTruthWeight(),
+                                w.constantEqualityWeight(),
+                                w.nullnessOnlyWeight())
+                + " shallowOnly=%d, overspecifiedLiteral=%d, anonymousTestDouble=%d, repeatedAnonymousTestDouble=%d,"
+                        .formatted(
+                                w.shallowAssertionOnlyWeight(),
+                                w.overspecifiedLiteralWeight(),
+                                w.anonymousTestDoubleWeight(),
+                                w.repeatedAnonymousTestDoubleWeight())
+                + " meaningfulCredit=%d, meaningfulCreditCap=%d, largeLiteralLength=%d"
+                        .formatted(
+                                w.meaningfulAssertionCredit(),
+                                w.meaningfulAssertionCreditCap(),
+                                w.largeLiteralLengthThreshold());
     }
 
     private static String formatExceptionWeights(IAnalyzer.ExceptionSmellWeights w) {
