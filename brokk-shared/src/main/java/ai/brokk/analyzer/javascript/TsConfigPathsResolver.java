@@ -4,6 +4,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.Json;
 import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,14 +42,25 @@ public final class TsConfigPathsResolver {
 
     private record ParsedConfig(Path tsconfigDir, @Nullable Path baseUrlAbs, Map<String, List<String>> paths) {}
 
+    private record ExpansionKey(ProjectFile importingFile, String specifier) {}
+
     private final Path projectRoot;
     private final Map<Path, Optional<ParsedConfig>> configCache = new ConcurrentHashMap<>();
+    private final Cache<ProjectFile, Optional<ParsedConfig>> nearestConfigCache =
+            Caffeine.newBuilder().maximumSize(10_000).build();
+    private final Cache<ExpansionKey, Expansion> expansionCache =
+            Caffeine.newBuilder().maximumSize(20_000).build();
 
     public TsConfigPathsResolver(Path projectRoot) {
         this.projectRoot = projectRoot.normalize();
     }
 
     public Expansion expand(ProjectFile importingFile, String specifier) {
+        return expansionCache.get(
+                new ExpansionKey(importingFile, specifier), key -> expandUncached(importingFile, specifier));
+    }
+
+    private Expansion expandUncached(ProjectFile importingFile, String specifier) {
         Optional<ParsedConfig> cfgOpt = nearestConfigFor(importingFile);
         if (cfgOpt.isEmpty()) {
             return Expansion.emptyNoMapping();
@@ -122,6 +135,10 @@ public final class TsConfigPathsResolver {
     }
 
     private Optional<ParsedConfig> nearestConfigFor(ProjectFile importingFile) {
+        return nearestConfigCache.get(importingFile, this::nearestConfigForUncached);
+    }
+
+    private Optional<ParsedConfig> nearestConfigForUncached(ProjectFile importingFile) {
         Path parent = importingFile.absPath().getParent();
         if (parent == null) {
             return Optional.empty();
