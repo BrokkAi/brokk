@@ -168,9 +168,31 @@ Detects duplicated implementation patterns across functions using normalized tok
 | `astSimilarityPercent` | int | no | 70 | AST refinement threshold (0-100) |
 | `maxFindings` | int | no | 80 | Maximum findings to emit |
 
+#### `reportTestAssertionSmells`
+
+Detects low-value or brittle test assertion smells using language-aware weighted heuristics. Uses analyzer test-marker detection as a fast filter, then scores tautological assertions, shallow assertion-only tests, oversized exact literals, snapshots, and Java anonymous test doubles.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePaths` | string[] | yes | -- | File paths relative to project root |
+| `minScore` | int | no | 4 | Minimum score to include a finding |
+| `maxFindings` | int | no | 80 | Maximum findings to emit |
+| `noAssertionWeight` | int | no | (internal default) | Weight for tests with no assertion-equivalent calls |
+| `tautologicalAssertionWeight` | int | no | (internal default) | Weight for self-comparison or tautological assertions |
+| `constantTruthWeight` | int | no | (internal default) | Weight for `assertTrue(true)`, `assertFalse(false)`, and similar constants |
+| `constantEqualityWeight` | int | no | (internal default) | Weight for comparing two constant expressions |
+| `nullnessOnlyWeight` | int | no | (internal default) | Weight for nullness-only assertions |
+| `shallowAssertionOnlyWeight` | int | no | (internal default) | Weight for tests whose assertions are all shallow |
+| `overspecifiedLiteralWeight` | int | no | (internal default) | Weight for oversized exact string literals |
+| `anonymousTestDoubleWeight` | int | no | (internal default) | Weight for inline anonymous test doubles |
+| `repeatedAnonymousTestDoubleWeight` | int | no | (internal default) | Weight for repeated anonymous test double shapes |
+| `meaningfulAssertionCredit` | int | no | (internal default) | Score credit subtracted per meaningful assertion |
+| `meaningfulAssertionCreditCap` | int | no | (internal default) | Maximum meaningful assertions that earn credit |
+| `largeLiteralLengthThreshold` | int | no | (internal default) | String literal length considered oversized |
+
 ## Note on MCP servers
 
 The Brokk codebase has two MCP servers:
 
-1. **`BrokkCoreMcpServer`** (this module, `brokk-core/`) -- Standalone, no LLM dependencies, pure tree-sitter analysis. This is what the Claude Code plugin connects to. Exposes 27 tools.
+1. **`BrokkCoreMcpServer`** (this module, `brokk-core/`) -- Standalone, no LLM dependencies, pure tree-sitter analysis. This is what the Claude Code plugin connects to. Exposes 28 tools.
 2. **`BrokkExternalMcpServer`** (in `app/`) -- Full server with LLM agent capabilities. Not used by the Claude Code plugin.

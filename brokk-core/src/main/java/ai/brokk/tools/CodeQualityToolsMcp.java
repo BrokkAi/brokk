@@ -434,6 +434,96 @@ public class CodeQualityToolsMcp {
         return String.join("\n", lines);
     }
 
+    // -- reportTestAssertionSmells --
+
+    public String reportTestAssertionSmells(
+            List<String> filePaths,
+            int minScore,
+            int maxFindings,
+            int noAssertionWeight,
+            int tautologicalAssertionWeight,
+            int constantTruthWeight,
+            int constantEqualityWeight,
+            int nullnessOnlyWeight,
+            int shallowAssertionOnlyWeight,
+            int overspecifiedLiteralWeight,
+            int anonymousTestDoubleWeight,
+            int repeatedAnonymousTestDoubleWeight,
+            int meaningfulAssertionCredit,
+            int meaningfulAssertionCreditCap,
+            int largeLiteralLengthThreshold) {
+
+        int threshold = minScore > 0 ? minScore : 4;
+        int findingsCap = maxFindings > 0 ? maxFindings : 80;
+        var defaults = IAnalyzer.TestAssertionWeights.defaults();
+        var weights = new IAnalyzer.TestAssertionWeights(
+                pickWeight(noAssertionWeight, defaults.noAssertionWeight()),
+                pickWeight(tautologicalAssertionWeight, defaults.tautologicalAssertionWeight()),
+                pickWeight(constantTruthWeight, defaults.constantTruthWeight()),
+                pickWeight(constantEqualityWeight, defaults.constantEqualityWeight()),
+                pickWeight(nullnessOnlyWeight, defaults.nullnessOnlyWeight()),
+                pickWeight(shallowAssertionOnlyWeight, defaults.shallowAssertionOnlyWeight()),
+                pickWeight(overspecifiedLiteralWeight, defaults.overspecifiedLiteralWeight()),
+                pickWeight(anonymousTestDoubleWeight, defaults.anonymousTestDoubleWeight()),
+                pickWeight(repeatedAnonymousTestDoubleWeight, defaults.repeatedAnonymousTestDoubleWeight()),
+                pickWeight(meaningfulAssertionCredit, defaults.meaningfulAssertionCredit()),
+                pickWeight(meaningfulAssertionCreditCap, defaults.meaningfulAssertionCreditCap()),
+                pickWeight(largeLiteralLengthThreshold, defaults.largeLiteralLengthThreshold()));
+
+        IAnalyzer analyzer = intelligence.getAnalyzer();
+        var findings = new ArrayList<IAnalyzer.TestAssertionSmell>();
+        for (String path : filePaths) {
+            ProjectFile file = intelligence.toFile(path);
+            if (!file.exists() || !analyzer.containsTests(file)) {
+                continue;
+            }
+            findings.addAll(analyzer.findTestAssertionSmells(file, weights));
+        }
+
+        var filtered = findings.stream()
+                .filter(f -> f.score() >= threshold)
+                .sorted(Comparator.comparingInt(IAnalyzer.TestAssertionSmell::score)
+                        .reversed()
+                        .thenComparing(f -> f.file().toString())
+                        .thenComparing(IAnalyzer.TestAssertionSmell::enclosingFqName)
+                        .thenComparing(IAnalyzer.TestAssertionSmell::assertionKind))
+                .toList();
+
+        if (filtered.isEmpty()) {
+            return "No test assertion smells met minScore " + threshold + ".";
+        }
+        int shown = Math.min(findingsCap, filtered.size());
+        var lines = new ArrayList<String>();
+        lines.add("## Test assertion smells");
+        lines.add("");
+        lines.add("- Min score: %d".formatted(threshold));
+        lines.add("- Findings shown: %d of %d".formatted(shown, filtered.size()));
+        lines.add("- Weights: %s".formatted(formatTestAssertionWeights(weights)));
+        lines.add("");
+        lines.add("| Score | Kind | Assertions | Symbol | File | Reasons | Excerpt |");
+        lines.add("|------:|------|-----------:|--------|------|---------|---------|");
+        for (IAnalyzer.TestAssertionSmell finding : filtered.subList(0, shown)) {
+            String reasons = sanitizeTableCell(String.join(", ", finding.reasons()));
+            String kind = sanitizeTableCell(finding.assertionKind());
+            String symbol = sanitizeTableCell(finding.enclosingFqName());
+            String file = sanitizeTableCell(finding.file().toString());
+            lines.add("| %d | `%s` | %d | `%s` | `%s` | %s | `%s` |"
+                    .formatted(
+                            finding.score(),
+                            kind,
+                            finding.assertionCount(),
+                            symbol,
+                            file,
+                            "`" + reasons + "`",
+                            sanitizeTableCell(finding.excerpt())));
+        }
+        if (filtered.size() > shown) {
+            lines.add("");
+            lines.add("- Note: output truncated; increase maxFindings to see more.");
+        }
+        return String.join("\n", lines);
+    }
+
     // NOTE: analyzeGitHotspots is not available in brokk-core because GitHotspotAnalyzer
     // lives in the app module with dependencies (ai.brokk.concurrent.*) not available here.
     // It could be added if GitHotspotAnalyzer is moved to brokk-core or brokk-shared.
@@ -487,6 +577,27 @@ public class CodeQualityToolsMcp {
                                 w.helperSprawlFunctions(),
                                 w.helperSprawlWorkflowLines(),
                                 w.fileModuleLeewayMultiplier());
+    }
+
+    private static String formatTestAssertionWeights(IAnalyzer.TestAssertionWeights w) {
+        return "noAssertion=%d, tautological=%d, constantTruth=%d, constantEquality=%d, nullnessOnly=%d,"
+                        .formatted(
+                                w.noAssertionWeight(),
+                                w.tautologicalAssertionWeight(),
+                                w.constantTruthWeight(),
+                                w.constantEqualityWeight(),
+                                w.nullnessOnlyWeight())
+                + " shallowOnly=%d, overspecifiedLiteral=%d, anonymousTestDouble=%d, repeatedAnonymousTestDouble=%d,"
+                        .formatted(
+                                w.shallowAssertionOnlyWeight(),
+                                w.overspecifiedLiteralWeight(),
+                                w.anonymousTestDoubleWeight(),
+                                w.repeatedAnonymousTestDoubleWeight())
+                + " meaningfulCredit=%d, meaningfulCreditCap=%d, largeLiteralLength=%d"
+                        .formatted(
+                                w.meaningfulAssertionCredit(),
+                                w.meaningfulAssertionCreditCap(),
+                                w.largeLiteralLengthThreshold());
     }
 
     private static String formatExceptionWeights(IAnalyzer.ExceptionSmellWeights w) {

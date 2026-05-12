@@ -776,6 +776,84 @@ public class BrokkCoreMcpServer {
                             intArg(request, "maxFindings", -1)));
                 })));
 
+        specs.add(tool(
+                "reportTestAssertionSmells",
+                "Detects low-value or brittle test assertion smells using language-aware weighted heuristics. "
+                        + "Uses analyzer test-marker detection as a fast filter, then scores tautological assertions, "
+                        + "shallow assertion-only tests, oversized exact literals, snapshots, and Java anonymous test doubles.",
+                schema(
+                        Map.ofEntries(
+                                entry("filePaths", arrayProp("File paths relative to the project root.")),
+                                entry(
+                                        "minScore",
+                                        intProp("Minimum score to include a finding; values <= 0 default to 4.")),
+                                entry("maxFindings", intProp("Maximum findings to emit; values <= 0 default to 80.")),
+                                entry(
+                                        "noAssertionWeight",
+                                        intProp(
+                                                "Weight for tests with no assertion-equivalent calls; values < 0 use default.")),
+                                entry(
+                                        "tautologicalAssertionWeight",
+                                        intProp(
+                                                "Weight for self-comparison or tautological assertions; values < 0 use default.")),
+                                entry(
+                                        "constantTruthWeight",
+                                        intProp(
+                                                "Weight for assertTrue(true), assertFalse(false), and similar constants; values < 0 use default.")),
+                                entry(
+                                        "constantEqualityWeight",
+                                        intProp(
+                                                "Weight for comparing two constant expressions; values < 0 use default.")),
+                                entry(
+                                        "nullnessOnlyWeight",
+                                        intProp("Weight for nullness-only assertions; values < 0 use default.")),
+                                entry(
+                                        "shallowAssertionOnlyWeight",
+                                        intProp(
+                                                "Weight for tests whose assertions are all shallow; values < 0 use default.")),
+                                entry(
+                                        "overspecifiedLiteralWeight",
+                                        intProp("Weight for oversized exact string literals; values < 0 use default.")),
+                                entry(
+                                        "anonymousTestDoubleWeight",
+                                        intProp("Weight for inline anonymous test doubles; values < 0 use default.")),
+                                entry(
+                                        "repeatedAnonymousTestDoubleWeight",
+                                        intProp(
+                                                "Weight for repeated anonymous test double shapes; values < 0 use default.")),
+                                entry(
+                                        "meaningfulAssertionCredit",
+                                        intProp(
+                                                "Score credit subtracted per meaningful assertion; values < 0 use default.")),
+                                entry(
+                                        "meaningfulAssertionCreditCap",
+                                        intProp(
+                                                "Maximum meaningful assertions that earn credit; values < 0 use default.")),
+                                entry(
+                                        "largeLiteralLengthThreshold",
+                                        intProp(
+                                                "String literal length considered oversized; values < 0 use default."))),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    return textResult(codeQualityTools.reportTestAssertionSmells(
+                            filePaths,
+                            intArg(request, "minScore", -1),
+                            intArg(request, "maxFindings", -1),
+                            intArg(request, "noAssertionWeight", -1),
+                            intArg(request, "tautologicalAssertionWeight", -1),
+                            intArg(request, "constantTruthWeight", -1),
+                            intArg(request, "constantEqualityWeight", -1),
+                            intArg(request, "nullnessOnlyWeight", -1),
+                            intArg(request, "shallowAssertionOnlyWeight", -1),
+                            intArg(request, "overspecifiedLiteralWeight", -1),
+                            intArg(request, "anonymousTestDoubleWeight", -1),
+                            intArg(request, "repeatedAnonymousTestDoubleWeight", -1),
+                            intArg(request, "meaningfulAssertionCredit", -1),
+                            intArg(request, "meaningfulAssertionCreditCap", -1),
+                            intArg(request, "largeLiteralLengthThreshold", -1)));
+                })));
+
         // NOTE: analyzeGitHotspots is not exposed here because GitHotspotAnalyzer
         // lives in the app module with dependencies not available in brokk-core.
 

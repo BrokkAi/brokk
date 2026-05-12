@@ -94,7 +94,8 @@ class BrokkCoreMcpServerTest {
                 "reportCommentDensityForFiles",
                 "reportLongMethodAndGodObjectSmells",
                 "reportExceptionHandlingSmells",
-                "reportStructuralCloneSmells");
+                "reportStructuralCloneSmells",
+                "reportTestAssertionSmells");
 
         for (var expected : expectedTools) {
             assertTrue(toolNames.contains(expected), "Missing tool: " + expected);
@@ -299,6 +300,14 @@ class BrokkCoreMcpServerTest {
     @Test
     void reportStructuralCloneSmellsRunsWithoutError() {
         var result = callTool("reportStructuralCloneSmells", Map.of("filePaths", List.of("README.md")));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportTestAssertionSmellsRunsWithoutError() {
+        var result = callTool("reportTestAssertionSmells", Map.of("filePaths", List.of("README.md")));
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
