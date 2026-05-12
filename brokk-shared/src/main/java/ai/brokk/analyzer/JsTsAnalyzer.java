@@ -43,8 +43,6 @@ import org.treesitter.TsxNodeType;
  */
 public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
 
-    public record ModulePathKey(ProjectFile importingFile, String modulePath) {}
-
     public record MemberLookupKey(String ownerClassName, String memberName, boolean instanceReceiver) {}
 
     public record ExportResolutionKey(ProjectFile definingFile, String exportName, int maxReexportDepth) {}
@@ -94,6 +92,18 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             ProgressListener listener,
             @Nullable AnalyzerCache cache) {
         super(project, language, state, listener, cache != null ? cache : new JsTsAnalyzerCache());
+    }
+
+    @Override
+    protected AnalyzerCache createEmptyCache() {
+        return new JsTsAnalyzerCache();
+    }
+
+    @Override
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return previous instanceof JsTsAnalyzerCache jsTsCache
+                ? new JsTsAnalyzerCache(jsTsCache, changedFiles)
+                : new JsTsAnalyzerCache();
     }
 
     @Override
@@ -337,11 +347,12 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     public ResolutionOutcome resolveEsmModuleOutcome(ProjectFile importingFile, String moduleSpecifier) {
-        return jsTsCache()
+        JsTsAnalyzerCache.ResolutionOutcome outcome = jsTsCache()
                 .moduleResolutionCache()
                 .get(
-                        new ModulePathKey(importingFile, moduleSpecifier),
-                        key -> resolveEsmModuleOutcomeUncached(key.importingFile(), key.modulePath()));
+                        new JsTsAnalyzerCache.ModulePathKey(importingFile, moduleSpecifier),
+                        key -> toCacheOutcome(resolveEsmModuleOutcomeUncached(key.importingFile(), key.modulePath())));
+        return fromCacheOutcome(outcome);
     }
 
     private ResolutionOutcome resolveEsmModuleOutcomeUncached(ProjectFile importingFile, String moduleSpecifier) {
@@ -1321,36 +1332,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             return null;
         }
 
-        Path resolvedPath = baseDir.resolve(modulePath).normalize();
-        String fileName = resolvedPath.getFileName().toString();
-
-        if (KNOWN_EXTENSIONS.stream().anyMatch(fileName::endsWith)) {
-            if (absolutePaths.contains(resolvedPath) && resolvedPath.startsWith(projectRoot)) {
-                return new ProjectFile(projectRoot, projectRoot.relativize(resolvedPath));
-            }
-        }
-
-        String baseName = fileName;
-        for (String ext : KNOWN_EXTENSIONS) {
-            if (baseName.endsWith(ext)) {
-                baseName = baseName.substring(0, baseName.length() - ext.length());
-                break;
-            }
-        }
-        Path basePath = resolvedPath.resolveSibling(baseName);
-
-        List<String> fileExtensions =
-                Stream.concat(Stream.of(""), KNOWN_EXTENSIONS.stream()).toList();
-        for (String ext : fileExtensions) {
-            Path candidatePath = ext.isEmpty() ? basePath : basePath.resolveSibling(baseName + ext);
-            if (absolutePaths.contains(candidatePath) && candidatePath.startsWith(projectRoot)) {
-                return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
-            }
-        }
-
-        List<String> indexFiles = List.of("index.js", "index.jsx", "index.ts", "index.tsx");
-        for (String indexFile : indexFiles) {
-            Path candidatePath = resolvedPath.resolve(indexFile);
+        for (Path candidatePath : JsTsAnalyzerCache.candidatePaths(baseDir, modulePath)) {
             if (absolutePaths.contains(candidatePath) && candidatePath.startsWith(projectRoot)) {
                 return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
             }
@@ -1361,6 +1343,14 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     private JsTsAnalyzerCache jsTsCache() {
         return (JsTsAnalyzerCache) cache();
+    }
+
+    private static JsTsAnalyzerCache.ResolutionOutcome toCacheOutcome(ResolutionOutcome outcome) {
+        return new JsTsAnalyzerCache.ResolutionOutcome(outcome.resolved(), outcome.externalFrontier());
+    }
+
+    private static ResolutionOutcome fromCacheOutcome(JsTsAnalyzerCache.ResolutionOutcome outcome) {
+        return new ResolutionOutcome(outcome.resolved(), outcome.externalFrontier());
     }
 
     protected static void extractCommonJsRequireImport(

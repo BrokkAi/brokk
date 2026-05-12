@@ -1,10 +1,10 @@
 package ai.brokk.analyzer.cache;
 
-import ai.brokk.analyzer.JsTsAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 public final class JsTsAnalyzerCache extends AnalyzerCache {
     private static final List<String> KNOWN_EXTENSIONS = List.of(".js", ".jsx", ".ts", ".tsx");
 
-    private final Cache<JsTsAnalyzer.ModulePathKey, JsTsAnalyzer.ResolutionOutcome> moduleResolutionCache;
+    private final Cache<ModulePathKey, ResolutionOutcome> moduleResolutionCache;
     private final Cache<ModulePathFromBaseKey, Optional<ProjectFile>> moduleResolutionFromBaseCache;
 
     public JsTsAnalyzerCache() {
@@ -63,7 +63,7 @@ public final class JsTsAnalyzerCache extends AnalyzerCache {
         });
     }
 
-    public Cache<JsTsAnalyzer.ModulePathKey, JsTsAnalyzer.ResolutionOutcome> moduleResolutionCache() {
+    public Cache<ModulePathKey, ResolutionOutcome> moduleResolutionCache() {
         return moduleResolutionCache;
     }
 
@@ -71,16 +71,36 @@ public final class JsTsAnalyzerCache extends AnalyzerCache {
         return moduleResolutionFromBaseCache;
     }
 
+    public record ModulePathKey(ProjectFile importingFile, String modulePath) {}
+
     public record ModulePathFromBaseKey(Path baseDir, String modulePath) {}
 
-    private static boolean changedFilesCouldAffect(ModulePathFromBaseKey key, Set<Path> changedAbsPaths) {
-        Path resolvedPath = key.baseDir().resolve(key.modulePath()).normalize();
-        String fileName = resolvedPath.getFileName().toString();
-
-        if (KNOWN_EXTENSIONS.stream().anyMatch(fileName::endsWith) && changedAbsPaths.contains(resolvedPath)) {
-            return true;
+    public record ResolutionOutcome(Optional<ProjectFile> resolved, Optional<String> externalFrontier) {
+        public static ResolutionOutcome resolved(ProjectFile file) {
+            return new ResolutionOutcome(Optional.of(file), Optional.empty());
         }
 
+        public static ResolutionOutcome external(String specifier) {
+            return new ResolutionOutcome(Optional.empty(), Optional.of(specifier));
+        }
+
+        public static ResolutionOutcome empty() {
+            return new ResolutionOutcome(Optional.empty(), Optional.empty());
+        }
+    }
+
+    private static boolean changedFilesCouldAffect(ModulePathFromBaseKey key, Set<Path> changedAbsPaths) {
+        return candidatePaths(key.baseDir(), key.modulePath()).stream().anyMatch(changedAbsPaths::contains);
+    }
+
+    public static List<Path> candidatePaths(Path baseDir, String modulePath) {
+        Path resolvedPath = baseDir.resolve(modulePath).normalize();
+        String fileName = resolvedPath.getFileName().toString();
+        var candidates = new ArrayList<Path>();
+
+        if (KNOWN_EXTENSIONS.stream().anyMatch(fileName::endsWith)) {
+            candidates.add(resolvedPath);
+        }
         String baseName = fileName;
         for (String ext : KNOWN_EXTENSIONS) {
             if (baseName.endsWith(ext)) {
@@ -89,21 +109,13 @@ public final class JsTsAnalyzerCache extends AnalyzerCache {
             }
         }
         Path basePath = resolvedPath.resolveSibling(baseName);
-        if (changedAbsPaths.contains(basePath)) {
-            return true;
-        }
+        candidates.add(basePath);
         for (String ext : KNOWN_EXTENSIONS) {
-            if (changedAbsPaths.contains(basePath.resolveSibling(baseName + ext))) {
-                return true;
-            }
+            candidates.add(basePath.resolveSibling(baseName + ext));
         }
-
-        return changedAbsPaths.stream()
-                .anyMatch(path -> path.getParent() != null
-                        && path.getParent().equals(resolvedPath)
-                        && path.getFileName() != null
-                        && path.getFileName().toString().startsWith("index.")
-                        && KNOWN_EXTENSIONS.stream()
-                                .anyMatch(ext -> path.getFileName().toString().equals("index" + ext)));
+        KNOWN_EXTENSIONS.stream()
+                .map(ext -> resolvedPath.resolve("index" + ext))
+                .forEach(candidates::add);
+        return List.copyOf(candidates);
     }
 }
