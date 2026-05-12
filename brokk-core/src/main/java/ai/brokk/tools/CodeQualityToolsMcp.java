@@ -7,6 +7,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
@@ -191,6 +192,78 @@ public class CodeQualityToolsMcp {
             footer.add("- Note: narrow the path list or increase caps to see more.");
         }
         lines.addAll(footer);
+        return String.join("\n", lines);
+    }
+
+    // -- reportLongMethodAndGodObjectSmells --
+
+    public String reportLongMethodAndGodObjectSmells(
+            List<String> filePaths,
+            int maxFindings,
+            int maxFiles,
+            int longMethodSpanLines,
+            int highComplexityThreshold,
+            int godObjectSpanLines,
+            int godObjectDirectChildren,
+            int godObjectFunctions,
+            int helperSprawlFunctions,
+            int helperSprawlWorkflowLines) {
+
+        int cap = maxFindings > 0 ? maxFindings : 20;
+        int fileCap = maxFiles > 0 ? maxFiles : 25;
+        var defaults = IAnalyzer.MaintainabilitySizeSmellWeights.defaults();
+        var weights = new IAnalyzer.MaintainabilitySizeSmellWeights(
+                pickPositive(longMethodSpanLines, defaults.longMethodSpanLines()),
+                pickPositive(highComplexityThreshold, defaults.highComplexityThreshold()),
+                pickPositive(godObjectSpanLines, defaults.godObjectSpanLines()),
+                pickPositive(godObjectDirectChildren, defaults.godObjectDirectChildren()),
+                pickPositive(godObjectFunctions, defaults.godObjectFunctions()),
+                pickPositive(helperSprawlFunctions, defaults.helperSprawlFunctions()),
+                pickPositive(helperSprawlWorkflowLines, defaults.helperSprawlWorkflowLines()),
+                defaults.fileModuleLeewayMultiplier());
+
+        IAnalyzer analyzer = intelligence.getAnalyzer();
+        var files = filePaths.stream()
+                .map(intelligence::toFile)
+                .filter(ProjectFile::exists)
+                .limit(fileCap)
+                .toList();
+        var selectedFiles = new HashSet<>(files);
+        var findings = files.stream()
+                .flatMap(file -> analyzer.findLongMethodAndGodObjectSmells(file, weights).stream())
+                .filter(smell -> selectedFiles.contains(smell.codeUnit().source()))
+                .sorted(IAnalyzer.maintainabilitySizeSmellComparator())
+                .limit(cap)
+                .toList();
+
+        var lines = new ArrayList<String>();
+        lines.add("Long method and god object smells (max findings: " + cap + "):");
+        lines.add("- Files analyzed cap: " + fileCap);
+        lines.add("- Weights: " + formatSizeWeights(weights));
+        if (findings.isEmpty()) {
+            lines.add("");
+            lines.add("No long method or god object smells found.");
+            return String.join("\n", lines);
+        }
+        for (var smell : findings) {
+            CodeUnit cu = smell.codeUnit();
+            var range = smell.range();
+            int displayStartLine = range.startLine() + 1;
+            int displayEndLine = range.endLine() + 1;
+            lines.add("- `%s` in `%s:%d-%d` [score %d]"
+                    .formatted(cu.fqName(), cu.source(), displayStartLine, displayEndLine, smell.score()));
+            lines.add(
+                    "  - Signals: own %d lines, descendants %d lines, direct children %d, functions %d, nested types %d, max function %d lines, max CC %d"
+                            .formatted(
+                                    smell.ownSpanLines(),
+                                    smell.descendantSpanLines(),
+                                    smell.directChildCount(),
+                                    smell.functionCount(),
+                                    smell.nestedTypeCount(),
+                                    smell.maxFunctionSpanLines(),
+                                    smell.maxCyclomaticComplexity()));
+            lines.add("  - Rationale: " + String.join("; ", smell.reasons()));
+        }
         return String.join("\n", lines);
     }
 
@@ -393,8 +466,27 @@ public class CodeQualityToolsMcp {
         return candidate >= 0 ? candidate : fallback;
     }
 
+    private static int pickPositive(int candidate, int fallback) {
+        return candidate > 0 ? candidate : fallback;
+    }
+
     private static String sanitizeTableCell(String value) {
         return value.replace("|", "\\|");
+    }
+
+    private static String formatSizeWeights(IAnalyzer.MaintainabilitySizeSmellWeights w) {
+        return "longMethodLines=%d, highComplexity=%d, godObjectLines=%d, godObjectDirectChildren=%d,"
+                        .formatted(
+                                w.longMethodSpanLines(),
+                                w.highComplexityThreshold(),
+                                w.godObjectSpanLines(),
+                                w.godObjectDirectChildren())
+                + " godObjectFunctions=%d, helperSprawlFunctions=%d, helperSprawlWorkflowLines=%d, fileModuleLeeway=%dx"
+                        .formatted(
+                                w.godObjectFunctions(),
+                                w.helperSprawlFunctions(),
+                                w.helperSprawlWorkflowLines(),
+                                w.fileModuleLeewayMultiplier());
     }
 
     private static String formatExceptionWeights(IAnalyzer.ExceptionSmellWeights w) {

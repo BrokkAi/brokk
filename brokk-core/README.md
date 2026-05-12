@@ -117,6 +117,23 @@ Comment density tables for the given source files: one section per file and one 
 | `maxTopLevelRows` | int | no | 60 | Maximum declaration rows across all files |
 | `maxFiles` | int | no | 25 | Maximum files to include |
 
+#### `reportLongMethodAndGodObjectSmells`
+
+Reports long methods/functions, god objects/modules, and helper sprawl using analyzer code-unit hierarchy and declaration ranges. Findings are ranked by maintainability impact and bounded by `maxFindings`.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePaths` | string[] | yes | -- | File paths relative to project root |
+| `maxFindings` | int | no | 20 | Maximum findings to return |
+| `maxFiles` | int | no | 25 | Maximum existing files to analyze |
+| `longMethodSpanLines` | int | no | (internal default) | Long method/function line threshold |
+| `highComplexityThreshold` | int | no | (internal default) | High cyclomatic complexity threshold |
+| `godObjectSpanLines` | int | no | (internal default) | God object/module line threshold |
+| `godObjectDirectChildren` | int | no | (internal default) | God object/module direct-child threshold |
+| `godObjectFunctions` | int | no | (internal default) | God object/module function-count threshold |
+| `helperSprawlFunctions` | int | no | (internal default) | Helper-sprawl function-count threshold |
+| `helperSprawlWorkflowLines` | int | no | (internal default) | Helper-sprawl workflow line threshold |
+
 #### `reportExceptionHandlingSmells`
 
 Detects suspicious exception handlers using weighted heuristics designed for high-recall triage. Scores generic catches and tiny/empty handlers, then subtracts credit for richer handling bodies.
@@ -155,5 +172,5 @@ Detects duplicated implementation patterns across functions using normalized tok
 
 The Brokk codebase has two MCP servers:
 
-1. **`BrokkCoreMcpServer`** (this module, `brokk-core/`) -- Standalone, no LLM dependencies, pure tree-sitter analysis. This is what the Claude Code plugin connects to. Exposes 25 tools.
+1. **`BrokkCoreMcpServer`** (this module, `brokk-core/`) -- Standalone, no LLM dependencies, pure tree-sitter analysis. This is what the Claude Code plugin connects to. Exposes 27 tools.
 2. **`BrokkExternalMcpServer`** (in `app/`) -- Full server with LLM agent capabilities. Not used by the Claude Code plugin.

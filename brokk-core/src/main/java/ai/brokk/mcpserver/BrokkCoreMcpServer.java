@@ -629,6 +629,57 @@ public class BrokkCoreMcpServer {
                 })));
 
         specs.add(tool(
+                "reportLongMethodAndGodObjectSmells",
+                "Reports long methods/functions, god objects/modules, and helper sprawl in the given files. "
+                        + "Uses analyzer code-unit hierarchy and declaration ranges, then ranks bounded findings by "
+                        + "maintainability impact. Includes file path, symbol, line range, size/responsibility signals, "
+                        + "and concise rationale.",
+                schema(
+                        Map.ofEntries(
+                                entry("filePaths", arrayProp("File paths relative to the project root.")),
+                                entry("maxFindings", intProp("Maximum findings to return; values <= 0 default to 20.")),
+                                entry(
+                                        "maxFiles",
+                                        intProp("Maximum existing files to analyze; values <= 0 default to 25.")),
+                                entry(
+                                        "longMethodSpanLines",
+                                        intProp("Long method/function line threshold; values <= 0 use default.")),
+                                entry(
+                                        "highComplexityThreshold",
+                                        intProp("High cyclomatic complexity threshold; values <= 0 use default.")),
+                                entry(
+                                        "godObjectSpanLines",
+                                        intProp("God object/module line threshold; values <= 0 use default.")),
+                                entry(
+                                        "godObjectDirectChildren",
+                                        intProp("God object/module direct-child threshold; values <= 0 use default.")),
+                                entry(
+                                        "godObjectFunctions",
+                                        intProp(
+                                                "God object/module function-count threshold; values <= 0 use default.")),
+                                entry(
+                                        "helperSprawlFunctions",
+                                        intProp("Helper-sprawl function-count threshold; values <= 0 use default.")),
+                                entry(
+                                        "helperSprawlWorkflowLines",
+                                        intProp("Helper-sprawl workflow line threshold; values <= 0 use default."))),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    return textResult(codeQualityTools.reportLongMethodAndGodObjectSmells(
+                            filePaths,
+                            intArg(request, "maxFindings", 0),
+                            intArg(request, "maxFiles", 0),
+                            intArg(request, "longMethodSpanLines", 0),
+                            intArg(request, "highComplexityThreshold", 0),
+                            intArg(request, "godObjectSpanLines", 0),
+                            intArg(request, "godObjectDirectChildren", 0),
+                            intArg(request, "godObjectFunctions", 0),
+                            intArg(request, "helperSprawlFunctions", 0),
+                            intArg(request, "helperSprawlWorkflowLines", 0)));
+                })));
+
+        specs.add(tool(
                 "reportExceptionHandlingSmells",
                 "Detects suspicious exception handlers using weighted heuristics designed for high-recall triage. "
                         + "Scores generic catches and tiny/empty handlers, then subtracts credit for richer handling bodies. "

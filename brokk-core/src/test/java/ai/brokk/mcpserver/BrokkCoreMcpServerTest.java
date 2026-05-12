@@ -92,6 +92,7 @@ class BrokkCoreMcpServerTest {
                 "computeCognitiveComplexity",
                 "reportCommentDensityForCodeUnit",
                 "reportCommentDensityForFiles",
+                "reportLongMethodAndGodObjectSmells",
                 "reportExceptionHandlingSmells",
                 "reportStructuralCloneSmells");
 
@@ -252,6 +253,14 @@ class BrokkCoreMcpServerTest {
     @Test
     void computeCognitiveComplexityRunsWithoutError() {
         var result = callTool("computeCognitiveComplexity", Map.of("filePaths", List.of("README.md"), "threshold", 15));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportLongMethodAndGodObjectSmellsRunsWithoutError() {
+        var result = callTool("reportLongMethodAndGodObjectSmells", Map.of("filePaths", List.of("README.md")));
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
