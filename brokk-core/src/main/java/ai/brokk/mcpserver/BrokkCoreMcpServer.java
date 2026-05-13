@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -55,6 +56,7 @@ public class BrokkCoreMcpServer {
     private CodeQualityToolsMcp codeQualityTools;
     private Path activeWorkspaceRoot;
     private final CountDownLatch analyzerReady = new CountDownLatch(1);
+    private final AtomicLong analyzerBuildGeneration = new AtomicLong();
     private volatile @Nullable Thread analyzerBuildThread;
     private volatile @Nullable Throwable analyzerBuildFailure;
     private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
@@ -198,9 +200,13 @@ public class BrokkCoreMcpServer {
     }
 
     Thread startAnalyzerBuild(Language langHandle) {
+        long buildGeneration = analyzerBuildGeneration.incrementAndGet();
         var thread = Thread.ofVirtual().name("BrokkCoreMCP-AnalyzerBuild").unstarted(() -> {
             workspaceLock.writeLock().lock();
             try {
+                if (!isCurrentAnalyzerBuild(buildGeneration)) {
+                    return;
+                }
                 IAnalyzer analyzer;
                 if (langHandle == Languages.NONE) {
                     logger.warn("No analyzable languages found in {}", activeWorkspaceRoot);
@@ -208,8 +214,8 @@ public class BrokkCoreMcpServer {
                 } else {
                     logger.info("Building analyzer for {}...", langHandle.name());
                     analyzer = langHandle.createAnalyzer(project, (current, total, phase) -> {
-                        if (Thread.currentThread().isInterrupted()) {
-                            throw new IllegalStateException("Analyzer build interrupted");
+                        if (!isCurrentAnalyzerBuild(buildGeneration)) {
+                            throw new AnalyzerBuildCancelled();
                         }
                         if (total > 0 && current % 100 == 0) {
                             logger.info("Analyzing [{}]: {}/{} files", phase, current, total);
@@ -222,12 +228,22 @@ public class BrokkCoreMcpServer {
                             metrics.numberOfCodeUnits());
                 }
 
+                if (!isCurrentAnalyzerBuild(buildGeneration)) {
+                    return;
+                }
                 this.intelligence = new StandaloneCodeIntelligence(project, analyzer);
                 this.searchTools = new SearchTools(this.intelligence);
                 this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
+                this.analyzerBuildFailure = null;
+            } catch (AnalyzerBuildCancelled e) {
+                logger.info("Analyzer build superseded");
             } catch (Throwable t) {
-                this.analyzerBuildFailure = t;
-                logger.error("Failed to build analyzer", t);
+                if (isCurrentAnalyzerBuild(buildGeneration)) {
+                    this.analyzerBuildFailure = t;
+                    logger.error("Failed to build analyzer", t);
+                } else {
+                    logger.info("Ignoring failure from superseded analyzer build", t);
+                }
             } finally {
                 analyzerReady.countDown();
                 workspaceLock.writeLock().unlock();
@@ -240,6 +256,13 @@ public class BrokkCoreMcpServer {
         thread.start();
         return thread;
     }
+
+    private boolean isCurrentAnalyzerBuild(long buildGeneration) {
+        return buildGeneration == analyzerBuildGeneration.get()
+                && !Thread.currentThread().isInterrupted();
+    }
+
+    private static class AnalyzerBuildCancelled extends RuntimeException {}
 
     static Path resolveProjectRoot(Path path) {
         Path resolved = path.toAbsolutePath().normalize();
@@ -284,39 +307,26 @@ public class BrokkCoreMcpServer {
 
     private void activateWorkspace(String workspacePath) {
         Path newRoot = resolveProjectRoot(Path.of(workspacePath));
-        interruptAnalyzerBuild();
+        boolean cancelledAnalyzerBuild = cancelAnalyzerBuild();
         workspaceLock.writeLock().lock();
         try {
-            if (newRoot.equals(activeWorkspaceRoot) && analyzerReady.getCount() == 0 && analyzerBuildFailure == null) {
+            if (!cancelledAnalyzerBuild
+                    && newRoot.equals(activeWorkspaceRoot)
+                    && analyzerReady.getCount() == 0
+                    && analyzerBuildFailure == null) {
                 logger.info("Workspace already active: {}", newRoot);
                 return;
             }
             logger.info("Switching workspace from {} to {}", activeWorkspaceRoot, newRoot);
 
-            var oldProject = project;
-            var newProject = new CoreProject(newRoot);
-            boolean assigned = false;
             try {
-                var langHandle = Languages.aggregate(newProject.getAnalyzerLanguages());
-                IAnalyzer newAnalyzer;
-                if (langHandle == Languages.NONE) {
-                    newAnalyzer = new DisabledAnalyzer(newProject);
-                } else {
-                    newAnalyzer = langHandle.createAnalyzer(newProject, (current, total, phase) -> {});
+                activateWorkspaceLocked(newRoot);
+            } catch (RuntimeException | Error e) {
+                if (cancelledAnalyzerBuild) {
+                    this.analyzerBuildFailure = e;
+                    analyzerReady.countDown();
                 }
-
-                this.project = newProject;
-                this.intelligence = new StandaloneCodeIntelligence(newProject, newAnalyzer);
-                this.searchTools = new SearchTools(this.intelligence);
-                this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
-                this.activeWorkspaceRoot = newRoot;
-                this.analyzerBuildFailure = null;
-                assigned = true;
-                oldProject.close();
-            } finally {
-                if (!assigned) {
-                    newProject.close();
-                }
+                throw e;
             }
             logger.info("Workspace switched to {}", newRoot);
         } finally {
@@ -324,11 +334,44 @@ public class BrokkCoreMcpServer {
         }
     }
 
-    private void interruptAnalyzerBuild() {
+    void activateWorkspaceLocked(Path newRoot) {
+        var oldProject = project;
+        var newProject = new CoreProject(newRoot);
+        boolean assigned = false;
+        try {
+            var langHandle = Languages.aggregate(newProject.getAnalyzerLanguages());
+            IAnalyzer newAnalyzer;
+            if (langHandle == Languages.NONE) {
+                newAnalyzer = new DisabledAnalyzer(newProject);
+            } else {
+                newAnalyzer = langHandle.createAnalyzer(newProject, (current, total, phase) -> {});
+            }
+
+            this.project = newProject;
+            this.intelligence = new StandaloneCodeIntelligence(newProject, newAnalyzer);
+            this.searchTools = new SearchTools(this.intelligence);
+            this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
+            this.activeWorkspaceRoot = newRoot;
+            this.analyzerBuildFailure = null;
+            analyzerReady.countDown();
+            assigned = true;
+            oldProject.close();
+        } finally {
+            if (!assigned) {
+                newProject.close();
+            }
+        }
+    }
+
+    private boolean cancelAnalyzerBuild() {
+        analyzerBuildGeneration.incrementAndGet();
         var thread = analyzerBuildThread;
         if (thread != null) {
+            analyzerBuildThread = null;
             thread.interrupt();
+            return true;
         }
+        return false;
     }
 
     // -- Tool specifications --
