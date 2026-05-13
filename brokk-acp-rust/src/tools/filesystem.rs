@@ -1,15 +1,13 @@
 use super::{ToolResult, ToolStatus, safe_resolve, safe_resolve_for_write};
-use regex::Regex;
-use std::io::Read;
 use std::path::Path;
-use walkdir::WalkDir;
 
 /// Hard cap on individual file size scanned by `search_file_contents`.
 /// Files larger than this are skipped to keep memory bounded on big repos.
 const SEARCH_MAX_FILE_BYTES: u64 = 1_048_576; // 1 MiB
-
-/// Number of leading bytes inspected for NUL bytes to classify a file as binary.
-const BINARY_SNIFF_BYTES: usize = 8192;
+/// Total-bytes-scanned budget across the whole walk. Together with
+/// the per-file cap this bounds the worst case the sandbox has to
+/// chew through for a single `searchFileContents` call.
+const SEARCH_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 
 pub fn read_file(cwd: &Path, path: &str) -> ToolResult {
     let resolved = match safe_resolve(cwd, path) {
@@ -101,129 +99,71 @@ pub fn list_directory(cwd: &Path, path: &str) -> ToolResult {
     }
 }
 
+/// `searchFileContents` tool, routed through `SandboxBackend` so the
+/// user-controlled regex runs inside the wasm sandbox by default.
+/// The `regex` crate is engineered to be linear-time, but a future
+/// engine bug or accidental enabling of a backtracking feature
+/// shouldn't be able to hang the agent -- the wasm fuel cap is the
+/// definitive backstop.
 pub fn search_file_contents(
     cwd: &Path,
     pattern: &str,
     glob_filter: Option<&str>,
     max_results: usize,
 ) -> ToolResult {
-    let re = match Regex::new(pattern) {
-        Ok(r) => r,
-        Err(e) => {
+    let outcome = match crate::sandbox_backend::global().search_file_contents(
+        cwd,
+        pattern,
+        glob_filter,
+        max_results as u64,
+        SEARCH_MAX_FILE_BYTES,
+        SEARCH_MAX_TOTAL_BYTES,
+    ) {
+        Ok(o) => o,
+        Err(brokk_acp_sandbox::SearchError::InvalidRegex(msg)) => {
             return ToolResult {
                 status: ToolStatus::RequestError,
-                output: format!("Invalid regex '{}': {}", pattern, e),
+                output: format!("Invalid regex '{}': {}", pattern, msg),
             };
         }
-    };
-
-    let glob_re = glob_filter.and_then(|g| {
-        // Convert simple glob to regex: *.rs -> .*\.rs$, **/*.java -> .*\.java$
-        let re_str = g
-            .replace('.', "\\.")
-            .replace("**", "<<GLOBSTAR>>")
-            .replace('*', "[^/]*")
-            .replace("<<GLOBSTAR>>", ".*");
-        Regex::new(&format!("{}$", re_str)).ok()
-    });
-
-    let cwd_canonical = match cwd.canonicalize() {
-        Ok(c) => c,
-        Err(e) => {
+        Err(brokk_acp_sandbox::SearchError::InvalidGlob(msg)) => {
+            return ToolResult {
+                status: ToolStatus::RequestError,
+                output: format!("Invalid glob: {msg}"),
+            };
+        }
+        Err(brokk_acp_sandbox::SearchError::Walk(msg)) => {
             return ToolResult {
                 status: ToolStatus::InternalError,
-                output: format!("Cannot resolve cwd: {}", e),
+                output: msg,
             };
         }
     };
 
-    let mut results = Vec::new();
-    for entry in WalkDir::new(cwd)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            // Skip hidden dirs and common noise
-            !name.starts_with('.')
-                && name != "node_modules"
-                && name != "target"
-                && name != "__pycache__"
-        })
-        .flatten()
-    {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let path = entry.path();
-        let rel = path
-            .strip_prefix(&cwd_canonical)
-            .or_else(|_| path.strip_prefix(cwd))
-            .unwrap_or(path);
-        let rel_str = rel.to_string_lossy();
-
-        if let Some(glob_re) = &glob_re
-            && !glob_re.is_match(&rel_str)
-        {
-            continue;
-        }
-
-        // Size cap: skip files above SEARCH_MAX_FILE_BYTES.
-        match entry.metadata() {
-            Ok(md) if md.len() > SEARCH_MAX_FILE_BYTES => continue,
-            Err(_) => continue,
-            _ => {}
-        }
-
-        // Sniff the first BINARY_SNIFF_BYTES bytes for a NUL. If present, treat as binary and skip.
-        if is_binary_file(path) {
-            continue;
-        }
-
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => continue, // skip non-UTF8 or unreadable files
-        };
-
-        for (line_num, line) in content.lines().enumerate() {
-            if re.is_match(line) {
-                results.push(format!("{}:{}: {}", rel_str, line_num + 1, line.trim()));
-                if results.len() >= max_results {
-                    results.push(format!("... truncated at {} results", max_results));
-                    return ToolResult {
-                        status: ToolStatus::Success,
-                        output: results.join("\n"),
-                    };
-                }
-            }
-        }
-    }
-
-    if results.is_empty() {
-        ToolResult {
+    if outcome.matches.is_empty() {
+        return ToolResult {
             status: ToolStatus::Success,
             output: format!("No matches found for '{}'", pattern),
-        }
-    } else {
-        ToolResult {
-            status: ToolStatus::Success,
-            output: results.join("\n"),
-        }
+        };
+    }
+
+    let mut lines: Vec<String> = outcome
+        .matches
+        .iter()
+        .map(|m| format!("{}:{}: {}", m.path, m.line_num, m.line))
+        .collect();
+    if outcome.truncated {
+        lines.push(format!("... truncated at {} results", max_results));
+    }
+    ToolResult {
+        status: ToolStatus::Success,
+        output: lines.join("\n"),
     }
 }
 
-/// Classify a file as binary if any of the first BINARY_SNIFF_BYTES bytes is NUL.
-/// Files we cannot open are classified as binary so we skip them.
-fn is_binary_file(path: &Path) -> bool {
-    let mut file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return true,
-    };
-    let mut buf = [0u8; BINARY_SNIFF_BYTES];
-    let n = match file.read(&mut buf) {
-        Ok(n) => n,
-        Err(_) => return true,
-    };
-    buf[..n].contains(&0)
-}
+// `is_binary_file` and `BINARY_SNIFF_BYTES` moved to the shared
+// `brokk_acp_sandbox::search` module so the native and wasm-sandboxed
+// backends classify binary files identically.
 
 #[cfg(test)]
 mod tests {
@@ -456,13 +396,7 @@ mod tests {
         std::fs::remove_dir_all(&cwd).ok();
     }
 
-    /// `is_binary_file` returns true for non-existent paths so the search
-    /// loop's "skip and move on" semantics are preserved when a file
-    /// disappears mid-walk.
-    #[test]
-    fn is_binary_file_treats_missing_as_binary() {
-        let cwd = fresh_tmp_dir("missing-binary");
-        assert!(is_binary_file(&cwd.join("does-not-exist")));
-        std::fs::remove_dir_all(&cwd).ok();
-    }
+    // The binary-sniff test moved to `brokk-acp-sandbox::search` along
+    // with `is_binary_file` itself; the host fn is gone and the test
+    // would now be redundant with the sandbox unit test.
 }

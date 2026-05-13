@@ -1,8 +1,11 @@
 [workspace]
-members = ["xtask"]
+members = ["xtask", "brokk-acp-sandbox"]
 # Keep `cargo build` / `cargo test` from the workspace root focused on the
 # root crate. The xtask sub-crate is dev-only and is invoked through the
 # `cargo xtask` alias (see .cargo/config.toml), which builds it on demand.
+# `brokk-acp-sandbox` is dual-purpose: linked as a library for the native
+# fallback path AND built separately to `wasm32-wasip2` (its binary form)
+# so the embedded wasmtime can run untrusted parser code in a sandbox.
 default-members = ["."]
 
 [package]
@@ -20,6 +23,14 @@ path = "src/main.rs"
 agent-client-protocol = { version = "0.11", features = ["unstable_session_resume"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
+# Pure-parsing library, also built as a wasm32-wasip2 binary that
+# wasmtime hosts when the wasm sandbox is enabled.
+brokk-acp-sandbox = { path = "brokk-acp-sandbox" }
+# Embedded wasm runtime + WASI Preview 2 bindings for the sandboxed
+# parser. Used to host `brokk-acp-sandbox.wasm` in-process with
+# fuel-based CPU limits and capability-scoped fs access.
+wasmtime = { version = "27", default-features = false, features = ["cranelift", "cache", "parallel-compilation", "component-model", "runtime"] }
+wasmtime-wasi = "27"
 zip = "8"
 futures = "0.3"
 regex = "1"
