@@ -455,6 +455,10 @@ fn builtin_commands() -> Vec<AvailableCommand> {
             "configure",
             "Show or change session settings (e.g. `/configure model_selection gpt-5`)",
         ),
+        AvailableCommand::new(
+            "sandbox",
+            "Show the active runShellCommand sandbox backend, WASI module registry, and bwrap probe result (read-only)",
+        ),
     ]
 }
 
@@ -463,9 +467,15 @@ fn builtin_commands() -> Vec<AvailableCommand> {
 /// filtered skills entirely" guidance: don't expose a slash that won't
 /// actually dispatch to the skill).
 fn builtin_command_names() -> std::collections::HashSet<&'static str> {
-    ["context", "codex-login", "idle-timeout", "configure"]
-        .into_iter()
-        .collect()
+    [
+        "context",
+        "codex-login",
+        "idle-timeout",
+        "configure",
+        "sandbox",
+    ]
+    .into_iter()
+    .collect()
 }
 
 /// Build the full command list advertised to the client: built-ins plus
@@ -889,6 +899,18 @@ pub async fn run_agent(
                 if is_slash_command(&prompt_text, "configure") {
                     let report =
                         handle_configure(&cx, &prompt_text, &session_id, &sessions_prompt).await;
+                    send_message(&cx, &session_id, &report);
+                    return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                }
+
+                if is_slash_command(&prompt_text, "sandbox") {
+                    // Read-only status dump. The sandbox backend cannot
+                    // be changed from a slash command on purpose: allowing
+                    // an LLM-driven prompt to weaken its own sandbox would
+                    // be a privilege-escalation footgun. Operators change
+                    // the backend at startup via `--sandbox-backend` /
+                    // `BROKK_ACP_SANDBOX_BACKEND`.
+                    let report = crate::tools::sandbox::describe_status();
                     send_message(&cx, &session_id, &report);
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
@@ -2441,6 +2463,7 @@ mod tests {
                 "codex-login",
                 "idle-timeout",
                 "configure",
+                "sandbox",
                 "apple",
                 "zebra",
             ]

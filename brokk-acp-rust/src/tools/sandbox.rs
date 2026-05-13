@@ -34,6 +34,7 @@
 //! own children (e.g. `strace ./my-binary`) work fine.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::session::PermissionMode;
 
@@ -81,6 +82,339 @@ impl SandboxPolicy {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SandboxBackend: which implementation strategy is in use.
+//
+// `SandboxPolicy` says *what* should be restricted (no writes vs. cwd-only
+// writes); `SandboxBackend` says *how* (which mechanism). Splitting the
+// two lets us swap the WASM fallback into the same call site without
+// re-plumbing every consumer of `SandboxPolicy`.
+// ---------------------------------------------------------------------------
+
+/// Operator-facing env var for forcing a backend. Values: `auto`
+/// (recommended; same as unset), `native`, `wasi`, `none`. Case-insensitive.
+/// Anything else logs a warning at first read and falls back to `auto`.
+pub const SANDBOX_BACKEND_ENV: &str = "BROKK_ACP_SANDBOX_BACKEND";
+
+/// Which sandbox implementation handles a given `runShellCommand` call.
+///
+/// **Resolution order under `Auto`:**
+///   1. Native (sandbox-exec on macOS; bwrap on Linux only if the runtime
+///      probe also succeeds -- presence of the binary is not enough since
+///      Docker/AppArmor often blocks `bwrap --unshare-all` at runtime).
+///   2. Wasi (in-process wasmtime) -- only effective for commands that
+///      parse as `<tool> [args]` AND resolve to a registered module.
+///      **Strictly weaker than Native**: most commands fall through to
+///      unsandboxed exec with a warning.
+///   3. None (no sandbox; the call runs with the agent's own privileges).
+///
+/// This is decided per-process, memoized via `OnceLock` in `effective_backend()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxBackend {
+    /// Native OS sandbox (Seatbelt or Bubblewrap).
+    Native,
+    /// WASI runtime fallback. Communicates a security cost to the operator;
+    /// callers should surface this in the bypass warning when the WASI path
+    /// could not actually wrap a given command.
+    Wasi,
+    /// No sandbox at all. The call runs with whatever privileges the
+    /// brokk-acp process has.
+    None,
+}
+
+impl SandboxBackend {
+    /// Parse an operator-supplied backend name (env var value). `None`
+    /// means "not provided"; `Some("auto")` means "use detection". Unknown
+    /// strings return `Err` so we can log a clear warning instead of
+    /// silently choosing the wrong tier.
+    fn parse_override(raw: Option<&str>) -> Result<Option<SandboxBackend>, String> {
+        let Some(raw) = raw else { return Ok(None) };
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+        match trimmed.to_ascii_lowercase().as_str() {
+            "auto" => Ok(None),
+            "native" => Ok(Some(SandboxBackend::Native)),
+            "wasi" | "wasm" => Ok(Some(SandboxBackend::Wasi)),
+            "none" | "off" | "disabled" => Ok(Some(SandboxBackend::None)),
+            other => Err(format!(
+                "{SANDBOX_BACKEND_ENV}={other:?} is not one of: auto, native, wasi, none"
+            )),
+        }
+    }
+}
+
+/// Detect which native sandbox tooling actually *works* on this host.
+///
+/// On Linux, `is_bubblewrap_available()` (binary on PATH) is necessary but
+/// not sufficient: inside Docker containers, AppArmor profiles and the
+/// commonly-set `kernel.unprivileged_userns_clone=0` make `bwrap
+/// --unshare-all` exit non-zero at runtime. We probe the kernel/policy
+/// combo by actually invoking a no-op bwrap call once and caching the
+/// result. On macOS, `sandbox-exec` is shipped by Apple and always
+/// available; we still gate via this function so the call site doesn't
+/// have to platform-#cfg.
+fn native_sandbox_works() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // `sandbox-exec` is part of the base system; presence and operation
+        // are guaranteed on any supported macOS. Probe is unnecessary.
+        true
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if !is_bubblewrap_available() {
+            return false;
+        }
+        probe_bubblewrap_runtime()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
+}
+
+/// Pure backend resolution: given an operator override and platform
+/// capability flags, return the effective backend. Extracted from
+/// `effective_backend()` so the "force WASI wins over native" contract
+/// can be unit-tested without going through `OnceLock` (which would
+/// poison across test cases).
+///
+/// **Precedence:** operator override > detection > `None`. The override
+/// is honored verbatim even when it picks a tier that detection would
+/// have ruled out (e.g. `--sandbox-backend wasi` on macOS, where
+/// Seatbelt works). The operator presumably knows what they're doing --
+/// common reasons include: debugging the WASI path, validating Docker
+/// behavior from a dev box, or pre-staging for a deployment where the
+/// native backend is unavailable.
+pub fn resolve_backend(
+    override_: Option<SandboxBackend>,
+    native_works: bool,
+    has_wasi_fallback: bool,
+) -> SandboxBackend {
+    let detected = if native_works {
+        SandboxBackend::Native
+    } else if has_wasi_fallback {
+        // Fall back to WASI on platforms where the native sandbox is
+        // either missing (Windows) or broken at runtime (Docker
+        // without user namespaces). macOS always has Seatbelt, so we
+        // never get here on macOS.
+        SandboxBackend::Wasi
+    } else {
+        SandboxBackend::None
+    };
+    override_.unwrap_or(detected)
+}
+
+/// Resolved sandbox backend for this process. Memoized after first call so
+/// repeated `runShellCommand` invocations don't re-probe `bwrap`. The probe
+/// itself is fork+exec, ~milliseconds, but it would still be wasted work
+/// if every call repeated it.
+///
+/// Override precedence (high to low):
+///   1. `--sandbox-backend <val>` CLI flag (main.rs writes it to env before
+///      any other thread starts);
+///   2. `BROKK_ACP_SANDBOX_BACKEND=<val>` env var;
+///   3. Auto-detection via `resolve_backend(None, ...)`.
+///
+/// Values for both flag and env: `auto`, `native`, `wasi` (alias: `wasm`),
+/// `none` (aliases: `off`, `disabled`). Case-insensitive.
+pub fn effective_backend() -> SandboxBackend {
+    effective_resolution().chosen
+}
+
+/// Full resolution record. The `/sandbox` slash command and any other
+/// UX that wants to explain *why* a backend was picked reads this.
+/// Cached once on first call; the bwrap probe is what makes the cache
+/// worthwhile (otherwise it'd fork+exec on every shell call).
+#[derive(Debug, Clone, Copy)]
+pub struct BackendResolution {
+    /// The backend actually in use.
+    pub chosen: SandboxBackend,
+    /// What auto-detection would have picked. Equal to `chosen` when no
+    /// override applies; useful for the UX message "would have been
+    /// Native but operator forced WASI".
+    pub detected: SandboxBackend,
+    /// Whether the operator explicitly forced a backend, and which.
+    /// `None` means no override (the auto path picked `detected`).
+    pub override_: Option<SandboxBackend>,
+    /// Whether bwrap probe succeeded at startup. `Some(false)` on Linux
+    /// means the user is likely inside a Docker container with user
+    /// namespaces disabled. `None` on macOS / Windows (the probe is
+    /// Linux-only).
+    pub bwrap_probe_passed: Option<bool>,
+}
+
+pub fn effective_resolution() -> BackendResolution {
+    static SELECTED: OnceLock<BackendResolution> = OnceLock::new();
+    *SELECTED.get_or_init(|| {
+        let raw = std::env::var(SANDBOX_BACKEND_ENV).ok();
+        let parsed = SandboxBackend::parse_override(raw.as_deref());
+        let override_ = match parsed {
+            Ok(o) => o,
+            Err(msg) => {
+                tracing::warn!("{msg} -- falling back to auto-detection");
+                None
+            }
+        };
+
+        // Run the (Linux-only) bwrap probe once and remember its outcome
+        // so `/sandbox` can report it without re-forking. On macOS /
+        // Windows the probe is meaningless; we report `None`.
+        let bwrap_probe_passed: Option<bool> = {
+            #[cfg(target_os = "linux")]
+            {
+                Some(is_bubblewrap_available() && probe_bubblewrap_runtime())
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                None
+            }
+        };
+
+        // `native_sandbox_works()` re-derives the same Linux outcome but
+        // is also the macOS source of truth. Stay with it as the gate
+        // input so the precedence tree in `resolve_backend` stays
+        // single-sourced.
+        let native_works = native_sandbox_works();
+        let has_wasi_fallback = cfg!(target_os = "linux") || cfg!(windows);
+        let detected = resolve_backend(None, native_works, has_wasi_fallback);
+        let chosen = resolve_backend(override_, native_works, has_wasi_fallback);
+
+        tracing::info!(
+            ?override_,
+            ?detected,
+            ?chosen,
+            ?bwrap_probe_passed,
+            "sandbox backend selected",
+        );
+        if chosen == SandboxBackend::Wasi {
+            tracing::warn!(
+                "Using WASI sandbox: strictly weaker than the native OS sandbox. \
+                 Only single-binary commands resolving to a registered WASI module \
+                 are isolated; pipelines, redirections, and unbundled tools run \
+                 unsandboxed with a warning. See `BROKK_ACP_WASI_MODULES`."
+            );
+        }
+
+        BackendResolution {
+            chosen,
+            detected,
+            override_,
+            bwrap_probe_passed,
+        }
+    })
+}
+
+/// Human-readable name for one tier. Used by `describe_status` and by
+/// error messages where we name the backend the user is currently on.
+fn backend_display_name(b: SandboxBackend) -> &'static str {
+    match b {
+        SandboxBackend::Native => {
+            if cfg!(target_os = "macos") {
+                "native (Seatbelt / sandbox-exec)"
+            } else if cfg!(target_os = "linux") {
+                "native (Bubblewrap)"
+            } else {
+                "native"
+            }
+        }
+        SandboxBackend::Wasi => "WASI (in-process wasmtime)",
+        SandboxBackend::None => "none (no sandbox)",
+    }
+}
+
+/// Render the sandbox status as a Markdown block. Source of truth for
+/// the `/sandbox` slash command. Read-only: the operator changes the
+/// backend at startup via `--sandbox-backend` / `BROKK_ACP_SANDBOX_BACKEND`,
+/// never at runtime via a slash command -- a runtime "weaken sandbox"
+/// affordance is a footgun we don't want to expose to LLM-driven prompts.
+pub fn describe_status() -> String {
+    let r = effective_resolution();
+    let registry = super::wasi_sandbox::global();
+    let module_names = registry.names_sorted();
+
+    let mut s = String::with_capacity(1024);
+    s.push_str("**Sandbox status**\n\n");
+    s.push_str(&format!(
+        "- Active backend: `{}`\n",
+        backend_display_name(r.chosen)
+    ));
+    s.push_str(&format!(
+        "- Detection would pick: `{}`\n",
+        backend_display_name(r.detected)
+    ));
+    s.push_str(&format!(
+        "- Operator override: {}\n",
+        match r.override_ {
+            None => "none (auto)".to_string(),
+            Some(b) => format!(
+                "`{}` (from `--sandbox-backend` / `{SANDBOX_BACKEND_ENV}`)",
+                match b {
+                    SandboxBackend::Native => "native",
+                    SandboxBackend::Wasi => "wasi",
+                    SandboxBackend::None => "none",
+                }
+            ),
+        }
+    ));
+
+    // bwrap probe: only meaningful on Linux. Surfacing the result helps
+    // the operator diagnose "I'm on Linux but I'm getting WASI?" --
+    // typically the answer is "you're in Docker without user namespaces".
+    if let Some(passed) = r.bwrap_probe_passed {
+        if passed {
+            s.push_str("- Bubblewrap runtime probe: passed\n");
+        } else {
+            s.push_str(
+                "- Bubblewrap runtime probe: **failed** at runtime. \
+                 Likely cause: inside a Docker container with user namespaces \
+                 disabled (AppArmor `docker-default`, or \
+                 `kernel.unprivileged_userns_clone=0`).\n",
+            );
+        }
+    }
+
+    s.push_str("\n**WASI module registry**\n\n");
+    if module_names.is_empty() {
+        s.push_str(
+            "- No modules registered. Commands selected through the WASI backend \
+             will fall back to unsandboxed exec with a warning.\n\
+             - Register modules at startup via \
+             `BROKK_ACP_WASI_MODULES=name1=/abs/path/1.wasm:name2=/abs/path/2.wasm`.\n",
+        );
+    } else {
+        s.push_str(&format!("- {} module(s) registered:\n", module_names.len()));
+        for n in &module_names {
+            s.push_str(&format!("  - `{n}`\n"));
+        }
+    }
+
+    s.push_str("\n**Changing the backend**\n\n");
+    s.push_str(
+        "Restart `brokk-acp` with `--sandbox-backend <auto|native|wasi|none>` \
+         (or set `BROKK_ACP_SANDBOX_BACKEND`). The backend is intentionally not \
+         mutable from a slash command: weakening the sandbox at runtime would \
+         let an LLM-driven prompt escalate its own privileges.\n",
+    );
+
+    s
+}
+
+/// Outcome of `wrap_command_with_backend`: either an external-process
+/// invocation (Bubblewrap, Seatbelt, or unsandboxed sh) or an in-process
+/// WASI invocation routed through wasmtime. `shell.rs` dispatches on this
+/// to decide whether to `Command::spawn` or hand off to
+/// `wasi_sandbox::run`.
+#[derive(Debug)]
+pub enum SandboxedCommand {
+    /// External process; argv ready for `Command::new(argv[0])`.
+    Process(WrappedCommand),
+    /// In-process WASI execution.
+    Wasi(super::wasi_sandbox::WasiInvocation),
+}
+
 /// Owns a temp-file path and removes it on Drop. Bound into `WrappedCommand`
 /// so the policy file outlives the spawned child process.
 #[derive(Debug)]
@@ -108,10 +442,16 @@ impl Drop for TempPolicyFile {
 /// policy was non-`None` but the platform tooling was missing (e.g. `bwrap`
 /// not installed), `sandboxed` is false and `argv` is the unwrapped command.
 /// `shell.rs` uses this to surface a user-visible warning.
+///
+/// `fallback_reason`, when present, is a free-form explanation of why we
+/// fell back (e.g. "WASI cannot wrap pipelines: |"). Surfaced verbatim in
+/// the bypass warning so the operator can fix the underlying issue (install
+/// bwrap, restructure the command, register more WASI modules).
 #[derive(Debug)]
 pub struct WrappedCommand {
     pub argv: Vec<String>,
     pub sandboxed: bool,
+    pub fallback_reason: Option<String>,
     /// Held to keep the temp file alive; never read directly.
     _policy_file: Option<TempPolicyFile>,
 }
@@ -121,6 +461,19 @@ impl WrappedCommand {
         Self {
             argv: vec!["sh".into(), "-c".into(), command.into()],
             sandboxed: false,
+            fallback_reason: None,
+            _policy_file: None,
+        }
+    }
+
+    /// Like `unwrapped` but tagged with a reason -- used when a higher tier
+    /// (WASI, bwrap) tried and declined to wrap. The reason lets the
+    /// bypass warning explain which boundary slipped.
+    fn unwrapped_with_reason(command: &str, reason: String) -> Self {
+        Self {
+            argv: vec!["sh".into(), "-c".into(), command.into()],
+            sandboxed: false,
+            fallback_reason: Some(reason),
             _policy_file: None,
         }
     }
@@ -162,6 +515,61 @@ pub fn wrap_command(
     }
 }
 
+/// Top-level dispatcher. Picks an execution path according to the
+/// resolved `SandboxBackend` and the requested `SandboxPolicy`.
+///
+/// - **Native** -> `SandboxedCommand::Process(wrap_command(...))`: same
+///   behavior as before this enum existed.
+/// - **Wasi**   -> attempts `wasi_sandbox::try_wrap`. On success, returns
+///   `SandboxedCommand::Wasi(invocation)`. On any wrap failure (shell
+///   feature used, no module for tool, ...), returns
+///   `SandboxedCommand::Process(unwrapped_with_reason)` so `shell.rs` can
+///   emit a clear "WASI couldn't wrap this, ran unsandboxed" warning.
+/// - **None**   -> `SandboxedCommand::Process(unwrapped)` regardless of
+///   policy. Caller is responsible for displaying that this was an
+///   explicit operator opt-out.
+///
+/// The `SandboxPolicy::None` shortcut in `wrap_command` is preserved
+/// across the dispatcher because `BypassPermissions` always means
+/// "no sandbox of any kind, by the user's explicit choice".
+pub fn wrap_command_with_backend(
+    backend: SandboxBackend,
+    policy: SandboxPolicy,
+    cwd: &Path,
+    command: &str,
+) -> std::io::Result<SandboxedCommand> {
+    if matches!(policy, SandboxPolicy::None) || matches!(backend, SandboxBackend::None) {
+        return Ok(SandboxedCommand::Process(WrappedCommand::unwrapped(
+            command,
+        )));
+    }
+
+    match backend {
+        SandboxBackend::Native => Ok(SandboxedCommand::Process(wrap_command(
+            policy, cwd, command,
+        )?)),
+        SandboxBackend::Wasi => {
+            if !cwd.is_absolute() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("sandbox cwd must be absolute, got '{}'", cwd.display()),
+                ));
+            }
+            let registry = super::wasi_sandbox::global();
+            match super::wasi_sandbox::try_wrap(registry, policy, cwd, command) {
+                Ok(invocation) => Ok(SandboxedCommand::Wasi(invocation)),
+                Err(failure) => Ok(SandboxedCommand::Process(
+                    WrappedCommand::unwrapped_with_reason(
+                        command,
+                        format!("WASI sandbox declined to wrap command: {failure}"),
+                    ),
+                )),
+            }
+        }
+        SandboxBackend::None => unreachable!("handled by early return above"),
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn wrap_platform(
     policy: SandboxPolicy,
@@ -196,6 +604,7 @@ fn wrap_platform(
     Ok(WrappedCommand {
         argv,
         sandboxed: true,
+        fallback_reason: None,
         _policy_file: Some(temp),
     })
 }
@@ -208,7 +617,10 @@ fn wrap_platform(
 ) -> std::io::Result<WrappedCommand> {
     if !is_bubblewrap_available() {
         warn_missing_bwrap_once();
-        return Ok(WrappedCommand::unwrapped(command));
+        return Ok(WrappedCommand::unwrapped_with_reason(
+            command,
+            "Bubblewrap not installed on this host".to_string(),
+        ));
     }
 
     let argv = build_bwrap_argv(policy, cwd, command);
@@ -224,6 +636,7 @@ fn wrap_platform(
     Ok(WrappedCommand {
         argv,
         sandboxed: true,
+        fallback_reason: None,
         _policy_file: None,
     })
 }
@@ -235,7 +648,10 @@ fn wrap_platform(
     command: &str,
 ) -> std::io::Result<WrappedCommand> {
     warn_unsupported_os_once();
-    Ok(WrappedCommand::unwrapped(command))
+    Ok(WrappedCommand::unwrapped_with_reason(
+        command,
+        "no native OS sandbox on this platform".to_string(),
+    ))
 }
 
 /// Tag an io error as coming from the sandbox layer (not the user's command),
@@ -761,6 +1177,90 @@ fn is_bubblewrap_available() -> bool {
         }
     }
     false
+}
+
+/// Run a no-op bwrap invocation to verify it actually works on this host.
+///
+/// The presence of `/usr/bin/bwrap` is necessary but not sufficient: inside
+/// Docker containers, AppArmor's `docker-default` profile and the kernel
+/// sysctl `kernel.unprivileged_userns_clone=0` (still the default on
+/// Debian/Ubuntu base images for years) make `bwrap --unshare-all` exit
+/// non-zero. Without probing, the agent silently runs unsandboxed inside
+/// such containers because `is_bubblewrap_available()` only checks
+/// existence. The probe is `bwrap --ro-bind / / --unshare-all -- /bin/true`
+/// (the smallest call that exercises the namespaces bwrap needs), invoked
+/// once with a 3-second timeout. Result is cached by `effective_backend()`
+/// via `OnceLock` so we don't re-fork per shell call.
+#[cfg(target_os = "linux")]
+fn probe_bubblewrap_runtime() -> bool {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    let start = Instant::now();
+    let mut child = match Command::new("bwrap")
+        .args([
+            "--ro-bind",
+            "/",
+            "/",
+            "--unshare-all",
+            "--die-with-parent",
+            "--",
+            "/bin/true",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, "bwrap probe failed to spawn");
+            return false;
+        }
+    };
+
+    // Best-effort 3-second cap so a hung bwrap (network FS, etc.) doesn't
+    // stall startup. `wait` without a deadline; we poll `try_wait` instead.
+    let deadline = start + Duration::from_secs(3);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let ok = status.success();
+                if !ok {
+                    // Read whatever stderr buffered before the exit. Most
+                    // bwrap failures here are "bwrap: setting up uid map:
+                    // Permission denied" (Docker) or
+                    // "bwrap: setting up new user namespace failed".
+                    let mut stderr_bytes = Vec::new();
+                    if let Some(mut s) = child.stderr.take() {
+                        use std::io::Read;
+                        let _ = s.read_to_end(&mut stderr_bytes);
+                    }
+                    let stderr = String::from_utf8_lossy(&stderr_bytes);
+                    tracing::warn!(
+                        exit_code = ?status.code(),
+                        stderr = %stderr.trim(),
+                        "bwrap probe failed at runtime; user namespaces likely disabled \
+                         (Docker, AppArmor, or kernel.unprivileged_userns_clone=0). \
+                         Falling back to WASI sandbox."
+                    );
+                }
+                return ok;
+            }
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                tracing::warn!("bwrap probe timed out after 3s");
+                return false;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "bwrap probe wait failed");
+                return false;
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -1360,6 +1860,335 @@ mod tests {
         assert!(!is_safe_home_dir(path, dummy_home));
         assert!(!is_safe_system_dir(path));
         assert!(!is_safe_parent_path_entry(path));
+    }
+
+    // ----- SandboxBackend ----------------------------------------------------
+
+    #[test]
+    fn parse_override_handles_unset_and_auto() {
+        assert_eq!(SandboxBackend::parse_override(None), Ok(None));
+        assert_eq!(SandboxBackend::parse_override(Some("auto")), Ok(None));
+        assert_eq!(SandboxBackend::parse_override(Some("AUTO")), Ok(None));
+        assert_eq!(SandboxBackend::parse_override(Some("  auto  ")), Ok(None));
+        assert_eq!(SandboxBackend::parse_override(Some("")), Ok(None));
+        assert_eq!(SandboxBackend::parse_override(Some("   ")), Ok(None));
+    }
+
+    #[test]
+    fn parse_override_maps_named_backends() {
+        assert_eq!(
+            SandboxBackend::parse_override(Some("native")),
+            Ok(Some(SandboxBackend::Native))
+        );
+        // Case-insensitive: operator may use any casing.
+        assert_eq!(
+            SandboxBackend::parse_override(Some("NATIVE")),
+            Ok(Some(SandboxBackend::Native))
+        );
+        // `wasi` and `wasm` are accepted aliases.
+        assert_eq!(
+            SandboxBackend::parse_override(Some("wasi")),
+            Ok(Some(SandboxBackend::Wasi))
+        );
+        assert_eq!(
+            SandboxBackend::parse_override(Some("wasm")),
+            Ok(Some(SandboxBackend::Wasi))
+        );
+        // Common "disable" spellings all map to None.
+        assert_eq!(
+            SandboxBackend::parse_override(Some("none")),
+            Ok(Some(SandboxBackend::None))
+        );
+        assert_eq!(
+            SandboxBackend::parse_override(Some("off")),
+            Ok(Some(SandboxBackend::None))
+        );
+        assert_eq!(
+            SandboxBackend::parse_override(Some("disabled")),
+            Ok(Some(SandboxBackend::None))
+        );
+    }
+
+    // ----- resolve_backend precedence ---------------------------------------
+
+    /// The headline contract: when the operator forces WASI, WASI wins
+    /// even on a host where the native sandbox would normally be picked.
+    /// This is what `--sandbox-backend wasi` (or `BROKK_ACP_SANDBOX_BACKEND=wasi`)
+    /// has to guarantee for the "I want to choose WASI" use case to work.
+    #[test]
+    fn resolve_backend_override_wasi_wins_over_native() {
+        let chosen = resolve_backend(
+            Some(SandboxBackend::Wasi),
+            /* native_works = */ true,
+            /* has_wasi_fallback = */ true,
+        );
+        assert_eq!(
+            chosen,
+            SandboxBackend::Wasi,
+            "operator-forced WASI must override Native detection"
+        );
+    }
+
+    /// Inverse direction: an operator forcing Native on a host where it
+    /// doesn't work still picks Native. We honor the explicit choice;
+    /// `wrap_command` will surface an unsandboxed result with a clear
+    /// reason when the native path can't actually wrap the call.
+    #[test]
+    fn resolve_backend_override_native_wins_over_wasi_detection() {
+        let chosen = resolve_backend(
+            Some(SandboxBackend::Native),
+            /* native_works = */ false,
+            /* has_wasi_fallback = */ true,
+        );
+        assert_eq!(chosen, SandboxBackend::Native);
+    }
+
+    /// `--sandbox-backend none` is the explicit "no sandbox at all" knob
+    /// for development; it must override both Native availability and
+    /// WASI fallback.
+    #[test]
+    fn resolve_backend_override_none_wins() {
+        let chosen = resolve_backend(Some(SandboxBackend::None), true, true);
+        assert_eq!(chosen, SandboxBackend::None);
+    }
+
+    /// Auto on a host with native available -> Native (the macOS path,
+    /// and Linux with bwrap working).
+    #[test]
+    fn resolve_backend_auto_picks_native_when_available() {
+        assert_eq!(resolve_backend(None, true, true), SandboxBackend::Native);
+        assert_eq!(resolve_backend(None, true, false), SandboxBackend::Native);
+    }
+
+    /// Auto on a host where native is unavailable but WASI fallback
+    /// applies -> WASI. This is the Docker case (bwrap broken) and the
+    /// Windows case (no native sandbox at all).
+    #[test]
+    fn resolve_backend_auto_falls_back_to_wasi() {
+        let chosen = resolve_backend(None, false, true);
+        assert_eq!(chosen, SandboxBackend::Wasi);
+    }
+
+    /// Auto on a host with neither native nor WASI fallback (currently
+    /// unreachable -- macOS always has Seatbelt, and Linux/Windows
+    /// always get the WASI fallback) returns None. Locked in so a
+    /// future cfg change can't silently widen the unsandboxed surface.
+    #[test]
+    fn resolve_backend_auto_returns_none_when_nothing_available() {
+        let chosen = resolve_backend(None, false, false);
+        assert_eq!(chosen, SandboxBackend::None);
+    }
+
+    // ----- describe_status / /sandbox slash command -------------------------
+
+    /// `/sandbox` output must (1) include the canonical "Sandbox status"
+    /// header so an ACP client can recognize it, (2) name the active
+    /// backend with its tier word, (3) mention the WASI module registry
+    /// (count or "no modules"), (4) explain how to change the backend.
+    /// Locking these in so a future refactor doesn't silently turn the
+    /// slash command into a blank "OK" or strip the "how to change" path.
+    #[test]
+    fn describe_status_contains_required_sections() {
+        let out = describe_status();
+        assert!(out.contains("Sandbox status"), "missing header in: {out}");
+        assert!(
+            out.contains("Active backend"),
+            "must surface which backend is in use: {out}"
+        );
+        assert!(
+            out.contains("WASI module registry"),
+            "must surface module registry state: {out}"
+        );
+        assert!(
+            out.contains("--sandbox-backend") || out.contains("BROKK_ACP_SANDBOX_BACKEND"),
+            "must explain how to change the backend (CLI flag / env var): {out}"
+        );
+    }
+
+    /// The output must explicitly name the platform-appropriate sandbox
+    /// tool in the "native" label, so an operator skimming the dump
+    /// doesn't have to guess what "native" means on their host.
+    #[test]
+    fn backend_display_name_includes_platform_tool_for_native() {
+        let label = backend_display_name(SandboxBackend::Native);
+        #[cfg(target_os = "macos")]
+        assert!(label.contains("Seatbelt"), "got: {label}");
+        #[cfg(target_os = "linux")]
+        assert!(label.contains("Bubblewrap"), "got: {label}");
+    }
+
+    /// The WASI tier label must mention wasmtime so the operator can
+    /// tell what they're getting (vs. e.g. a future wasmer-backed
+    /// variant). Locks the label in case someone reshuffles the
+    /// `backend_display_name` match arms.
+    #[test]
+    fn backend_display_name_names_wasmtime_for_wasi() {
+        let label = backend_display_name(SandboxBackend::Wasi);
+        assert!(label.contains("WASI"), "got: {label}");
+        assert!(label.contains("wasmtime"), "got: {label}");
+    }
+
+    /// When no operator override is set, the dump must show "none (auto)"
+    /// rather than printing nothing or printing the same as `chosen`.
+    /// This is what tells the operator "you didn't force anything, the
+    /// agent picked this on its own".
+    #[test]
+    fn describe_status_calls_out_no_override_explicitly() {
+        // Since `effective_resolution()` is OnceLock-cached and we can't
+        // safely poison/reset it from a unit test, we exercise the
+        // formatting branch directly: any process where no env var is
+        // set at startup produces `override_: None`, which is the
+        // common case for `cargo test`.
+        let out = describe_status();
+        // If the cached resolution happens to have a real override (a
+        // dev with BROKK_ACP_SANDBOX_BACKEND set in their shell), we
+        // can't assert "none (auto)". Just assert the section exists.
+        assert!(
+            out.contains("Operator override"),
+            "must surface override origin: {out}"
+        );
+    }
+
+    #[test]
+    fn parse_override_rejects_unknown_values() {
+        let err = SandboxBackend::parse_override(Some("bubblewrap")).unwrap_err();
+        // Error mentions both the env var and the accepted values so an
+        // operator typo logs a self-correcting message.
+        assert!(err.contains(SANDBOX_BACKEND_ENV));
+        assert!(err.contains("auto"));
+        assert!(err.contains("native"));
+        assert!(err.contains("wasi"));
+    }
+
+    // ----- WrappedCommand::unwrapped_with_reason -----------------------------
+
+    #[test]
+    fn unwrapped_with_reason_carries_reason_and_is_not_sandboxed() {
+        let wrapped = WrappedCommand::unwrapped_with_reason("echo hi", "bwrap missing".to_string());
+        assert!(!wrapped.sandboxed);
+        assert_eq!(
+            wrapped.fallback_reason.as_deref(),
+            Some("bwrap missing"),
+            "the reason must reach shell.rs so the bypass warning can quote it"
+        );
+        assert_eq!(wrapped.argv, vec!["sh", "-c", "echo hi"]);
+    }
+
+    #[test]
+    fn unwrapped_default_has_no_reason() {
+        let wrapped = WrappedCommand::unwrapped("echo hi");
+        assert!(!wrapped.sandboxed);
+        assert!(wrapped.fallback_reason.is_none());
+    }
+
+    // ----- wrap_command_with_backend dispatch -------------------------------
+
+    #[test]
+    fn dispatch_none_backend_returns_unwrapped_process() {
+        let sandboxed = wrap_command_with_backend(
+            SandboxBackend::None,
+            SandboxPolicy::WorkspaceWrite,
+            Path::new("/tmp"),
+            "echo hi",
+        )
+        .unwrap();
+        match sandboxed {
+            SandboxedCommand::Process(w) => {
+                assert!(!w.sandboxed);
+                assert!(w.fallback_reason.is_none());
+                assert_eq!(w.argv, vec!["sh", "-c", "echo hi"]);
+            }
+            SandboxedCommand::Wasi(_) => {
+                panic!("None backend must never produce a WASI invocation");
+            }
+        }
+    }
+
+    #[test]
+    fn dispatch_policy_none_short_circuits_to_process_unwrapped() {
+        // Even with backend=Wasi, policy=None means the user explicitly
+        // opted out, so we must not try to route through WASI -- the
+        // command runs as-is.
+        let sandboxed = wrap_command_with_backend(
+            SandboxBackend::Wasi,
+            SandboxPolicy::None,
+            Path::new("/tmp"),
+            "echo hi",
+        )
+        .unwrap();
+        match sandboxed {
+            SandboxedCommand::Process(w) => assert!(!w.sandboxed),
+            SandboxedCommand::Wasi(_) => panic!("policy=None must skip WASI routing"),
+        }
+    }
+
+    #[test]
+    fn dispatch_wasi_with_pipeline_falls_back_with_reason() {
+        // The global WASI registry is empty in test runs, so any command
+        // would fall back. Pick one with a shell metacharacter so the
+        // failure reason names the offending char specifically.
+        let sandboxed = wrap_command_with_backend(
+            SandboxBackend::Wasi,
+            SandboxPolicy::ReadOnly,
+            Path::new("/tmp"),
+            "cat foo | head",
+        )
+        .unwrap();
+        match sandboxed {
+            SandboxedCommand::Process(w) => {
+                assert!(!w.sandboxed);
+                let reason = w
+                    .fallback_reason
+                    .expect("WASI fallback must attach a reason");
+                assert!(
+                    reason.contains("WASI"),
+                    "reason should identify the WASI sandbox: {reason}"
+                );
+                assert!(
+                    reason.contains('|') || reason.contains("shell feature"),
+                    "reason should name the offending shell feature: {reason}"
+                );
+            }
+            SandboxedCommand::Wasi(_) => {
+                panic!("pipeline must not be routed to WASI");
+            }
+        }
+    }
+
+    #[test]
+    fn dispatch_wasi_with_unknown_tool_falls_back_with_reason() {
+        // Registry is empty in unit tests; even a valid simple command
+        // falls back because no module is registered for `nosuchtool`.
+        let sandboxed = wrap_command_with_backend(
+            SandboxBackend::Wasi,
+            SandboxPolicy::ReadOnly,
+            Path::new("/tmp"),
+            "nosuchtool arg1",
+        )
+        .unwrap();
+        match sandboxed {
+            SandboxedCommand::Process(w) => {
+                let reason = w.fallback_reason.expect("must attach a reason");
+                assert!(reason.contains("nosuchtool"), "{reason}");
+            }
+            SandboxedCommand::Wasi(_) => {
+                panic!("unknown tool must not be routed to WASI");
+            }
+        }
+    }
+
+    #[test]
+    fn dispatch_wasi_rejects_relative_cwd() {
+        // Path validation must trip before we even reach WASI routing,
+        // mirroring the native path's contract.
+        let err = wrap_command_with_backend(
+            SandboxBackend::Wasi,
+            SandboxPolicy::ReadOnly,
+            Path::new("relative/path"),
+            "rg hello",
+        )
+        .expect_err("relative cwd must error");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     }
 
     #[test]

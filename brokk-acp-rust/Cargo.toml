@@ -51,6 +51,25 @@ chrono = { version = "0.4", features = ["serde"] }
 # avoids ecosystem churn. Revisit only on CVE.
 serde_yaml = "0.9"
 
+# WASI sandbox fallback. Used when the native OS sandbox (sandbox-exec on
+# macOS, bwrap on Linux) is unavailable -- notably inside Docker (where
+# unprivileged user namespaces are commonly disabled and bwrap fails at
+# runtime even when its binary is on PATH) and on Windows. Strictly weaker
+# than the native sandboxes: WASI cannot wrap arbitrary `sh -c "<cmd>"`
+# because POSIX `fork`/`exec` and shell features (pipelines, redirections,
+# command substitution) are not in the WASI preview1/preview2 API surface.
+# Only commands that parse cleanly as `<tool> [args...]` AND whose `<tool>`
+# has a registered WASI module get sandboxed; everything else falls back
+# to unsandboxed exec with a loud warning. See `tools/wasi_sandbox.rs`.
+#
+# wasmtime governance: Bytecode Alliance (Mozilla, Fastly, Intel,
+# Microsoft, Siemens, ...). Not a single-maintainer credential-adjacent
+# crate, so the supply-chain bar from `feedback_credential_dep_vetting`
+# is met. Heavy in compile time / binary size (~10MB stripped); revisit
+# only if WASI delivers measurable security wins for the bundled modules.
+wasmtime = "44"
+wasmtime-wasi = "44"
+
 # Unix-only: `setrlimit` via `Command::pre_exec` for per-process resource caps
 # applied to `runShellCommand`. See `tools/shell.rs::apply_rlimits`.
 [target.'cfg(unix)'.dependencies]

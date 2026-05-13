@@ -1,4 +1,5 @@
-use super::sandbox::{self, ENV_WHITELIST, SandboxPolicy};
+use super::sandbox::{self, ENV_WHITELIST, SandboxBackend, SandboxPolicy, SandboxedCommand};
+use super::wasi_sandbox;
 use super::{ToolResult, ToolStatus};
 use std::path::Path;
 use std::time::Duration;
@@ -6,8 +7,27 @@ use tokio::process::Command;
 
 const MAX_OUTPUT_BYTES: usize = 100_000; // 100KB
 
+/// Default bypass warning used when no specific reason was supplied (e.g.
+/// the native sandbox path was selected but its tooling is unavailable).
+/// Kept short so the LLM's reply is dominated by the tool output, not the
+/// warning. The richer per-call variant (`format_bypass_warning`) is used
+/// when the sandbox layer explicitly attached a `fallback_reason`.
 const SANDBOX_BYPASS_WARNING: &str = "[WARNING] OS sandbox unavailable on this platform; the command above ran without one. \
      Install bubblewrap (`apt install bubblewrap`) on Linux to enable kernel-enforced isolation.\n";
+
+/// Format the bypass warning with the specific fallback reason attached by
+/// the sandbox layer. Surfaced when WASI declines to wrap a command (e.g.
+/// shell pipeline) so the LLM and operator can see exactly which boundary
+/// was punctured -- much more useful than a generic "unsandboxed" line.
+fn format_bypass_warning(reason: &str) -> String {
+    format!(
+        "[WARNING] runShellCommand ran WITHOUT a sandbox.\n\
+         Reason: {reason}.\n\
+         The WASI sandbox is strictly weaker than the native one and cannot wrap arbitrary \
+         shell commands. Native (Seatbelt/Bubblewrap) provides the full bound; install or \
+         enable it if available on this host.\n"
+    )
+}
 
 /// Hint appended when the shell exits 127 (POSIX "command not found"). The
 /// sandbox uses a curated PATH that excludes anything outside the parent's
@@ -323,33 +343,58 @@ pub async fn run_shell_command(
         };
     }
 
-    // Wrap once. `wrapped` owns the temp policy file (Seatbelt) and must
-    // outlive the spawned child.
-    let wrapped = match sandbox::wrap_command(policy, cwd, command) {
-        Ok(w) => w,
+    let backend = sandbox::effective_backend();
+    let sandboxed = match sandbox::wrap_command_with_backend(backend, policy, cwd, command) {
+        Ok(s) => s,
         Err(e) => {
-            // Sandbox-layer errors are tagged with `[sandbox]` by sandbox.rs
-            // so the user can tell wrap-side failures from command-side ones.
             return ToolResult {
                 status: ToolStatus::InternalError,
                 output: format!("Failed to prepare sandbox: {e}"),
             };
         }
     };
+
+    match sandboxed {
+        SandboxedCommand::Process(wrapped) => {
+            run_process_command(cwd, timeout_seconds, policy, wrapped).await
+        }
+        SandboxedCommand::Wasi(invocation) => {
+            run_wasi_command(invocation, timeout_seconds, backend).await
+        }
+    }
+}
+
+/// External-process execution path. Same flow as before WASI support
+/// existed: spawn the wrapped argv under tokio, apply rlimits via
+/// pre_exec on Unix, enforce a wall-clock timeout, and prepend the
+/// bypass warning if the sandbox layer flagged a fallback.
+async fn run_process_command(
+    cwd: &Path,
+    timeout_seconds: u64,
+    policy: SandboxPolicy,
+    wrapped: super::sandbox::WrappedCommand,
+) -> ToolResult {
     tracing::debug!(
         target: "brokk_acp_rust::tools::shell",
         policy = ?policy,
         cwd = %cwd.display(),
         sandboxed = wrapped.sandboxed,
         argv0 = %wrapped.argv[0],
-        "runShellCommand: wrapped command ready",
+        fallback_reason = ?wrapped.fallback_reason,
+        "runShellCommand: process path ready",
     );
 
     // The user requested a sandbox tier (ReadOnly / WorkspaceWrite) but the
-    // platform tooling was missing. We still execute -- matching Java's
-    // log-and-skip posture -- but prepend a visible warning to the output so
-    // the LLM and the ACP client both know the call wasn't actually bounded.
+    // selected backend could not actually wrap the call (native tooling
+    // missing, or WASI declined this specific command). Still execute --
+    // matching Java's log-and-skip posture -- but prepend a visible warning
+    // so the LLM and the ACP client both know the call wasn't bounded.
     let bypass_warning = !matches!(policy, SandboxPolicy::None) && !wrapped.sandboxed;
+    let bypass_text: String = match (bypass_warning, wrapped.fallback_reason.as_deref()) {
+        (false, _) => String::new(),
+        (true, Some(reason)) => format_bypass_warning(reason),
+        (true, None) => SANDBOX_BYPASS_WARNING.to_string(),
+    };
 
     // Mirrors `Environment.createProcessBuilder` (Environment.java:647-661),
     // and stricter: we env_clear() and explicitly add only a small whitelist
@@ -453,7 +498,7 @@ pub async fn run_shell_command(
 
             if bypass_warning {
                 combined.push('\n');
-                combined.push_str(SANDBOX_BYPASS_WARNING);
+                combined.push_str(&bypass_text);
             }
 
             ToolResult {
@@ -466,7 +511,7 @@ pub async fn run_shell_command(
                     let mut s = format!("Command completed with exit code {exit_code}");
                     if bypass_warning {
                         s.push('\n');
-                        s.push_str(SANDBOX_BYPASS_WARNING);
+                        s.push_str(&bypass_text);
                     }
                     s
                 } else {
@@ -482,13 +527,86 @@ pub async fn run_shell_command(
             let mut msg = format!("Command timed out after {timeout_seconds}s");
             if bypass_warning {
                 msg.push('\n');
-                msg.push_str(SANDBOX_BYPASS_WARNING);
+                msg.push_str(&bypass_text);
             }
             ToolResult {
                 status: ToolStatus::RequestError,
                 output: msg,
             }
         }
+    }
+}
+
+/// In-process WASI execution path. The wrap layer has already resolved
+/// the tool name to a registered module and applied the policy-driven
+/// preopen permissions; here we just run the guest and shape the output
+/// like the Process path so the LLM-facing format is identical.
+///
+/// rlimits don't apply here -- the wasmtime guest doesn't share the
+/// host's process. Memory and CPU bounds come from wasmtime itself
+/// (`MEMORY_PIPE_CAPACITY` cap on captured stdout/stderr; epoch
+/// interruption traps the guest at the timeout).
+async fn run_wasi_command(
+    invocation: wasi_sandbox::WasiInvocation,
+    timeout_seconds: u64,
+    backend: SandboxBackend,
+) -> ToolResult {
+    debug_assert!(
+        matches!(backend, SandboxBackend::Wasi),
+        "run_wasi_command only reached via SandboxBackend::Wasi",
+    );
+    tracing::debug!(
+        target: "brokk_acp_rust::tools::shell",
+        module = %invocation.module.name,
+        cwd = %invocation.cwd.display(),
+        argc = invocation.args.len(),
+        "runShellCommand: wasi path ready",
+    );
+
+    let result = wasi_sandbox::run(invocation, Duration::from_secs(timeout_seconds)).await;
+
+    match result {
+        Ok(out) => {
+            let mut combined = String::new();
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if !stdout.is_empty() {
+                combined.push_str(&stdout);
+            }
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if !stderr.is_empty() {
+                if !combined.is_empty() {
+                    combined.push_str("\n--- stderr ---\n");
+                }
+                combined.push_str(&stderr);
+            }
+            if combined.len() > MAX_OUTPUT_BYTES {
+                combined.truncate(MAX_OUTPUT_BYTES);
+                combined.push_str("\n... output truncated");
+            }
+            if out.exit_code != 0 {
+                combined.push_str(&format!("\n\nExit code: {}", out.exit_code));
+            }
+            if out.timed_out {
+                combined.push_str(&format!(
+                    "\nCommand timed out after {timeout_seconds}s (WASI epoch deadline)"
+                ));
+            }
+            if combined.is_empty() {
+                combined = format!("Command completed with exit code {}", out.exit_code);
+            }
+            ToolResult {
+                status: if out.exit_code == 0 && !out.timed_out {
+                    ToolStatus::Success
+                } else {
+                    ToolStatus::RequestError
+                },
+                output: combined,
+            }
+        }
+        Err(e) => ToolResult {
+            status: ToolStatus::InternalError,
+            output: format!("WASI sandbox failed to run command: {e}"),
+        },
     }
 }
 
@@ -715,6 +833,31 @@ mod tests {
             !result.output.contains("Hint: exit 127"),
             "successful command must not contain exit-127 hint; got: {}",
             result.output
+        );
+    }
+
+    /// The bypass warning must (1) quote the specific fallback reason and
+    /// (2) explicitly say WASI is weaker than the native sandbox -- both
+    /// are visible to the LLM and the operator, and removing either has
+    /// silently happened in past refactors of the warning copy.
+    #[test]
+    fn format_bypass_warning_quotes_reason_and_calls_out_weaker_security() {
+        let msg = format_bypass_warning("WASI sandbox declined: shell feature '|'");
+        assert!(
+            msg.contains("WASI sandbox declined: shell feature '|'"),
+            "warning must quote the specific reason verbatim; got: {msg}"
+        );
+        assert!(
+            msg.contains("WITHOUT a sandbox"),
+            "warning must headline the unsandboxed status; got: {msg}"
+        );
+        assert!(
+            msg.contains("strictly weaker"),
+            "warning must call out that WASI is weaker than native; got: {msg}"
+        );
+        assert!(
+            msg.contains("Seatbelt") || msg.contains("Bubblewrap"),
+            "warning should name the native sandboxes the operator could install; got: {msg}"
         );
     }
 }

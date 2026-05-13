@@ -1,6 +1,7 @@
 mod filesystem;
 pub mod sandbox;
 mod shell;
+pub mod wasi_sandbox;
 
 use crate::bifrost_client::BifrostClient;
 use crate::llm_client::{FunctionDef, ToolDefinition};
@@ -198,6 +199,17 @@ impl ToolRegistry {
         // previous SIGKILL/panic. Bounded by file age so we don't yank a
         // profile from a concurrent in-flight shell call.
         sandbox::cleanup_stale_policy_files();
+
+        // Initialize the WASI module registry once. Idempotent via OnceLock
+        // so additional sessions don't re-read modules from disk.
+        wasi_sandbox::init_global();
+
+        // Force the backend probe to run at session creation rather than
+        // on the first shell call. Both functions are OnceLock-cached so
+        // this only does work the first time per process. Emits the
+        // "WASI sandbox active" warning early so operators see it in
+        // startup logs.
+        let _ = sandbox::effective_backend();
 
         let bifrost = match bifrost_binary {
             Some(bin) => match BifrostClient::spawn(bin, &cwd).await {
