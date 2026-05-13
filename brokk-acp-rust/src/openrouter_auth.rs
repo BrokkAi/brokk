@@ -19,11 +19,71 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
+use crate::discovery::OPENROUTER_API_KEY_ENV;
+
 /// Flat one-field record. OpenRouter keys are static (no refresh, no
 /// expiry, no auth_mode) so there's nothing more to persist.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenRouterAuth {
     pub api_key: String,
+}
+
+/// Snapshot of where OpenRouter credentials currently come from.
+/// Single source of truth for the "env owns" contract: whenever
+/// `OPENROUTER_API_KEY` is non-empty the environment owns the
+/// credential lifecycle, `/openrouter-login` is hidden from
+/// autocomplete, and the slash command returns an explanation rather
+/// than mutating state.
+///
+/// Both reads (`env_set`, `file_present`) treat any failure as
+/// "absent" so callers can render a consistent UI even when the file
+/// is malformed or the env var is unset -- diagnostic output should
+/// never panic, and a broken on-disk file is functionally equivalent
+/// to no file at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CredentialState {
+    pub env_set: bool,
+    pub file_present: bool,
+}
+
+impl CredentialState {
+    /// Read the current env+file state. Cheap: a single env lookup and
+    /// (when needed) a small disk read; safe to call from
+    /// `available_commands_update` paths and per-request handlers.
+    pub fn snapshot() -> Self {
+        let env_set = std::env::var(OPENROUTER_API_KEY_ENV)
+            .ok()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        let file_present = match read() {
+            Ok(Some(auth)) => !auth.api_key.trim().is_empty(),
+            _ => false,
+        };
+        Self {
+            env_set,
+            file_present,
+        }
+    }
+
+    /// Where the active credential, if any, is being read from.
+    /// Mirrors the precedence in `build_openrouter_backend`: env wins
+    /// over file, file wins over nothing.
+    pub fn active_source(&self) -> &'static str {
+        if self.env_set {
+            "env"
+        } else if self.file_present {
+            "file"
+        } else {
+            "none"
+        }
+    }
+
+    /// True when the environment owns the credential lifecycle.
+    /// Callers should hide `/openrouter-login` from autocomplete and
+    /// have the handler explain rather than mutate state.
+    pub fn env_owns(&self) -> bool {
+        self.env_set
+    }
 }
 
 /// Resolve `<config>/brokk/openrouter.json`. Honours `$BROKK_CONFIG_HOME`
@@ -90,48 +150,81 @@ fn set_user_only_perms(_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Test-only helpers shared with sibling modules so any test that
+/// mutates `OPENROUTER_API_KEY` or `BROKK_CONFIG_HOME` serialises on a
+/// single process-wide mutex. Env mutation in multi-threaded Rust is
+/// `unsafe` (POSIX `getenv` is not atomic), so one guard for all
+/// env-touching tests is the minimum-friction safe pattern.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
+pub(crate) mod test_support {
+    use std::ffi::OsStr;
+    use tokio::sync::Mutex;
 
-    // BROKK_CONFIG_HOME is process-global; serialise tests that mutate it
-    // so they don't race when cargo schedules them on different threads.
-    static ENV_GUARD: Mutex<()> = Mutex::new(());
+    /// Acquire this before mutating any env var read by either
+    /// `openrouter_auth` or any caller of `CredentialState::snapshot`.
+    /// Holding it during the whole test (until `EnvScope` drops) keeps
+    /// concurrent tests from observing partial state.
+    ///
+    /// Uses `tokio::sync::Mutex` instead of `std::sync::Mutex` so the
+    /// guard can be held across `.await` points in `#[tokio::test]`
+    /// cases without tripping `clippy::await_holding_lock`. Sync
+    /// `#[test]` cases acquire it via `blocking_lock()`; async cases
+    /// use `.lock().await`. The mutex is constructed via `const_new`
+    /// so it fits in a plain `static`.
+    pub(crate) static ENV_GUARD: Mutex<()> = Mutex::const_new(());
 
-    struct EnvScope {
+    /// RAII guard that sets (or removes) an env var on construction and
+    /// restores the previous value on drop. Pair with a held lock on
+    /// `ENV_GUARD` for cross-test safety.
+    pub(crate) struct EnvScope {
+        var: &'static str,
         prev: Option<String>,
     }
 
     impl EnvScope {
-        fn new(path: &Path) -> Self {
-            let prev = std::env::var("BROKK_CONFIG_HOME").ok();
-            // SAFETY: tests are serialised on ENV_GUARD; no other thread
-            // is reading or writing this env var concurrently.
+        pub(crate) fn set(var: &'static str, value: impl AsRef<OsStr>) -> Self {
+            let prev = std::env::var(var).ok();
+            // SAFETY: callers hold `ENV_GUARD` so no concurrent thread
+            // is reading or writing this process's env table.
             unsafe {
-                std::env::set_var("BROKK_CONFIG_HOME", path);
+                std::env::set_var(var, value);
             }
-            Self { prev }
+            Self { var, prev }
+        }
+
+        pub(crate) fn remove(var: &'static str) -> Self {
+            let prev = std::env::var(var).ok();
+            // SAFETY: see `set`.
+            unsafe {
+                std::env::remove_var(var);
+            }
+            Self { var, prev }
         }
     }
 
     impl Drop for EnvScope {
         fn drop(&mut self) {
-            // SAFETY: see EnvScope::new.
+            // SAFETY: see `EnvScope::set`.
             unsafe {
                 match &self.prev {
-                    Some(v) => std::env::set_var("BROKK_CONFIG_HOME", v),
-                    None => std::env::remove_var("BROKK_CONFIG_HOME"),
+                    Some(v) => std::env::set_var(self.var, v),
+                    None => std::env::remove_var(self.var),
                 }
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
 
     #[test]
     fn round_trip_writes_then_reads_same_key() {
-        let _lock = ENV_GUARD.lock().unwrap();
+        let _lock = ENV_GUARD.blocking_lock();
         let tmp = tempfile::tempdir().unwrap();
-        let _scope = EnvScope::new(tmp.path());
+        let _scope = EnvScope::set("BROKK_CONFIG_HOME", tmp.path());
 
         assert!(read().unwrap().is_none(), "no key before write");
         write(&OpenRouterAuth {
@@ -144,9 +237,9 @@ mod tests {
 
     #[test]
     fn logout_removes_file_and_is_idempotent() {
-        let _lock = ENV_GUARD.lock().unwrap();
+        let _lock = ENV_GUARD.blocking_lock();
         let tmp = tempfile::tempdir().unwrap();
-        let _scope = EnvScope::new(tmp.path());
+        let _scope = EnvScope::set("BROKK_CONFIG_HOME", tmp.path());
 
         write(&OpenRouterAuth {
             api_key: "sk-or-test".to_string(),
@@ -163,9 +256,9 @@ mod tests {
     #[test]
     fn write_sets_user_only_permissions() {
         use std::os::unix::fs::PermissionsExt;
-        let _lock = ENV_GUARD.lock().unwrap();
+        let _lock = ENV_GUARD.blocking_lock();
         let tmp = tempfile::tempdir().unwrap();
-        let _scope = EnvScope::new(tmp.path());
+        let _scope = EnvScope::set("BROKK_CONFIG_HOME", tmp.path());
 
         write(&OpenRouterAuth {
             api_key: "sk-or-test".to_string(),
@@ -179,5 +272,66 @@ mod tests {
             0o600,
             "credential file must be readable only by the owner"
         );
+    }
+
+    #[test]
+    fn credential_state_reports_env_when_env_set() {
+        let _lock = ENV_GUARD.blocking_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp.path());
+        let _env = EnvScope::set("OPENROUTER_API_KEY", "sk-or-from-env");
+
+        let state = CredentialState::snapshot();
+        assert!(state.env_set);
+        assert!(!state.file_present);
+        assert!(state.env_owns());
+        assert_eq!(state.active_source(), "env");
+    }
+
+    #[test]
+    fn credential_state_reports_file_when_only_file_set() {
+        let _lock = ENV_GUARD.blocking_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp.path());
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
+        write(&OpenRouterAuth {
+            api_key: "sk-or-from-file".to_string(),
+        })
+        .unwrap();
+
+        let state = CredentialState::snapshot();
+        assert!(!state.env_set);
+        assert!(state.file_present);
+        assert!(!state.env_owns());
+        assert_eq!(state.active_source(), "file");
+    }
+
+    #[test]
+    fn credential_state_reports_none_when_nothing_set() {
+        let _lock = ENV_GUARD.blocking_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp.path());
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
+
+        let state = CredentialState::snapshot();
+        assert!(!state.env_set);
+        assert!(!state.file_present);
+        assert!(!state.env_owns());
+        assert_eq!(state.active_source(), "none");
+    }
+
+    #[test]
+    fn credential_state_treats_blank_env_as_unset() {
+        let _lock = ENV_GUARD.blocking_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp.path());
+        let _env = EnvScope::set("OPENROUTER_API_KEY", "   ");
+
+        let state = CredentialState::snapshot();
+        // Trim-empty env var must NOT take ownership: matches the
+        // startup parser in `build_openrouter_backend`, which falls
+        // through to the file when the env is whitespace-only.
+        assert!(!state.env_set);
+        assert!(!state.env_owns());
     }
 }
