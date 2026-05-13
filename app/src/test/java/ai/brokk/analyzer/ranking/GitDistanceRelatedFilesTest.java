@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Map;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterAll;
@@ -117,6 +118,32 @@ public class GitDistanceRelatedFilesTest {
 
         var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seedWeights, 10);
         assertFalse(results.isEmpty(), "PMI should return results");
+    }
+
+    @Test
+    public void repeatedRelatedFileRequestsReuseSnapshotCache() throws Exception {
+        assertNotNull(testPath, "Test path should not be null");
+        var userService = new ProjectFile(testProject.getRoot(), "UserService.java");
+        var user = new ProjectFile(testProject.getRoot(), "User.java");
+
+        GitDistance.clearRelatedFilesCache();
+        long baselineHits = GitDistance.relatedFilesCacheHitCount();
+
+        var firstSeeds = new HashMap<ProjectFile, Double>();
+        firstSeeds.put(userService, 1.0);
+        firstSeeds.put(user, 0.5);
+        var firstResults = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), firstSeeds, 10);
+
+        var sameSeedsDifferentOrder = new HashMap<ProjectFile, Double>();
+        sameSeedsDifferentOrder.put(user, 0.5);
+        sameSeedsDifferentOrder.put(userService, 1.0);
+        var secondResults = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), sameSeedsDifferentOrder, 10);
+
+        assertEquals(firstResults, secondResults, "Cached GitDistance results should preserve ordering and scores");
+        assertEquals(
+                baselineHits + 1,
+                GitDistance.relatedFilesCacheHitCount(),
+                "Repeated requests for the same snapshot, seeds, and topK should hit the cache");
     }
 
     @Test

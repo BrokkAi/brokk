@@ -2,11 +2,15 @@ package ai.brokk.git;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
@@ -21,6 +25,14 @@ public final class GitDistance {
     private static final Logger logger = LogManager.getLogger(GitDistance.class);
     private static final int COMMITS_TO_PROCESS = 1_000;
     private static final int LARGE_SEED_THRESHOLD = 100;
+    private static final Cache<RelatedFilesCacheKey, List<IAnalyzer.FileRelevance>> RELATED_FILES_CACHE =
+            Caffeine.newBuilder().maximumSize(256).recordStats().build();
+
+    private record SeedWeight(ProjectFile file, double weight) {}
+
+    private record GitSnapshot(String branch, String currentCommitId) {}
+
+    private record RelatedFilesCacheKey(GitSnapshot snapshot, List<SeedWeight> seedWeights, int topK) {}
 
     /** Represents an edge between two files in the co-occurrence graph. */
     public record FileEdge(ProjectFile src, ProjectFile dst) {}
@@ -42,7 +54,20 @@ public final class GitDistance {
         }
 
         try {
-            return computeConditionalScores(repo, seedWeights, k);
+            var snapshot = currentSnapshot(repo);
+            if (snapshot.isEmpty()) {
+                return computeConditionalScores(repo, repo.getCurrentBranch(), seedWeights, k);
+            }
+
+            var key = new RelatedFilesCacheKey(snapshot.get(), normalizedSeedWeights(seedWeights), k);
+            var cached = RELATED_FILES_CACHE.getIfPresent(key);
+            if (cached != null) {
+                return cached;
+            }
+
+            var computed = computeConditionalScores(repo, snapshot.get().branch(), seedWeights, k);
+            RELATED_FILES_CACHE.put(key, computed);
+            return computed;
         } catch (UnsupportedOperationException e) {
             return List.of();
         } catch (GitAPIException e) {
@@ -50,9 +75,29 @@ public final class GitDistance {
         }
     }
 
+    private static Optional<GitSnapshot> currentSnapshot(IGitRepo repo) {
+        try {
+            return Optional.of(new GitSnapshot(repo.getCurrentBranch(), repo.getCurrentCommitId()));
+        } catch (UnsupportedOperationException e) {
+            logger.debug("GitDistance related-file cache disabled because repo snapshot is unavailable", e);
+            return Optional.empty();
+        } catch (GitAPIException e) {
+            logger.debug("GitDistance related-file cache disabled because repo snapshot failed to resolve", e);
+            return Optional.empty();
+        }
+    }
+
+    private static List<SeedWeight> normalizedSeedWeights(Map<ProjectFile, Double> seedWeights) {
+        return seedWeights.entrySet().stream()
+                .map(entry -> new SeedWeight(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparing(SeedWeight::file).thenComparingDouble(SeedWeight::weight))
+                .toList();
+    }
+
     private static List<IAnalyzer.FileRelevance> computeConditionalScores(
-            IGitRepo repo, Map<ProjectFile, Double> seedWeights, int k) throws GitAPIException, InterruptedException {
-        var baselineCommits = repo.listCommitsDetailed(repo.getCurrentBranch(), COMMITS_TO_PROCESS);
+            IGitRepo repo, String branch, Map<ProjectFile, Double> seedWeights, int k)
+            throws GitAPIException, InterruptedException {
+        var baselineCommits = repo.listCommitsDetailed(branch, COMMITS_TO_PROCESS);
         final int n = baselineCommits.size();
         if (n == 0) {
             return List.of();
@@ -244,5 +289,16 @@ public final class GitDistance {
         }
 
         return scores;
+    }
+
+    @VisibleForTesting
+    public static void clearRelatedFilesCache() {
+        RELATED_FILES_CACHE.invalidateAll();
+        RELATED_FILES_CACHE.cleanUp();
+    }
+
+    @VisibleForTesting
+    public static long relatedFilesCacheHitCount() {
+        return RELATED_FILES_CACHE.stats().hitCount();
     }
 }
