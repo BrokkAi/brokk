@@ -1,8 +1,8 @@
 package ai.brokk;
 
-import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.DebugLogPath;
 import ai.brokk.util.Environment;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -618,8 +618,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 .addFormDataPart("environment", environment);
 
         if (includeDebugLog) {
-            var debugLogPath =
-                    Path.of(System.getProperty("user.home"), AbstractProject.BROKK_DIR, AbstractProject.DEBUG_LOG_FILE);
+            var debugLogPath = DebugLogPath.currentPath();
             var debugFile = debugLogPath.toFile();
             if (debugFile.exists()) {
                 try {
