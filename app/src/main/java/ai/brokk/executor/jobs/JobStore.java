@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -223,19 +224,21 @@ public final class JobStore {
         }
 
         var result = new ArrayList<JobEvent>();
-        var lines = Files.readAllLines(eventsFile, StandardCharsets.UTF_8);
-
-        for (var line : lines) {
-            if (line.isBlank()) {
-                continue;
-            }
-            try {
-                var event = objectMapper.readValue(line, JobEvent.class);
-                if (event.seq() > afterSeq) {
-                    result.add(event);
+        try (Stream<String> lines = Files.lines(eventsFile, StandardCharsets.UTF_8)) {
+            var iterator = lines.iterator();
+            while (iterator.hasNext()) {
+                var line = iterator.next();
+                if (line.isBlank()) {
+                    continue;
                 }
-            } catch (JsonProcessingException e) {
-                logger.debug("Skipping malformed event line (likely partial write): {}", e.getMessage());
+                try {
+                    var event = objectMapper.readValue(line, JobEvent.class);
+                    if (event.seq() > afterSeq) {
+                        result.add(event);
+                    }
+                } catch (JsonProcessingException e) {
+                    logger.debug("Skipping malformed event line (likely partial write): {}", e.getMessage());
+                }
             }
         }
 
