@@ -5,6 +5,7 @@ import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.ICoreProject;
 import ai.brokk.util.AsciiUtil;
 import ai.brokk.util.ConcurrencyUtil;
+import ai.brokk.util.RegexLiteralSet;
 import ai.brokk.util.TextCanonicalizer;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -1390,7 +1391,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     private Set<CodeUnit> searchDefinitionsInternal(Pattern compiledPattern, @Nullable String substringFilter) {
         checkStale("searchDefinitionsInternal");
-        var literalSearch = LiteralDefinitionSearch.from(compiledPattern, substringFilter);
+        var literalSearch = RegexLiteralSet.fromContainsPattern(compiledPattern, substringFilter);
         if (literalSearch.isPresent()) {
             return searchDefinitionsByLiterals(literalSearch.get(), compiledPattern);
         }
@@ -1404,7 +1405,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 .collect(Collectors.toSet());
     }
 
-    private Set<CodeUnit> searchDefinitionsByLiterals(LiteralDefinitionSearch search, Pattern compiledPattern) {
+    private Set<CodeUnit> searchDefinitionsByLiterals(RegexLiteralSet search, Pattern compiledPattern) {
         var literals = search.literals();
         return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> !cu.isSynthetic())
@@ -1420,83 +1421,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 })
                 .filter(cu -> !isAnonymousStructure(cu.fqName()))
                 .collect(Collectors.toSet());
-    }
-
-    private record LiteralDefinitionSearch(List<String> literals, boolean caseInsensitive) {
-        private static Optional<LiteralDefinitionSearch> from(Pattern pattern, @Nullable String substringFilter) {
-            String regex = pattern.pattern();
-            if (regex.startsWith("(?i)")) {
-                return fromLiteralPattern(regex.substring("(?i)".length()), true);
-            }
-
-            if ((pattern.flags() & Pattern.CASE_INSENSITIVE) != 0) {
-                return fromLiteralPattern(regex, true);
-            }
-            if (substringFilter != null) {
-                if (!AsciiUtil.isAscii(substringFilter)) {
-                    return Optional.empty();
-                }
-                return Optional.of(new LiteralDefinitionSearch(List.of(substringFilter), true));
-            }
-            return fromLiteralPattern(regex, false);
-        }
-
-        private static Optional<LiteralDefinitionSearch> fromLiteralPattern(String regex, boolean caseInsensitive) {
-            String body = stripContainsWrapper(regex);
-            body = stripGroup(body);
-            if (body.isEmpty()) {
-                return Optional.empty();
-            }
-
-            var literals = new ArrayList<String>();
-            for (String quoted : body.split("\\|", -1)) {
-                var literal = unquoteLiteral(quoted);
-                if (literal.isEmpty()) {
-                    return Optional.empty();
-                }
-                if (caseInsensitive && !AsciiUtil.isAscii(literal.get())) {
-                    return Optional.empty();
-                }
-                literals.add(literal.get());
-            }
-            return Optional.of(new LiteralDefinitionSearch(List.copyOf(literals), caseInsensitive));
-        }
-
-        private static String stripContainsWrapper(String regex) {
-            String body = regex;
-            if (body.startsWith(".*?")) {
-                body = body.substring(".*?".length());
-            } else if (body.startsWith(".*")) {
-                body = body.substring(".*".length());
-            }
-
-            if (body.endsWith(".*?")) {
-                body = body.substring(0, body.length() - ".*?".length());
-            } else if (body.endsWith(".*")) {
-                body = body.substring(0, body.length() - ".*".length());
-            }
-            return body;
-        }
-
-        private static String stripGroup(String body) {
-            if (body.startsWith("(?:") && body.endsWith(")")) {
-                return body.substring(3, body.length() - 1);
-            }
-            if (body.startsWith("(") && body.endsWith(")")) {
-                return body.substring(1, body.length() - 1);
-            }
-            return body;
-        }
-
-        private static Optional<String> unquoteLiteral(String regex) {
-            if (regex.startsWith("\\Q") && regex.endsWith("\\E")) {
-                return Optional.of(regex.substring(2, regex.length() - 2));
-            }
-            if (regex.chars().noneMatch(ch -> ".^$*+?{}[]\\|()".indexOf(ch) >= 0)) {
-                return Optional.of(regex);
-            }
-            return Optional.empty();
-        }
     }
 
     @Override
