@@ -13,7 +13,11 @@ import ai.brokk.analyzer.usages.UsageAnalyzer;
 import ai.brokk.analyzer.usages.UsageAnalyzerSelector;
 import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitSecretScanner;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.project.ICoreProject;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -24,6 +28,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.eclipse.jgit.api.errors.GitAPIException;
 
 /**
  * Read-only static analysis helpers for code quality, adapted for the MCP server.
@@ -32,6 +37,9 @@ import java.util.Set;
 public class CodeQualityToolsMcp {
     private static final String COMMENT_DENSITY_JAVA_ONLY =
             "Comment density is only available for Java symbols in this analyzer snapshot.";
+
+    private static final int DEFAULT_SECRET_MAX_FINDINGS = 100;
+    private static final int DEFAULT_SECRET_MAX_COMMITS = 2000;
 
     private final ICodeIntelligence intelligence;
 
@@ -825,6 +833,25 @@ public class CodeQualityToolsMcp {
             String evidence,
             String rationale) {}
 
+    // -- reportSecretLikeCode --
+
+    public String reportSecretLikeCode(
+            int maxFindings, int maxCommits, boolean includeHistoryOnly, boolean includeLowConfidence)
+            throws GitAPIException, IOException {
+
+        int findingsCap = maxFindings > 0 ? maxFindings : DEFAULT_SECRET_MAX_FINDINGS;
+        int commitCap = maxCommits > 0 ? maxCommits : DEFAULT_SECRET_MAX_COMMITS;
+        IGitRepo repo = intelligence.getRepo();
+
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return "Secret-like code scan requires a JGit-backed repository.";
+        }
+
+        var report = new GitSecretScanner(gitRepo, gitRepo.getGit().getRepository())
+                .scan(commitCap, includeHistoryOnly, includeLowConfidence);
+        return formatSecretScanReport(report, findingsCap);
+    }
+
     // NOTE: analyzeGitHotspots is not available in brokk-core because GitHotspotAnalyzer
     // lives in the app module with dependencies (ai.brokk.concurrent.*) not available here.
     // It could be added if GitHotspotAnalyzer is moved to brokk-core or brokk-shared.
@@ -841,6 +868,49 @@ public class CodeQualityToolsMcp {
                 .formatted(s.headerCommentLines(), s.inlineCommentLines(), s.spanLines()));
         lines.add("- Rolled-up: header %d, inline %d, span %d"
                 .formatted(s.rolledUpHeaderCommentLines(), s.rolledUpInlineCommentLines(), s.rolledUpSpanLines()));
+        return String.join("\n", lines);
+    }
+
+    private static String formatSecretScanReport(GitSecretScanner.SecretScanReport report, int maxFindings) {
+        var shown = report.findings()
+                .subList(0, Math.min(maxFindings, report.findings().size()));
+        boolean truncated = report.findings().size() > shown.size();
+        var lines = new ArrayList<String>();
+        lines.add("## brokk-secret-scan");
+        lines.add("");
+        lines.add("- Repository: `%s`".formatted(sanitizeTableCell(report.repository())));
+        lines.add("- Current/default ref scanned: `%s`".formatted(sanitizeTableCell(report.defaultRefDisplayName())));
+        if (report.defaultRefFallback()) {
+            lines.add("- Note: default branch could not be determined; fell back to `HEAD`.");
+        }
+        lines.add("- History commits scanned: %d (cap %d)".formatted(report.commitsScanned(), report.maxCommits()));
+        lines.add("- Missing git entries skipped: %d".formatted(report.missingEntriesSkipped()));
+        lines.add("- Non-text or oversized blobs skipped: %d".formatted(report.nonTextEntriesSkipped()));
+        lines.add("- Findings shown: %d of %d%s"
+                .formatted(shown.size(), report.findings().size(), truncated ? " (truncated)" : ""));
+        lines.add("");
+
+        if (shown.isEmpty()) {
+            lines.add("No secret-like code found.");
+            return String.join("\n", lines);
+        }
+
+        lines.add("| Location | Confidence | Rule | File:Line | First Seen | Last Seen | Redacted Excerpt |");
+        lines.add("|----------|------------|------|-----------|------------|-----------|------------------|");
+        for (GitSecretScanner.SecretFinding finding : shown) {
+            String firstSeen = finding.firstSeenCommit().isBlank() ? "-" : finding.firstSeenCommit();
+            String lastSeen = finding.lastSeenCommit().isBlank() ? "-" : finding.lastSeenCommit();
+            lines.add("| %s | %s | `%s` | `%s:%d` | `%s` | `%s` | `%s` |"
+                    .formatted(
+                            finding.location(),
+                            finding.confidence(),
+                            sanitizeTableCell(finding.rule()),
+                            sanitizeTableCell(finding.path()),
+                            finding.line(),
+                            firstSeen,
+                            lastSeen,
+                            sanitizeTableCell(finding.sample())));
+        }
         return String.join("\n", lines);
     }
 
@@ -861,8 +931,12 @@ public class CodeQualityToolsMcp {
         return candidate > 0 ? candidate : fallback;
     }
 
-    private static String sanitizeTableCell(String value) {
-        return value.replace("|", "\\|");
+    // Package-private for unit testing.
+    static String sanitizeTableCell(String value) {
+        // Backticks would let attacker-controlled text (e.g. committed file paths or scanned secret excerpts)
+        // escape from an inline code span and inject Markdown for downstream LLM consumers.
+        // Control characters (newlines, tabs, etc.) would break the single-line table-row format.
+        return value.replace("|", "\\|").replace("`", "'").replaceAll("\\p{Cntrl}", " ");
     }
 
     private static String formatSizeWeights(IAnalyzer.MaintainabilitySizeSmellWeights w) {

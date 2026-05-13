@@ -207,6 +207,17 @@ Pass `fqNames` to target specific symbols; leave it empty to scan declarations i
 | `maxUsageCandidateFiles` | int | no | (usage finder default) | Maximum usage-candidate files to inspect |
 | `maxUsagesPerSymbol` | int | no | 100 | Maximum usage hits per symbol before usage lookup returns a guardrail result |
 
+#### `reportSecretLikeCode`
+
+Scans non-test text files for secret-looking strings, including current/default-branch files and full git history. Findings are heuristic (regex rules + entropy) and redacted for downstream LLM triage. Requires a JGit-backed workspace; non-Git workspaces receive a notice instead of a report. May be slow on large histories -- use `maxFindings` and `maxCommits` to bound work.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `maxFindings` | int | no | 100 | Maximum findings to emit |
+| `maxCommits` | int | no | 2000 | Maximum commits to walk from `HEAD` |
+| `includeHistoryOnly` | bool | no | `false` | Include findings that only appear in history and are not present in the current/default branch |
+| `includeLowConfidence` | bool | no | `false` | Include lower-confidence short credential-like assignments |
+
 ## Note on MCP servers
 
 The Brokk codebase has two MCP servers:

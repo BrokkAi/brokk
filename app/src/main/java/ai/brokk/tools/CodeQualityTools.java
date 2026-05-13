@@ -822,7 +822,8 @@ public class CodeQualityTools {
             return "Secret-like code scan requires a JGit-backed repository.";
         }
 
-        var report = new GitSecretScanner(gitRepo).scan(commitCap, includeHistoryOnly, includeLowConfidence);
+        var report = new GitSecretScanner(gitRepo, gitRepo.getGit().getRepository())
+                .scan(commitCap, includeHistoryOnly, includeLowConfidence);
         return formatSecretScanReport(report, findingsCap);
     }
 

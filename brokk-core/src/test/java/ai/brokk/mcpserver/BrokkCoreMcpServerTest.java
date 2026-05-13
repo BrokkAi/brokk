@@ -108,7 +108,8 @@ class BrokkCoreMcpServerTest {
                 "reportExceptionHandlingSmells",
                 "reportStructuralCloneSmells",
                 "reportTestAssertionSmells",
-                "reportDeadCodeAndUnusedAbstractionSmells");
+                "reportDeadCodeAndUnusedAbstractionSmells",
+                "reportSecretLikeCode");
 
         for (var expected : expectedTools) {
             assertTrue(toolNames.contains(expected), "Missing tool: " + expected);
@@ -577,6 +578,49 @@ class BrokkCoreMcpServerTest {
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportSecretLikeCodeRunsWithoutError() {
+        var result = callTool("reportSecretLikeCode", Map.of());
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+        String text = textOf(result);
+        assertTrue(text.contains("## brokk-secret-scan"), text);
+    }
+
+    @Test
+    void reportSecretLikeCodeFindsCommittedSecret() throws Exception {
+        commitTrackedFiles(
+                projectRoot,
+                Map.of(
+                        "config/app.properties",
+                        "aws_access_key_id=AKIAIOSFODNN7EXAMPLE\n"
+                                + "aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"),
+                Instant.parse("2025-01-01T00:00:00Z"),
+                "Add fake credentials");
+
+        var result = callTool(
+                "reportSecretLikeCode",
+                Map.of(
+                        "maxFindings",
+                        50,
+                        "maxCommits",
+                        50,
+                        "includeHistoryOnly",
+                        false,
+                        "includeLowConfidence",
+                        false));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        String text = textOf(result);
+        assertTrue(text.contains("## brokk-secret-scan"), text);
+        assertTrue(text.contains("config/app.properties"), text);
+        assertFalse(text.contains("AKIAIOSFODNN7EXAMPLE"), "literal AWS key id should be redacted: " + text);
+        assertFalse(
+                text.contains("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
+                "literal AWS secret access key should be redacted: " + text);
     }
 
     @Test

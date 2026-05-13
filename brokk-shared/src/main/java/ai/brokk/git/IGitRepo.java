@@ -74,6 +74,26 @@ public interface IGitRepo {
     }
 
     /**
+     * Returns the project root directory associated with this repository.
+     * Typically the same as the working tree root; may differ for nested project layouts.
+     *
+     * @return the project root path
+     */
+    default Path getProjectRoot() {
+        return getWorkTreeRoot();
+    }
+
+    /**
+     * Returns a short hash for the supplied revision (e.g. seven hex characters), when the implementation is
+     * JGit-backed.
+     *
+     * @throws UnsupportedOperationException if this repository is not JGit-backed
+     */
+    default String shortHash(String rev) {
+        throw new UnsupportedOperationException("shortHash not implemented");
+    }
+
+    /**
      * Returns the fixed gitignore files that apply to all paths in this repo.
      * These include: global gitignore, .git/info/exclude, and root .gitignore.
      * All fixed files apply at root scope; nested .gitignore files are collected separately

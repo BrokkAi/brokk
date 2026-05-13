@@ -136,10 +136,12 @@ public class GitSecretScanner {
                     0,
                     Set.of("sk_live_", "sk_test_", "rk_live_", "rk_test_")));
 
-    private final GitRepo repo;
+    private final IGitRepo repo;
+    private final Repository repository;
 
-    public GitSecretScanner(GitRepo repo) {
+    public GitSecretScanner(IGitRepo repo, Repository repository) {
         this.repo = repo;
+        this.repository = repository;
     }
 
     public SecretScanReport scan(int maxCommits, boolean includeHistoryOnly, boolean includeLowConfidence)
@@ -205,7 +207,6 @@ public class GitSecretScanner {
             String refName, boolean includeLowConfidence, Map<ObjectId, BlobContentScanResult> blobScanCache)
             throws GitAPIException, IOException {
         long startedNanos = System.nanoTime();
-        Repository repository = repo.getGit().getRepository();
         ObjectId ref = repository.resolve(refName + "^{commit}");
         if (ref == null) {
             ref = repository.resolve(refName);
@@ -279,7 +280,6 @@ public class GitSecretScanner {
             Map<ObjectId, BlobContentScanResult> blobScanCache,
             int maxInFlightBlobScans)
             throws GitAPIException, IOException {
-        Repository repository = repo.getGit().getRepository();
         ObjectId head = repository.resolve(Constants.HEAD);
         if (head == null) {
             return HistoryScanResult.EMPTY();
