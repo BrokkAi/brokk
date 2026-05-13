@@ -187,6 +187,36 @@ class JobStoreTest {
     }
 
     @Test
+    void testReadEvents_streamsLinesPreservingFilterSortAndLimitSemantics(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var spec = JobSpec.of("test task", DEFAULT_PLANNER_MODEL);
+        var result = store.createOrGetJob("idem-key-1", spec);
+        var jobId = result.jobId();
+
+        var eventsFile = store.getJobDir(jobId).resolve("events.jsonl");
+        Files.writeString(
+                eventsFile,
+                """
+                {"seq":4,"timestamp":400,"type":"event4","data":"data4"}
+                {"seq":2,"timestamp":200,"type":"event2","data":"data2"}
+                {"seq":3,"timestamp":300,"type":"event3","data":"data3"}
+                {"seq":5,"timestamp":500,"type":"TRUNC
+                {"seq":1,"timestamp":100,"type":"event1","data":"data1"}
+                """,
+                StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE);
+
+        var events = store.readEvents(jobId, 1, 2);
+
+        assertEquals(2, events.size());
+        assertEquals(2L, events.get(0).seq());
+        assertEquals("event2", events.get(0).type());
+        assertEquals(3L, events.get(1).seq());
+        assertEquals("event3", events.get(1).type());
+    }
+
+    @Test
     void testSequenceCounter_skipsTruncatedTrailingLine(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
         var spec = JobSpec.of("test task", DEFAULT_PLANNER_MODEL);

@@ -3,10 +3,11 @@
 //! `<source>::<id>` wire prefix produced by `discovery.rs`.
 //!
 //! Why a separate type? `OpenAiClient` and `CodexClient` already implement
-//! `LlmBackend` for one transport each. Wrapping both in a third backend
-//! lets `agent.rs` stay oblivious to which model it's talking to -- it
-//! just hands the wire id back to the backend the same way it always has,
-//! and the backend strips the prefix and routes.
+//! `LlmBackend` for one transport each. Wrapping the three (Codex,
+//! OpenRouter, Ollama) in a single routing backend lets `agent.rs` stay
+//! oblivious to which model it's talking to -- it just hands the wire id
+//! back to the backend the same way it always has, and the backend strips
+//! the prefix and routes.
 //!
 //! Bare ids (no `<source>::` prefix) fall back to a configurable preferred
 //! source so manually-typed model ids still route somewhere reasonable.
@@ -19,6 +20,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 use futures::future::BoxFuture;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::discovery::{
@@ -27,24 +29,35 @@ use crate::discovery::{
 };
 use crate::llm_client::{ChatMessage, LlmBackend, LlmResponse, ModelMetadata, ToolDefinition};
 
-/// LLM backend that routes by `<source>::<id>` prefix. Either inner
-/// backend may be absent (e.g. no `auth.json`, or no Ollama on the
-/// default port); calls for a source whose backend isn't configured
-/// return a clear error rather than silently falling through.
+/// LLM backend that routes by `<source>::<id>` prefix. Any inner backend
+/// may be absent (e.g. no `auth.json`, no `OPENROUTER_API_KEY`, or no
+/// Ollama on the default port); calls for a source whose backend isn't
+/// configured return a clear error rather than silently falling through.
 ///
-/// The Codex slot is held behind a `RwLock` so a successful
-/// `/codex-login` mid-session can install a backend without a server
-/// restart. The lock is only ever held for the duration of a synchronous
-/// `Option<Arc<...>>` clone -- we never hold it across an `.await`.
+/// The Codex and OpenRouter slots are held behind `RwLock`s so a
+/// successful `/codex-login` or `/openrouter-login` mid-session can
+/// install a backend without a server restart. The lock is only ever
+/// held for the duration of a synchronous `Option<Arc<...>>` clone --
+/// we never hold it across an `.await`.
+///
+/// Ollama stays a plain `Option<Arc<...>>`: there's no login flow for
+/// it (the daemon either listens on the default port or it doesn't),
+/// so the slot is set once at construction and never mutated.
 pub struct MultiBackend {
     codex: RwLock<Option<Arc<dyn LlmBackend>>>,
+    openrouter: RwLock<Option<Arc<dyn LlmBackend>>>,
     ollama: Option<Arc<dyn LlmBackend>>,
 }
 
 impl MultiBackend {
-    pub fn new(codex: Option<Arc<dyn LlmBackend>>, ollama: Option<Arc<dyn LlmBackend>>) -> Self {
+    pub fn new(
+        codex: Option<Arc<dyn LlmBackend>>,
+        openrouter: Option<Arc<dyn LlmBackend>>,
+        ollama: Option<Arc<dyn LlmBackend>>,
+    ) -> Self {
         Self {
             codex: RwLock::new(codex),
+            openrouter: RwLock::new(openrouter),
             ollama,
         }
     }
@@ -78,6 +91,22 @@ impl MultiBackend {
         *self.codex.write().unwrap() = None;
     }
 
+    /// Install (or replace) the OpenRouter backend at runtime. Called
+    /// from `/openrouter-login <key>` so a session that started without
+    /// `OPENROUTER_API_KEY` or an on-disk credential file picks up the
+    /// new key on the next discovery refresh.
+    pub fn install_openrouter(&self, backend: Arc<dyn LlmBackend>) {
+        *self.openrouter.write().unwrap() = Some(backend);
+    }
+
+    /// Drop the currently-installed OpenRouter backend, if any. Called
+    /// from `/openrouter-login disconnect` after the on-disk credential
+    /// file is wiped so a subsequent `openrouter::*` request fails with
+    /// "backend not configured" instead of firing 401-bound requests.
+    pub fn uninstall_openrouter(&self) {
+        *self.openrouter.write().unwrap() = None;
+    }
+
     /// Snapshot the current Codex backend, if any. Cloning the inner Arc
     /// lets callers release the read lock immediately; they can then
     /// `.await` the backend without holding a guard.
@@ -85,9 +114,16 @@ impl MultiBackend {
         self.codex.read().unwrap().clone()
     }
 
+    /// Snapshot the current OpenRouter backend, if any. Same shape as
+    /// `codex_snapshot` -- callers release the read lock before awaiting.
+    fn openrouter_snapshot(&self) -> Option<Arc<dyn LlmBackend>> {
+        self.openrouter.read().unwrap().clone()
+    }
+
     fn pick(&self, source: ModelSource) -> Option<Arc<dyn LlmBackend>> {
         match source {
             ModelSource::Codex => self.codex_snapshot(),
+            ModelSource::OpenRouter => self.openrouter_snapshot(),
             ModelSource::Ollama => self.ollama.clone(),
         }
     }
@@ -95,16 +131,25 @@ impl MultiBackend {
     /// Source to use when a chat request arrives with no `<source>::` prefix.
     /// Computed on demand (rather than cached at construction) so a Codex
     /// login mid-session promotes Codex to the preferred fallback.
+    ///
+    /// Priority is Codex > OpenRouter > Ollama. Codex wins first because
+    /// the more capable backend is more likely to be the user's intent
+    /// for a bare model id like `gpt-5-codex`; OpenRouter sits ahead of
+    /// Ollama because a configured cloud key is a stronger signal of
+    /// intent than a daemon happening to be running locally.
     fn fallback_source(&self) -> Option<ModelSource> {
         let codex_present = self.codex.read().unwrap().is_some();
-        match (codex_present, self.ollama.is_some()) {
-            // Prefer Codex when both are configured -- it's the more
-            // capable backend and more likely to be the user's intent
-            // for a bare model id like "gpt-5-codex".
-            (true, _) => Some(ModelSource::Codex),
-            (false, true) => Some(ModelSource::Ollama),
-            (false, false) => None,
+        if codex_present {
+            return Some(ModelSource::Codex);
         }
+        let openrouter_present = self.openrouter.read().unwrap().is_some();
+        if openrouter_present {
+            return Some(ModelSource::OpenRouter);
+        }
+        if self.ollama.is_some() {
+            return Some(ModelSource::Ollama);
+        }
+        None
     }
 
     /// Resolve a wire-form model id to (backend, bare id). Bare ids (no
@@ -121,8 +166,8 @@ impl MultiBackend {
         }
         let source = self.fallback_source().ok_or_else(|| {
             anyhow::anyhow!(
-                "no LLM backend is configured (neither Codex nor Ollama discovered \
-                 any models, and no `<source>::<id>` wire prefix was provided)"
+                "no LLM backend is configured (none of Codex, OpenRouter, or Ollama \
+                 discovered any models, and no `<source>::<id>` wire prefix was provided)"
             )
         })?;
         let backend = self
@@ -168,9 +213,23 @@ impl LlmBackend for MultiBackend {
             // don't hit `/models` twice during a single list call.
             let codex_ids: Vec<String> = codex_metadata.iter().map(|m| m.id.clone()).collect();
             let codex_lookup = || async move { Ok::<_, anyhow::Error>(codex_ids) };
+
+            // OpenRouter exposes a flat `/v1/models` list with no
+            // reasoning-effort metadata, so we just need bare ids. When
+            // the backend isn't configured (no `OPENROUTER_API_KEY`),
+            // the closure returns an empty list and `discover_all`
+            // logs/skips it like any other absent source.
+            let openrouter_backend = self.openrouter_snapshot();
+            let openrouter_lookup = move || async move {
+                match openrouter_backend {
+                    Some(or) => or.list_models().await,
+                    None => Ok(Vec::new()),
+                }
+            };
+
             let http = discovery_http_client();
             let discovered: Vec<DiscoveredModel> =
-                discover_all(&http, OLLAMA_DEFAULT_URL, codex_lookup).await;
+                discover_all(&http, OLLAMA_DEFAULT_URL, codex_lookup, openrouter_lookup).await;
             Ok(discovered
                 .into_iter()
                 .map(|m| {
@@ -184,10 +243,13 @@ impl LlmBackend for MultiBackend {
                                 supported_reasoning_levels: meta.supported_reasoning_levels.clone(),
                             })
                             .unwrap_or_else(|| ModelMetadata::id_only(wire)),
-                        // Ollama doesn't publish reasoning presets;
-                        // ids surface with empty metadata so the picker
+                        // Neither Ollama nor OpenRouter publishes
+                        // reasoning presets through its catalog -- ids
+                        // surface with empty metadata so the picker
                         // simply omits the effort selector for them.
-                        ModelSource::Ollama => ModelMetadata::id_only(wire),
+                        ModelSource::Ollama | ModelSource::OpenRouter => {
+                            ModelMetadata::id_only(wire)
+                        }
                     }
                 })
                 .collect())
@@ -203,6 +265,7 @@ impl LlmBackend for MultiBackend {
         on_token: Box<dyn FnMut(&str) + Send>,
         on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> BoxFuture<'_, Result<LlmResponse>> {
         let resolution = self.resolve(model);
         let reasoning_effort = reasoning_effort.map(str::to_string);
@@ -217,6 +280,7 @@ impl LlmBackend for MultiBackend {
                     on_token,
                     on_thought,
                     cancel,
+                    idle_timeout,
                 )
                 .await
         })
@@ -256,6 +320,7 @@ mod tests {
             _on_token: Box<dyn FnMut(&str) + Send>,
             _on_thought: Box<dyn FnMut(&str) + Send>,
             _cancel: CancellationToken,
+            _idle_timeout: Duration,
         ) -> BoxFuture<'_, Result<LlmResponse>> {
             *self.last_model.lock().unwrap() = Some(model.to_string());
             *self.last_reasoning_effort.lock().unwrap() = reasoning_effort.map(str::to_string);
@@ -294,7 +359,7 @@ mod tests {
     async fn stream_chat_routes_by_wire_prefix() {
         let (codex_backend, codex_handles) = recording("codex");
         let (ollama_backend, ollama_handles) = recording("ollama");
-        let multi = MultiBackend::new(Some(codex_backend), Some(ollama_backend));
+        let multi = MultiBackend::new(Some(codex_backend), None, Some(ollama_backend));
 
         let _ = multi
             .stream_chat(
@@ -305,6 +370,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("codex route");
@@ -323,6 +389,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("ollama route");
@@ -340,7 +407,7 @@ mod tests {
     async fn bare_id_routes_to_codex_fallback_when_both_configured() {
         let (codex_backend, codex_handles) = recording("codex");
         let (ollama_backend, ollama_handles) = recording("ollama");
-        let multi = MultiBackend::new(Some(codex_backend), Some(ollama_backend));
+        let multi = MultiBackend::new(Some(codex_backend), None, Some(ollama_backend));
 
         let _ = multi
             .stream_chat(
@@ -351,6 +418,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("bare id falls back to codex");
@@ -367,7 +435,7 @@ mod tests {
     #[tokio::test]
     async fn bare_id_routes_to_ollama_when_codex_absent() {
         let (ollama_backend, ollama_handles) = recording("ollama");
-        let multi = MultiBackend::new(None, Some(ollama_backend));
+        let multi = MultiBackend::new(None, None, Some(ollama_backend));
 
         let _ = multi
             .stream_chat(
@@ -378,6 +446,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("bare id falls back to ollama");
@@ -395,7 +464,7 @@ mod tests {
     async fn wire_id_for_absent_backend_returns_error() {
         // Only Ollama is configured; a `codex::` wire id must error.
         let (ollama_backend, _ollama_handles) = recording("ollama");
-        let multi = MultiBackend::new(None, Some(ollama_backend));
+        let multi = MultiBackend::new(None, None, Some(ollama_backend));
 
         let err = multi
             .stream_chat(
@@ -406,6 +475,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect_err("codex route must fail when codex backend is absent");
@@ -419,7 +489,7 @@ mod tests {
     /// or start Ollama and re-discover) but no model can be routed.
     #[tokio::test]
     async fn empty_multi_backend_errors_on_chat() {
-        let multi = MultiBackend::new(None, None);
+        let multi = MultiBackend::new(None, None, None);
         let err = multi
             .stream_chat(
                 "anything",
@@ -429,6 +499,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect_err("no backend means no route");
@@ -448,7 +519,7 @@ mod tests {
     #[tokio::test]
     async fn codex_installed_after_login_is_routable() {
         // Start with no Codex (mirrors the empty-auth.json startup path).
-        let multi = MultiBackend::new(None, None);
+        let multi = MultiBackend::new(None, None, None);
 
         // Pre-install: a `codex::*` request must fail loudly.
         let err = multi
@@ -460,6 +531,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect_err("codex route must fail before install");
@@ -482,6 +554,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("codex route must succeed after install");
@@ -498,7 +571,7 @@ mod tests {
     /// fallback was still `None`.
     #[tokio::test]
     async fn bare_id_falls_back_to_codex_after_install() {
-        let multi = MultiBackend::new(None, None);
+        let multi = MultiBackend::new(None, None, None);
 
         let (codex_backend, codex_handles) = recording("codex");
         multi.install_codex(codex_backend);
@@ -512,6 +585,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("bare id must route to newly-installed codex");
@@ -528,7 +602,7 @@ mod tests {
     /// model picker would never show Codex models.
     #[tokio::test]
     async fn list_models_reflects_installed_codex() {
-        let multi = MultiBackend::new(None, None);
+        let multi = MultiBackend::new(None, None, None);
         let (codex_backend, _codex_handles) = recording("codex");
         multi.install_codex(codex_backend);
 
@@ -554,7 +628,7 @@ mod tests {
     /// exist on disk.
     #[tokio::test]
     async fn codex_uninstall_unroutes_codex_requests() {
-        let multi = MultiBackend::new(None, None);
+        let multi = MultiBackend::new(None, None, None);
         let (codex_backend, _codex_handles) = recording("codex");
         multi.install_codex(codex_backend);
 
@@ -568,6 +642,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("codex route must succeed while installed");
@@ -584,12 +659,140 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect_err("codex route must fail after uninstall");
         assert!(
             format!("{err:#}").contains("codex"),
             "error must mention codex backend"
+        );
+    }
+
+    /// Wire ids tagged `openrouter::` route to the OpenRouter backend
+    /// with the bare id (slash-separated `vendor/model`), and do NOT
+    /// leak to Codex or Ollama when those are also configured.
+    #[tokio::test]
+    async fn openrouter_wire_id_routes_to_openrouter() {
+        let (codex_backend, codex_handles) = recording("codex");
+        let (openrouter_backend, openrouter_handles) = recording("openrouter");
+        let (ollama_backend, ollama_handles) = recording("ollama");
+        let multi = MultiBackend::new(
+            Some(codex_backend),
+            Some(openrouter_backend),
+            Some(ollama_backend),
+        );
+
+        let _ = multi
+            .stream_chat(
+                "openrouter::anthropic/claude-3.5-sonnet",
+                vec![],
+                None,
+                None,
+                Box::new(|_| {}),
+                Box::new(|_| {}),
+                CancellationToken::new(),
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("openrouter route");
+        // The inner slash in `vendor/model` must survive prefix
+        // stripping; OpenRouter expects the slashed id verbatim.
+        assert_eq!(
+            openrouter_handles.last_model.lock().unwrap().as_deref(),
+            Some("anthropic/claude-3.5-sonnet")
+        );
+        assert!(codex_handles.last_model.lock().unwrap().is_none());
+        assert!(ollama_handles.last_model.lock().unwrap().is_none());
+    }
+
+    /// A bare id with only OpenRouter configured falls back to
+    /// OpenRouter rather than erroring -- the same fallback contract
+    /// Ollama gets when it's the only backend.
+    #[tokio::test]
+    async fn bare_id_routes_to_openrouter_when_only_openrouter_configured() {
+        let (openrouter_backend, openrouter_handles) = recording("openrouter");
+        let multi = MultiBackend::new(None, Some(openrouter_backend), None);
+
+        let _ = multi
+            .stream_chat(
+                "anthropic/claude-3.5-sonnet",
+                vec![],
+                None,
+                None,
+                Box::new(|_| {}),
+                Box::new(|_| {}),
+                CancellationToken::new(),
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("bare id falls back to openrouter");
+        assert_eq!(
+            openrouter_handles.last_model.lock().unwrap().as_deref(),
+            Some("anthropic/claude-3.5-sonnet")
+        );
+    }
+
+    /// Fallback priority: Codex > OpenRouter > Ollama. With all three
+    /// configured, a bare id routes to Codex (most capable, most likely
+    /// intent). With Codex absent, OpenRouter wins over Ollama because a
+    /// configured cloud key is a stronger signal of intent than a
+    /// happens-to-be-running local daemon.
+    #[tokio::test]
+    async fn bare_id_prefers_openrouter_over_ollama_when_codex_absent() {
+        let (openrouter_backend, openrouter_handles) = recording("openrouter");
+        let (ollama_backend, ollama_handles) = recording("ollama");
+        let multi = MultiBackend::new(None, Some(openrouter_backend), Some(ollama_backend));
+
+        let _ = multi
+            .stream_chat(
+                "some-bare-id",
+                vec![],
+                None,
+                None,
+                Box::new(|_| {}),
+                Box::new(|_| {}),
+                CancellationToken::new(),
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("bare id falls back to openrouter");
+        assert_eq!(
+            openrouter_handles.last_model.lock().unwrap().as_deref(),
+            Some("some-bare-id")
+        );
+        assert!(ollama_handles.last_model.lock().unwrap().is_none());
+    }
+
+    /// Wire id requesting an absent OpenRouter backend errors loudly
+    /// rather than silently routing to a different source. Same contract
+    /// as `wire_id_for_absent_backend_returns_error` for Codex -- if the
+    /// user picks `openrouter::vendor/model` from a catalog snapshot and
+    /// the key has since been unexported, we must NOT route the request
+    /// to Codex or Ollama under a different (and probably nonexistent)
+    /// model id.
+    #[tokio::test]
+    async fn openrouter_wire_id_for_absent_backend_returns_error() {
+        let (codex_backend, _codex_handles) = recording("codex");
+        let multi = MultiBackend::new(Some(codex_backend), None, None);
+
+        let err = multi
+            .stream_chat(
+                "openrouter::anthropic/claude-3.5-sonnet",
+                vec![],
+                None,
+                None,
+                Box::new(|_| {}),
+                Box::new(|_| {}),
+                CancellationToken::new(),
+                Duration::from_secs(60),
+            )
+            .await
+            .expect_err("openrouter route must fail when openrouter backend is absent");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("openrouter"),
+            "error must mention openrouter: {msg}"
         );
     }
 
@@ -601,7 +804,7 @@ mod tests {
     #[tokio::test]
     async fn stream_chat_forwards_reasoning_effort() {
         let (codex_backend, codex_handles) = recording("codex");
-        let multi = MultiBackend::new(Some(codex_backend), None);
+        let multi = MultiBackend::new(Some(codex_backend), None, None);
 
         let _ = multi
             .stream_chat(
@@ -612,6 +815,7 @@ mod tests {
                 Box::new(|_| {}),
                 Box::new(|_| {}),
                 CancellationToken::new(),
+                Duration::from_secs(60),
             )
             .await
             .expect("codex route");

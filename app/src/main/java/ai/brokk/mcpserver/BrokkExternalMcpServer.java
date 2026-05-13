@@ -68,6 +68,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -109,6 +110,7 @@ public class BrokkExternalMcpServer {
     private @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
     private Path activeWorkspaceRoot;
     private WorkspaceActivationSource activeWorkspaceSource;
+    private final boolean readOnly;
 
     private enum WorkspaceActivationSource {
         STARTUP,
@@ -122,8 +124,24 @@ public class BrokkExternalMcpServer {
             @Nullable McpToolCallHistoryWriter historyWriter) {}
 
     public BrokkExternalMcpServer(ContextManager cm) {
+        this(cm, false);
+    }
+
+    /**
+     * Create the MCP server.
+     *
+     * @param readOnly when true, propagates read-only mode to the underlying ContextManager (so its
+     *     baseline ToolRegistry omits {@link Destructive} tools) and filters {@code @Destructive}
+     *     entries out of the published tool catalog. Use this for sandboxed/multi-tenant deployments
+     *     where external MCP clients must not be able to invoke shell/code agents.
+     */
+    public BrokkExternalMcpServer(ContextManager cm, boolean readOnly) {
         this.project = mainProjectFrom(cm.getProject());
         this.cm = cm;
+        this.readOnly = readOnly;
+        if (readOnly) {
+            cm.setReadOnly(true);
+        }
         this.activeWorkspaceRoot = cm.getProject().getRoot().toAbsolutePath().normalize();
         this.activeWorkspaceSource = WorkspaceActivationSource.STARTUP;
         this.mcpToolCallHistoryWriter = createMcpToolCallHistoryWriter(this.activeWorkspaceRoot);
@@ -196,10 +214,15 @@ public class BrokkExternalMcpServer {
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
+        boolean readOnly = false;
         for (String arg : args) {
             if ("--help".equals(arg) || "-h".equals(arg)) {
                 System.out.println("Brokk MCP Server v" + BuildInfo.version);
                 System.out.println("Provides Model Context Protocol (MCP) access to Brokk's agentic tools.");
+                System.out.println();
+                System.out.println("Options:");
+                System.out.println("  --read-only      Hide @Destructive tools (e.g. callCodeAgent) from the catalog.");
+                System.out.println("                   Also enabled when env READ_ONLY=true.");
                 System.out.println();
                 System.out.println("Available Tools:");
                 BASE_TOOL_NAMES.forEach(name -> System.out.printf("  - %s%n", name));
@@ -207,15 +230,24 @@ public class BrokkExternalMcpServer {
                 System.out.println("No additional tools beyond the base set.");
                 System.exit(0);
             }
+            if ("--read-only".equals(arg) || arg.startsWith("--read-only=")) {
+                readOnly = !arg.contains("=") || parseBoolArg(arg.substring(arg.indexOf('=') + 1));
+            }
+        }
+        if (!readOnly) {
+            var envValue = System.getenv("READ_ONLY");
+            if (envValue != null) {
+                readOnly = parseBoolArg(envValue);
+            }
         }
 
         Path projectPath = resolveProjectRoot(Path.of("."));
-        logger.info("Brokk MCP Server starting");
+        logger.info("Brokk MCP Server starting (readOnly={})", readOnly);
 
         BrokkExternalMcpServer instance = null;
         try {
             WorkspaceState startupWorkspace = createWorkspaceState(projectPath);
-            instance = new BrokkExternalMcpServer(startupWorkspace.contextManager());
+            instance = new BrokkExternalMcpServer(startupWorkspace.contextManager(), readOnly);
             instance.project = startupWorkspace.project();
             instance.cm = startupWorkspace.contextManager();
             instance.activeWorkspaceRoot = startupWorkspace.workspaceRoot();
@@ -278,6 +310,16 @@ public class BrokkExternalMcpServer {
                 instance.closeCurrentWorkspace();
             }
         }
+    }
+
+    private static boolean parseBoolArg(@Nullable String value) {
+        if (value == null) {
+            return false;
+        }
+        return switch (value.trim().toLowerCase(Locale.ROOT)) {
+            case "", "1", "true", "yes", "on" -> true;
+            default -> false;
+        };
     }
 
     static Path resolveProjectRoot(Path path) {
@@ -789,6 +831,13 @@ public class BrokkExternalMcpServer {
     public List<McpServerFeatures.SyncToolSpecification> toolSpecifications() {
         ToolRegistry registry = buildToolRegistryForCurrentWorkspace();
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
+        if (readOnly) {
+            // The registry was built with readOnly=true, so any @Destructive entries in BASE_TOOL_NAMES
+            // (e.g. callCodeAgent) were not registered. Drop them from the catalog to avoid getTools()
+            // throwing on missing names and to hide them from external MCP clients entirely.
+            toolNames.removeIf(name -> !registry.isRegistered(name));
+            logger.info("MCP server is read-only; tool catalog filtered to {}", toolNames);
+        }
 
         return registry.getTools(toolNames).stream()
                 .map(spec -> {
@@ -889,7 +938,9 @@ public class BrokkExternalMcpServer {
         SearchTools searchTools = new SearchTools(cm);
         var searchModel = cm.getService().getModel(ModelProperties.ModelType.SEARCH);
         var ps = new ParallelSearch(new Context(cm), "", searchModel);
-        return ToolRegistry.fromBase(ToolRegistry.empty())
+        // When read-only, the empty base carries the flag down through the builder so any
+        // @Destructive tool encountered during registration (e.g. callCodeAgent) is skipped.
+        return ToolRegistry.fromBase(ToolRegistry.empty(readOnly))
                 .register(searchTools)
                 .register(ps) // sentinel for schema
                 .register(new CustomAgentTools(cm, searchModel))
@@ -1126,6 +1177,11 @@ public class BrokkExternalMcpServer {
                 var previousProject = project;
 
                 cm = newWorkspace.contextManager();
+                // Preserve read-only across workspace switches so external clients cannot
+                // escape the sandbox by re-activating into a fresh project.
+                if (readOnly) {
+                    cm.setReadOnly(true);
+                }
                 project = newWorkspace.project();
                 mcpToolCallHistoryWriter = newWorkspace.historyWriter();
                 activeWorkspaceRoot = newWorkspace.workspaceRoot();

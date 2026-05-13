@@ -11,13 +11,11 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
+import ai.brokk.analyzer.usages.UsageAnalysisExecutors;
 import ai.brokk.analyzer.usages.UsageAnalyzer;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.analyzer.usages.UsagePrompt;
-import ai.brokk.concurrent.ExecutorsUtil;
-import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.project.IProject;
-import ai.brokk.util.ConcurrencyUtil;
 import ai.brokk.util.FileUtil;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -50,9 +48,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class LlmUsageAnalyzer implements UsageAnalyzer {
     private static final Logger logger = LogManager.getLogger(LlmUsageAnalyzer.class);
-    private static final int FUZZY_SCAN_PARALLELISM = ConcurrencyUtil.computeAdaptiveIoConcurrencyCap();
-    private static final LoggingExecutorService FUZZY_SCAN_EXECUTOR =
-            ExecutorsUtil.newVirtualThreadExecutor("fuzzy-usage-scan-", FUZZY_SCAN_PARALLELISM);
 
     private final IProject project;
     private final IAnalyzer analyzer;
@@ -93,7 +88,7 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
                         .collect(Collectors.toSet());
         var isUnique = matchingCodeUnits.size() == 1;
 
-        var hits = extractUsageHits(candidateFiles, searchPatterns).stream()
+        var hits = extractUsageHits(candidateFiles, identifier, searchPatterns).stream()
                 .filter(h -> !h.enclosing().equals(target))
                 .collect(Collectors.toSet());
         logger.debug(
@@ -176,19 +171,20 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
         return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, Map.of(target, hits));
     }
 
-    private Set<UsageHit> extractUsageHits(Set<ProjectFile> candidateFiles, Set<String> searchPatterns)
+    private Set<UsageHit> extractUsageHits(
+            Set<ProjectFile> candidateFiles, String identifier, Set<String> searchPatterns)
             throws InterruptedException {
         var hits = new ConcurrentHashMap<UsageHit, Boolean>();
         final var patterns = searchPatterns.stream().map(Pattern::compile).toList();
 
         List<Callable<Void>> tasks = candidateFiles.stream()
                 .map(file -> (Callable<Void>) () -> {
-                    scanFileForUsageHits(file, patterns, hits);
+                    scanFileForUsageHits(file, identifier, patterns, hits);
                     return null;
                 })
                 .toList();
 
-        var futures = FUZZY_SCAN_EXECUTOR.invokeAll(tasks);
+        var futures = UsageAnalysisExecutors.ioExecutor().invokeAll(tasks);
         for (var future : futures) {
             try {
                 future.get();
@@ -200,12 +196,13 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
     }
 
     private void scanFileForUsageHits(
-            ProjectFile file, List<Pattern> patterns, ConcurrentHashMap<UsageHit, Boolean> hits) {
+            ProjectFile file, String identifier, List<Pattern> patterns, ConcurrentHashMap<UsageHit, Boolean> hits) {
         try {
             var scanInputOpt = scanInput(file);
             if (scanInputOpt.isEmpty()) return;
             var scanInput = scanInputOpt.get();
             var content = scanInput.content();
+            if (!content.contains(identifier)) return;
 
             for (var pattern : patterns) {
                 var matcher = pattern.matcher(content);

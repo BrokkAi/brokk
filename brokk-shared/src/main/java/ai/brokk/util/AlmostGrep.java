@@ -8,9 +8,6 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
-import java.nio.file.FileSystems;
-import java.nio.file.Path;
-import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -22,7 +19,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -86,20 +82,19 @@ public final class AlmostGrep {
     public record FileContentSearchResult(String output, int matches) {}
 
     public static List<ProjectFile> findProjectTextFilesByGlob(Set<ProjectFile> allFiles, String globPattern) {
-        PathMatcher matcher = compileGlobPathMatcher(globPattern);
+        // Use FilenamePatternMatcher's glob-to-regex so directory-prefix patterns like
+        // "dir/**/*" also match top-level files in "dir/" (Java's strict glob: PathMatcher
+        // requires at least one intermediate segment after **/, which surprises LLM clients).
+        var regex = FilenamePatternMatcher.globToRegex(toUnixPath(globPattern));
         return allFiles.stream()
                 .filter(ProjectFile::isText)
-                .filter(file -> matcher.matches(Path.of(toUnixPath(file.toString()))))
+                .filter(file -> regex.matcher(toUnixPath(file.toString())).matches())
                 .sorted()
                 .toList();
     }
 
-    private static PathMatcher compileGlobPathMatcher(String pattern) {
-        return FileSystems.getDefault().getPathMatcher("glob:" + toUnixPath(pattern));
-    }
-
     public static FindFilesContainingResult findFilesContainingPatterns(
-            List<Pattern> patterns, Set<ProjectFile> filesToSearch) throws InterruptedException {
+            List<TextMatcher> patterns, Set<ProjectFile> filesToSearch) throws InterruptedException {
         if (patterns.isEmpty()) {
             return new FindFilesContainingResult(Set.of(), List.of());
         }
@@ -131,7 +126,8 @@ public final class AlmostGrep {
                                 String fileContents = fileContentsOpt.get();
                                 boolean matched;
                                 try {
-                                    matched = patterns.stream().anyMatch(p -> findWithOverflowGuard(p, fileContents));
+                                    String lowerContents = lowerContentsIfNeeded(patterns, fileContents);
+                                    matched = patterns.stream().anyMatch(p -> p.find(fileContents, lowerContents));
                                 } catch (RegexMatchOverflowException e) {
                                     String message = "regex '%s' caused StackOverflowError".formatted(e.pattern());
                                     return new FilePatternSearchResult(null, file + ": " + message);
@@ -184,7 +180,7 @@ public final class AlmostGrep {
 
     public static @Nullable FileContentSearchResult searchFileContentsInFile(
             ProjectFile file,
-            List<Pattern> patterns,
+            List<TextMatcher> patterns,
             int contextLines,
             IAnalyzer analyzer,
             FileContentSearchType searchType) {
@@ -197,7 +193,8 @@ public final class AlmostGrep {
         if (content.isEmpty()) {
             return null;
         }
-        if (patterns.stream().noneMatch(pattern -> findWithOverflowGuard(pattern, content))) {
+        String lowerContent = lowerContentsIfNeeded(patterns, content);
+        if (patterns.stream().noneMatch(pattern -> pattern.find(content, lowerContent))) {
             return null;
         }
 
@@ -211,12 +208,12 @@ public final class AlmostGrep {
         String filePath = file.toString().replace('\\', '/');
         Set<Integer> retainedMatchLines = new LinkedHashSet<>();
 
-        for (Pattern pattern : patterns) {
+        for (TextMatcher pattern : patterns) {
             byte[] lineStates = new byte[lineCount + 1];
             int matchesTaken = 0;
 
             try {
-                Matcher matcher = pattern.matcher(content);
+                var matcher = pattern.cursor(content, lowerContent);
                 int lineIdx = 0;
                 while (matcher.find()) {
                     int matchStart = matcher.start();
@@ -239,7 +236,7 @@ public final class AlmostGrep {
                     }
                 }
             } catch (StackOverflowError e) {
-                throw new RegexMatchOverflowException(pattern.pattern(), e);
+                throw new RegexMatchOverflowException(pattern.rawPattern(), e);
             }
         }
 
@@ -587,6 +584,12 @@ public final class AlmostGrep {
         } catch (StackOverflowError e) {
             throw new RegexMatchOverflowException(pattern.pattern(), e);
         }
+    }
+
+    private static @Nullable String lowerContentsIfNeeded(List<TextMatcher> patterns, String content) {
+        boolean needsLowerContent = patterns.stream()
+                .anyMatch(pattern -> pattern instanceof TextMatcher.Literal literal && literal.caseInsensitive());
+        return needsLowerContent ? content.toLowerCase(Locale.ROOT) : null;
     }
 
     private record LineRef(int lineNo, int startInclusive, int endExclusive) {}

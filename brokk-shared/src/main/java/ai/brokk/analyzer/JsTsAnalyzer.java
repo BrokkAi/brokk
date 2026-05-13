@@ -3,8 +3,10 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cache.JsTsAnalyzerCache;
 import ai.brokk.analyzer.javascript.CognitiveComplexityAnalysis;
 import ai.brokk.analyzer.javascript.JsTsExportUsageExtractor;
+import ai.brokk.analyzer.javascript.JsTsModuleResolution;
 import ai.brokk.analyzer.javascript.TsConfigPathsResolver;
 import ai.brokk.analyzer.usages.ExportIndex;
 import ai.brokk.analyzer.usages.ImportBinder;
@@ -42,8 +44,6 @@ import org.treesitter.TsxNodeType;
  */
 public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
 
-    protected record ModulePathKey(ProjectFile importingFile, String modulePath) {}
-
     public record MemberLookupKey(String ownerClassName, String memberName, boolean instanceReceiver) {}
 
     public record ExportResolutionKey(ProjectFile definingFile, String exportName, int maxReexportDepth) {}
@@ -55,7 +55,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     public record ExportResolutionData(
             Set<CodeUnit> targets, Set<ProjectFile> frontier, Set<String> externalFrontier) {}
 
-    protected static final List<String> KNOWN_EXTENSIONS = List.of(".js", ".jsx", ".ts", ".tsx");
+    protected static final List<String> KNOWN_EXTENSIONS = JsTsModuleResolution.KNOWN_EXTENSIONS;
 
     private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern ES6_SIDE_EFFECT_IMPORT_PATTERN = Pattern.compile("^\\s*import\\s+['\"]([^'\"]+)['\"]");
@@ -63,9 +63,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private static final Set<String> JS_LOG_BARE_NAMES = Set.of("log", "warn", "error", "exception");
     private static final Set<String> JS_LOG_RECEIVER_NAMES = Set.of("log", "logger", "console");
     private static final Set<String> JS_LOG_METHOD_NAMES = Set.of("log", "warn", "error", "exception");
-
-    private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
-            Caffeine.newBuilder().maximumSize(10_000).build();
 
     private final Cache<Path, TsConfigPathsResolver> tsConfigResolverCache =
             Caffeine.newBuilder().maximumSize(64).build();
@@ -77,7 +74,12 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     protected JsTsAnalyzer(ICoreProject project, Language language, ProgressListener listener) {
-        super(project, language, listener);
+        this(project, language, listener, new JsTsAnalyzerCache());
+    }
+
+    protected JsTsAnalyzer(
+            ICoreProject project, Language language, ProgressListener listener, JsTsAnalyzerCache cache) {
+        super(project, language, listener, cache);
     }
 
     protected JsTsAnalyzer(ICoreProject project, Language language, AnalyzerState state, ProgressListener listener) {
@@ -90,7 +92,19 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             AnalyzerState state,
             ProgressListener listener,
             @Nullable AnalyzerCache cache) {
-        super(project, language, state, listener, cache);
+        super(project, language, state, listener, cache != null ? cache : new JsTsAnalyzerCache());
+    }
+
+    @Override
+    protected AnalyzerCache createEmptyCache() {
+        return new JsTsAnalyzerCache();
+    }
+
+    @Override
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return previous instanceof JsTsAnalyzerCache jsTsCache
+                ? new JsTsAnalyzerCache(jsTsCache, changedFiles)
+                : new JsTsAnalyzerCache();
     }
 
     @Override
@@ -334,12 +348,20 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     public ResolutionOutcome resolveEsmModuleOutcome(ProjectFile importingFile, String moduleSpecifier) {
+        return jsTsCache()
+                .moduleResolutionCache()
+                .get(
+                        new JsTsAnalyzerCache.ModulePathKey(importingFile, moduleSpecifier),
+                        key -> resolveEsmModuleOutcomeUncached(key.importingFile(), key.modulePath()));
+    }
+
+    private ResolutionOutcome resolveEsmModuleOutcomeUncached(ProjectFile importingFile, String moduleSpecifier) {
         Path root = getProject().getRoot().normalize();
         Set<Path> absolutePaths = absoluteProjectPaths();
 
         if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
-            Path parentDir = importingFile.absPath().getParent();
-            ProjectFile pf = resolveModulePathFromBase(root, absolutePaths, parentDir, moduleSpecifier);
+            ProjectFile pf = resolveModulePathFromBaseCached(
+                    root, absolutePaths, importingFile.absPath().getParent(), moduleSpecifier);
             return pf != null ? ResolutionOutcome.resolved(pf) : ResolutionOutcome.empty();
         }
 
@@ -350,7 +372,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         }
 
         for (String candidate : expansion.candidates()) {
-            ProjectFile pf = resolveModulePathFromBase(root, absolutePaths, root, candidate);
+            ProjectFile pf = resolveModulePathFromBaseCached(root, absolutePaths, root, candidate);
             if (pf != null) {
                 return ResolutionOutcome.resolved(pf);
             }
@@ -1111,13 +1133,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        Path root = getProject().getRoot().normalize();
-        Set<Path> absolutePaths = absoluteProjectPaths();
-
         var resolved = importStatements.stream()
-                .map(JsTsAnalyzer::extractModulePathFromImport)
+                .map(this::cachedModulePathFromImport)
                 .flatMap(Optional::stream)
-                .flatMap(path -> resolveImportModule(file, path, root, absolutePaths).stream())
+                .flatMap(path -> resolveImportModule(file, path).stream())
                 .flatMap(resolvedFile -> {
                     Set<CodeUnit> decls = getDeclarations(resolvedFile);
                     if (!decls.isEmpty()) {
@@ -1132,15 +1151,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         return Set.copyOf(resolved);
     }
 
-    private Optional<ProjectFile> resolveImportModule(
-            ProjectFile importingFile, String moduleSpecifier, Path root, Set<Path> absolutePaths) {
-        if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
-            return moduleResolutionCache.get(
-                    new ModulePathKey(importingFile, moduleSpecifier),
-                    key -> Optional.ofNullable(
-                            resolveJavaScriptLikeModulePath(root, absolutePaths, importingFile, moduleSpecifier)));
-        }
-
+    private Optional<ProjectFile> resolveImportModule(ProjectFile importingFile, String moduleSpecifier) {
         ResolutionOutcome out = resolveEsmModuleOutcome(importingFile, moduleSpecifier);
         return out.resolved();
     }
@@ -1148,7 +1159,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     @Override
     public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
         for (ImportInfo imp : imports) {
-            Optional<String> modulePathOpt = extractModulePathFromImport(imp.rawSnippet());
+            Optional<String> modulePathOpt = cachedModulePathFromImport(imp.rawSnippet());
             if (modulePathOpt.isEmpty()) {
                 continue;
             }
@@ -1192,7 +1203,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         // Prefer the 3-arg variant so we can use TSConfig context; keep this as a conservative fallback.
         for (ImportInfo imp : imports) {
-            Optional<String> modulePathOpt = extractModulePathFromImport(imp.rawSnippet());
+            Optional<String> modulePathOpt = cachedModulePathFromImport(imp.rawSnippet());
             if (modulePathOpt.isEmpty()) {
                 continue;
             }
@@ -1292,6 +1303,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         return Optional.empty();
     }
 
+    private Optional<String> cachedModulePathFromImport(String importStatement) {
+        return jsTsCache().importModuleSpecifierCache().get(importStatement, JsTsAnalyzer::extractModulePathFromImport);
+    }
+
     protected static @Nullable ProjectFile resolveJavaScriptLikeModulePath(
             Path projectRoot, Set<Path> absolutePaths, ProjectFile importingFile, String modulePath) {
         if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
@@ -1301,48 +1316,37 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         return resolveModulePathFromBase(projectRoot, absolutePaths, parentDir, modulePath);
     }
 
+    private @Nullable ProjectFile resolveModulePathFromBaseCached(
+            Path projectRoot, Set<Path> absolutePaths, @Nullable Path baseDir, String modulePath) {
+        if (baseDir == null) {
+            return null;
+        }
+        return jsTsCache()
+                .moduleResolutionFromBaseCache()
+                .get(
+                        new JsTsAnalyzerCache.ModulePathFromBaseKey(baseDir, modulePath),
+                        key -> Optional.ofNullable(
+                                resolveModulePathFromBase(projectRoot, absolutePaths, key.baseDir(), key.modulePath())))
+                .orElse(null);
+    }
+
     protected static @Nullable ProjectFile resolveModulePathFromBase(
             Path projectRoot, Set<Path> absolutePaths, @Nullable Path baseDir, String modulePath) {
         if (baseDir == null) {
             return null;
         }
 
-        Path resolvedPath = baseDir.resolve(modulePath).normalize();
-        String fileName = resolvedPath.getFileName().toString();
-
-        if (KNOWN_EXTENSIONS.stream().anyMatch(fileName::endsWith)) {
-            if (absolutePaths.contains(resolvedPath) && resolvedPath.startsWith(projectRoot)) {
-                return new ProjectFile(projectRoot, projectRoot.relativize(resolvedPath));
-            }
-        }
-
-        String baseName = fileName;
-        for (String ext : KNOWN_EXTENSIONS) {
-            if (baseName.endsWith(ext)) {
-                baseName = baseName.substring(0, baseName.length() - ext.length());
-                break;
-            }
-        }
-        Path basePath = resolvedPath.resolveSibling(baseName);
-
-        List<String> fileExtensions =
-                Stream.concat(Stream.of(""), KNOWN_EXTENSIONS.stream()).toList();
-        for (String ext : fileExtensions) {
-            Path candidatePath = ext.isEmpty() ? basePath : basePath.resolveSibling(baseName + ext);
-            if (absolutePaths.contains(candidatePath) && candidatePath.startsWith(projectRoot)) {
-                return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
-            }
-        }
-
-        List<String> indexFiles = List.of("index.js", "index.jsx", "index.ts", "index.tsx");
-        for (String indexFile : indexFiles) {
-            Path candidatePath = resolvedPath.resolve(indexFile);
+        for (Path candidatePath : JsTsModuleResolution.candidatePaths(baseDir, modulePath)) {
             if (absolutePaths.contains(candidatePath) && candidatePath.startsWith(projectRoot)) {
                 return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
             }
         }
 
         return null;
+    }
+
+    private JsTsAnalyzerCache jsTsCache() {
+        return (JsTsAnalyzerCache) cache();
     }
 
     protected static void extractCommonJsRequireImport(

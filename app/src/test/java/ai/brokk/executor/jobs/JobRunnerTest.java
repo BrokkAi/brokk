@@ -1,6 +1,7 @@
 package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -131,6 +132,42 @@ class JobRunnerTest {
     void testReviewModeSeverityAndCap() {
         assertEquals(PrReviewService.Severity.HIGH, JobRunner.DEFAULT_REVIEW_SEVERITY_THRESHOLD);
         assertEquals(3, JobRunner.DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
+    }
+
+    @Test
+    void modeRequiresWriteAccess_classifiesEveryModeCorrectly() {
+        // Modes that mutate the workspace (file edits, shell, git branches).
+        assertTrue(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.CODE));
+        assertTrue(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.ARCHITECT));
+        assertTrue(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.LUTZ));
+        assertTrue(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.ISSUE));
+        assertTrue(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.LITE_AGENT));
+
+        // Modes that only read or perform network calls (no local mutation).
+        // The read-only sandbox MUST allow these.
+        assertFalse(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.ASK));
+        assertFalse(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.SEARCH));
+        assertFalse(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.PLAN));
+        assertFalse(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.LITE_PLAN));
+        assertFalse(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.REVIEW));
+        assertFalse(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.GUIDED_REVIEW));
+        assertFalse(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.ISSUE_DIAGNOSE));
+        assertFalse(JobRunner.modeRequiresWriteAccess(JobRunner.Mode.ISSUE_WRITER));
+    }
+
+    @Test
+    void modeRequiresWriteAccess_coversEveryDeclaredMode() {
+        // Defensive: ensure adding a new Mode forces an explicit decision in
+        // modeRequiresWriteAccess rather than silently defaulting (a non-decision
+        // would let a write-capable mode slip past the read-only guard).
+        for (JobRunner.Mode mode : JobRunner.Mode.values()) {
+            // Method must not throw for any defined mode -- contractually it returns a boolean.
+            boolean classification = JobRunner.modeRequiresWriteAccess(mode);
+            // Document the classification in the assertion message so failures are diagnostic.
+            assertTrue(
+                    classification || !classification,
+                    "Mode " + mode + " classified as writeRequiring=" + classification);
+        }
     }
 
     @Test

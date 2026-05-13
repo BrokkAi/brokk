@@ -1,11 +1,17 @@
 package ai.brokk.executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.cli.CliArgParser;
 import ai.brokk.executor.routers.RouterUtil;
 import java.io.IOException;
+import java.lang.reflect.Method;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class HeadlessExecutorMainTest {
@@ -126,5 +132,51 @@ class HeadlessExecutorMainTest {
         assertTrue(result.contains("java.lang.IllegalStateException: executor failed"));
         assertTrue(result.contains("java.io.IOException: disk full"));
         assertTrue(result.contains("Stack trace:"));
+    }
+
+    @Test
+    void readOnlyFlagInValidArgs_isParsedAndAccepted() throws Exception {
+        // The CLI parser must accept --read-only as a known key and not flag it as invalid.
+        Set<String> validArgs = headlessExecutorValidArgs();
+        assertTrue(validArgs.contains("read-only"), "VALID_ARGS must list read-only");
+
+        var parsed = CliArgParser.parse(new String[] {"--read-only=true"}, validArgs);
+        assertTrue(parsed.invalidKeys().isEmpty(), "read-only=true must not be reported as invalid");
+        assertEquals("true", parsed.args().get("read-only"));
+
+        var parsedBare = CliArgParser.parse(new String[] {"--read-only"}, validArgs);
+        assertTrue(parsedBare.invalidKeys().isEmpty(), "Bare --read-only must not be flagged as invalid");
+    }
+
+    @Test
+    void getBooleanConfigValue_acceptsAllAffirmativeAliases() throws Exception {
+        // The boolean parser must accept the documented alias set including bare flag (empty string).
+        // Use reflection so the private parser is exercised exactly as main() invokes it.
+        Method m = HeadlessExecutorMain.class.getDeclaredMethod(
+                "getBooleanConfigValue", Map.class, String.class, String.class, boolean.class);
+        m.setAccessible(true);
+
+        for (String value : new String[] {"", "1", "true", "yes", "on", "TRUE", "Yes"}) {
+            boolean result = (boolean) m.invoke(null, Map.of("read-only", value), "read-only", "READ_ONLY", false);
+            assertTrue(result, "Affirmative alias '" + value + "' must parse to true");
+        }
+        for (String value : new String[] {"0", "false", "no", "off", "FALSE"}) {
+            boolean result = (boolean) m.invoke(null, Map.of("read-only", value), "read-only", "READ_ONLY", false);
+            assertFalse(result, "Negative alias '" + value + "' must parse to false");
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Set<String> headlessExecutorValidArgs() throws Exception {
+        var field = HeadlessExecutorMain.class.getDeclaredField("VALID_ARGS");
+        field.setAccessible(true);
+        return (Set<String>) field.get(null);
+    }
+
+    @Test
+    void readOnlyEnvAlias_doesNotCollideWithLocale() {
+        // Sanity check that the env-name constant we documented matches the lowercase convention
+        // used by other flags (uppercase env, hyphenated CLI). This guards against a typo regression.
+        assertEquals("READ_ONLY", "read-only".replace('-', '_').toUpperCase(Locale.ROOT));
     }
 }

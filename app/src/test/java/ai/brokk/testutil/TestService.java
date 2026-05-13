@@ -105,20 +105,34 @@ public class TestService extends AbstractService {
         // No-op for test service
     }
 
+    public static TestServiceProvider testProvider(IProject project) {
+        return new TestServiceProvider(project);
+    }
+
     // Backward-compatible provider entry point used by other tests
     public static Service.Provider provider(MainProject project) {
-        return new Service.Provider() {
-            private TestService svc = new TestService(project);
+        return testProvider(project);
+    }
 
-            @Override
-            public AbstractService get() {
-                return svc;
-            }
+    public static class TestServiceProvider implements Service.Provider {
+        private TestService svc;
 
-            @Override
-            public void reinit(IProject p) {
-                svc = new TestService(p);
-            }
-        };
+        private TestServiceProvider(IProject project) {
+            this.svc = new TestService(project);
+        }
+
+        @Override
+        public AbstractService get() {
+            return svc;
+        }
+
+        @Override
+        public void reinit(IProject project) {
+            svc = new TestService(project);
+        }
+
+        public TestService testService() {
+            return svc;
+        }
     }
 }

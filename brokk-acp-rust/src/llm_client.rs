@@ -7,18 +7,32 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-/// Maximum gap between two pieces of *meaningful* SSE progress before we
-/// abort the request. "Meaningful progress" is a parsed `data:` event
-/// that contributed content, tool-call deltas, or `[DONE]`. Comments
-/// (`:keepalive\n`), blank lines, and partial bytes that don't advance
-/// the parser do NOT reset this timer -- otherwise a server or proxy
-/// could keep us alive forever by drip-feeding pings.
+/// Default value for the `--llm-idle-timeout-secs` CLI flag (and the
+/// env var `BROKK_ACP_LLM_IDLE_TIMEOUT_SECS`). The actual value used
+/// per request is a required parameter on `LlmBackend::stream_chat` --
+/// callers cannot fall back to this implicitly.
+///
+/// Idle timeout semantics: maximum gap between two pieces of
+/// *meaningful* SSE progress before we abort the request. "Meaningful
+/// progress" is a parsed `data:` event that contributed content,
+/// tool-call deltas, or `[DONE]`. Comments (`:keepalive\n`), blank
+/// lines, and partial bytes that don't advance the parser do NOT reset
+/// this timer -- otherwise a server or proxy could keep us alive
+/// forever by drip-feeding pings.
 ///
 /// Distinct from the reqwest client's overall `.timeout()` (wall-clock).
-/// Chosen to stay above realistic reasoning-model "thinking pauses"
-/// (which still emit periodic SSE pings) and well below the 600s
-/// client timeout.
-const IDLE_CHUNK_TIMEOUT: Duration = Duration::from_secs(90);
+pub const DEFAULT_IDLE_CHUNK_TIMEOUT_SECS: u64 = 300;
+
+/// Lower bound for both the `--llm-idle-timeout-secs` CLI flag and the
+/// `/idle-timeout` slash command. 0 would mean "abort instantly", which
+/// is never useful.
+pub const MIN_IDLE_CHUNK_TIMEOUT_SECS: u64 = 1;
+
+/// Upper bound for both the `--llm-idle-timeout-secs` CLI flag and the
+/// `/idle-timeout` slash command. 24h is well above any realistic local
+/// LLM prompt processing on consumer hardware and stops a typo'd huge
+/// number from effectively disabling the stall detector.
+pub const MAX_IDLE_CHUNK_TIMEOUT_SECS: u64 = 86_400;
 
 /// Owning callback handed token deltas as the LLM streams them.
 type TokenSink = Box<dyn FnMut(&str) + Send>;
@@ -194,6 +208,11 @@ pub trait LlmBackend: Send + Sync {
     /// ignore it. `on_thought` receives chain-of-thought / reasoning
     /// text deltas separate from the assistant text on `on_token`;
     /// backends that don't surface reasoning never invoke it.
+    ///
+    /// `idle_timeout` is the maximum gap between two pieces of
+    /// meaningful SSE progress before the backend aborts the stream.
+    /// Threaded from the CLI flag `--llm-idle-timeout-secs` and the
+    /// per-session `/idle-timeout` override.
     #[allow(clippy::too_many_arguments)]
     fn stream_chat(
         &self,
@@ -204,6 +223,7 @@ pub trait LlmBackend: Send + Sync {
         on_token: Box<dyn FnMut(&str) + Send>,
         on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> BoxFuture<'_, Result<LlmResponse>>;
 }
 
@@ -338,9 +358,23 @@ impl std::fmt::Debug for OpenAiClient {
 
 impl OpenAiClient {
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
+        Self::with_default_headers(base_url, api_key, reqwest::header::HeaderMap::new())
+    }
+
+    /// Like `new`, but attaches `default_headers` to every request the
+    /// resulting `reqwest::Client` makes. Used by providers that require
+    /// out-of-band attribution headers on every call (today, OpenRouter's
+    /// optional `HTTP-Referer` / `X-Title` leaderboard headers). Plain
+    /// OpenAI / Ollama callers should keep using `new`.
+    pub fn with_default_headers(
+        base_url: String,
+        api_key: Option<String>,
+        default_headers: reqwest::header::HeaderMap,
+    ) -> Self {
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(600))
+            .default_headers(default_headers)
             .build()
             .expect("failed to build HTTP client");
         let base_url = base_url.trim_end_matches('/').to_string();
@@ -378,9 +412,10 @@ impl LlmBackend for OpenAiClient {
         // No chain-of-thought stream on the Chat Completions SSE schema.
         _on_thought: Box<dyn FnMut(&str) + Send>,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> BoxFuture<'_, Result<LlmResponse>> {
         let model = model.to_string();
-        Box::pin(self.stream_chat_impl(model, messages, tools, on_token, cancel))
+        Box::pin(self.stream_chat_impl(model, messages, tools, on_token, cancel, idle_timeout))
     }
 }
 
@@ -415,6 +450,7 @@ impl OpenAiClient {
         tools: Option<Vec<ToolDefinition>>,
         on_token: TokenSink,
         cancel: CancellationToken,
+        idle_timeout: Duration,
     ) -> Result<LlmResponse> {
         let url = self.api_url("/chat/completions");
 
@@ -446,7 +482,7 @@ impl OpenAiClient {
             .bytes_stream()
             .map(|r| r.map(|b| b.to_vec()).map_err(anyhow::Error::from));
 
-        drive_sse_stream(stream, on_token, cancel, IDLE_CHUNK_TIMEOUT).await
+        drive_sse_stream(stream, on_token, cancel, idle_timeout).await
     }
 }
 
@@ -904,5 +940,79 @@ mod tests {
         assert_eq!(calls[0].function.arguments, r#"{"path":"x.txt"}"#);
         assert_eq!(calls[1].id, "call_1");
         assert_eq!(calls[1].function.name, "writeFile");
+    }
+
+    /// `OpenAiClient::with_default_headers` produces an instance that
+    /// `LlmBackend` can be cast over (no panic on construction, headers
+    /// accepted as-is). Wire path is exercised by the integration with
+    /// `MultiBackend` -- this test pins the constructor contract that
+    /// OpenRouter's `HTTP-Referer` / `X-Title` attribution headers rely
+    /// on (`main.rs::build_openrouter_backend`).
+    #[test]
+    fn with_default_headers_constructs_with_attribution_headers() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::HeaderName::from_static("http-referer"),
+            reqwest::header::HeaderValue::from_static("https://example.test"),
+        );
+        headers.insert(
+            reqwest::header::HeaderName::from_static("x-title"),
+            reqwest::header::HeaderValue::from_static("brokk-acp-rust"),
+        );
+        let client = OpenAiClient::with_default_headers(
+            "https://openrouter.ai/api/v1".to_string(),
+            Some("sk-test-key".to_string()),
+            headers,
+        );
+        // Trailing slashes are stripped by both constructors so callers
+        // can interchange `.../v1` and `.../v1/` without double-slashes
+        // showing up in the request URL.
+        let debug = format!("{client:?}");
+        assert!(debug.contains("openrouter.ai"), "got {debug}");
+        assert!(
+            debug.contains("[REDACTED]"),
+            "api_key must be redacted from Debug output: {debug}"
+        );
+    }
+
+    /// OpenRouter's `/v1/models` response carries strictly more fields
+    /// than OpenAI's (`name`, `canonical_slug`, `pricing`, `architecture`,
+    /// etc.). The shared `ModelsResponse` deserializer must round-trip
+    /// the catalog without choking on the extra fields, leaving the
+    /// caller with just the bare `id` strings the routing layer expects.
+    /// Sample shape distilled from a live `GET https://openrouter.ai/api/v1/models`
+    /// response (vendor/model ids, with nested `pricing` and
+    /// `architecture` objects) so a future serde-rename regression is
+    /// caught here rather than at runtime on the user's first session.
+    #[test]
+    fn models_response_parses_openrouter_shape_ignoring_extra_fields() {
+        let raw = r#"{
+            "data": [
+                {
+                    "id": "anthropic/claude-3.5-sonnet",
+                    "name": "Anthropic: Claude 3.5 Sonnet",
+                    "canonical_slug": "anthropic/claude-3.5-sonnet",
+                    "context_length": 200000,
+                    "pricing": {"prompt": "0.000003", "completion": "0.000015"},
+                    "architecture": {"input_modalities": ["text", "image"]},
+                    "top_provider": {"context_length": 200000}
+                },
+                {
+                    "id": "openai/gpt-4o",
+                    "name": "OpenAI: GPT-4o",
+                    "context_length": 128000,
+                    "pricing": {"prompt": "0.0000025", "completion": "0.00001"}
+                }
+            ]
+        }"#;
+        let parsed: ModelsResponse = serde_json::from_str(raw).expect("OpenRouter /models parses");
+        let ids: Vec<String> = parsed.data.into_iter().map(|m| m.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "anthropic/claude-3.5-sonnet".to_string(),
+                "openai/gpt-4o".to_string(),
+            ]
+        );
     }
 }

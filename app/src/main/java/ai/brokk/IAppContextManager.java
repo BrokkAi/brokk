@@ -37,6 +37,28 @@ import org.jetbrains.annotations.Nullable;
 public interface IAppContextManager extends IContextManager {
     Logger logger = LogManager.getLogger(IAppContextManager.class);
 
+    record AnalyzerStatus(
+            String code,
+            boolean ready,
+            boolean building,
+            @Nullable Integer completed,
+            @Nullable Integer total,
+            @Nullable Integer percent,
+            String description) {
+        public static AnalyzerStatus notReady() {
+            return new AnalyzerStatus(
+                    "ANALYZER_NOT_READY", false, false, null, null, null, "Code intelligence not ready");
+        }
+
+        public static AnalyzerStatus building(int completed, int total, int percent, String description) {
+            return new AnalyzerStatus("ANALYZER_BUILDING", false, true, completed, total, percent, description);
+        }
+
+        public static AnalyzerStatus ready(@Nullable Integer total) {
+            return new AnalyzerStatus("ANALYZER_READY", true, false, total, total, 100, "Code intelligence ready");
+        }
+    }
+
     @Override
     IProject getProject();
 
@@ -142,6 +164,15 @@ public interface IAppContextManager extends IContextManager {
         return true;
     }
 
+    /**
+     * Returns whether the context manager is operating in read-only mode (no file edits,
+     * no shell commands, no destructive tools). Headless callers may set this to provide a
+     * sandboxed-deployment guarantee; the GUI never sets it.
+     */
+    default boolean isReadOnly() {
+        return false;
+    }
+
     /** Listener interface for context change events. */
     interface ContextListener {
         void contextChanged(Context newCtx);
@@ -154,6 +185,11 @@ public interface IAppContextManager extends IContextManager {
     default void addAnalyzerCallback(AnalyzerCallback callback) {}
 
     default void removeAnalyzerCallback(AnalyzerCallback callback) {}
+
+    default AnalyzerStatus getAnalyzerStatus() {
+        var ready = getAnalyzerWrapper().getNonBlocking() != null;
+        return ready ? AnalyzerStatus.ready(1) : AnalyzerStatus.notReady();
+    }
 
     static Context mergeCompressedHistory(Context context, List<TaskEntry> compressedTaskHistory) {
         if (compressedTaskHistory.isEmpty()) {

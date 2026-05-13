@@ -230,6 +230,7 @@ public final class JobRunner {
 
     private final ContextManager cm;
     private final JobStore store;
+    private final boolean readOnly;
 
     private final ExecutorService runner;
     private volatile @Nullable String activeJobId;
@@ -282,13 +283,44 @@ public final class JobRunner {
      * @param store The JobStore for persistence
      */
     public JobRunner(ContextManager cm, JobStore store) {
+        this(cm, store, false);
+    }
+
+    /**
+     * Create a new JobRunner with read-only enforcement. When {@code readOnly} is true, jobs that
+     * require write-capable agents (CODE, ARCHITECT, LUTZ, ISSUE, LITE_AGENT) are rejected before
+     * execution and read-only-compatible jobs construct their nested agents with read-only enabled.
+     */
+    public JobRunner(ContextManager cm, JobStore store, boolean readOnly) {
         this.cm = cm;
         this.store = store;
+        this.readOnly = readOnly;
         this.runner = Executors.newSingleThreadExecutor(r -> {
             var t = new Thread(r, "JobRunner");
             t.setDaemon(true);
             return t;
         });
+    }
+
+    /** Returns whether this JobRunner refuses write-capable agents. */
+    public boolean isReadOnly() {
+        return readOnly;
+    }
+
+    /**
+     * Job modes whose primary purpose is to mutate the local workspace (file edits, shell, git branches/commits).
+     * Submitting one of these jobs while {@link #readOnly} is true must be rejected before any agent runs.
+     *
+     * <p>Modes that only perform outbound network calls (REVIEW posting comments, ISSUE_WRITER creating a
+     * GitHub issue, ISSUE_DIAGNOSE posting an analysis comment) are intentionally NOT included -- read-only
+     * is a local-write-prevention guarantee, not a network-egress restriction.
+     */
+    private static final Set<Mode> WRITE_REQUIRING_MODES =
+            Set.of(Mode.CODE, Mode.ARCHITECT, Mode.LUTZ, Mode.ISSUE, Mode.LITE_AGENT);
+
+    /** Returns true if the given mode requires write access (file edits / shell / PR creation). */
+    public static boolean modeRequiresWriteAccess(Mode mode) {
+        return WRITE_REQUIRING_MODES.contains(mode);
     }
 
     /**
@@ -329,6 +361,26 @@ public final class JobRunner {
         if (activeJobId != null && !activeJobId.equals(jobId)) {
             var fut = new CompletableFuture<Void>();
             fut.completeExceptionally(new IllegalStateException("Another job is already running: " + activeJobId));
+            return fut;
+        }
+
+        // Guard: reject write-requiring jobs early when running in read-only mode.
+        // Doing this before activeJobId/futures means observers see a FAILED status without ever
+        // attaching a console or starting the job thread.
+        Mode parsedMode = parseMode(spec);
+        if (readOnly && modeRequiresWriteAccess(parsedMode)) {
+            String message =
+                    "Job mode '%s' requires write access; executor is in read-only mode.".formatted(parsedMode);
+            logger.info("Rejecting job {} in read-only executor: {}", jobId, message);
+            try {
+                var status = JobStatus.queued(jobId).failed(message);
+                store.updateStatus(jobId, status);
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", message));
+            } catch (IOException e) {
+                logger.warn("Failed to persist FAILED status for read-only-rejected job {}: {}", jobId, e.getMessage());
+            }
+            var fut = new CompletableFuture<Void>();
+            fut.completeExceptionally(new IllegalStateException(message));
             return fut;
         }
 
@@ -523,6 +575,9 @@ public final class JobRunner {
                                                             "plannerModel required for PLAN jobs"),
                                                     objectiveForMode(Mode.PLAN),
                                                     scope);
+                                            if (readOnly) {
+                                                searchAgent.setReadOnly(true);
+                                            }
                                             scope.append(searchAgent.execute());
                                         }
                                     }
@@ -591,6 +646,9 @@ public final class JobRunner {
                                                                 askPlannerModel, "plannerModel required for ASK jobs"),
                                                         objectiveForMode(Mode.ASK),
                                                         scope);
+                                                if (readOnly) {
+                                                    searchAgent.setReadOnly(true);
+                                                }
 
                                                 String rawScanModel = spec.scanModel();
                                                 String trimmedScanModel =
@@ -777,6 +835,9 @@ public final class JobRunner {
                                                     scope,
                                                     cm.getIo(),
                                                     scanConfig);
+                                            if (readOnly) {
+                                                searchAgent.setReadOnly(true);
+                                            }
                                             var result = searchAgent.execute();
                                             scope.append(result);
                                         }
@@ -900,6 +961,9 @@ public final class JobRunner {
                                                                 "scan model unavailable for REVIEW pre-scan"),
                                                         objectiveForMode(Mode.REVIEW),
                                                         scope);
+                                                if (readOnly) {
+                                                    searchAgent.setReadOnly(true);
+                                                }
 
                                                 context = searchAgent.scanContext();
 

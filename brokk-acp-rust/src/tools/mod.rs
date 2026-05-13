@@ -4,11 +4,13 @@ mod shell;
 
 use crate::bifrost_client::BifrostClient;
 use crate::llm_client::{FunctionDef, ToolDefinition};
+use crate::skills::SkillRegistry;
 use agent_client_protocol::schema::ToolKind;
 use sandbox::SandboxPolicy;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// Result of executing a tool.
 pub struct ToolResult {
@@ -123,6 +125,17 @@ const TOOLS: &[ToolMeta] = &[
         kind: ToolKind::Other,
         display_name: "Refreshing analyzer index",
     },
+    // --- Agent Skills activation -------------------------------------------
+    // The tool itself is registered dynamically in `tool_definitions()`
+    // only when the session has at least one discovered skill; this row
+    // is what the permission gate looks up by name. Classified `Read`
+    // because activating a skill only reads `SKILL.md` and produces
+    // text -- the skill's body can then drive other (gated) tool calls.
+    ToolMeta {
+        name: "activate_skill",
+        kind: ToolKind::Read,
+        display_name: "Activating skill",
+    },
 ];
 
 fn tool_meta(name: &str) -> Option<&'static ToolMeta> {
@@ -152,10 +165,16 @@ const BUILTIN_TOOL_NAMES: &[&str] = &[
     "runShellCommand",
 ];
 
-/// Unified tool registry: filesystem tools + shell + think + (optionally) bifrost.
+/// Unified tool registry: filesystem tools + shell + think + (optionally)
+/// bifrost code-intelligence tools + Agent Skills activation.
+///
+/// `skills` is wrapped in `RwLock` so the session can swap in a fresh
+/// `SkillRegistry` after `update_cwd` without rebuilding the registry
+/// (which would re-spawn the bifrost subprocess).
 pub struct ToolRegistry {
     cwd: PathBuf,
     bifrost: Option<Arc<BifrostClient>>,
+    skills: RwLock<Arc<SkillRegistry>>,
 }
 
 impl ToolRegistry {
@@ -164,7 +183,17 @@ impl ToolRegistry {
         &self.cwd
     }
 
-    pub async fn new(cwd: PathBuf, bifrost_binary: Option<&Path>) -> Self {
+    /// Replace the cached SkillRegistry. Called by `update_cwd` so the
+    /// next prompt's tool catalog reflects the fresh on-disk skills.
+    pub async fn set_skills(&self, skills: Arc<SkillRegistry>) {
+        *self.skills.write().await = skills;
+    }
+
+    pub async fn new(
+        cwd: PathBuf,
+        bifrost_binary: Option<&Path>,
+        skills: Arc<SkillRegistry>,
+    ) -> Self {
         // Best-effort sweep of any stale seatbelt policy files left by a
         // previous SIGKILL/panic. Bounded by file age so we don't yank a
         // profile from a concurrent in-flight shell call.
@@ -188,11 +217,15 @@ impl ToolRegistry {
                 None
             }
         };
-        Self { cwd, bifrost }
+        Self {
+            cwd,
+            bifrost,
+            skills: RwLock::new(skills),
+        }
     }
 
     /// All tool definitions for the OpenAI tools parameter.
-    pub fn tool_definitions(&self) -> Vec<ToolDefinition> {
+    pub async fn tool_definitions(&self) -> Vec<ToolDefinition> {
         let mut defs = vec![
             tool_def(
                 "think",
@@ -306,6 +339,34 @@ impl ToolRegistry {
                 ));
             }
         }
+
+        // Append `activate_skill` only when at least one skill exists, and
+        // constrain `name` to the discovered set via JSON-schema enum.
+        // The spec's "Filtering" note: don't expose the tool with an
+        // empty enum -- the model would waste turns guessing.
+        let skills = self.skills.read().await;
+        if !skills.is_empty() {
+            let names: Vec<String> = skills.iter_sorted().map(|m| m.name.clone()).collect();
+            defs.push(tool_def(
+                "activate_skill",
+                "Load the full instructions for a previously listed skill from `<available_skills>`. \
+                 Call this BEFORE attempting the task when the user's request matches a skill's description. \
+                 Returns the skill's body and a list of its bundled resource files; use your file-read tool \
+                 to load those resources only when the skill instructions tell you to.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "enum": names,
+                            "description": "Exact skill name from the catalog."
+                        }
+                    },
+                    "required": ["name"]
+                }),
+            ));
+        }
+
         defs
     }
 
@@ -362,6 +423,7 @@ impl ToolRegistry {
                     .unwrap_or(60);
                 shell::run_shell_command(&self.cwd, command, timeout, policy).await
             }
+            "activate_skill" => self.execute_activate_skill(args).await,
             // Any name not handled above is delegated to the bifrost
             // subprocess. This avoids a hardcoded list of bifrost tool
             // names drifting out of sync with what bifrost actually
@@ -369,6 +431,38 @@ impl ToolRegistry {
             // dynamically via `client.tools()`). If bifrost is not
             // running, `execute_bifrost` returns a clear error.
             _ => self.execute_bifrost(name, args).await,
+        }
+    }
+
+    /// Dispatch `activate_skill`. Looks up the requested name against
+    /// the cached `SkillRegistry`; the schema's `enum` constraint should
+    /// keep this from being called with an unknown name, but treat that
+    /// case as a request error rather than an internal error so the
+    /// model gets a clear correction.
+    async fn execute_activate_skill(&self, args: serde_json::Value) -> ToolResult {
+        let name = match args.get("name").and_then(|v| v.as_str()) {
+            Some(n) if !n.is_empty() => n.to_string(),
+            _ => {
+                return ToolResult {
+                    status: ToolStatus::RequestError,
+                    output: "activate_skill requires a non-empty `name` argument.".to_string(),
+                };
+            }
+        };
+        let skills = self.skills.read().await.clone();
+        let Some(meta) = skills.get(&name) else {
+            let available: Vec<&str> = skills.iter_sorted().map(|m| m.name.as_str()).collect();
+            return ToolResult {
+                status: ToolStatus::RequestError,
+                output: format!(
+                    "Unknown skill '{name}'. Available skills: {}",
+                    available.join(", ")
+                ),
+            };
+        };
+        ToolResult {
+            status: ToolStatus::Success,
+            output: crate::agent::build_skill_payload(meta),
         }
     }
 
@@ -633,14 +727,115 @@ mod tests {
     /// `tool_definitions()` (otherwise the LLM never sees it). If you add a
     /// new built-in dispatch arm in `execute`, also add the name to
     /// `BUILTIN_TOOL_NAMES`, the `TOOLS` table, and `tool_definitions()`.
+    use crate::skills::{SkillMeta, SkillScope};
+
+    fn registry_with_skills(skills: Vec<SkillMeta>) -> ToolRegistry {
+        let mut reg = SkillRegistry::default();
+        for meta in skills {
+            reg.insert_for_test(meta);
+        }
+        ToolRegistry {
+            cwd: PathBuf::from("/tmp"),
+            bifrost: None,
+            skills: RwLock::new(Arc::new(reg)),
+        }
+    }
+
+    fn write_skill_fixture(name: &str, body: &str) -> (tempfile::TempDir, SkillMeta) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let skill_dir = tmp.path().join(name);
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        let location = skill_dir.join("SKILL.md");
+        std::fs::write(
+            &location,
+            format!("---\nname: {name}\ndescription: ds\n---\n{body}"),
+        )
+        .unwrap();
+        let meta = SkillMeta {
+            name: name.to_string(),
+            description: "ds".to_string(),
+            location,
+            skill_dir,
+            scope: SkillScope::Project,
+        };
+        (tmp, meta)
+    }
+
+    #[tokio::test]
+    async fn activate_skill_tool_enum_restricted_to_discovered_names() {
+        let (_a, meta_a) = write_skill_fixture("foo", "fb");
+        let (_b, meta_b) = write_skill_fixture("bar", "bb");
+        let registry = registry_with_skills(vec![meta_a, meta_b]);
+        let defs = registry.tool_definitions().await;
+        let activate = defs
+            .iter()
+            .find(|d| d.function.name == "activate_skill")
+            .expect("activate_skill must be advertised");
+        let enum_field = activate
+            .function
+            .parameters
+            .pointer("/properties/name/enum")
+            .expect("name property has an enum constraint")
+            .as_array()
+            .unwrap();
+        let names: Vec<&str> = enum_field.iter().filter_map(|v| v.as_str()).collect();
+        // Alphabetically sorted by SkillRegistry::iter_sorted.
+        assert_eq!(names, vec!["bar", "foo"]);
+    }
+
+    #[tokio::test]
+    async fn activate_skill_tool_absent_when_registry_empty() {
+        let registry = registry_with_skills(vec![]);
+        let defs = registry.tool_definitions().await;
+        assert!(
+            !defs.iter().any(|d| d.function.name == "activate_skill"),
+            "activate_skill must be hidden when no skills are discovered"
+        );
+    }
+
+    #[tokio::test]
+    async fn activate_skill_returns_wrapped_body() {
+        let (_t, meta) = write_skill_fixture("hello", "Greet the user briefly.\n");
+        let registry = registry_with_skills(vec![meta]);
+        let result = registry
+            .execute(
+                "activate_skill",
+                json!({ "name": "hello" }),
+                SandboxPolicy::WorkspaceWrite,
+            )
+            .await;
+        assert!(matches!(result.status, ToolStatus::Success));
+        assert!(result.output.starts_with("<skill_content name=\"hello\">"));
+        assert!(result.output.contains("Greet the user briefly."));
+        assert!(result.output.ends_with("</skill_content>"));
+    }
+
+    #[tokio::test]
+    async fn activate_skill_rejects_unknown_name() {
+        let (_t, meta) = write_skill_fixture("real-skill", "body");
+        let registry = registry_with_skills(vec![meta]);
+        let result = registry
+            .execute(
+                "activate_skill",
+                json!({ "name": "nonexistent" }),
+                SandboxPolicy::WorkspaceWrite,
+            )
+            .await;
+        assert!(matches!(result.status, ToolStatus::RequestError));
+        assert!(result.output.contains("Unknown skill 'nonexistent'"));
+        assert!(result.output.contains("real-skill"));
+    }
+
     #[tokio::test]
     async fn builtin_tools_have_metadata_and_are_advertised() {
         let registry = ToolRegistry {
             cwd: PathBuf::from("/tmp"),
             bifrost: None,
+            skills: RwLock::new(Arc::new(SkillRegistry::default())),
         };
         let advertised: Vec<String> = registry
             .tool_definitions()
+            .await
             .into_iter()
             .map(|d| d.function.name)
             .collect();

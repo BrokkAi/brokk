@@ -21,15 +21,16 @@ public final class TestFileHeuristics {
             + ".*");
 
     public static boolean isTestFile(ProjectFile file, @Nullable IAnalyzer analyzer) {
-        if (analyzer != null && !analyzer.isEmpty()) {
-            IAnalyzer effectiveAnalyzer = analyzer;
-            if (analyzer instanceof MultiAnalyzer multi) {
+        if (analyzer != null) {
+            var effectiveAnalyzer = analyzer;
+            if (effectiveAnalyzer instanceof MultiAnalyzer multi) {
                 var lang = Languages.fromExtension(file.extension());
                 effectiveAnalyzer = multi.getDelegates().get(lang);
             }
 
             if (effectiveAnalyzer != null
-                    && effectiveAnalyzer.as(TestDetectionProvider.class).isPresent()) {
+                    && effectiveAnalyzer.as(TestDetectionProvider.class).isPresent()
+                    && !effectiveAnalyzer.isEmpty()) {
                 return effectiveAnalyzer.containsTests(file);
             }
         }

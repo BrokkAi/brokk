@@ -4,9 +4,8 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.UsageAnalysisExecutors;
 import ai.brokk.analyzer.usages.UsageHit;
-import ai.brokk.concurrent.ExecutorsUtil;
-import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.project.ICoreProject;
 import com.google.common.collect.Lists;
 import java.nio.file.Files;
@@ -156,43 +155,40 @@ public class JdtUsageAnalyzer {
         List<List<ProjectFile>> batches = Lists.partition(javaFiles, 50);
 
         Set<UsageHit> allHits = new HashSet<>();
-        int threads = Runtime.getRuntime().availableProcessors();
-        try (LoggingExecutorService executor = ExecutorsUtil.newFixedThreadExecutor("jdt-usage-analyzer-", threads)) {
-            List<Callable<Set<UsageHit>>> tasks = batches.stream()
-                    .map(batch -> (Callable<Set<UsageHit>>) () -> {
-                        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-                        parser.setResolveBindings(true);
-                        parser.setBindingsRecovery(true);
-                        parser.setKind(ASTParser.K_COMPILATION_UNIT);
-                        parser.setCompilerOptions(options);
-                        parser.setEnvironment(classpath, sourceRoots, null, true);
+        List<Callable<Set<UsageHit>>> tasks = batches.stream()
+                .map(batch -> (Callable<Set<UsageHit>>) () -> {
+                    ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
+                    parser.setResolveBindings(true);
+                    parser.setBindingsRecovery(true);
+                    parser.setKind(ASTParser.K_COMPILATION_UNIT);
+                    parser.setCompilerOptions(options);
+                    parser.setEnvironment(classpath, sourceRoots, null, true);
 
-                        String[] sourcePaths = batch.stream()
-                                .map(pf -> pf.absPath().toString())
-                                .toArray(String[]::new);
+                    String[] sourcePaths =
+                            batch.stream().map(pf -> pf.absPath().toString()).toArray(String[]::new);
 
-                        UsageCollector collector = new UsageCollector(target, new HashSet<>(batch));
-                        try {
-                            parser.createASTs(sourcePaths, null, new String[0], collector, null);
-                        } catch (AssertionError | Exception t) {
-                            log.error("JDT analysis failed for a batch in {}", target.fqName(), t);
-                            throw new RuntimeException("Failed to analyze JDT batch for " + target.fqName(), t);
-                        }
-                        return collector.getHits();
-                    })
-                    .toList();
+                    UsageCollector collector = new UsageCollector(target, new HashSet<>(batch));
+                    try {
+                        parser.createASTs(sourcePaths, null, new String[0], collector, null);
+                    } catch (AssertionError | Exception t) {
+                        log.error("JDT analysis failed for a batch in {}", target.fqName(), t);
+                        throw new RuntimeException("Failed to analyze JDT batch for " + target.fqName(), t);
+                    }
+                    return collector.getHits();
+                })
+                .toList();
 
-            try {
-                List<Future<Set<UsageHit>>> futures = executor.invokeAll(tasks);
-                for (var future : futures) {
-                    allHits.addAll(future.get());
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException("JDT usage analysis interrupted", e);
-            } catch (Exception e) {
-                throw new RuntimeException("JDT usage analysis failed", e);
+        try {
+            List<Future<Set<UsageHit>>> futures =
+                    UsageAnalysisExecutors.cpuExecutor().invokeAll(tasks);
+            for (var future : futures) {
+                allHits.addAll(future.get());
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("JDT usage analysis interrupted", e);
+        } catch (Exception e) {
+            throw new RuntimeException("JDT usage analysis failed", e);
         }
 
         return Collections.unmodifiableSet(allHits);

@@ -86,6 +86,8 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     @Nullable
     private IAnalyzerWrapper analyzerWrapper; // also initialized in createGui/createHeadless
 
+    private final AtomicReference<AnalyzerStatus> analyzerStatus = new AtomicReference<>(AnalyzerStatus.notReady());
+
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
     // Only one of these can run at a time
     private final UserActionManager userActions;
@@ -144,7 +146,8 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     // Cached exception reporter for this context
     private final ExceptionReporter exceptionReporter;
 
-    private final ToolRegistry toolRegistry;
+    private volatile ToolRegistry toolRegistry;
+    private volatile boolean readOnly = false;
     private final AgentStore agentStore;
 
     // Current session tracking
@@ -449,6 +452,8 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
             @Override
             public void beforeEachBuild() {
+                analyzerStatus.set(AnalyzerStatus.building(0, 0, 0, "Building code intelligence"));
+
                 if (io instanceof Chrome chrome) {
                     chrome.showAnalyzerRebuildStatus();
                 }
@@ -461,6 +466,14 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
             @Override
             public void afterEachBuild(boolean externalRequest) {
+                analyzerStatus.updateAndGet(status -> {
+                    var nonNullStatus = requireNonNull(status);
+                    if (isAnalyzerReady()) {
+                        return AnalyzerStatus.ready(nonNullStatus.total());
+                    }
+                    return AnalyzerStatus.notReady();
+                });
+
                 submitBackgroundTask("Code Intelligence post-build", () -> {
                     if (io instanceof Chrome chrome) {
                         chrome.hideAnalyzerRebuildStatus();
@@ -500,6 +513,10 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
             @Override
             public void onAnalyzerReady() {
                 logger.debug("Analyzer became ready, triggering symbol lookup refresh");
+                analyzerStatus.updateAndGet(status -> {
+                    var nonNullStatus = requireNonNull(status);
+                    return isAnalyzerReady() ? AnalyzerStatus.ready(nonNullStatus.total()) : AnalyzerStatus.notReady();
+                });
                 for (var callback : analyzerCallbacks) {
                     submitBackgroundTask("Code Intelligence ready", callback::onAnalyzerReady);
                 }
@@ -507,6 +524,9 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
             @Override
             public void onProgress(int completed, int total, String description) {
+                var percent = total > 0 ? Math.min(100L, Math.max(0L, (completed * 100L) / total)) : 0L;
+                analyzerStatus.set(AnalyzerStatus.building(completed, total, Math.toIntExact(percent), description));
+
                 // Update progress bar on "Rebuilding Code Intelligence" status strip
                 if (io instanceof Chrome chrome) {
                     chrome.updateAnalyzerProgress(completed, total, description);
@@ -717,6 +737,37 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
     public void setAutoCommit(boolean autoCommit) {
         this.autoCommit = autoCommit;
+    }
+
+    /**
+     * Returns whether this ContextManager is operating in read-only mode. When true, the
+     * baseline {@link ToolRegistry} excludes any {@link ai.brokk.tools.Destructive} tools,
+     * and downstream callers should refuse to construct write-capable agents.
+     */
+    @Override
+    public boolean isReadOnly() {
+        return readOnly;
+    }
+
+    /**
+     * Toggle read-only mode. Rebuilds the baseline {@link ToolRegistry} so that subsequent
+     * tool palettes derived from it (via {@code getToolRegistry().builder()...}) inherit the
+     * read-only flag and automatically exclude {@link ai.brokk.tools.Destructive} tools.
+     *
+     * <p>Intended to be called once at startup by headless entry points (e.g.
+     * {@code HeadlessExecutorMain}) before any job runs.
+     */
+    public void setReadOnly(boolean readOnly) {
+        if (this.readOnly == readOnly) {
+            return;
+        }
+        this.readOnly = readOnly;
+        this.toolRegistry = new ToolRegistry(readOnly)
+                .builder()
+                .register(new GitTools(this))
+                .register(new ShellTools(this))
+                .build();
+        logger.info("ContextManager read-only mode set to {}; toolRegistry rebuilt", readOnly);
     }
 
     @Override
@@ -1473,6 +1524,18 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     /** Returns current analyzer readiness without blocking. */
     public boolean isAnalyzerReady() {
         return requireNonNull(analyzerWrapper).getNonBlocking() != null;
+    }
+
+    @Override
+    public AnalyzerStatus getAnalyzerStatus() {
+        var status = requireNonNull(analyzerStatus.get());
+        if (!status.ready() && isAnalyzerReady()) {
+            return requireNonNull(analyzerStatus.updateAndGet(current -> {
+                var nonNullCurrent = requireNonNull(current);
+                return AnalyzerStatus.ready(nonNullCurrent.total());
+            }));
+        }
+        return status;
     }
 
     /** Returns the current session's domain-model task list. Always non-null. */

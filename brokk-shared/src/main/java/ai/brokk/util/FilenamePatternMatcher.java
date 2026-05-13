@@ -1,20 +1,24 @@
 package ai.brokk.util;
 
+import static java.util.Objects.requireNonNull;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import org.jetbrains.annotations.Nullable;
 
 public final class FilenamePatternMatcher {
     private FilenamePatternMatcher() {}
 
-    public record FilenamePattern(Pattern pattern, boolean glob, boolean matchFullPath) {
+    public record FilenamePattern(
+            @Nullable TextMatcher matcher, @Nullable Pattern pattern, boolean glob, boolean matchFullPath) {
         public boolean matches(String filePath) {
             if (!glob) {
-                return AlmostGrep.findWithOverflowGuard(pattern, filePath);
+                return requireNonNull(matcher).find(filePath, null);
             }
             String candidate = matchFullPath ? filePath : basename(filePath);
-            return pattern.matcher(candidate).matches();
+            return requireNonNull(pattern).matcher(candidate).matches();
         }
     }
 
@@ -70,7 +74,7 @@ public final class FilenamePatternMatcher {
 
     private static FilenamePattern compilePattern(String regexPattern, String globPattern, int flags) {
         try {
-            return new FilenamePattern(Pattern.compile(regexPattern, flags), false, true);
+            return new FilenamePattern(TextMatcher.compile(regexPattern, flags), null, false, true);
         } catch (PatternSyntaxException e) {
             return compileGlobPattern(globPattern, flags);
         }
@@ -80,7 +84,7 @@ public final class FilenamePatternMatcher {
         String normalizedGlob = normalizeGlobPattern(globPattern);
         Pattern globRegex = globToRegex(normalizedGlob);
         Pattern compiledGlob = Pattern.compile(globRegex.pattern(), flags);
-        return new FilenamePattern(compiledGlob, true, normalizedGlob.contains("/"));
+        return new FilenamePattern(null, compiledGlob, true, normalizedGlob.contains("/"));
     }
 
     private static boolean hasGlobMetacharacter(String pattern) {

@@ -89,6 +89,15 @@ Computes heuristic cyclomatic complexity for methods in the given files. Flags m
 | `filePaths` | string[] | yes | -- | File paths relative to project root |
 | `threshold` | int | no | 10 | Complexity threshold; methods above this are flagged |
 
+#### `computeCognitiveComplexity`
+
+Computes heuristic cognitive complexity for methods in the given files. Cognitive complexity grows with control-flow breaks and nested control flow, complementing cyclomatic complexity for maintainability triage. Flags methods above the threshold and returns a markdown report.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePaths` | string[] | yes | -- | File paths relative to project root |
+| `threshold` | int | no | 15 | Complexity threshold; methods above this are flagged |
+
 #### `reportCommentDensityForCodeUnit`
 
 Comment density for one symbol identified by fully qualified name. Reports header vs inline comment line counts, declaration span lines, and rolled-up totals for class-like units. Currently Java only.
@@ -107,6 +116,23 @@ Comment density tables for the given source files: one section per file and one 
 | `filePaths` | string[] | yes | -- | File paths relative to project root |
 | `maxTopLevelRows` | int | no | 60 | Maximum declaration rows across all files |
 | `maxFiles` | int | no | 25 | Maximum files to include |
+
+#### `reportLongMethodAndGodObjectSmells`
+
+Reports long methods/functions, god objects/modules, and helper sprawl using analyzer code-unit hierarchy and declaration ranges. Findings are ranked by maintainability impact and bounded by `maxFindings`.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePaths` | string[] | yes | -- | File paths relative to project root |
+| `maxFindings` | int | no | 20 | Maximum findings to return |
+| `maxFiles` | int | no | 25 | Maximum existing files to analyze |
+| `longMethodSpanLines` | int | no | (internal default) | Long method/function line threshold |
+| `highComplexityThreshold` | int | no | (internal default) | High cyclomatic complexity threshold |
+| `godObjectSpanLines` | int | no | (internal default) | God object/module line threshold |
+| `godObjectDirectChildren` | int | no | (internal default) | God object/module direct-child threshold |
+| `godObjectFunctions` | int | no | (internal default) | God object/module function-count threshold |
+| `helperSprawlFunctions` | int | no | (internal default) | Helper-sprawl function-count threshold |
+| `helperSprawlWorkflowLines` | int | no | (internal default) | Helper-sprawl workflow line threshold |
 
 #### `reportExceptionHandlingSmells`
 
@@ -142,9 +168,48 @@ Detects duplicated implementation patterns across functions using normalized tok
 | `astSimilarityPercent` | int | no | 70 | AST refinement threshold (0-100) |
 | `maxFindings` | int | no | 80 | Maximum findings to emit |
 
+#### `reportTestAssertionSmells`
+
+Detects low-value or brittle test assertion smells using language-aware weighted heuristics. Uses analyzer test-marker detection as a fast filter, then scores tautological assertions, shallow assertion-only tests, oversized exact literals, snapshots, and Java anonymous test doubles.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePaths` | string[] | yes | -- | File paths relative to project root |
+| `minScore` | int | no | 4 | Minimum score to include a finding |
+| `maxFindings` | int | no | 80 | Maximum findings to emit |
+| `noAssertionWeight` | int | no | (internal default) | Weight for tests with no assertion-equivalent calls |
+| `tautologicalAssertionWeight` | int | no | (internal default) | Weight for self-comparison or tautological assertions |
+| `constantTruthWeight` | int | no | (internal default) | Weight for `assertTrue(true)`, `assertFalse(false)`, and similar constants |
+| `constantEqualityWeight` | int | no | (internal default) | Weight for comparing two constant expressions |
+| `nullnessOnlyWeight` | int | no | (internal default) | Weight for nullness-only assertions |
+| `shallowAssertionOnlyWeight` | int | no | (internal default) | Weight for tests whose assertions are all shallow |
+| `overspecifiedLiteralWeight` | int | no | (internal default) | Weight for oversized exact string literals |
+| `anonymousTestDoubleWeight` | int | no | (internal default) | Weight for inline anonymous test doubles |
+| `repeatedAnonymousTestDoubleWeight` | int | no | (internal default) | Weight for repeated anonymous test double shapes |
+| `meaningfulAssertionCredit` | int | no | (internal default) | Score credit subtracted per meaningful assertion |
+| `meaningfulAssertionCreditCap` | int | no | (internal default) | Maximum meaningful assertions that earn credit |
+| `largeLiteralLengthThreshold` | int | no | (internal default) | String literal length considered oversized |
+
+#### `reportDeadCodeAndUnusedAbstractionSmells`
+
+Reports likely generated-code residue: unused declarations and one-call abstractions. Uses analyzer declarations plus symbol/reference usage analysis -- not text-only matching. Java uses JDT analysis; JavaScript/TypeScript/Python/Rust route through export-graph strategies with regex fallback. No LLM disambiguation, so language coverage is best-effort outside of Java.
+
+Pass `fqNames` to target specific symbols; leave it empty to scan declarations in the bounded files.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePaths` | string[] | yes | -- | File paths relative to project root |
+| `fqNames` | string[] | no | `[]` | Optional fully qualified symbol names to analyze; empty means discover candidates from `filePaths` |
+| `minScore` | int | no | 8 | Minimum score to include a finding |
+| `maxFindings` | int | no | 40 | Maximum findings to emit |
+| `maxInputFiles` | int | no | 25 | Maximum existing files to scan for candidate declarations |
+| `maxCandidateSymbols` | int | no | 200 | Maximum candidate symbols to analyze |
+| `maxUsageCandidateFiles` | int | no | (usage finder default) | Maximum usage-candidate files to inspect |
+| `maxUsagesPerSymbol` | int | no | 100 | Maximum usage hits per symbol before usage lookup returns a guardrail result |
+
 ## Note on MCP servers
 
 The Brokk codebase has two MCP servers:
 
-1. **`BrokkCoreMcpServer`** (this module, `brokk-core/`) -- Standalone, no LLM dependencies, pure tree-sitter analysis. This is what the Claude Code plugin connects to. Exposes 25 tools.
+1. **`BrokkCoreMcpServer`** (this module, `brokk-core/`) -- Standalone, no LLM dependencies, pure tree-sitter analysis. This is what the Claude Code plugin connects to. Exposes 29 tools.
 2. **`BrokkExternalMcpServer`** (in `app/`) -- Full server with LLM agent capabilities. Not used by the Claude Code plugin.

@@ -71,6 +71,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     }
 
     @Override
+    protected boolean warnOnSignatureInFqNameLookup() {
+        return true;
+    }
+
+    @Override
     public int computeCognitiveComplexity(CodeUnit cu) {
         return computeCognitiveComplexity(cu, CognitiveComplexityAnalysis::compute);
     }

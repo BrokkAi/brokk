@@ -57,6 +57,13 @@ public class ToolRegistry {
     // Backing map for tools. Use a synchronized LinkedHashMap for deterministic ordering while remaining thread-safe.
     private final Map<String, ToolInvocationTarget> toolMap;
 
+    /**
+     * When true, methods (or classes) annotated {@link Destructive} are skipped at registration time.
+     * The flag is set once when the root registry is constructed and is inherited by every {@link Builder}
+     * derived from it, so downstream call sites do not need to know about read-only mode.
+     */
+    private final boolean readOnly;
+
     // Internal record to hold method and the instance it belongs to
     private record ToolInvocationTarget(Method method, Object instance) {}
 
@@ -116,7 +123,16 @@ public class ToolRegistry {
 
     /** Creates a new root ToolRegistry and self-registers internal tools. */
     public ToolRegistry() {
-        this(new LinkedHashMap<>());
+        this(false);
+    }
+
+    /**
+     * Creates a new root ToolRegistry. When {@code readOnly} is true, any subsequent registration
+     * (here and through derived {@link Builder}s) silently skips methods or classes annotated
+     * {@link Destructive}.
+     */
+    public ToolRegistry(boolean readOnly) {
+        this(new LinkedHashMap<>(), readOnly);
         // Root-only registration of builtin tools (like 'think') happens only for the root registry.
         register(this);
     }
@@ -126,13 +142,19 @@ public class ToolRegistry {
      *
      * @param initialMap initial content to seed the registry with (will be copied)
      */
-    private ToolRegistry(Map<String, ToolInvocationTarget> initialMap) {
+    private ToolRegistry(Map<String, ToolInvocationTarget> initialMap, boolean readOnly) {
         this.toolMap = Collections.synchronizedMap(new LinkedHashMap<>(initialMap));
+        this.readOnly = readOnly;
     }
 
     /** Returns an empty, sealed root registry (primarily for tests). */
     public static ToolRegistry empty() {
-        return new ToolRegistry(Map.of());
+        return empty(false);
+    }
+
+    /** Returns an empty, sealed root registry with the given read-only mode. */
+    public static ToolRegistry empty(boolean readOnly) {
+        return new ToolRegistry(Map.of(), readOnly);
     }
 
     /** Builder for creating a sealed local registry based on a base registry. */
@@ -145,22 +167,39 @@ public class ToolRegistry {
         return new Builder(this);
     }
 
+    /** True when this registry was built in read-only mode (destructive tools are not registered). */
+    public boolean isReadOnly() {
+        return readOnly;
+    }
+
     public static final class Builder {
         private final Map<String, ToolInvocationTarget> entries;
+        private final boolean readOnly;
 
         private Builder(ToolRegistry base) {
             synchronized (base.toolMap) {
                 this.entries = new LinkedHashMap<>(base.toolMap);
             }
+            this.readOnly = base.readOnly;
         }
 
         /** Register @Tool methods from the given instance; last registration wins on name conflicts. */
         public Builder register(Object toolProviderInstance) {
             Class<?> clazz = toolProviderInstance.getClass();
+            boolean classDestructive = clazz.isAnnotationPresent(Destructive.class);
             int toolsFound = 0;
+            int toolsSkipped = 0;
             for (Method method : clazz.getMethods()) {
                 if (!method.isAnnotationPresent(Tool.class)) continue;
                 String toolName = method.getName();
+                if (readOnly && (classDestructive || method.isAnnotationPresent(Destructive.class))) {
+                    logger.debug(
+                            "Skipping destructive tool '{}' from class {} (read-only registry)",
+                            toolName,
+                            clazz.getName());
+                    toolsSkipped++;
+                    continue;
+                }
                 var existing = entries.get(toolName);
                 if (existing != null) {
                     logger.debug(
@@ -174,13 +213,15 @@ public class ToolRegistry {
                 entries.put(toolName, new ToolInvocationTarget(method, toolProviderInstance));
                 toolsFound++;
             }
-            assert toolsFound > 0 : "No tools found in " + toolProviderInstance;
+            // Allow a fully destructive provider to register zero tools in read-only mode without tripping the
+            // baseline-coverage assertion meant to catch typos / forgotten @Tool annotations.
+            assert toolsFound > 0 || (readOnly && toolsSkipped > 0) : "No tools found in " + toolProviderInstance;
             return this;
         }
 
         /** Build a sealed, non-root ToolRegistry with the accumulated entries. */
         public ToolRegistry build() {
-            return new ToolRegistry(entries);
+            return new ToolRegistry(entries, readOnly);
         }
         // fluent register chaining supported by returning Builder
     }
@@ -348,12 +389,18 @@ public class ToolRegistry {
     /** Register @Tool methods from the given instance (allowed only when not sealed). */
     public void register(Object toolProviderInstance) {
         Class<?> clazz = toolProviderInstance.getClass();
+        boolean classDestructive = clazz.isAnnotationPresent(Destructive.class);
 
         for (Method method : clazz.getMethods()) {
             if (!method.isAnnotationPresent(Tool.class)) {
                 continue;
             }
             String toolName = method.getName();
+            if (readOnly && (classDestructive || method.isAnnotationPresent(Destructive.class))) {
+                logger.debug(
+                        "Skipping destructive tool '{}' from class {} (read-only registry)", toolName, clazz.getName());
+                continue;
+            }
 
             synchronized (toolMap) {
                 if (toolMap.containsKey(toolName)) {

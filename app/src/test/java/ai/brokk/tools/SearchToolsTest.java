@@ -21,6 +21,7 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.TextMatcher;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -38,7 +39,6 @@ import java.util.Map;
 import java.util.SequencedSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.lib.PersonIdent;
@@ -978,35 +978,38 @@ public class SearchToolsTest {
     void testCompilePatterns_InvalidRegexFallsBackToLiteral() {
         // Invalid regex patterns should fall back to literal matching instead of throwing
         List<String> mixedPatterns = List.of("valid", "[", "(", "   ");
-        List<Pattern> compiled = SearchTools.compilePatterns(mixedPatterns);
+        List<TextMatcher> compiled = SearchTools.compilePatterns(mixedPatterns);
 
         // Should compile 3 patterns (blank "   " is filtered out)
         assertEquals(3, compiled.size(), "Should compile valid + two literal fallbacks, filtering blank");
         // The valid pattern should match as regex
-        assertTrue(compiled.get(0).matcher("valid").find(), "First pattern should match 'valid'");
+        assertInstanceOf(TextMatcher.Literal.class, compiled.get(0), "Plain text should use literal matching");
+        assertTrue(compiled.get(0).find("valid", null), "First pattern should match 'valid'");
         // The fallback patterns should match their literal characters
-        assertTrue(compiled.get(1).matcher("a[b").find(), "Literal '[' should match in 'a[b'");
-        assertTrue(compiled.get(2).matcher("foo(bar").find(), "Literal '(' should match in 'foo(bar'");
+        assertTrue(compiled.get(1).find("a[b", null), "Literal '[' should match in 'a[b'");
+        assertTrue(compiled.get(2).find("foo(bar", null), "Literal '(' should match in 'foo(bar'");
     }
 
     @Test
     void testCompilePatterns_ValidRegexStillWorksAsRegex() {
-        List<Pattern> compiled = SearchTools.compilePatterns(List.of("foo.*bar"));
+        List<TextMatcher> compiled = SearchTools.compilePatterns(List.of("foo.*bar"));
         assertEquals(1, compiled.size());
-        assertTrue(compiled.getFirst().matcher("fooXYZbar").find(), "Should match as regex, not literal");
+        assertInstanceOf(
+                TextMatcher.Regex.class, compiled.getFirst(), "Regex metacharacters should keep regex matching");
+        assertTrue(compiled.getFirst().find("fooXYZbar", null), "Should match as regex, not literal");
         assertFalse(
-                compiled.getFirst().matcher("foo.*bar").find()
-                        && !compiled.getFirst().matcher("foobar").find(),
+                compiled.getFirst().find("foo.*bar", null)
+                        && !compiled.getFirst().find("foobar", null),
                 "Should be regex, not literal");
     }
 
     @Test
     void testCompilePatterns_IssueScenario() {
         // Exact scenario from issue #3199: _show_welcome_message( should not throw
-        List<Pattern> compiled = SearchTools.compilePatterns(List.of("_show_welcome_message("));
+        List<TextMatcher> compiled = SearchTools.compilePatterns(List.of("_show_welcome_message("));
         assertEquals(1, compiled.size());
         assertTrue(
-                compiled.getFirst().matcher("def _show_welcome_message(self):").find(),
+                compiled.getFirst().find("def _show_welcome_message(self):", null),
                 "Should match the literal string including the parenthesis");
     }
 
@@ -1358,6 +1361,55 @@ public class SearchToolsTest {
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "dir/file.txt", false, false, 0, 200);
         assertTrue(result.contains("dir/file.txt"), "Should find file in subdirectory using literal subpath");
+    }
+
+    // Regression: #3197 — dir-prefix globs should match top-level files in that directory,
+    // not only files nested under at least one intermediate segment.
+    @Test
+    void testSearchFileContents_DirPrefixDoubleStarStar_MatchesTopLevel() throws Exception {
+        Path dir = projectRoot.resolve("brokk-code");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("top.txt"), "MATCH");
+        Files.writeString(Files.createDirectories(dir.resolve("sub")).resolve("nested.txt"), "MATCH");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/top.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/sub/nested.txt"));
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "brokk-code/**/*", false, false, 0, 200);
+        assertTrue(
+                result.contains("brokk-code/top.txt"),
+                "dir/**/* must match top-level file (was empty before #3197 fix)");
+        assertTrue(result.contains("brokk-code/sub/nested.txt"), "dir/**/* must still match nested file");
+    }
+
+    @Test
+    void testSearchFileContents_DirPrefixDoubleStar_MatchesAllDepths() throws Exception {
+        Path dir = projectRoot.resolve("brokk-code");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("top.txt"), "MATCH");
+        Files.writeString(Files.createDirectories(dir.resolve("sub")).resolve("nested.txt"), "MATCH");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/top.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/sub/nested.txt"));
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "brokk-code/**", false, false, 0, 200);
+        assertTrue(result.contains("brokk-code/top.txt"));
+        assertTrue(result.contains("brokk-code/sub/nested.txt"));
+    }
+
+    @Test
+    void testSearchFileContents_InfixGlob_MatchesByBasename() throws Exception {
+        Files.writeString(projectRoot.resolve("mcp.py"), "MATCH");
+        Path sub = projectRoot.resolve("server");
+        Files.createDirectories(sub);
+        Files.writeString(sub.resolve("mcp_server.py"), "MATCH");
+        Files.writeString(sub.resolve("unrelated.py"), "MATCH");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "mcp.py"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "server/mcp_server.py"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "server/unrelated.py"));
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "**/*mcp*", false, false, 0, 200);
+        assertTrue(result.contains("mcp.py"), "**/*mcp* must match root-level mcp.py");
+        assertTrue(result.contains("server/mcp_server.py"), "**/*mcp* must match nested mcp_server.py");
+        assertFalse(result.contains("server/unrelated.py"), "**/*mcp* must not match files without 'mcp' in name");
     }
 
     @Test

@@ -8,18 +8,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.project.CoreProject;
 import ai.brokk.project.ICoreProject;
 import ai.brokk.tools.SearchTools;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.lib.PersonIdent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -92,10 +96,14 @@ class BrokkCoreMcpServerTest {
                 "xmlSkim",
                 "xmlSelect",
                 "computeCyclomaticComplexity",
+                "computeCognitiveComplexity",
                 "reportCommentDensityForCodeUnit",
                 "reportCommentDensityForFiles",
+                "reportLongMethodAndGodObjectSmells",
                 "reportExceptionHandlingSmells",
-                "reportStructuralCloneSmells");
+                "reportStructuralCloneSmells",
+                "reportTestAssertionSmells",
+                "reportDeadCodeAndUnusedAbstractionSmells");
 
         for (var expected : expectedTools) {
             assertTrue(toolNames.contains(expected), "Missing tool: " + expected);
@@ -337,6 +345,22 @@ class BrokkCoreMcpServerTest {
     }
 
     @Test
+    void computeCognitiveComplexityRunsWithoutError() {
+        var result = callTool("computeCognitiveComplexity", Map.of("filePaths", List.of("README.md"), "threshold", 15));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportLongMethodAndGodObjectSmellsRunsWithoutError() {
+        var result = callTool("reportLongMethodAndGodObjectSmells", Map.of("filePaths", List.of("README.md")));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
     void reportCommentDensityForCodeUnitRunsWithoutError() {
         var result = callTool(
                 "reportCommentDensityForCodeUnit", Map.of("fqName", "com.example.NonExistent", "maxLines", 120));
@@ -372,5 +396,205 @@ class BrokkCoreMcpServerTest {
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportTestAssertionSmellsRunsWithoutError() {
+        var result = callTool("reportTestAssertionSmells", Map.of("filePaths", List.of("README.md")));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportDeadCodeAndUnusedAbstractionSmellsAcceptsMissingFqNames() {
+        var result = callTool("reportDeadCodeAndUnusedAbstractionSmells", Map.of("filePaths", List.of("README.md")));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportDeadCodeReportsUnusedSymbolWithEvidence() throws Exception {
+        rebuildServerWithJavaSources(Map.of(
+                "src/main/java/com/example/Sample.java",
+                """
+                package com.example;
+                public class Sample {
+                    public int used(int value) {
+                        return value + 1;
+                    }
+
+                    private int unusedHelper(int value) {
+                        return value * 2;
+                    }
+                }
+                """
+                        .stripIndent()));
+
+        var result = callTool(
+                "reportDeadCodeAndUnusedAbstractionSmells",
+                Map.of(
+                        "filePaths",
+                        List.of("src/main/java/com/example/Sample.java"),
+                        "fqNames",
+                        List.of("com.example.Sample.unusedHelper")));
+        assertFalse(result.isError() != null && result.isError());
+        String text = textOf(result);
+        assertTrue(text.contains("com.example.Sample.unusedHelper"), text);
+        assertTrue(text.contains("no non-self usages found"), text);
+        assertTrue(text.contains("may be generated residue"), text);
+    }
+
+    @Test
+    void reportDeadCodeFlagsOneCallAbstraction() throws Exception {
+        rebuildServerWithJavaSources(Map.of(
+                "src/main/java/com/example/Target.java",
+                """
+                package com.example;
+                public class Target {
+                    public int oneCallWrapper(int value) {
+                        return value + 1;
+                    }
+                }
+                """
+                        .stripIndent(),
+                "src/main/java/com/example/Caller.java",
+                """
+                package com.example;
+                public class Caller {
+                    public int call(Target target) {
+                        return target.oneCallWrapper(41);
+                    }
+                }
+                """
+                        .stripIndent()));
+
+        var result = callTool(
+                "reportDeadCodeAndUnusedAbstractionSmells",
+                Map.of(
+                        "filePaths",
+                        List.of("src/main/java/com/example/Target.java"),
+                        "fqNames",
+                        List.of("com.example.Target.oneCallWrapper")));
+        assertFalse(result.isError() != null && result.isError());
+        String text = textOf(result);
+        assertTrue(text.contains("com.example.Target.oneCallWrapper"), text);
+        assertTrue(text.contains("only usage"), text);
+        assertTrue(text.contains("low-value abstraction"), text);
+    }
+
+    @Test
+    void reportDeadCodeSuppressesSymbolsWithMultipleCallers() throws Exception {
+        rebuildServerWithJavaSources(Map.of(
+                "src/main/java/com/example/Target.java",
+                """
+                package com.example;
+                public class Target {
+                    public int usedByMany(int value) {
+                        return value + 1;
+                    }
+                }
+                """
+                        .stripIndent(),
+                "src/main/java/com/example/First.java",
+                """
+                package com.example;
+                public class First {
+                    public int call(Target target) {
+                        return target.usedByMany(1);
+                    }
+                }
+                """
+                        .stripIndent(),
+                "src/main/java/com/example/Second.java",
+                """
+                package com.example;
+                public class Second {
+                    public int call(Target target) {
+                        return target.usedByMany(2);
+                    }
+                }
+                """
+                        .stripIndent()));
+
+        var result = callTool(
+                "reportDeadCodeAndUnusedAbstractionSmells",
+                Map.of(
+                        "filePaths",
+                        List.of("src/main/java/com/example/Target.java"),
+                        "fqNames",
+                        List.of("com.example.Target.usedByMany")));
+        assertFalse(result.isError() != null && result.isError());
+        String text = textOf(result);
+        assertTrue(text.contains("No dead code or unused abstraction smells met minScore"), text);
+        assertFalse(text.contains("| `com.example.Target.usedByMany` |"), text);
+    }
+
+    @Test
+    void reportDeadCodeDiscoversCandidatesWhenFqNamesEmpty() throws Exception {
+        rebuildServerWithJavaSources(Map.of(
+                "src/main/java/com/example/Discovery.java",
+                """
+                package com.example;
+                public class Discovery {
+                    private int unusedDeclaration(int value) {
+                        return value * 3;
+                    }
+                }
+                """
+                        .stripIndent()));
+
+        var result = callTool(
+                "reportDeadCodeAndUnusedAbstractionSmells",
+                Map.of(
+                        "filePaths", List.of("src/main/java/com/example/Discovery.java"),
+                        "fqNames", List.of()));
+        assertFalse(result.isError() != null && result.isError());
+        String text = textOf(result);
+        assertTrue(text.contains("unusedDeclaration"), text);
+        assertTrue(text.contains("no non-self usages found"), text);
+    }
+
+    // -- Helpers --
+
+    private String textOf(McpSchema.CallToolResult result) {
+        return result.content().stream()
+                .filter(McpSchema.TextContent.class::isInstance)
+                .map(McpSchema.TextContent.class::cast)
+                .map(McpSchema.TextContent::text)
+                .collect(Collectors.joining("\n"));
+    }
+
+    private void rebuildServerWithJavaSources(Map<String, String> sources) throws Exception {
+        commitTrackedFiles(projectRoot, sources, Instant.parse("2025-01-01T00:00:00Z"), "Add Java sources");
+        project.close();
+        project = new CoreProject(projectRoot);
+        IAnalyzer analyzer = Languages.JAVA.createAnalyzer(project);
+        var intel = new StandaloneCodeIntelligence(project, analyzer);
+        var searchTools = new SearchTools(intel);
+        server = new BrokkCoreMcpServer(project, intel, searchTools);
+    }
+
+    private static void commitTrackedFiles(
+            Path projectRoot, Map<String, String> filesByPath, Instant instant, String message) throws Exception {
+        try (Git git = Git.open(projectRoot.toFile())) {
+            var ident = new PersonIdent("Test User", "test@example.com", instant, ZoneId.of("UTC"));
+            for (var entry : filesByPath.entrySet()) {
+                Path file = projectRoot.resolve(entry.getKey());
+                Path parent = file.getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                Files.writeString(file, entry.getValue());
+                git.add().addFilepattern(entry.getKey().replace('\\', '/')).call();
+            }
+            git.commit()
+                    .setMessage(message)
+                    .setAuthor(ident)
+                    .setCommitter(ident)
+                    .setSign(false)
+                    .call();
+        }
     }
 }

@@ -72,6 +72,14 @@ public class HeadlessExecCli {
     // New flag: when true and mode == ISSUE, instruct server to skip verification (tests/lint/review loops)
     private boolean skipVerification = false;
 
+    /**
+     * When true, the embedded HeadlessExecutorMain is started in read-only mode: destructive tools
+     * (ShellAgent, CodeAgent, all {@code @Destructive} tools) are unregistered and write-requiring
+     * jobs (CODE/ARCHITECT/LUTZ/ISSUE/LITE_AGENT) are rejected. Mirrors {@code --read-only}/{@code READ_ONLY}
+     * on {@code HeadlessExecutorMain}.
+     */
+    private boolean readOnly = false;
+
     private @Nullable HeadlessExecutorMain executor;
 
     private @Nullable Path tempWorkspaceRoot;
@@ -208,7 +216,21 @@ public class HeadlessExecCli {
         var execId = UUID.randomUUID();
         var project = new MainProject(workspaceRoot);
         var contextManager = new ContextManager(project);
-        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager);
+        // Resolve read-only from CLI flag (takes precedence) or the READ_ONLY environment variable
+        // so the value propagates to the in-process HeadlessExecutorMain consistently with its CLI.
+        boolean resolvedReadOnly = readOnly || isReadOnlyEnvEnabled();
+        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager, resolvedReadOnly);
+    }
+
+    private static boolean isReadOnlyEnvEnabled() {
+        var envValue = System.getenv("READ_ONLY");
+        if (envValue == null || envValue.isBlank()) {
+            return false;
+        }
+        return switch (envValue.trim().toLowerCase(Locale.ROOT)) {
+            case "1", "true", "yes", "on" -> true;
+            default -> false;
+        };
     }
 
     private HeadlessExecutorMain requireInitializedExecutor() {
@@ -592,6 +614,8 @@ public class HeadlessExecCli {
         System.out.println("  --token TOKEN            Auth token (default: random UUID)");
         System.out.println("  --auto-commit            Enable auto-commit of changes");
         System.out.println("  --auto-compress          Enable auto-compress of context");
+        System.out.println(
+                "  --read-only              Run executor in read-only mode (no file edits, shell, or git mutations; env READ_ONLY)");
         System.out.println("  --help                   Show this help message");
         System.out.println();
         System.out.println(
@@ -636,7 +660,8 @@ public class HeadlessExecCli {
                     if ("auto-commit".equals(key)
                             || "auto-compress".equals(key)
                             || "pre-scan".equals(key)
-                            || "skip-verification".equals(key)) {
+                            || "skip-verification".equals(key)
+                            || "read-only".equals(key)) {
                         // Boolean flags
                         parseOption(key, "true");
                     } else {
@@ -868,6 +893,7 @@ public class HeadlessExecCli {
             case "build-settings" -> buildSettings = value;
             case "issue-delivery" -> issueDelivery = value;
             case "skip-verification" -> skipVerification = true;
+            case "read-only" -> readOnly = true;
             default -> {
                 System.err.println("ERROR: Unknown option: --" + key);
                 return false;

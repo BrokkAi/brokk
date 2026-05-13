@@ -1,11 +1,25 @@
 [package]
 name = "brokk-tui"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 description = "Terminal UI client for the Agent Client Protocol (ACP)"
-license = "LGPL-3.0"
+license = "GPL-3.0"
 publish = false
 
 [[bin]]
 name = "brokk-tui"
 path = "src/main.rs"
+
+[dependencies]
+agent-client-protocol = "0.11"
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+crossterm = { version = "0.28", features = ["event-stream"] }
+futures = "0.3"
+ratatui = "0.29"
+serde_json = "1"
+shell-words = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["compat", "rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
