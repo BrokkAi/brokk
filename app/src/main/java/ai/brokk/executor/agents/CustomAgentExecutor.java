@@ -135,13 +135,16 @@ public class CustomAgentExecutor {
             }
 
             var additionsThisTurn = new ArrayList<ContextFragment>();
+            var executionRegistry = registryForContext(toolRegistry, context);
 
             // Parallel execution for safe tools
             var parallelPartition =
                     ToolRegistry.partitionByNames(ai.toolExecutionRequests(), PARALLEL_SAFE_SEARCH_TOOL_NAMES);
             var parallelRequests = parallelPartition.matchingRequests();
-            Map<ToolExecutionRequest, CompletableFuture<ToolExecutionResult>> parallelFutures = new LinkedHashMap<>();
+            Map<ToolExecutionRequest, CompletableFuture<ToolExecutionResult>> parallelFutures =
+                    new LinkedHashMap<>(parallelRequests.size());
             if (parallelRequests.size() > 1) {
+                var parallelExecutionRegistry = executionRegistry;
                 for (var request : parallelRequests) {
                     boolean destructive = toolRegistry.isToolAnnotated(request.name(), Destructive.class);
                     var approval = io.beforeToolCall(request, destructive);
@@ -152,12 +155,10 @@ public class CustomAgentExecutor {
                                         request, "Tool call '%s' was denied by user.".formatted(request.name()))));
                     } else {
                         io.toolCallInProgress(request);
-                        Context snapshotContext = context;
                         parallelFutures.put(
-                                request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
-                                        .register(new WorkspaceTools(snapshotContext))
-                                        .build()
-                                        .executeTool(request)));
+                                request,
+                                LoggingFuture.supplyCallableVirtual(
+                                        () -> parallelExecutionRegistry.executeTool(request)));
                     }
                 }
             }
@@ -187,9 +188,6 @@ public class CustomAgentExecutor {
                         io.afterToolOutput(toolResult);
                     } else {
                         io.toolCallInProgress(request);
-                        var executionRegistry = ToolRegistry.fromBase(toolRegistry)
-                                .register(new WorkspaceTools(context))
-                                .build();
                         toolResult = executionRegistry.executeTool(request);
                         io.afterToolOutput(toolResult);
                     }
@@ -199,9 +197,11 @@ public class CustomAgentExecutor {
 
                 if (toolResult.result() instanceof WorkspaceTools.WorkspaceMutationOutput output) {
                     context = output.context();
+                    executionRegistry = registryForContext(toolRegistry, context);
                     additionsThisTurn.addAll(output.addedFragments());
                 } else if (toolResult.result() instanceof WorkspaceTools.DropWorkspaceOutput output) {
                     context = output.context();
+                    executionRegistry = registryForContext(toolRegistry, context);
                     additionsThisTurn.addAll(output.addedFragments());
                 }
 
@@ -221,6 +221,12 @@ public class CustomAgentExecutor {
         }
 
         return errorResult("Turn limit reached (%d turns).".formatted(maxTurns));
+    }
+
+    private static ToolRegistry registryForContext(ToolRegistry baseRegistry, Context context) {
+        return ToolRegistry.fromBase(baseRegistry)
+                .register(new WorkspaceTools(context))
+                .build();
     }
 
     private String buildTurnDirective(
