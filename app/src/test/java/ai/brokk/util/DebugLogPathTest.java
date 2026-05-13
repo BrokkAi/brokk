@@ -104,15 +104,15 @@ class DebugLogPathTest {
 
     @Test
     void deleteRegexQuotesConfiguredFileName(@TempDir Path tempDir) throws IOException {
-        var debugLogPath = tempDir.resolve("scan-123").resolve("*.log");
+        var debugLogPath = tempDir.resolve("scan-123").resolve("debug(1).log");
 
         DebugLogPath.configureHeadless(Map.of(DebugLogPath.ARG, debugLogPath.toString()));
 
         var deleteRegex = System.getProperty(DebugLogPath.DELETE_REGEX_PROPERTY);
-        assertEquals(Pattern.quote("*.log") + "\\.\\d{4}-\\d{2}-\\d{2}", deleteRegex);
+        assertEquals(Pattern.quote("debug(1).log") + "\\.\\d{4}-\\d{2}-\\d{2}", deleteRegex);
         var pattern = Pattern.compile(deleteRegex);
-        assertTrue(pattern.matcher("*.log.2026-05-13").matches());
-        assertFalse(pattern.matcher("executor.log.2026-05-13").matches());
+        assertTrue(pattern.matcher("debug(1).log.2026-05-13").matches());
+        assertFalse(pattern.matcher("debug1.log.2026-05-13").matches());
         assertFalse(pattern.matcher("debug.log.backup").matches());
     }
 
