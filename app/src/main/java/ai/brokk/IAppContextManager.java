@@ -164,6 +164,15 @@ public interface IAppContextManager extends IContextManager {
         return true;
     }
 
+    /**
+     * Returns whether the context manager is operating in read-only mode (no file edits,
+     * no shell commands, no destructive tools). Headless callers may set this to provide a
+     * sandboxed-deployment guarantee; the GUI never sets it.
+     */
+    default boolean isReadOnly() {
+        return false;
+    }
+
     /** Listener interface for context change events. */
     interface ContextListener {
         void contextChanged(Context newCtx);

@@ -146,7 +146,8 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     // Cached exception reporter for this context
     private final ExceptionReporter exceptionReporter;
 
-    private final ToolRegistry toolRegistry;
+    private volatile ToolRegistry toolRegistry;
+    private volatile boolean readOnly = false;
     private final AgentStore agentStore;
 
     // Current session tracking
@@ -736,6 +737,37 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
     public void setAutoCommit(boolean autoCommit) {
         this.autoCommit = autoCommit;
+    }
+
+    /**
+     * Returns whether this ContextManager is operating in read-only mode. When true, the
+     * baseline {@link ToolRegistry} excludes any {@link ai.brokk.tools.Destructive} tools,
+     * and downstream callers should refuse to construct write-capable agents.
+     */
+    @Override
+    public boolean isReadOnly() {
+        return readOnly;
+    }
+
+    /**
+     * Toggle read-only mode. Rebuilds the baseline {@link ToolRegistry} so that subsequent
+     * tool palettes derived from it (via {@code getToolRegistry().builder()...}) inherit the
+     * read-only flag and automatically exclude {@link ai.brokk.tools.Destructive} tools.
+     *
+     * <p>Intended to be called once at startup by headless entry points (e.g.
+     * {@code HeadlessExecutorMain}) before any job runs.
+     */
+    public void setReadOnly(boolean readOnly) {
+        if (this.readOnly == readOnly) {
+            return;
+        }
+        this.readOnly = readOnly;
+        this.toolRegistry = new ToolRegistry(readOnly)
+                .builder()
+                .register(new GitTools(this))
+                .register(new ShellTools(this))
+                .build();
+        logger.info("ContextManager read-only mode set to {}; toolRegistry rebuilt", readOnly);
     }
 
     @Override

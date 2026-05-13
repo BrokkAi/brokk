@@ -127,6 +127,43 @@ class ContextManagerTest {
     }
 
     @Test
+    void setReadOnly_rebuildsToolRegistryWithoutDestructiveTools() throws Exception {
+        // The headless --read-only contract requires the baseline ToolRegistry to drop
+        // @Destructive tools so the LLM never sees them (issue #3617).
+        var tempDir = Files.createTempDirectory("ctxmgr-read-only");
+        var project = new MainProject(tempDir);
+        var cm = new ContextManager(project);
+        try {
+            // Default mode: destructive tools (e.g. runShellCommand) are registered.
+            assertTrue(
+                    cm.getToolRegistry().isRegistered("runShellCommand"),
+                    "ContextManager should expose runShellCommand in normal mode");
+            assertTrue(cm.getToolRegistry().isRegistered("think"), "think is always available");
+            assertTrue(
+                    cm.getToolRegistry().isRegistered("explainCommit"),
+                    "GitTools.explainCommit is read-only and must remain registered");
+
+            cm.setReadOnly(true);
+
+            assertTrue(cm.isReadOnly());
+            assertTrue(cm.getToolRegistry().isReadOnly(), "Rebuilt registry must report read-only");
+            assertTrue(cm.getToolRegistry().isRegistered("think"));
+            assertTrue(
+                    cm.getToolRegistry().isRegistered("explainCommit"),
+                    "Read-only mode must keep read-only git tools available");
+            assertTrue(
+                    !cm.getToolRegistry().isRegistered("runShellCommand"),
+                    "Read-only mode must filter @Destructive runShellCommand from the registry");
+
+            // Toggling back restores destructive tools.
+            cm.setReadOnly(false);
+            assertTrue(cm.getToolRegistry().isRegistered("runShellCommand"));
+        } finally {
+            project.close();
+        }
+    }
+
+    @Test
     public void testDropHistoryEntryBySequence() throws Exception {
         var tempDir = Files.createTempDirectory("ctxmgr-test");
         var project = new MainProject(tempDir);
