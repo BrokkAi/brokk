@@ -4,7 +4,7 @@
     <Property name="logFile">${sys:brokk.debugLogPath:-${sys:user.home}/.brokk/debug.log}</Property>
     <Property name="logFilePattern">${sys:brokk.debugLogFilePattern:-${sys:user.home}/.brokk/debug.log.%d{yyyy-MM-dd}}</Property>
     <Property name="logFileDeleteBasePath">${sys:brokk.debugLogDeleteBasePath:-${sys:user.home}/.brokk}</Property>
-    <Property name="logFileDeleteGlob">${sys:brokk.debugLogDeleteGlob:-debug.log.*}</Property>
+    <Property name="logFileDeleteRegex">${sys:brokk.debugLogDeleteRegex:-\Qdebug.log\E\.\d{4}-\d{2}-\d{2}}</Property>
     <Property name="pattern">%d [%t] %-5level %C{1}.%M:%L - %msg%n</Property>
   </Properties>
 
@@ -19,7 +19,7 @@
       <!-- Keep only the 7 most recent rolled files -->
       <DefaultRolloverStrategy>
         <Delete basePath="${logFileDeleteBasePath}" maxDepth="1">
-          <IfFileName glob="${logFileDeleteGlob}"/>
+          <IfFileName regex="${logFileDeleteRegex}"/>
           <IfAccumulatedFileCount exceeds="7"/>
         </Delete>
       </DefaultRolloverStrategy>

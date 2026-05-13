@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
@@ -14,9 +15,10 @@ public final class DebugLogPath {
     public static final String SYSTEM_PROPERTY = "brokk.debugLogPath";
     public static final String FILE_PATTERN_PROPERTY = "brokk.debugLogFilePattern";
     public static final String DELETE_BASE_PATH_PROPERTY = "brokk.debugLogDeleteBasePath";
-    public static final String DELETE_GLOB_PROPERTY = "brokk.debugLogDeleteGlob";
+    public static final String DELETE_REGEX_PROPERTY = "brokk.debugLogDeleteRegex";
 
     private static final String ROLLOVER_DATE_PATTERN = ".%d{yyyy-MM-dd}";
+    private static final String ROLLOVER_DATE_REGEX = "\\.\\d{4}-\\d{2}-\\d{2}";
 
     private DebugLogPath() {}
 
@@ -123,6 +125,6 @@ public final class DebugLogPath {
         System.setProperty(SYSTEM_PROPERTY, debugLogPath.toString());
         System.setProperty(FILE_PATTERN_PROPERTY, debugLogPath + ROLLOVER_DATE_PATTERN);
         System.setProperty(DELETE_BASE_PATH_PROPERTY, parent.toString());
-        System.setProperty(DELETE_GLOB_PROPERTY, fileName + ".*");
+        System.setProperty(DELETE_REGEX_PROPERTY, Pattern.quote(fileName.toString()) + ROLLOVER_DATE_REGEX);
     }
 }
