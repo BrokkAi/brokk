@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.ICoreProject;
+import ai.brokk.util.AsciiUtil;
 import ai.brokk.util.ConcurrencyUtil;
 import ai.brokk.util.TextCanonicalizer;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -1412,40 +1413,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     if (!search.caseInsensitive()) {
                         return literals.stream().anyMatch(fqName::contains);
                     }
-                    if (!isAscii(fqName)) {
+                    if (!AsciiUtil.isAscii(fqName)) {
                         return compiledPattern.matcher(fqName).find();
                     }
-                    return literals.stream().anyMatch(literal -> containsAsciiIgnoreCase(fqName, literal));
+                    return literals.stream().anyMatch(literal -> AsciiUtil.containsIgnoreCase(fqName, literal));
                 })
                 .filter(cu -> !isAnonymousStructure(cu.fqName()))
                 .collect(Collectors.toSet());
-    }
-
-    private static boolean containsAsciiIgnoreCase(String haystack, String needle) {
-        int maxStart = haystack.length() - needle.length();
-        for (int start = 0; start <= maxStart; start++) {
-            if (regionMatchesAsciiIgnoreCase(haystack, start, needle)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean regionMatchesAsciiIgnoreCase(String haystack, int start, String needle) {
-        for (int i = 0; i < needle.length(); i++) {
-            if (toAsciiLower(haystack.charAt(start + i)) != toAsciiLower(needle.charAt(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static char toAsciiLower(char ch) {
-        return ch >= 'A' && ch <= 'Z' ? (char) (ch + ('a' - 'A')) : ch;
-    }
-
-    private static boolean isAscii(String text) {
-        return text.chars().allMatch(ch -> ch < 128);
     }
 
     private record LiteralDefinitionSearch(List<String> literals, boolean caseInsensitive) {
@@ -1459,7 +1433,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 return fromLiteralPattern(regex, true);
             }
             if (substringFilter != null) {
-                if (!isAscii(substringFilter)) {
+                if (!AsciiUtil.isAscii(substringFilter)) {
                     return Optional.empty();
                 }
                 return Optional.of(new LiteralDefinitionSearch(List.of(substringFilter), true));
@@ -1480,7 +1454,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 if (literal.isEmpty()) {
                     return Optional.empty();
                 }
-                if (caseInsensitive && !isAscii(literal.get())) {
+                if (caseInsensitive && !AsciiUtil.isAscii(literal.get())) {
                     return Optional.empty();
                 }
                 literals.add(literal.get());
