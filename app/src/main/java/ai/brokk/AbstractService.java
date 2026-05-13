@@ -437,6 +437,16 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      * Retrieves the maximum output tokens for the given model name.
      */
     private int getMaxOutputTokens(String modelName) {
+        var override = System.getenv("BRK_OUTPUT_TOKENS");
+        if (override != null && !override.isBlank()) {
+            var parsed = Integer.parseInt(override.trim());
+            if (parsed <= 0) {
+                throw new IllegalArgumentException("BRK_OUTPUT_TOKENS must be positive, got: " + override);
+            }
+            logger.debug("Overriding max output tokens for {} with BRK_OUTPUT_TOKENS={}", modelName, parsed);
+            return parsed;
+        }
+
         var info = getModelInfo(modelName);
 
         Integer value;
