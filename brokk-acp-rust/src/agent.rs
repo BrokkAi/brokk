@@ -441,21 +441,38 @@ async fn apply_config_option(
 /// shows up in editor autocomplete (Zed, JetBrains ACP) -- without this
 /// the slash command works when typed but is invisible to discovery.
 fn builtin_commands() -> Vec<AvailableCommand> {
-    vec![
+    let mut commands = vec![
         AvailableCommand::new("context", "Show current session context snapshot"),
         AvailableCommand::new(
             "codex-login",
             "Sign in with ChatGPT (or `status` / `disconnect`)",
         ),
-        AvailableCommand::new(
-            "idle-timeout",
-            "Show or set the LLM SSE idle timeout for this session (e.g. `/idle-timeout 600`)",
-        ),
-        AvailableCommand::new(
-            "configure",
-            "Show or change session settings (e.g. `/configure model_selection gpt-5`)",
-        ),
-    ]
+    ];
+    // `/openrouter-login` is advertised only when the env var does not
+    // own the credential lifecycle. When `OPENROUTER_API_KEY` is set
+    // in the process environment, the key cannot be mutated from a
+    // session (the server reads env once at startup and a `disconnect`
+    // can't undo that), so showing the slash would be misleading. The
+    // slash is still kept in `builtin_command_names()` unconditionally
+    // so a skill can't claim the name -- typing it manually dispatches
+    // to the handler, which then explains why the command is disabled.
+    // `/configure` exposes the credential status either way so users
+    // can still see where the active key comes from.
+    if !crate::openrouter_auth::CredentialState::snapshot().env_owns() {
+        commands.push(AvailableCommand::new(
+            "openrouter-login",
+            "Save an OpenRouter API key (or `status` / `disconnect`)",
+        ));
+    }
+    commands.push(AvailableCommand::new(
+        "idle-timeout",
+        "Show or set the LLM SSE idle timeout for this session (e.g. `/idle-timeout 600`)",
+    ));
+    commands.push(AvailableCommand::new(
+        "configure",
+        "Show or change session settings (e.g. `/configure model_selection gpt-5`)",
+    ));
+    commands
 }
 
 /// Set of built-in slash command names, used to detect collisions with
@@ -463,9 +480,15 @@ fn builtin_commands() -> Vec<AvailableCommand> {
 /// filtered skills entirely" guidance: don't expose a slash that won't
 /// actually dispatch to the skill).
 fn builtin_command_names() -> std::collections::HashSet<&'static str> {
-    ["context", "codex-login", "idle-timeout", "configure"]
-        .into_iter()
-        .collect()
+    [
+        "context",
+        "codex-login",
+        "openrouter-login",
+        "idle-timeout",
+        "configure",
+    ]
+    .into_iter()
+    .collect()
 }
 
 /// Build the full command list advertised to the client: built-ins plus
@@ -863,6 +886,18 @@ pub async fn run_agent(
 
                 if is_slash_command(&prompt_text, "codex-login") {
                     let report = handle_codex_login(
+                        &prompt_text,
+                        &llm_login,
+                        &sessions_login,
+                        &refresh_lock_login,
+                    )
+                    .await;
+                    send_message(&cx, &session_id, &report);
+                    return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                }
+
+                if is_slash_command(&prompt_text, "openrouter-login") {
+                    let report = handle_openrouter_login(
                         &prompt_text,
                         &llm_login,
                         &sessions_login,
@@ -1655,6 +1690,169 @@ async fn handle_codex_login(
     }
 }
 
+/// User-facing explanation returned when `OPENROUTER_API_KEY` is set
+/// in the process environment. Single source of truth for the message
+/// so the slash handler, future status surfaces, and any test stay in
+/// agreement on the wording (and on the pointer to `/configure` for
+/// the actual state dump).
+fn openrouter_env_owned_explanation() -> String {
+    "OpenRouter credentials are owned by the OPENROUTER_API_KEY environment \
+     variable, so /openrouter-login is disabled. The server reads \
+     OPENROUTER_API_KEY once at startup; unset it (and restart the server) if \
+     you want to manage credentials via /openrouter-login. Run /configure to \
+     see the current credential state (env_set / file_present / active_source)."
+        .to_string()
+}
+
+/// Handle the `/openrouter-login` slash command and its subcommands.
+/// Subcommands: bare = help text (no OAuth flow), `<key>` = save key and
+/// install backend, `status` = report what's stored and where it came
+/// from, `disconnect` = wipe the local credentials.
+///
+/// Unlike Codex, OpenRouter has no browser flow -- the user pastes a
+/// static `sk-or-...` key inline. That key lands in the session
+/// transcript, so the help text and the success message both warn the
+/// user to rotate the key if the transcript is shared.
+///
+/// **Credential-ownership contract**: when `OPENROUTER_API_KEY` is set
+/// in the process environment, the env owns the credential lifecycle
+/// and this handler short-circuits with an explanation for every
+/// subcommand. The slash is hidden from autocomplete in that mode too
+/// (see `builtin_commands`), but the handler still runs when typed
+/// manually so users can't get "command not found" with no hint.
+/// Diagnostic state (env_set, file_present, active_source) stays
+/// available via `/configure` regardless of which mode is active.
+async fn handle_openrouter_login(
+    prompt_text: &str,
+    llm: &Arc<MultiBackend>,
+    sessions: &SessionStore,
+    refresh_lock: &Arc<tokio::sync::Mutex<()>>,
+) -> String {
+    if crate::openrouter_auth::CredentialState::snapshot().env_owns() {
+        return openrouter_env_owned_explanation();
+    }
+    // Take the entire argument tail (everything after the command), not
+    // just the first whitespace-delimited token: OpenRouter keys are
+    // ASCII with no spaces in practice, but we trim defensively so a
+    // user who pasted with trailing spaces doesn't see a "key was empty"
+    // bounce. `status` and `disconnect` are case-insensitive to match
+    // the `/codex-login` ergonomics.
+    let after_cmd = prompt_text
+        .trim()
+        .strip_prefix('/')
+        .unwrap_or("")
+        .split_once(char::is_whitespace)
+        .map(|(_, tail)| tail)
+        .unwrap_or("")
+        .trim();
+
+    let lowered = after_cmd.to_ascii_lowercase();
+    match lowered.as_str() {
+        "" => format!(
+            "Usage: `/openrouter-login <key>` | `/openrouter-login status` | \
+             `/openrouter-login disconnect`. Get a key at \
+             https://openrouter.ai/keys. Note: the key appears in this session's \
+             transcript, so rotate it at openrouter.ai if you share the log. \
+             Credentials are persisted to {}.",
+            crate::openrouter_auth::auth_path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "the OS config directory".to_string())
+        ),
+        "status" => {
+            // env_owns short-circuits the whole handler at the top, so
+            // we only reach this arm when the env var is unset. The
+            // snapshot's env_set is therefore always false here -- we
+            // include it in the output anyway for self-contained
+            // diagnostics so users don't have to cross-reference
+            // /configure to confirm the env is clear.
+            let state = crate::openrouter_auth::CredentialState::snapshot();
+            let file_key = match crate::openrouter_auth::read() {
+                Ok(Some(auth)) => Some(auth.api_key.trim().to_string()).filter(|s| !s.is_empty()),
+                Ok(None) => None,
+                Err(e) => {
+                    return format!("Failed to read OpenRouter credential file: {e:#}");
+                }
+            };
+            let active_len = file_key
+                .as_deref()
+                .map(str::len)
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "n/a".to_string());
+            let path = crate::openrouter_auth::auth_path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "<unresolved>".to_string());
+            format!(
+                "OpenRouter login status:\n  active_source: {}\n  \
+                 active_key_length: {active_len}\n  base_url: {}\n  \
+                 credential_file: {path}\n  file_present: {}\n  env_set: {}",
+                state.active_source(),
+                crate::discovery::OPENROUTER_BASE_URL,
+                state.file_present,
+                state.env_set,
+            )
+        }
+        "disconnect" => match crate::openrouter_auth::logout() {
+            Ok(()) => {
+                llm.uninstall_openrouter();
+                spawn_throttled_refresh(refresh_lock.clone(), llm.clone(), sessions.clone());
+                "OpenRouter credentials cleared and the in-memory backend was unloaded; \
+                 the picker will only show models from other configured backends until \
+                 you re-run `/openrouter-login <key>`."
+                    .to_string()
+            }
+            Err(e) => format!("Failed to remove OpenRouter credential file: {e:#}"),
+        },
+        _ => {
+            // Anything else is treated as a candidate API key. Reject
+            // obvious junk (whitespace-only after trim is handled above;
+            // empty is the "" arm); accept everything else and let the
+            // first request 401 if the key is malformed. We don't gate
+            // on the `sk-or-` prefix because OpenRouter has historically
+            // issued keys with other shapes and we'd rather not hardcode
+            // a check that ages out.
+            let key = after_cmd.to_string();
+            match crate::openrouter_auth::write(&crate::openrouter_auth::OpenRouterAuth {
+                api_key: key.clone(),
+            }) {
+                Ok(()) => match crate::openrouter_backend_from_key(&key) {
+                    Some(backend) => {
+                        llm.install_openrouter(backend);
+                        spawn_throttled_refresh(
+                            refresh_lock.clone(),
+                            llm.clone(),
+                            sessions.clone(),
+                        );
+                        let path = crate::openrouter_auth::auth_path()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|_| "<unresolved>".to_string());
+                        format!(
+                            "OpenRouter login complete (key length: {}). \
+                             Credentials saved to {} (chmod 0600). The picker will \
+                             show `openrouter::*` models after the next discovery \
+                             refresh; create a new session or wait briefly. \
+                             Reminder: the key was sent inline and is recorded in \
+                             this session's transcript -- rotate it at \
+                             https://openrouter.ai/keys if the transcript is shared.",
+                            key.len(),
+                            path,
+                        )
+                    }
+                    None => {
+                        // Defensive: write() rejects empty input upstream
+                        // via the "" arm, so reaching None here means the
+                        // key became empty after trim somewhere -- still
+                        // surface a clear error rather than installing a
+                        // broken backend.
+                        let _ = crate::openrouter_auth::logout();
+                        "OpenRouter login failed: provided key was empty after trimming".to_string()
+                    }
+                },
+                Err(e) => format!("OpenRouter login failed: could not save key: {e:#}"),
+            }
+        }
+    }
+}
+
 /// Pure parser for `/idle-timeout` arguments. Returns either a successful
 /// action to apply, or a user-facing error string. Factored out from
 /// `handle_idle_timeout` so it can be unit-tested without standing up a
@@ -1823,11 +2021,22 @@ async fn handle_configure(
 /// Render the `/configure` dump of all four session knobs as a single
 /// readable block. Mirrors `all_config_options` field-for-field so the
 /// text view never drifts from the structured view.
+///
+/// The OpenRouter credential block at the bottom is **read-only** -- it
+/// reports where the active key comes from (env / file / none) and
+/// whether `/openrouter-login` is available, so users can see the
+/// credential state even when the env owns the lifecycle and the slash
+/// is hidden from autocomplete. Setting credentials is intentionally
+/// not routed through `/configure`: a global secret has a different
+/// lifecycle than per-session knobs, and the dedicated
+/// `/openrouter-login` keeps that distinction sharp.
 fn render_configure_dump(session: &Session) -> String {
     let effort = session
         .selected_reasoning_effort
         .clone()
         .unwrap_or_else(|| REASONING_EFFORT_DEFAULT_VALUE.to_string());
+    let or_state = crate::openrouter_auth::CredentialState::snapshot();
+    let login_available = !or_state.env_owns();
     format!(
         "**Configuration**\n\n\
          - `{BEHAVIOR_CONFIG_ID}`: `{behavior}`\n\
@@ -1835,11 +2044,28 @@ fn render_configure_dump(session: &Session) -> String {
          - `{MODEL_CONFIG_ID}`: `{model}`\n\
          - `{REASONING_EFFORT_CONFIG_ID}`: `{effort}`\n\n\
          Set a value with `/configure <key> <value>`. \
-         Supported keys: {keys}.",
+         Supported keys: {keys}.\n\n\
+         **OpenRouter credentials** (read-only)\n\n\
+         - `active_source`: `{active_source}`\n\
+         - `env_set`: `{env_set}`\n\
+         - `file_present`: `{file_present}`\n\
+         - `login_command_available`: `{login_available}`\n\n\
+         {login_hint}",
         behavior = session.mode.as_str(),
         permission = session.permission_mode.as_str(),
         model = session.model,
         keys = CONFIGURE_KNOWN_KEYS.join(", "),
+        active_source = or_state.active_source(),
+        env_set = or_state.env_set,
+        file_present = or_state.file_present,
+        login_available = login_available,
+        login_hint = if login_available {
+            "Manage the key with `/openrouter-login <key>` | `status` | `disconnect`."
+        } else {
+            "`/openrouter-login` is disabled because `OPENROUTER_API_KEY` owns \
+             the credential lifecycle. Unset the env var and restart the server \
+             to manage the key from a session."
+        },
     )
 }
 
@@ -2429,6 +2655,13 @@ mod tests {
 
     #[test]
     fn available_commands_merges_builtins_and_skills() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        // The expected ordering includes /openrouter-login, which is
+        // gated on OPENROUTER_API_KEY being unset; without this guard
+        // the test would fail on dev machines that happen to have the
+        // env var exported.
+        let _lock = ENV_GUARD.blocking_lock();
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
         let registry = make_registry(vec![("zebra", "Z skill"), ("apple", "A skill")]);
         let cmds = available_commands(&registry);
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
@@ -2439,6 +2672,7 @@ mod tests {
             vec![
                 "context",
                 "codex-login",
+                "openrouter-login",
                 "idle-timeout",
                 "configure",
                 "apple",
@@ -2463,6 +2697,192 @@ mod tests {
         assert_eq!(names.iter().filter(|n| **n == "context").count(), 1);
         // Non-colliding skill still appears.
         assert!(names.contains(&"ok-skill"));
+    }
+
+    /// When `OPENROUTER_API_KEY` is set, the env owns the credential
+    /// lifecycle and `/openrouter-login` must not appear in
+    /// autocomplete -- it would be misleading because the server can't
+    /// swap the env-sourced backend at runtime. The slash is still
+    /// reserved in `builtin_command_names()` so a skill can't capture
+    /// it; typing it manually still dispatches to the handler, which
+    /// short-circuits with an explanation.
+    #[test]
+    fn available_commands_omits_openrouter_login_when_env_set() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock = ENV_GUARD.blocking_lock();
+        let _env = EnvScope::set("OPENROUTER_API_KEY", "sk-or-from-env");
+
+        let registry = make_registry(vec![]);
+        let cmds = available_commands(&registry);
+        let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
+
+        assert!(
+            !names.contains(&"openrouter-login"),
+            "openrouter-login must be hidden when env owns credentials; got {names:?}"
+        );
+        // The other built-ins are unaffected.
+        assert!(names.contains(&"context"));
+        assert!(names.contains(&"codex-login"));
+        assert!(names.contains(&"idle-timeout"));
+        assert!(names.contains(&"configure"));
+    }
+
+    /// Sanity check the inverse: with the env unset, the slash IS
+    /// advertised. Pairs with the env-set test so a future refactor
+    /// can't accidentally hide the command unconditionally.
+    #[test]
+    fn available_commands_includes_openrouter_login_when_env_unset() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock = ENV_GUARD.blocking_lock();
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
+
+        let registry = make_registry(vec![]);
+        let cmds = available_commands(&registry);
+        let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            names.contains(&"openrouter-login"),
+            "openrouter-login must be advertised when env is unset; got {names:?}"
+        );
+    }
+
+    /// The `/configure` dump surfaces OpenRouter credential state as a
+    /// read-only block so it stays discoverable even when
+    /// `/openrouter-login` is hidden. Env-owned case: env_set=true,
+    /// login_command_available=false, hint mentions the env var.
+    #[tokio::test]
+    async fn render_configure_dump_reports_env_owned_credentials() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::set("OPENROUTER_API_KEY", "sk-or-from-env");
+
+        let (store, id) = make_store_with_session("m").await;
+        let session = store
+            .get_session(&id, &std::env::temp_dir())
+            .await
+            .expect("session present");
+        let dump = render_configure_dump(&session);
+
+        assert!(
+            dump.contains("`active_source`: `env`"),
+            "dump must report env as active source; got:\n{dump}"
+        );
+        assert!(dump.contains("`env_set`: `true`"), "dump:\n{dump}");
+        assert!(dump.contains("`file_present`: `false`"), "dump:\n{dump}");
+        assert!(
+            dump.contains("`login_command_available`: `false`"),
+            "dump:\n{dump}"
+        );
+        assert!(
+            dump.contains("OPENROUTER_API_KEY"),
+            "hint must point at the env var when env owns: {dump}"
+        );
+    }
+
+    /// File-owned case: env unset, file has a key. active_source=file,
+    /// login_command_available=true, hint points at `/openrouter-login`.
+    #[tokio::test]
+    async fn render_configure_dump_reports_file_owned_credentials() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
+        crate::openrouter_auth::write(&crate::openrouter_auth::OpenRouterAuth {
+            api_key: "sk-or-on-disk".to_string(),
+        })
+        .unwrap();
+
+        let (store, id) = make_store_with_session("m").await;
+        let session = store
+            .get_session(&id, &std::env::temp_dir())
+            .await
+            .expect("session present");
+        let dump = render_configure_dump(&session);
+
+        assert!(
+            dump.contains("`active_source`: `file`"),
+            "dump must report file as active source; got:\n{dump}"
+        );
+        assert!(dump.contains("`env_set`: `false`"), "dump:\n{dump}");
+        assert!(dump.contains("`file_present`: `true`"), "dump:\n{dump}");
+        assert!(
+            dump.contains("`login_command_available`: `true`"),
+            "dump:\n{dump}"
+        );
+        assert!(
+            dump.contains("/openrouter-login"),
+            "hint must mention the slash when login is available: {dump}"
+        );
+    }
+
+    /// No credentials at all: dump still renders, reports
+    /// active_source=none, login is still available (so the user knows
+    /// they CAN add a key via the slash).
+    #[tokio::test]
+    async fn render_configure_dump_reports_no_credentials() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
+
+        let (store, id) = make_store_with_session("m").await;
+        let session = store
+            .get_session(&id, &std::env::temp_dir())
+            .await
+            .expect("session present");
+        let dump = render_configure_dump(&session);
+
+        assert!(dump.contains("`active_source`: `none`"), "dump:\n{dump}");
+        assert!(dump.contains("`env_set`: `false`"), "dump:\n{dump}");
+        assert!(dump.contains("`file_present`: `false`"), "dump:\n{dump}");
+        // Login is still possible, just no key registered yet.
+        assert!(
+            dump.contains("`login_command_available`: `true`"),
+            "dump:\n{dump}"
+        );
+    }
+
+    /// The handler short-circuits with the env-owned explanation for
+    /// every subcommand when `OPENROUTER_API_KEY` is set. We assert the
+    /// bare and `<key>` paths -- they're the ones that would mutate
+    /// state if the early-return ever regressed. Status/disconnect are
+    /// covered transitively by the same short-circuit.
+    #[tokio::test]
+    async fn handle_openrouter_login_short_circuits_when_env_owns() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::set("OPENROUTER_API_KEY", "sk-or-from-env");
+
+        let store = SessionStore::new("m".into());
+        let llm = std::sync::Arc::new(crate::multi_backend::MultiBackend::new(None, None, None));
+        let refresh = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+
+        let bare = handle_openrouter_login("/openrouter-login", &llm, &store, &refresh).await;
+        let with_key =
+            handle_openrouter_login("/openrouter-login sk-or-rotated", &llm, &store, &refresh)
+                .await;
+
+        for (label, msg) in [("bare", bare), ("with key", with_key)] {
+            assert!(
+                msg.contains("OPENROUTER_API_KEY"),
+                "{label} response must explain env ownership: {msg}"
+            );
+            assert!(
+                msg.contains("/configure"),
+                "{label} response must point at /configure for diagnostics: {msg}"
+            );
+        }
+        // And critically: no file was written despite the candidate key.
+        let path = crate::openrouter_auth::auth_path().unwrap();
+        assert!(
+            !path.exists(),
+            "env-owned mode must not persist a key on disk; file at {path:?} should not exist"
+        );
     }
 
     #[test]

@@ -34,19 +34,18 @@ use crate::llm_client::{ChatMessage, LlmBackend, LlmResponse, ModelMetadata, Too
 /// Ollama on the default port); calls for a source whose backend isn't
 /// configured return a clear error rather than silently falling through.
 ///
-/// The Codex slot is held behind a `RwLock` so a successful
-/// `/codex-login` mid-session can install a backend without a server
-/// restart. The lock is only ever held for the duration of a synchronous
-/// `Option<Arc<...>>` clone -- we never hold it across an `.await`.
+/// The Codex and OpenRouter slots are held behind `RwLock`s so a
+/// successful `/codex-login` or `/openrouter-login` mid-session can
+/// install a backend without a server restart. The lock is only ever
+/// held for the duration of a synchronous `Option<Arc<...>>` clone --
+/// we never hold it across an `.await`.
 ///
-/// OpenRouter is held as a plain `Option<Arc<...>>` (no lock): there's no
-/// runtime install flow for it today -- the API key is read once at
-/// startup from the env var, and we never need to mutate the slot after
-/// construction. Adding a lock later if a `/openrouter-login` slash
-/// command lands would be mechanical.
+/// Ollama stays a plain `Option<Arc<...>>`: there's no login flow for
+/// it (the daemon either listens on the default port or it doesn't),
+/// so the slot is set once at construction and never mutated.
 pub struct MultiBackend {
     codex: RwLock<Option<Arc<dyn LlmBackend>>>,
-    openrouter: Option<Arc<dyn LlmBackend>>,
+    openrouter: RwLock<Option<Arc<dyn LlmBackend>>>,
     ollama: Option<Arc<dyn LlmBackend>>,
 }
 
@@ -58,7 +57,7 @@ impl MultiBackend {
     ) -> Self {
         Self {
             codex: RwLock::new(codex),
-            openrouter,
+            openrouter: RwLock::new(openrouter),
             ollama,
         }
     }
@@ -92,6 +91,22 @@ impl MultiBackend {
         *self.codex.write().unwrap() = None;
     }
 
+    /// Install (or replace) the OpenRouter backend at runtime. Called
+    /// from `/openrouter-login <key>` so a session that started without
+    /// `OPENROUTER_API_KEY` or an on-disk credential file picks up the
+    /// new key on the next discovery refresh.
+    pub fn install_openrouter(&self, backend: Arc<dyn LlmBackend>) {
+        *self.openrouter.write().unwrap() = Some(backend);
+    }
+
+    /// Drop the currently-installed OpenRouter backend, if any. Called
+    /// from `/openrouter-login disconnect` after the on-disk credential
+    /// file is wiped so a subsequent `openrouter::*` request fails with
+    /// "backend not configured" instead of firing 401-bound requests.
+    pub fn uninstall_openrouter(&self) {
+        *self.openrouter.write().unwrap() = None;
+    }
+
     /// Snapshot the current Codex backend, if any. Cloning the inner Arc
     /// lets callers release the read lock immediately; they can then
     /// `.await` the backend without holding a guard.
@@ -99,10 +114,16 @@ impl MultiBackend {
         self.codex.read().unwrap().clone()
     }
 
+    /// Snapshot the current OpenRouter backend, if any. Same shape as
+    /// `codex_snapshot` -- callers release the read lock before awaiting.
+    fn openrouter_snapshot(&self) -> Option<Arc<dyn LlmBackend>> {
+        self.openrouter.read().unwrap().clone()
+    }
+
     fn pick(&self, source: ModelSource) -> Option<Arc<dyn LlmBackend>> {
         match source {
             ModelSource::Codex => self.codex_snapshot(),
-            ModelSource::OpenRouter => self.openrouter.clone(),
+            ModelSource::OpenRouter => self.openrouter_snapshot(),
             ModelSource::Ollama => self.ollama.clone(),
         }
     }
@@ -121,7 +142,8 @@ impl MultiBackend {
         if codex_present {
             return Some(ModelSource::Codex);
         }
-        if self.openrouter.is_some() {
+        let openrouter_present = self.openrouter.read().unwrap().is_some();
+        if openrouter_present {
             return Some(ModelSource::OpenRouter);
         }
         if self.ollama.is_some() {
@@ -197,7 +219,7 @@ impl LlmBackend for MultiBackend {
             // the backend isn't configured (no `OPENROUTER_API_KEY`),
             // the closure returns an empty list and `discover_all`
             // logs/skips it like any other absent source.
-            let openrouter_backend = self.openrouter.clone();
+            let openrouter_backend = self.openrouter_snapshot();
             let openrouter_lookup = move || async move {
                 match openrouter_backend {
                     Some(or) => or.list_models().await,

@@ -13,6 +13,7 @@ mod codex_client;
 mod discovery;
 mod llm_client;
 mod multi_backend;
+mod openrouter_auth;
 mod session;
 mod skills;
 mod tool_loop;
@@ -204,25 +205,20 @@ fn build_ollama_backend() -> Arc<dyn LlmBackend> {
     Arc::new(llm_client::OpenAiClient::new(chat_url, None))
 }
 
-/// Build the OpenRouter chat backend if `OPENROUTER_API_KEY` is set.
-/// OpenRouter speaks the OpenAI Chat Completions wire format verbatim,
-/// so we reuse `OpenAiClient` with the OpenRouter base URL and attach
-/// the optional `HTTP-Referer` / `X-Title` attribution headers (these
-/// drive the openrouter.ai leaderboard rankings; both are documented as
-/// optional but we always set them so the app shows up consistently).
+/// Build an OpenRouter chat backend from a raw API key. OpenRouter speaks
+/// the OpenAI Chat Completions wire format verbatim, so we reuse
+/// `OpenAiClient` with the OpenRouter base URL and attach the optional
+/// `HTTP-Referer` / `X-Title` attribution headers (these drive the
+/// openrouter.ai leaderboard rankings; both are documented as optional
+/// but we always set them so the app shows up consistently).
 ///
-/// Auth posture mirrors Codex: zero-config -- if the env var is absent
-/// the backend is skipped silently, no CLI flag, no warning. Whitespace
-/// is trimmed so accidental shell quoting (`export OPENROUTER_API_KEY=" sk-..."`)
-/// doesn't 401 every request.
-fn build_openrouter_backend() -> Option<Arc<dyn LlmBackend>> {
-    let raw = std::env::var(discovery::OPENROUTER_API_KEY_ENV).ok()?;
+/// Whitespace is trimmed so accidental shell quoting
+/// (`export OPENROUTER_API_KEY=" sk-..."`) doesn't 401 every request.
+/// Returns `None` for an empty key so callers can distinguish "not
+/// configured" from "configured but broken".
+pub fn openrouter_backend_from_key(raw: &str) -> Option<Arc<dyn LlmBackend>> {
     let key = raw.trim();
     if key.is_empty() {
-        tracing::info!(
-            "{} is set but empty; OpenRouter backend skipped",
-            discovery::OPENROUTER_API_KEY_ENV
-        );
         return None;
     }
 
@@ -240,16 +236,68 @@ fn build_openrouter_backend() -> Option<Arc<dyn LlmBackend>> {
         reqwest::header::HeaderValue::from_static("brokk-acp-rust"),
     );
 
-    tracing::info!(
-        "OpenRouter backend wired at {} (chat + discovery); key length={}",
-        discovery::OPENROUTER_BASE_URL,
-        key.len()
-    );
     Some(Arc::new(llm_client::OpenAiClient::with_default_headers(
         discovery::OPENROUTER_BASE_URL.to_string(),
         Some(key.to_string()),
         headers,
     )))
+}
+
+/// Build the OpenRouter chat backend from the first available credential
+/// source. Auth posture mirrors Codex: zero-config -- if neither the env
+/// var nor the on-disk file holds a usable key the backend is skipped
+/// silently, no CLI flag required.
+///
+/// Precedence is env > file: an explicit `OPENROUTER_API_KEY=...` in the
+/// shell that launched the server overrides a stale on-disk key, so a
+/// user rotating their key in a shell session doesn't have to remember
+/// to `/openrouter-login` first. The on-disk file (written by
+/// `/openrouter-login <key>` mid-session) is the persistent fallback for
+/// the common case of starting the server without env vars.
+fn build_openrouter_backend() -> Option<Arc<dyn LlmBackend>> {
+    if let Ok(raw) = std::env::var(discovery::OPENROUTER_API_KEY_ENV) {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            tracing::info!(
+                "{} is set but empty; falling back to {}",
+                discovery::OPENROUTER_API_KEY_ENV,
+                openrouter_auth::auth_path()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| "on-disk credential file".to_string())
+            );
+        } else {
+            tracing::info!(
+                "OpenRouter backend wired from {} at {} (chat + discovery); key length={}",
+                discovery::OPENROUTER_API_KEY_ENV,
+                discovery::OPENROUTER_BASE_URL,
+                trimmed.len()
+            );
+            return openrouter_backend_from_key(trimmed);
+        }
+    }
+
+    match openrouter_auth::read() {
+        Ok(Some(auth)) => {
+            let trimmed = auth.api_key.trim();
+            if trimmed.is_empty() {
+                tracing::info!(
+                    "OpenRouter credential file exists but contains an empty key; backend skipped"
+                );
+                return None;
+            }
+            tracing::info!(
+                "OpenRouter backend wired from on-disk credentials at {} (chat + discovery); key length={}",
+                discovery::OPENROUTER_BASE_URL,
+                trimmed.len()
+            );
+            openrouter_backend_from_key(trimmed)
+        }
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!("failed to read OpenRouter credential file: {e:#}");
+            None
+        }
+    }
 }
 
 #[tokio::main]
@@ -299,7 +347,8 @@ async fn main() -> Result<()> {
     }
     if openrouter_backend.is_none() {
         tracing::info!(
-            "OpenRouter backend not available; set {} to enable it.",
+            "OpenRouter backend not available; set {} or run `/openrouter-login <key>` \
+             from a session to enable it.",
             discovery::OPENROUTER_API_KEY_ENV
         );
     }
