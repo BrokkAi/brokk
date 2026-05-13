@@ -15,6 +15,7 @@ public final class ToolExecutionResult {
     private final Status status;
     private final ToolOutput result;
     private final long elapsedMs;
+    private @Nullable ToolExecutionResultMessage message;
 
     private ToolExecutionResult(ToolExecutionRequest request, Status status, ToolOutput result, long elapsedMs) {
         this.request = request;
@@ -120,6 +121,10 @@ public final class ToolExecutionResult {
      * @return A ToolExecutionResultMessage.
      */
     public ToolExecutionResultMessage toMessage() {
+        var cached = message;
+        if (cached != null) {
+            return cached;
+        }
         String text =
                 switch (status) {
                     case SUCCESS -> result.llmText();
@@ -127,7 +132,9 @@ public final class ToolExecutionResult {
                     case INTERNAL_ERROR -> "Internal error: " + result.llmText();
                     case FATAL -> "Fatal error: " + result.llmText();
                 };
-        return new ToolExecutionResultMessage(toolId(), toolName(), text);
+        var resultMessage = new ToolExecutionResultMessage(toolId(), toolName(), text);
+        message = resultMessage;
+        return resultMessage;
     }
 
     public ToolExecutionRequest request() {
