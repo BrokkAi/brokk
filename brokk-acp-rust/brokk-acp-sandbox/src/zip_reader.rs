@@ -60,18 +60,11 @@ pub enum ZipReadError {
     },
     /// An offset or length parsed from a header would exceed the
     /// archive buffer.
-    OffsetOutOfBounds {
-        offset: usize,
-        len: usize,
-    },
+    OffsetOutOfBounds { offset: usize, len: usize },
     /// Entry uses a compression method other than Stored/Deflated.
     UnsupportedCompression(u16),
     /// Decompressed entry exceeded the caller's byte cap.
-    EntryTooLarge {
-        name: String,
-        cap: u64,
-        actual: u64,
-    },
+    EntryTooLarge { name: String, cap: u64, actual: u64 },
     /// `miniz_oxide` returned a decode error.
     Inflate(String),
     /// Decompressed payload was not valid UTF-8 (caller asked for
@@ -389,9 +382,8 @@ fn decompress_entry(
             // tricked into a multi-GB allocation by a lying CD entry.
             let cap = max_bytes.min(uncompressed_size) as usize;
             let mut out = Vec::with_capacity(cap);
-            let mut decoder = miniz_oxide::inflate::stream::InflateState::new_boxed(
-                miniz_oxide::DataFormat::Raw,
-            );
+            let mut decoder =
+                miniz_oxide::inflate::stream::InflateState::new_boxed(miniz_oxide::DataFormat::Raw);
             let mut input = compressed;
             let mut buf = vec![0u8; 64 * 1024];
             loop {
@@ -458,29 +450,21 @@ fn find_eocd(archive: &[u8]) -> Result<usize, ZipReadError> {
 }
 
 fn read_u16_le(buf: &[u8], at: usize) -> Result<u16, ZipReadError> {
-    let end = at.checked_add(2).ok_or(ZipReadError::OffsetOutOfBounds {
-        offset: at,
-        len: 2,
-    })?;
+    let end = at
+        .checked_add(2)
+        .ok_or(ZipReadError::OffsetOutOfBounds { offset: at, len: 2 })?;
     if end > buf.len() {
-        return Err(ZipReadError::OffsetOutOfBounds {
-            offset: at,
-            len: 2,
-        });
+        return Err(ZipReadError::OffsetOutOfBounds { offset: at, len: 2 });
     }
     Ok(u16::from_le_bytes([buf[at], buf[at + 1]]))
 }
 
 fn read_u32_le(buf: &[u8], at: usize) -> Result<u32, ZipReadError> {
-    let end = at.checked_add(4).ok_or(ZipReadError::OffsetOutOfBounds {
-        offset: at,
-        len: 4,
-    })?;
+    let end = at
+        .checked_add(4)
+        .ok_or(ZipReadError::OffsetOutOfBounds { offset: at, len: 4 })?;
     if end > buf.len() {
-        return Err(ZipReadError::OffsetOutOfBounds {
-            offset: at,
-            len: 4,
-        });
+        return Err(ZipReadError::OffsetOutOfBounds { offset: at, len: 4 });
     }
     Ok(u32::from_le_bytes([
         buf[at],

@@ -505,9 +505,13 @@ impl WasmSandbox {
                 // generic sandbox-wrapped error. Best effort: match
                 // the display strings produced by `SearchError`.
                 if let Some(rest) = msg.strip_prefix("Invalid regex: ") {
-                    Err(brokk_acp_sandbox::SearchError::InvalidRegex(rest.to_string()))
+                    Err(brokk_acp_sandbox::SearchError::InvalidRegex(
+                        rest.to_string(),
+                    ))
                 } else if let Some(rest) = msg.strip_prefix("Invalid glob: ") {
-                    Err(brokk_acp_sandbox::SearchError::InvalidGlob(rest.to_string()))
+                    Err(brokk_acp_sandbox::SearchError::InvalidGlob(
+                        rest.to_string(),
+                    ))
                 } else {
                     Err(brokk_acp_sandbox::SearchError::Walk(format!(
                         "[sandbox] {msg}"
@@ -950,8 +954,14 @@ mod tests {
         let wasm = SandboxBackend::Wasm(Arc::new(wasm_sandbox));
         let wasm_result = wasm.parse_skill_frontmatter(yaml);
         assert_eq!(
-            native_result.as_ref().ok().map(|p| (p.name.clone(), p.description.clone())),
-            wasm_result.as_ref().ok().map(|p| (p.name.clone(), p.description.clone())),
+            native_result
+                .as_ref()
+                .ok()
+                .map(|p| (p.name.clone(), p.description.clone())),
+            wasm_result
+                .as_ref()
+                .ok()
+                .map(|p| (p.name.clone(), p.description.clone())),
             "native vs wasm disagreement: native={native_result:?} wasm={wasm_result:?}"
         );
     }
@@ -1022,7 +1032,9 @@ mod tests {
         let path = tmp.path().join("agree.txt");
         std::fs::write(&path, "same content on both backends\n").unwrap();
 
-        let native = SandboxBackend::Native.read_file_bounded(&path, 1024).unwrap();
+        let native = SandboxBackend::Native
+            .read_file_bounded(&path, 1024)
+            .unwrap();
         let wasm_sandbox = WasmSandbox::new().expect("wasm sandbox should initialize");
         let wasm = SandboxBackend::Wasm(Arc::new(wasm_sandbox))
             .read_file_bounded(&path, 1024)
@@ -1106,10 +1118,16 @@ mod tests {
         let wasm = SandboxBackend::Wasm(Arc::new(wasm_sandbox))
             .search_file_contents(tmp.path(), "world", None, 100, 1 << 20, 1 << 30)
             .expect("wasm search should succeed");
-        let mut native_paths: Vec<_> =
-            native.matches.iter().map(|m| (m.path.clone(), m.line_num)).collect();
-        let mut wasm_paths: Vec<_> =
-            wasm.matches.iter().map(|m| (m.path.clone(), m.line_num)).collect();
+        let mut native_paths: Vec<_> = native
+            .matches
+            .iter()
+            .map(|m| (m.path.clone(), m.line_num))
+            .collect();
+        let mut wasm_paths: Vec<_> = wasm
+            .matches
+            .iter()
+            .map(|m| (m.path.clone(), m.line_num))
+            .collect();
         native_paths.sort();
         wasm_paths.sort();
         assert_eq!(native_paths, wasm_paths);

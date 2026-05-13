@@ -189,7 +189,10 @@ fn read_zip_entries_with_prefix_in_sandbox(
     Ok(entries)
 }
 
-fn read_archive_bounded(guest_path: &str, max_archive_bytes: u64) -> Result<Vec<u8>, anyhow::Error> {
+fn read_archive_bounded(
+    guest_path: &str,
+    max_archive_bytes: u64,
+) -> Result<Vec<u8>, anyhow::Error> {
     let meta = std::fs::metadata(guest_path)?;
     if !meta.is_file() {
         anyhow::bail!("not a regular file: {guest_path}");
@@ -233,16 +236,18 @@ fn main() -> anyhow::Result<()> {
                     Err(err) => serde_json::to_string(&ErrResponse { id, err: &err })?,
                 }
             }
-            Request::SplitSkillFrontmatter { raw } => match brokk_acp_sandbox::split_frontmatter(&raw) {
-                Ok((front, body)) => {
-                    let payload = SplitResult {
-                        frontmatter: front.to_string(),
-                        body: body.to_string(),
-                    };
-                    serde_json::to_string(&OkResponse { id, ok: &payload })?
+            Request::SplitSkillFrontmatter { raw } => {
+                match brokk_acp_sandbox::split_frontmatter(&raw) {
+                    Ok((front, body)) => {
+                        let payload = SplitResult {
+                            frontmatter: front.to_string(),
+                            body: body.to_string(),
+                        };
+                        serde_json::to_string(&OkResponse { id, ok: &payload })?
+                    }
+                    Err(err) => serde_json::to_string(&ErrResponse { id, err })?,
                 }
-                Err(err) => serde_json::to_string(&ErrResponse { id, err })?,
-            },
+            }
             Request::ReadFileBounded {
                 guest_path,
                 max_bytes,

@@ -497,8 +497,7 @@ fn read_history_from_zip(zip_path: &Path) -> Vec<ConversationTurn> {
             return vec![];
         }
     };
-    let mut content_map: HashMap<String, String> =
-        HashMap::with_capacity(content_entries.len());
+    let mut content_map: HashMap<String, String> = HashMap::with_capacity(content_entries.len());
     for (name, body) in content_entries {
         if let Some(content_id) = name
             .strip_prefix("content/")
