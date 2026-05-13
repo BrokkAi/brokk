@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ICodeIntelligence;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.project.CoreProject;
 import ai.brokk.tools.CodeQualityToolsMcp;
@@ -27,7 +28,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -43,6 +47,7 @@ public class BrokkCoreMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkCoreMcpServer.class);
     private static final String VERSION = "0.1.0";
     private static final String MCP_HISTORY_PATH_FLAG = "--mcp-history-path";
+    private static final Duration ANALYZER_READY_TIMEOUT = Duration.ofMinutes(5);
 
     private final ReentrantReadWriteLock workspaceLock = new ReentrantReadWriteLock(true);
     private CoreProject project;
@@ -50,10 +55,14 @@ public class BrokkCoreMcpServer {
     private SearchTools searchTools;
     private CodeQualityToolsMcp codeQualityTools;
     private Path activeWorkspaceRoot;
+    private final CountDownLatch analyzerReady = new CountDownLatch(1);
+    private final AtomicLong analyzerBuildGeneration = new AtomicLong();
+    private volatile @Nullable Thread analyzerBuildThread;
+    private volatile @Nullable Throwable analyzerBuildFailure;
     private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
 
     public BrokkCoreMcpServer(CoreProject project, ICodeIntelligence intelligence, SearchTools searchTools) {
-        this(project, intelligence, searchTools, null);
+        this(project, intelligence, searchTools, null, true);
     }
 
     public BrokkCoreMcpServer(
@@ -61,12 +70,24 @@ public class BrokkCoreMcpServer {
             ICodeIntelligence intelligence,
             SearchTools searchTools,
             @Nullable Path mcpHistoryPath) {
+        this(project, intelligence, searchTools, mcpHistoryPath, true);
+    }
+
+    BrokkCoreMcpServer(
+            CoreProject project,
+            ICodeIntelligence intelligence,
+            SearchTools searchTools,
+            @Nullable Path mcpHistoryPath,
+            boolean analyzerReadyAtStartup) {
         this.project = project;
         this.intelligence = intelligence;
         this.searchTools = searchTools;
         this.codeQualityTools = new CodeQualityToolsMcp(intelligence);
         this.activeWorkspaceRoot = project.getRoot();
         this.mcpToolCallHistoryWriter = mcpHistoryPath != null ? createMcpToolCallHistoryWriter(mcpHistoryPath) : null;
+        if (analyzerReadyAtStartup) {
+            analyzerReady.countDown();
+        }
     }
 
     private static @Nullable McpToolCallHistoryWriter createMcpToolCallHistoryWriter(Path historyRootDirectory) {
@@ -115,27 +136,10 @@ public class BrokkCoreMcpServer {
             var langHandle = Languages.aggregate(coreProject.getAnalyzerLanguages());
             logger.info("Detected languages: {}", langHandle.name());
 
-            IAnalyzer analyzer;
-            if (langHandle == Languages.NONE) {
-                logger.warn("No analyzable languages found in {}", projectPath);
-                analyzer = new DisabledAnalyzer(coreProject);
-            } else {
-                logger.info("Building analyzer for {}...", langHandle.name());
-                analyzer = langHandle.createAnalyzer(coreProject, (current, total, phase) -> {
-                    if (total > 0 && current % 100 == 0) {
-                        logger.info("Analyzing [{}]: {}/{} files", phase, current, total);
-                    }
-                });
-                var metrics = analyzer.getMetrics();
-                logger.info(
-                        "Analyzer ready: {} declarations across {} files",
-                        metrics.numberOfDeclarations(),
-                        metrics.numberOfCodeUnits());
-            }
-
-            var coreIntelligence = new StandaloneCodeIntelligence(coreProject, analyzer);
+            var coreIntelligence = new StandaloneCodeIntelligence(coreProject, new DisabledAnalyzer(coreProject));
             var coreSearchTools = new SearchTools(coreIntelligence);
-            var server = new BrokkCoreMcpServer(coreProject, coreIntelligence, coreSearchTools, mcpHistoryPath);
+            var server = new BrokkCoreMcpServer(coreProject, coreIntelligence, coreSearchTools, mcpHistoryPath, false);
+            Thread analyzerThread = server.startAnalyzerBuild(langHandle);
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
@@ -173,6 +177,7 @@ public class BrokkCoreMcpServer {
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
                             () -> {
+                                analyzerThread.interrupt();
                                 var s = serverRef.get();
                                 if (s != null) {
                                     s.closeGracefully();
@@ -193,6 +198,71 @@ public class BrokkCoreMcpServer {
             }
         }
     }
+
+    Thread startAnalyzerBuild(Language langHandle) {
+        long buildGeneration = analyzerBuildGeneration.incrementAndGet();
+        var thread = Thread.ofVirtual().name("BrokkCoreMCP-AnalyzerBuild").unstarted(() -> {
+            workspaceLock.writeLock().lock();
+            try {
+                if (!isCurrentAnalyzerBuild(buildGeneration)) {
+                    return;
+                }
+                IAnalyzer analyzer;
+                if (langHandle == Languages.NONE) {
+                    logger.warn("No analyzable languages found in {}", activeWorkspaceRoot);
+                    analyzer = new DisabledAnalyzer(project);
+                } else {
+                    logger.info("Building analyzer for {}...", langHandle.name());
+                    analyzer = langHandle.createAnalyzer(project, (current, total, phase) -> {
+                        if (!isCurrentAnalyzerBuild(buildGeneration)) {
+                            throw new AnalyzerBuildCancelled();
+                        }
+                        if (total > 0 && current % 100 == 0) {
+                            logger.info("Analyzing [{}]: {}/{} files", phase, current, total);
+                        }
+                    });
+                    var metrics = analyzer.getMetrics();
+                    logger.info(
+                            "Analyzer ready: {} declarations across {} files",
+                            metrics.numberOfDeclarations(),
+                            metrics.numberOfCodeUnits());
+                }
+
+                if (!isCurrentAnalyzerBuild(buildGeneration)) {
+                    return;
+                }
+                this.intelligence = new StandaloneCodeIntelligence(project, analyzer);
+                this.searchTools = new SearchTools(this.intelligence);
+                this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
+                this.analyzerBuildFailure = null;
+            } catch (AnalyzerBuildCancelled e) {
+                logger.info("Analyzer build superseded");
+            } catch (Throwable t) {
+                if (isCurrentAnalyzerBuild(buildGeneration)) {
+                    this.analyzerBuildFailure = t;
+                    logger.error("Failed to build analyzer", t);
+                } else {
+                    logger.info("Ignoring failure from superseded analyzer build", t);
+                }
+            } finally {
+                analyzerReady.countDown();
+                workspaceLock.writeLock().unlock();
+                if (analyzerBuildThread == Thread.currentThread()) {
+                    analyzerBuildThread = null;
+                }
+            }
+        });
+        analyzerBuildThread = thread;
+        thread.start();
+        return thread;
+    }
+
+    private boolean isCurrentAnalyzerBuild(long buildGeneration) {
+        return buildGeneration == analyzerBuildGeneration.get()
+                && !Thread.currentThread().isInterrupted();
+    }
+
+    private static class AnalyzerBuildCancelled extends RuntimeException {}
 
     static Path resolveProjectRoot(Path path) {
         Path resolved = path.toAbsolutePath().normalize();
@@ -237,17 +307,38 @@ public class BrokkCoreMcpServer {
 
     private void activateWorkspace(String workspacePath) {
         Path newRoot = resolveProjectRoot(Path.of(workspacePath));
+        boolean cancelledAnalyzerBuild = cancelAnalyzerBuild();
         workspaceLock.writeLock().lock();
         try {
-            if (newRoot.equals(activeWorkspaceRoot)) {
+            if (!cancelledAnalyzerBuild
+                    && newRoot.equals(activeWorkspaceRoot)
+                    && analyzerReady.getCount() == 0
+                    && analyzerBuildFailure == null) {
                 logger.info("Workspace already active: {}", newRoot);
                 return;
             }
             logger.info("Switching workspace from {} to {}", activeWorkspaceRoot, newRoot);
 
-            project.close();
+            try {
+                activateWorkspaceLocked(newRoot);
+            } catch (RuntimeException | Error e) {
+                if (cancelledAnalyzerBuild) {
+                    this.analyzerBuildFailure = e;
+                    analyzerReady.countDown();
+                }
+                throw e;
+            }
+            logger.info("Workspace switched to {}", newRoot);
+        } finally {
+            workspaceLock.writeLock().unlock();
+        }
+    }
 
-            var newProject = new CoreProject(newRoot);
+    void activateWorkspaceLocked(Path newRoot) {
+        var oldProject = project;
+        var newProject = new CoreProject(newRoot);
+        boolean assigned = false;
+        try {
             var langHandle = Languages.aggregate(newProject.getAnalyzerLanguages());
             IAnalyzer newAnalyzer;
             if (langHandle == Languages.NONE) {
@@ -261,10 +352,26 @@ public class BrokkCoreMcpServer {
             this.searchTools = new SearchTools(this.intelligence);
             this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
             this.activeWorkspaceRoot = newRoot;
-            logger.info("Workspace switched to {}", newRoot);
+            this.analyzerBuildFailure = null;
+            analyzerReady.countDown();
+            assigned = true;
+            oldProject.close();
         } finally {
-            workspaceLock.writeLock().unlock();
+            if (!assigned) {
+                newProject.close();
+            }
         }
+    }
+
+    private boolean cancelAnalyzerBuild() {
+        analyzerBuildGeneration.incrementAndGet();
+        var thread = analyzerBuildThread;
+        if (thread != null) {
+            analyzerBuildThread = null;
+            thread.interrupt();
+            return true;
+        }
+        return false;
     }
 
     // -- Tool specifications --
@@ -916,11 +1023,29 @@ public class BrokkCoreMcpServer {
     }
 
     private McpSchema.CallToolResult withReadLock(LockedSupplier supplier) throws Exception {
+        awaitAnalyzerReady();
         workspaceLock.readLock().lock();
         try {
             return supplier.get();
         } finally {
             workspaceLock.readLock().unlock();
+        }
+    }
+
+    private void awaitAnalyzerReady() {
+        boolean ready;
+        try {
+            ready = analyzerReady.await(ANALYZER_READY_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for analyzer build", e);
+        }
+        if (!ready) {
+            throw new IllegalStateException("Analyzer is still building after " + ANALYZER_READY_TIMEOUT);
+        }
+        var failure = analyzerBuildFailure;
+        if (failure != null) {
+            throw new IllegalStateException("Analyzer build failed: " + failure, failure);
         }
     }
 
