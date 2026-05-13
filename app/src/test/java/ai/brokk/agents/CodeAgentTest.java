@@ -378,11 +378,11 @@ class CodeAgentTest {
                 "Retry prompt should contain target_file tag for " + file);
     }
 
-    // A-5: applyPhase – threshold check for full-file replacement reminder
+    // A-5: applyPhase - large affected files get SEARCH target reminder instead of full-file replacement reminder
     @Test
-    void testApplyPhase_showsFullFileReplacementReminderAtThreshold() throws IOException {
+    void testApplyPhase_showsSearchTargetReminderForLargeAffectedFiles() throws IOException {
         var file = cm.toFile("test.txt");
-        file.write("initial content");
+        file.write("alpha beta gamma delta epsilon\n".repeat(6_000));
         cm.addEditableFile(file);
 
         var nonMatchingBlock = new EditBlock.SearchReplaceBlock(file.toString(), "nonexistent", "replacement");
@@ -406,10 +406,86 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
         String nextRequestText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
+        var commonReminder = "Apply has failed repeatedly, and the next apply failure will abort the task.";
 
+        assertTrue(nextRequestText.contains(commonReminder));
+        assertEquals(
+                nextRequestText.indexOf(commonReminder),
+                nextRequestText.lastIndexOf(commonReminder),
+                "Last-try retry prompt should include only one apply-failure reminder");
+        assertTrue(
+                nextRequestText.contains("Carefully read the current file contents from the Workspace"),
+                "Retry prompt should ask the model to read current Workspace contents before correcting SEARCH");
+        assertFalse(
+                nextRequestText.contains("Strongly prefer BRK_ENTIRE_FILE"),
+                "Retry prompt should not encourage full-file replacement when near failure limit");
+    }
+
+    @Test
+    void testApplyPhase_showsFullFileReplacementReminderForSmallAffectedFiles() throws IOException {
+        var file = cm.toFile("test.txt");
+        file.write("initial content");
+        cm.addEditableFile(file);
+
+        var nonMatchingBlock = new EditBlock.SearchReplaceBlock(file.toString(), "nonexistent", "replacement");
+        var cs = createConversationState(List.of(new AiMessage("Previous attempt")), new UserMessage("req"));
+
+        var es = new CodeAgent.EditState(
+                0,
+                CodeAgent.MAX_APPLY_FAILURES - 2,
+                0,
+                0,
+                "",
+                new HashSet<>(),
+                new HashMap<>(),
+                Collections.emptyMap(),
+                false);
+
+        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(nonMatchingBlock)), null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retryStep = (CodeAgent.Step.Retry) result;
+        String nextRequestText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
+        var commonReminder = "Apply has failed repeatedly, and the next apply failure will abort the task.";
+
+        assertTrue(nextRequestText.contains(commonReminder));
+        assertEquals(
+                nextRequestText.indexOf(commonReminder),
+                nextRequestText.lastIndexOf(commonReminder),
+                "Last-try retry prompt should include only one apply-failure reminder");
+        assertTrue(
+                nextRequestText.contains("Carefully read the current file contents from the Workspace"),
+                "Retry prompt should include SEARCH-target guidance on the last retry");
         assertTrue(
                 nextRequestText.contains("Strongly prefer BRK_ENTIRE_FILE full-file replacements"),
-                "Retry prompt should encourage full-file replacement when near failure limit");
+                "Retry prompt should still encourage full-file replacement for small affected files near failure limit");
+    }
+
+    @Test
+    void buildApplyRetryMessages_doesNotReadAffectedFilesBeforeReminderThreshold() {
+        var reads = new AtomicInteger();
+        class CountingProjectFile extends ProjectFile {
+            CountingProjectFile() {
+                super(projectRoot, "test.txt");
+            }
+
+            @Override
+            public Optional<String> read() {
+                reads.incrementAndGet();
+                return Optional.of("alpha beta gamma delta epsilon\n".repeat(6_000));
+            }
+        }
+
+        var block = new EditBlock.SearchReplaceBlock("test.txt", "nonexistent", "replacement");
+        var result = EditBlock.ApplyResult.failure(
+                block, new CountingProjectFile(), EditBlock.EditBlockFailureReason.NO_MATCH, null);
+
+        var retryMessages = CodePrompts.buildApplyRetryMessages("Previous attempt", List.of(result), "", 0, false);
+        String nextRequestText = Messages.getText(retryMessages.retryRequest());
+
+        assertEquals(0, reads.get(), "Affected files should only be read when the retry reminder may be shown");
+        assertFalse(nextRequestText.contains("Carefully read the current file contents from the Workspace"));
+        assertFalse(nextRequestText.contains("Strongly prefer BRK_ENTIRE_FILE"));
     }
 
     // A-4: applyPhase – mix success & failure

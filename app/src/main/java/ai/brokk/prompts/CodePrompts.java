@@ -45,6 +45,7 @@ import org.jetbrains.annotations.Nullable;
 public class CodePrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
     public static final CodePrompts instance = new CodePrompts();
+    private static final int FULL_FILE_REPLACEMENT_AFFECTED_FILE_TOKEN_LIMIT = 5_000;
     private static final Pattern BRK_MARKER_PATTERN =
             Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
 
@@ -284,6 +285,7 @@ public class CodePrompts {
      * @param buildError The current build error, if any.
      * @return An ApplyRetryMessages containing the tagged AiMessage and retry UserMessage.
      */
+    @Blocking
     public static ApplyRetryMessages buildApplyRetryMessages(
             String originalAiText,
             List<EditBlock.ApplyResult> blockResults,
@@ -339,11 +341,17 @@ public class CodePrompts {
                 })
                 .toList();
 
+        var applyFailureReminder = "";
+        if (isLastApplyRetryBeforeAbort) {
+            var isLargeAffectedFileSet =
+                    affectedFileTokenCount(failures) > FULL_FILE_REPLACEMENT_AFFECTED_FILE_TOKEN_LIMIT;
+            applyFailureReminder = applyFailureReminder(!isLargeAffectedFileSet);
+        }
         var data = new ApplyRetryData(
                 successIndices.isEmpty() ? "None" : String.join(", ", successIndices),
                 fileDetails,
                 !buildError.isBlank() && successIndices.isEmpty(),
-                isLastApplyRetryBeforeAbort);
+                applyFailureReminder);
 
         try {
             return new ApplyRetryMessages(taggedAiMessage, new UserMessage(APPLY_RETRY_TEMPLATE.apply(data)));
@@ -361,6 +369,35 @@ public class CodePrompts {
         } else {
             return "%s: %s\n- %s".formatted(blockTag, f.reason(), enriched.replace("\n", "\n- "));
         }
+    }
+
+    private static String applyFailureReminder(boolean includeFullFileReplacementHint) {
+        var reminder =
+                """
+                Apply has failed repeatedly, and the next apply failure will abort the task.
+                Carefully read the current file contents from the Workspace before writing corrected SEARCH targets,
+                so the SEARCH text exactly matches the code that is present now.
+                """;
+        if (includeFullFileReplacementHint) {
+            reminder +=
+                    """
+                    Strongly prefer BRK_ENTIRE_FILE full-file replacements for affected file(s), instead of the kinds of line-based edits that have not worked so far.
+                    In BRK_ENTIRE_FILE, the REPLACE section must contain the complete final updated contents of the file.
+                    """;
+        }
+        return reminder.stripIndent().trim();
+    }
+
+    @Blocking
+    private static int affectedFileTokenCount(List<EditBlock.ApplyResult> failures) {
+        return failures.stream()
+                .map(EditBlock.ApplyResult::file)
+                .flatMap(file -> file == null ? Stream.empty() : Stream.of(file))
+                .distinct()
+                .map(ProjectFiles::read)
+                .flatMap(Optional::stream)
+                .mapToInt(Messages::getApproximateTokens)
+                .sum();
     }
 
     /**
@@ -404,7 +441,7 @@ public class CodePrompts {
             String successIndices,
             List<FileFailure> failuresByFile,
             boolean showBuildFailureReminder,
-            boolean showFullFileReplacementReminder) {
+            String applyFailureReminder) {
         public record FileFailure(String filename, String failedBlocksList) {}
     }
 
@@ -610,11 +647,9 @@ public class CodePrompts {
                 </failed_blocks>
                 </target_file>
                 {{~/each}}
-                {{#if showFullFileReplacementReminder~}}
+                {{#if applyFailureReminder~}}
                 <reminder>
-                  Apply has failed repeatedly, and the next apply failure will abort the task.
-                  Strongly prefer BRK_ENTIRE_FILE full-file replacements for affected file(s), instead of the kinds of line-based edits that have not worked so far.
-                  In BRK_ENTIRE_FILE, the REPLACE section must contain the complete final updated contents of the file.
+                  {{applyFailureReminder}}
                 </reminder>
                 {{~/if}}
                 {{#if showBuildFailureReminder~}}
