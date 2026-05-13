@@ -142,6 +142,7 @@ struct NamesResult {
 ///   - the file does not exist or the preopen does not cover its dir,
 ///   - the file is larger than `max_bytes`,
 ///   - the bytes are not valid UTF-8.
+///
 /// The size pre-check is on `metadata().len()` to fail fast without
 /// streaming gigabytes through the guest's linear memory; the wasm
 /// memory cap (`StoreLimits::memory_size`) is the backstop if the FS
