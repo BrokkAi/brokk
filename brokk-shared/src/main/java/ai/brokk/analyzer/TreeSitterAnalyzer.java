@@ -1391,7 +1391,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         checkStale("searchDefinitionsInternal");
         var literalSearch = LiteralDefinitionSearch.from(compiledPattern, substringFilter);
         if (literalSearch.isPresent()) {
-            return searchDefinitionsByLiterals(literalSearch.get());
+            return searchDefinitionsByLiterals(literalSearch.get(), compiledPattern);
         }
         var threadLocalMatcher = ThreadLocal.withInitial(() -> compiledPattern.matcher(""));
         return this.state.codeUnitState.keySet().parallelStream()
@@ -1403,16 +1403,49 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 .collect(Collectors.toSet());
     }
 
-    private Set<CodeUnit> searchDefinitionsByLiterals(LiteralDefinitionSearch search) {
+    private Set<CodeUnit> searchDefinitionsByLiterals(LiteralDefinitionSearch search, Pattern compiledPattern) {
         var literals = search.literals();
         return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> !cu.isSynthetic())
                 .filter(cu -> {
-                    String fqName = search.caseInsensitive() ? cu.fqName().toLowerCase(Locale.ROOT) : cu.fqName();
-                    return literals.stream().anyMatch(fqName::contains);
+                    String fqName = cu.fqName();
+                    if (!search.caseInsensitive()) {
+                        return literals.stream().anyMatch(fqName::contains);
+                    }
+                    if (!isAscii(fqName)) {
+                        return compiledPattern.matcher(fqName).find();
+                    }
+                    return literals.stream().anyMatch(literal -> containsAsciiIgnoreCase(fqName, literal));
                 })
                 .filter(cu -> !isAnonymousStructure(cu.fqName()))
                 .collect(Collectors.toSet());
+    }
+
+    private static boolean containsAsciiIgnoreCase(String haystack, String needle) {
+        int maxStart = haystack.length() - needle.length();
+        for (int start = 0; start <= maxStart; start++) {
+            if (regionMatchesAsciiIgnoreCase(haystack, start, needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean regionMatchesAsciiIgnoreCase(String haystack, int start, String needle) {
+        for (int i = 0; i < needle.length(); i++) {
+            if (toAsciiLower(haystack.charAt(start + i)) != toAsciiLower(needle.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static char toAsciiLower(char ch) {
+        return ch >= 'A' && ch <= 'Z' ? (char) (ch + ('a' - 'A')) : ch;
+    }
+
+    private static boolean isAscii(String text) {
+        return text.chars().allMatch(ch -> ch < 128);
     }
 
     private record LiteralDefinitionSearch(List<String> literals, boolean caseInsensitive) {
@@ -1426,6 +1459,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 return fromLiteralPattern(regex, true);
             }
             if (substringFilter != null) {
+                if (!isAscii(substringFilter)) {
+                    return Optional.empty();
+                }
                 return Optional.of(new LiteralDefinitionSearch(List.of(substringFilter), true));
             }
             return fromLiteralPattern(regex, false);
@@ -1444,7 +1480,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 if (literal.isEmpty()) {
                     return Optional.empty();
                 }
-                literals.add(caseInsensitive ? literal.get().toLowerCase(Locale.ROOT) : literal.get());
+                if (caseInsensitive && !isAscii(literal.get())) {
+                    return Optional.empty();
+                }
+                literals.add(literal.get());
             }
             return Optional.of(new LiteralDefinitionSearch(List.copyOf(literals), caseInsensitive));
         }

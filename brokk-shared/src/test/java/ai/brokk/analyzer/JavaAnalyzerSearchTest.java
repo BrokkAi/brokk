@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.testutil.CoreTestProject;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestCodeProject;
 import java.io.IOException;
 import java.util.Set;
@@ -194,6 +195,22 @@ public class JavaAnalyzerSearchTest {
         assertTrue(names.contains("A.method1"), "Regex fallback should preserve character class behavior");
         assertTrue(names.contains("A.method2"), "Regex fallback should preserve character class behavior");
         assertTrue(names.contains("D.field2"), "Regex fallback should preserve quoted alternation behavior");
+    }
+
+    @Test
+    public void testSearchDefinitions_LiteralFastPathPreservesUnicodeRegexCaseSemantics() throws IOException {
+        var dottedCapitalI = Character.toString(0x0130);
+        var className = dottedCapitalI + "ndex";
+        var code = "class " + className + " {}";
+        try (var project =
+                InlineTestProjectCreator.code(code, "UnicodeCase.java").build()) {
+            var unicodeAnalyzer = new JavaAnalyzer(project);
+
+            var symbols = unicodeAnalyzer.searchDefinitions(Pattern.compile("(?i).*?\\Qi\\E.*?"));
+            var names = symbols.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+            assertFalse(names.contains(className), "Fast path must not widen Java regex CASE_INSENSITIVE semantics");
+        }
     }
 
     @Test
