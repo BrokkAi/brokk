@@ -878,8 +878,8 @@ public class CodeQualityToolsMcp {
         var lines = new ArrayList<String>();
         lines.add("## brokk-secret-scan");
         lines.add("");
-        lines.add("- Repository: `%s`".formatted(report.repository()));
-        lines.add("- Current/default ref scanned: `%s`".formatted(report.defaultRefDisplayName()));
+        lines.add("- Repository: `%s`".formatted(sanitizeTableCell(report.repository())));
+        lines.add("- Current/default ref scanned: `%s`".formatted(sanitizeTableCell(report.defaultRefDisplayName())));
         if (report.defaultRefFallback()) {
             lines.add("- Note: default branch could not be determined; fell back to `HEAD`.");
         }
@@ -931,7 +931,8 @@ public class CodeQualityToolsMcp {
         return candidate > 0 ? candidate : fallback;
     }
 
-    private static String sanitizeTableCell(String value) {
+    // Package-private for unit testing.
+    static String sanitizeTableCell(String value) {
         // Backticks would let attacker-controlled text (e.g. committed file paths or scanned secret excerpts)
         // escape from an inline code span and inject Markdown for downstream LLM consumers.
         // Control characters (newlines, tabs, etc.) would break the single-line table-row format.
