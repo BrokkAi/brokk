@@ -147,6 +147,36 @@ public class GitDistanceRelatedFilesTest {
     }
 
     @Test
+    public void cachedRelatedFileRequestsFilterDeletedWorkingTreeFiles() throws Exception {
+        assertNotNull(testPath, "Test path should not be null");
+        var userService = new ProjectFile(testProject.getRoot(), "UserService.java");
+        var user = new ProjectFile(testProject.getRoot(), "User.java");
+
+        GitDistance.clearRelatedFilesCache();
+        var seeds = Map.of(userService, 1.0);
+        var firstResults = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seeds, 10);
+        assertTrue(firstResults.stream().anyMatch(result -> result.file().equals(user)), firstResults.toString());
+
+        var originalContent = Files.readString(user.absPath());
+        try {
+            Files.delete(user.absPath());
+            long baselineHits = GitDistance.relatedFilesCacheHitCount();
+            var secondResults = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seeds, 10);
+
+            assertFalse(
+                    secondResults.stream().anyMatch(result -> result.file().equals(user)),
+                    "Cached GitDistance results should not return files deleted from the working tree");
+            assertEquals(
+                    baselineHits + 1,
+                    GitDistance.relatedFilesCacheHitCount(),
+                    "Deleted-file filtering should run on the cache-hit path");
+        } finally {
+            Files.writeString(user.absPath(), originalContent);
+            GitDistance.clearRelatedFilesCache();
+        }
+    }
+
+    @Test
     public void pmiCanonicalizesRenames() throws Exception {
         var tempDir = Files.createTempDirectory("brokk-pmi-rename-test-");
         try {

@@ -62,7 +62,7 @@ public final class GitDistance {
             var key = new RelatedFilesCacheKey(snapshot.get(), normalizedSeedWeights(seedWeights), k);
             var cached = RELATED_FILES_CACHE.getIfPresent(key);
             if (cached != null) {
-                return cached;
+                return existingFiles(cached);
             }
 
             var computed = computeConditionalScores(repo, snapshot.get().branch(), seedWeights, k);
@@ -92,6 +92,10 @@ public final class GitDistance {
                 .map(entry -> new SeedWeight(entry.getKey(), entry.getValue()))
                 .sorted(Comparator.comparing(SeedWeight::file).thenComparingDouble(SeedWeight::weight))
                 .toList();
+    }
+
+    private static List<IAnalyzer.FileRelevance> existingFiles(List<IAnalyzer.FileRelevance> results) {
+        return results.stream().filter(result -> result.file().exists()).toList();
     }
 
     private static List<IAnalyzer.FileRelevance> computeConditionalScores(
