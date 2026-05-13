@@ -4,13 +4,26 @@ import ai.brokk.ICodeIntelligence;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CommentDensityStats;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.CandidateFileProvider;
+import ai.brokk.analyzer.usages.FuzzyResult;
+import ai.brokk.analyzer.usages.RegexUsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageAnalyzerSelector;
+import ai.brokk.analyzer.usages.UsageFinder;
+import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.project.ICoreProject;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Read-only static analysis helpers for code quality, adapted for the MCP server.
@@ -523,6 +536,294 @@ public class CodeQualityToolsMcp {
         }
         return String.join("\n", lines);
     }
+
+    // -- reportDeadCodeAndUnusedAbstractionSmells --
+
+    public String reportDeadCodeAndUnusedAbstractionSmells(
+            List<String> filePaths,
+            List<String> fqNames,
+            int minScore,
+            int maxFindings,
+            int maxInputFiles,
+            int maxCandidateSymbols,
+            int maxUsageCandidateFiles,
+            int maxUsagesPerSymbol) {
+
+        int threshold = minScore > 0 ? minScore : 8;
+        int findingsCap = maxFindings > 0 ? maxFindings : 40;
+        int inputFileCap = maxInputFiles > 0 ? maxInputFiles : 25;
+        int candidateCap = maxCandidateSymbols > 0 ? maxCandidateSymbols : 200;
+        int usageFileCap = maxUsageCandidateFiles > 0 ? maxUsageCandidateFiles : UsageFinder.DEFAULT_MAX_FILES;
+        int usageCap = maxUsagesPerSymbol > 0 ? maxUsagesPerSymbol : 100;
+
+        IAnalyzer analyzer = intelligence.getAnalyzer();
+        ICoreProject project = intelligence.getProject();
+        var files = filePaths.stream()
+                .map(intelligence::toFile)
+                .filter(ProjectFile::exists)
+                .limit(inputFileCap)
+                .toList();
+        var selectedFiles = Set.copyOf(files);
+        var findings = new ArrayList<DeadCodeFinding>();
+        var skipped = new ArrayList<String>();
+        CandidateFileProvider batchCandidateProvider = (target, analysis) -> analysis.getProject()
+                .getAnalyzableFiles(Languages.fromExtension(target.source().extension()));
+        UsageAnalyzer multiLangAnalyzer = (overloads, candidates, maxUsages) -> {
+            if (overloads.isEmpty()) {
+                return new FuzzyResult.Success(Map.of());
+            }
+            var strategy = UsageAnalyzerSelector.forTarget(overloads.getFirst(), analyzer, project);
+            var result = strategy.findUsages(overloads, candidates, maxUsages);
+            if (UsageAnalyzerSelector.shouldFallbackToRegex(result, strategy)) {
+                return new RegexUsageAnalyzer(analyzer).findUsages(overloads, candidates, maxUsages);
+            }
+            return result;
+        };
+        var usageFinder = new UsageFinder(project, analyzer, batchCandidateProvider, multiLangAnalyzer, null);
+        var candidateSelection = deadCodeCandidates(analyzer, files, fqNames, selectedFiles, candidateCap, skipped);
+
+        for (CodeUnit candidate : candidateSelection.candidates()) {
+            Optional<DeadCodeFinding> finding = analyzeDeadCodeCandidate(
+                    analyzer, usageFinder, batchCandidateProvider, candidate, usageFileCap, usageCap, skipped);
+            finding.filter(f -> f.score() >= threshold).ifPresent(findings::add);
+        }
+
+        var filtered = findings.stream()
+                .sorted(Comparator.comparingInt(DeadCodeFinding::totalUsageCount)
+                        .thenComparing(
+                                Comparator.comparingInt(DeadCodeFinding::score).reversed())
+                        .thenComparing(f -> displayPath(f.file()), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(DeadCodeFinding::symbol, String.CASE_INSENSITIVE_ORDER))
+                .limit(findingsCap)
+                .toList();
+
+        var lines = new ArrayList<String>();
+        lines.add("## Dead code and unused abstraction smells");
+        lines.add("");
+        lines.add("- Min score: %d".formatted(threshold));
+        lines.add("- Input files analyzed cap: %d".formatted(inputFileCap));
+        lines.add("- Candidate symbol cap: %d%s"
+                .formatted(candidateCap, candidateSelection.truncated() ? " (truncated)" : ""));
+        lines.add("- Usage candidate file cap: %d".formatted(usageFileCap));
+        lines.add("- Usage cap per symbol: %d".formatted(usageCap));
+        lines.add("- Candidate symbols analyzed: %d"
+                .formatted(candidateSelection.candidates().size()));
+        lines.add("- Findings shown: %d of %d".formatted(filtered.size(), findings.size()));
+        if (!skipped.isEmpty()) {
+            lines.add("- Skipped symbols: %d".formatted(skipped.size()));
+        }
+        lines.add("");
+
+        if (filtered.isEmpty()) {
+            lines.add("No dead code or unused abstraction smells met minScore " + threshold + ".");
+            if (!skipped.isEmpty()) {
+                lines.add("");
+                lines.add("Skipped evidence:");
+                skipped.stream().limit(10).forEach(skip -> lines.add("- " + skip));
+            }
+            return String.join("\n", lines);
+        }
+
+        lines.add(
+                "| Score | Confidence | Kind | Symbol | File | Total Usages | External Usages | Evidence | Rationale |");
+        lines.add(
+                "|------:|-----------:|------|--------|------|-------------:|----------------:|----------|-----------|");
+        for (DeadCodeFinding finding : filtered) {
+            String location = "%s:%d-%d".formatted(displayPath(finding.file()), finding.startLine(), finding.endLine());
+            lines.add("| %d | %.2f | `%s` | `%s` | `%s` | %d | %d | `%s` | `%s` |"
+                    .formatted(
+                            finding.score(),
+                            finding.confidence(),
+                            finding.kind(),
+                            sanitizeTableCell(finding.symbol()),
+                            sanitizeTableCell(location),
+                            finding.totalUsageCount(),
+                            finding.externalUsageCount(),
+                            sanitizeTableCell(finding.evidence()),
+                            sanitizeTableCell(finding.rationale())));
+        }
+        if (findings.size() > filtered.size()) {
+            lines.add("");
+            lines.add("- Note: output truncated; increase maxFindings to see more.");
+        }
+        if (!skipped.isEmpty()) {
+            lines.add("");
+            lines.add("Skipped evidence:");
+            skipped.stream().limit(10).forEach(skip -> lines.add("- " + skip));
+            if (skipped.size() > 10) {
+                lines.add("- ... " + (skipped.size() - 10) + " more skipped symbols");
+            }
+        }
+        return String.join("\n", lines);
+    }
+
+    private CandidateSelection deadCodeCandidates(
+            IAnalyzer analyzer,
+            List<ProjectFile> files,
+            List<String> fqNames,
+            Set<ProjectFile> selectedFiles,
+            int candidateCap,
+            List<String> skipped) {
+        var candidates = new LinkedHashSet<CodeUnit>();
+        var targets =
+                fqNames.stream().map(String::strip).filter(s -> !s.isBlank()).toList();
+        if (!targets.isEmpty()) {
+            for (String fqName : targets) {
+                var definitions = analyzer.getDefinitions(fqName);
+                if (definitions.isEmpty()) {
+                    skipped.add("`%s`: no definition found".formatted(fqName));
+                    continue;
+                }
+                definitions.stream()
+                        .filter(cu -> selectedFiles.isEmpty() || selectedFiles.contains(cu.source()))
+                        .filter(CodeQualityToolsMcp::isDeadCodeCandidate)
+                        .forEach(candidates::add);
+            }
+            return capCandidates(candidates, candidateCap, skipped);
+        }
+
+        for (ProjectFile file : files) {
+            analyzer.getDeclarations(file).stream()
+                    .filter(CodeQualityToolsMcp::isDeadCodeCandidate)
+                    .forEach(candidates::add);
+        }
+        return capCandidates(candidates, candidateCap, skipped);
+    }
+
+    private static CandidateSelection capCandidates(Set<CodeUnit> candidates, int candidateCap, List<String> skipped) {
+        boolean truncated = candidates.size() > candidateCap;
+        if (truncated) {
+            skipped.add("candidate symbol cap reached: analyzed first %d of %d candidates"
+                    .formatted(candidateCap, candidates.size()));
+        }
+        return new CandidateSelection(candidates.stream().limit(candidateCap).toList(), truncated);
+    }
+
+    private static boolean isDeadCodeCandidate(CodeUnit cu) {
+        return !cu.isSynthetic() && !cu.isAnonymous() && (cu.isFunction() || cu.isClass() || cu.isField());
+    }
+
+    private Optional<DeadCodeFinding> analyzeDeadCodeCandidate(
+            IAnalyzer analyzer,
+            UsageFinder usageFinder,
+            CandidateFileProvider candidateProvider,
+            CodeUnit candidate,
+            int usageFileCap,
+            int usageCap,
+            List<String> skipped) {
+        var rangeOpt = analyzer.rangesOf(candidate).stream()
+                .filter(range -> !range.isEmpty())
+                .max(Comparator.comparingInt(CodeQualityToolsMcp::spanLines));
+        if (rangeOpt.isEmpty()) {
+            skipped.add("`%s`: no declaration range available".formatted(candidate.fqName()));
+            return Optional.empty();
+        }
+
+        FuzzyResult usageResult;
+        UsageFinder.QueryResult queryResult;
+        try {
+            queryResult = usageFinder.query(List.of(candidate), candidateProvider, usageFileCap, usageCap);
+            usageResult = queryResult.result();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            skipped.add("`%s`: usage analysis interrupted".formatted(candidate.fqName()));
+            return Optional.empty();
+        }
+
+        if (queryResult.candidateFilesTruncated()) {
+            skipped.add("`%s`: usage candidate files exceeded cap %d; evidence is inconclusive"
+                    .formatted(candidate.fqName(), usageFileCap));
+            return Optional.empty();
+        }
+
+        var either = usageResult.toEither();
+        if (either.hasErrorMessage()) {
+            skipped.add("`%s`: %s".formatted(candidate.fqName(), either.getErrorMessage()));
+            return Optional.empty();
+        }
+
+        Optional<CodeUnit> definingOwner = analyzer.parentOf(candidate).or(() -> Optional.of(candidate));
+        var usageHits = either.getUsages().stream()
+                .filter(hit -> !hit.enclosing().equals(candidate))
+                .sorted(Comparator.comparing((UsageHit h) -> displayPath(h.file()))
+                        .thenComparingInt(UsageHit::line)
+                        .thenComparingInt(UsageHit::startOffset))
+                .toList();
+        var externalHits = either.getUsages().stream()
+                .filter(hit -> !hit.enclosing().equals(candidate))
+                .filter(hit -> isExternalUsage(analyzer, definingOwner, hit))
+                .sorted(Comparator.comparing((UsageHit h) -> displayPath(h.file()))
+                        .thenComparingInt(UsageHit::line)
+                        .thenComparingInt(UsageHit::startOffset))
+                .toList();
+        int usageCount = usageHits.size();
+        if (usageCount > 1) {
+            return Optional.empty();
+        }
+
+        var range = rangeOpt.orElseThrow();
+        int declarationLines = spanLines(range);
+        int score = usageCount == 0 ? 30 + Math.min(20, declarationLines / 4) : 12 + Math.min(12, declarationLines / 8);
+        double confidence = usageCount == 0 ? 0.95 : 0.75;
+        String evidence = usageCount == 0
+                ? "no non-self usages found"
+                : "only usage: %s:%d in %s%s"
+                        .formatted(
+                                displayPath(usageHits.getFirst().file()),
+                                usageHits.getFirst().line(),
+                                usageHits.getFirst().enclosing().fqName(),
+                                externalHits.isEmpty() ? " (same owner)" : "");
+        String rationale = usageCount == 0
+                ? "symbol has no usage evidence and may be generated residue"
+                : "symbol has only one caller and may be a low-value abstraction";
+
+        return Optional.of(new DeadCodeFinding(
+                score,
+                confidence,
+                candidate.kind().name().toLowerCase(Locale.ROOT),
+                candidate.fqName(),
+                candidate.source(),
+                range.startLine() + 1,
+                range.endLine() + 1,
+                usageCount,
+                externalHits.size(),
+                evidence,
+                rationale));
+    }
+
+    private static boolean isExternalUsage(IAnalyzer analyzer, Optional<CodeUnit> definingOwner, UsageHit hit) {
+        if (definingOwner.isEmpty()) {
+            return true;
+        }
+        CodeUnit hitOwner = analyzer.parentOf(hit.enclosing()).orElse(hit.enclosing());
+        return !hitOwner.equals(definingOwner.get());
+    }
+
+    private static String displayPath(ProjectFile file) {
+        return file.toString().replace('\\', '/');
+    }
+
+    private static int spanLines(IAnalyzer.Range range) {
+        if (range.isEmpty()) {
+            return 0;
+        }
+        return Math.max(1, range.endLine() - range.startLine() + 1);
+    }
+
+    private record CandidateSelection(List<CodeUnit> candidates, boolean truncated) {}
+
+    private record DeadCodeFinding(
+            int score,
+            double confidence,
+            String kind,
+            String symbol,
+            ProjectFile file,
+            int startLine,
+            int endLine,
+            int totalUsageCount,
+            int externalUsageCount,
+            String evidence,
+            String rationale) {}
 
     // NOTE: analyzeGitHotspots is not available in brokk-core because GitHotspotAnalyzer
     // lives in the app module with dependencies (ai.brokk.concurrent.*) not available here.

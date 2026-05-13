@@ -190,9 +190,26 @@ Detects low-value or brittle test assertion smells using language-aware weighted
 | `meaningfulAssertionCreditCap` | int | no | (internal default) | Maximum meaningful assertions that earn credit |
 | `largeLiteralLengthThreshold` | int | no | (internal default) | String literal length considered oversized |
 
+#### `reportDeadCodeAndUnusedAbstractionSmells`
+
+Reports likely generated-code residue: unused declarations and one-call abstractions. Uses analyzer declarations plus symbol/reference usage analysis -- not text-only matching. Java uses JDT analysis; JavaScript/TypeScript/Python/Rust route through export-graph strategies with regex fallback. No LLM disambiguation, so language coverage is best-effort outside of Java.
+
+Pass `fqNames` to target specific symbols; leave it empty to scan declarations in the bounded files.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePaths` | string[] | yes | -- | File paths relative to project root |
+| `fqNames` | string[] | no | `[]` | Optional fully qualified symbol names to analyze; empty means discover candidates from `filePaths` |
+| `minScore` | int | no | 8 | Minimum score to include a finding |
+| `maxFindings` | int | no | 40 | Maximum findings to emit |
+| `maxInputFiles` | int | no | 25 | Maximum existing files to scan for candidate declarations |
+| `maxCandidateSymbols` | int | no | 200 | Maximum candidate symbols to analyze |
+| `maxUsageCandidateFiles` | int | no | (usage finder default) | Maximum usage-candidate files to inspect |
+| `maxUsagesPerSymbol` | int | no | 100 | Maximum usage hits per symbol before usage lookup returns a guardrail result |
+
 ## Note on MCP servers
 
 The Brokk codebase has two MCP servers:
 
-1. **`BrokkCoreMcpServer`** (this module, `brokk-core/`) -- Standalone, no LLM dependencies, pure tree-sitter analysis. This is what the Claude Code plugin connects to. Exposes 28 tools.
+1. **`BrokkCoreMcpServer`** (this module, `brokk-core/`) -- Standalone, no LLM dependencies, pure tree-sitter analysis. This is what the Claude Code plugin connects to. Exposes 29 tools.
 2. **`BrokkExternalMcpServer`** (in `app/`) -- Full server with LLM agent capabilities. Not used by the Claude Code plugin.

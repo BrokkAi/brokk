@@ -95,7 +95,8 @@ class BrokkCoreMcpServerTest {
                 "reportLongMethodAndGodObjectSmells",
                 "reportExceptionHandlingSmells",
                 "reportStructuralCloneSmells",
-                "reportTestAssertionSmells");
+                "reportTestAssertionSmells",
+                "reportDeadCodeAndUnusedAbstractionSmells");
 
         for (var expected : expectedTools) {
             assertTrue(toolNames.contains(expected), "Missing tool: " + expected);
@@ -308,6 +309,24 @@ class BrokkCoreMcpServerTest {
     @Test
     void reportTestAssertionSmellsRunsWithoutError() {
         var result = callTool("reportTestAssertionSmells", Map.of("filePaths", List.of("README.md")));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportDeadCodeAndUnusedAbstractionSmellsRunsWithoutError() {
+        var result = callTool(
+                "reportDeadCodeAndUnusedAbstractionSmells",
+                Map.of("filePaths", List.of("README.md"), "fqNames", List.of()));
+        assertNotNull(result);
+        assertFalse(result.isError() != null && result.isError());
+        assertFalse(result.content().isEmpty());
+    }
+
+    @Test
+    void reportDeadCodeAndUnusedAbstractionSmellsAcceptsMissingFqNames() {
+        var result = callTool("reportDeadCodeAndUnusedAbstractionSmells", Map.of("filePaths", List.of("README.md")));
         assertNotNull(result);
         assertFalse(result.isError() != null && result.isError());
         assertFalse(result.content().isEmpty());
