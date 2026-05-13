@@ -44,6 +44,34 @@ enum Request {
     /// memory limit -- a multi-gigabyte file traps the guest on
     /// linear-memory growth before we even see the bytes.
     ReadFileBounded { guest_path: String, max_bytes: u64 },
+    /// Read a single entry by name out of a zip archive that the host
+    /// has exposed via a preopened directory. Returns the entry's
+    /// decompressed UTF-8 contents (assumes text). `max_bytes` caps
+    /// both the file size pre-check on the archive itself and the
+    /// decompressed entry size, so a zip bomb cannot grow the guest
+    /// past the wasm memory limit. Returns the same `Ok(None)`
+    /// signal as `ReadFileBounded` when the archive exists but does
+    /// not contain `entry_name`.
+    ReadZipEntryText {
+        guest_path: String,
+        entry_name: String,
+        max_archive_bytes: u64,
+        max_entry_bytes: u64,
+    },
+    /// Read every text entry whose name starts with `prefix` from the
+    /// zip archive at `guest_path`. Used by the history reader to
+    /// batch the `content/*.txt` pulls into a single sandbox boot
+    /// instead of one per turn. `max_total_bytes` is a separate
+    /// budget over the sum of decompressed payloads so a swarm of
+    /// small bomb entries cannot collectively blow the wasm memory
+    /// limit.
+    ReadZipEntriesWithPrefix {
+        guest_path: String,
+        prefix: String,
+        max_archive_bytes: u64,
+        max_entry_bytes: u64,
+        max_total_bytes: u64,
+    },
 }
 
 #[derive(Deserialize)]
@@ -76,6 +104,11 @@ struct ReadResult {
     content: String,
 }
 
+#[derive(Serialize)]
+struct EntriesResult {
+    entries: std::collections::HashMap<String, String>,
+}
+
 /// Read at most `max_bytes` bytes from the file at `guest_path` (which
 /// must resolve through a host-provided WASI preopen). Errors when:
 ///   - the file does not exist or the preopen does not cover its dir,
@@ -103,6 +136,57 @@ fn read_bounded(guest_path: &str, max_bytes: u64) -> Result<String, std::io::Err
         ));
     }
     std::fs::read_to_string(guest_path)
+}
+
+/// Open a zip archive through a host preopen and extract one named
+/// entry as text. The whole archive is read into linear memory first
+/// (bounded by `max_archive_bytes`) so the minimal parser in
+/// `zip_reader.rs` can scan offsets without needing seek support --
+/// `wasm32-wasip2`'s `std::fs::File` does not implement `ReadAt`,
+/// which is why we cannot use either the `zip` crate or
+/// `rc-zip-sync` here. `max_entry_bytes` caps the decompressed entry
+/// independently; with that and the wasm `StoreLimits::memory_size`
+/// in the host, a zip bomb traps the guest before reaching the host.
+fn read_zip_entry_in_sandbox(
+    guest_path: &str,
+    entry_name: &str,
+    max_archive_bytes: u64,
+    max_entry_bytes: u64,
+) -> Result<Option<String>, anyhow::Error> {
+    let bytes = read_archive_bounded(guest_path, max_archive_bytes)?;
+    let parsed = brokk_acp_sandbox::read_zip_entry_text(&bytes, entry_name, max_entry_bytes)?;
+    Ok(parsed)
+}
+
+fn read_zip_entries_with_prefix_in_sandbox(
+    guest_path: &str,
+    prefix: &str,
+    max_archive_bytes: u64,
+    max_entry_bytes: u64,
+    max_total_bytes: u64,
+) -> Result<std::collections::HashMap<String, String>, anyhow::Error> {
+    let bytes = read_archive_bounded(guest_path, max_archive_bytes)?;
+    let entries = brokk_acp_sandbox::read_zip_entries_with_prefix(
+        &bytes,
+        prefix,
+        max_entry_bytes,
+        max_total_bytes,
+    )?;
+    Ok(entries)
+}
+
+fn read_archive_bounded(guest_path: &str, max_archive_bytes: u64) -> Result<Vec<u8>, anyhow::Error> {
+    let meta = std::fs::metadata(guest_path)?;
+    if !meta.is_file() {
+        anyhow::bail!("not a regular file: {guest_path}");
+    }
+    if meta.len() > max_archive_bytes {
+        anyhow::bail!(
+            "{guest_path} is {} bytes, archive exceeds cap of {max_archive_bytes}",
+            meta.len()
+        );
+    }
+    Ok(std::fs::read(guest_path)?)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -151,6 +235,56 @@ fn main() -> anyhow::Result<()> {
             } => match read_bounded(&guest_path, max_bytes) {
                 Ok(content) => {
                     let payload = ReadResult { content };
+                    serde_json::to_string(&OkResponse { id, ok: &payload })?
+                }
+                Err(err) => {
+                    let body = err.to_string();
+                    serde_json::to_string(&ErrResponse { id, err: &body })?
+                }
+            },
+            Request::ReadZipEntryText {
+                guest_path,
+                entry_name,
+                max_archive_bytes,
+                max_entry_bytes,
+            } => match read_zip_entry_in_sandbox(
+                &guest_path,
+                &entry_name,
+                max_archive_bytes,
+                max_entry_bytes,
+            ) {
+                Ok(Some(content)) => {
+                    let payload = ReadResult { content };
+                    serde_json::to_string(&OkResponse { id, ok: &payload })?
+                }
+                Ok(None) => {
+                    // Tag the absent-entry case so the host can map it
+                    // back to `Ok(None)` rather than a hard error.
+                    serde_json::to_string(&ErrResponse {
+                        id,
+                        err: "zip entry not found",
+                    })?
+                }
+                Err(err) => {
+                    let body = err.to_string();
+                    serde_json::to_string(&ErrResponse { id, err: &body })?
+                }
+            },
+            Request::ReadZipEntriesWithPrefix {
+                guest_path,
+                prefix,
+                max_archive_bytes,
+                max_entry_bytes,
+                max_total_bytes,
+            } => match read_zip_entries_with_prefix_in_sandbox(
+                &guest_path,
+                &prefix,
+                max_archive_bytes,
+                max_entry_bytes,
+                max_total_bytes,
+            ) {
+                Ok(entries) => {
+                    let payload = EntriesResult { entries };
                     serde_json::to_string(&OkResponse { id, ok: &payload })?
                 }
                 Err(err) => {

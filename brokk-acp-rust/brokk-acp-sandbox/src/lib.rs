@@ -18,5 +18,10 @@
 //! "wasm-by-default with native fallback" coverage in `brokk-acp-rust`.
 
 pub mod skills;
+pub mod zip_reader;
 
 pub use skills::{ParsedFrontmatter, parse_frontmatter, split_frontmatter};
+pub use zip_reader::{
+    ZipReadError, read_entries_with_prefix as read_zip_entries_with_prefix,
+    read_entry_bytes as read_zip_entry_bytes, read_entry_text as read_zip_entry_text,
+};

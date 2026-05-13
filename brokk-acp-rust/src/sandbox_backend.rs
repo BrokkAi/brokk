@@ -122,6 +122,138 @@ impl SandboxBackend {
             Self::Wasm(w) => w.read_file_bounded(path, max_bytes),
         }
     }
+
+    /// Read a single text entry out of a zip archive, with separate
+    /// caps for the archive size on disk and the decompressed entry
+    /// size. This is the load-bearing primitive for `session.rs`
+    /// readers: session zips are untrusted bytes on disk, and a
+    /// crafted archive (zip bomb, malformed header, lying central
+    /// directory) must not be able to OOM or panic the agent.
+    ///
+    /// Native dispatch reuses the `zip` crate directly with bounded
+    /// reads. Wasm dispatch hands the archive bytes to the in-sandbox
+    /// minimal zip parser (`brokk_acp_sandbox::zip_reader`), so the
+    /// host process never decompresses the input.
+    ///
+    /// `Ok(None)` means "archive exists but the named entry is not in
+    /// it" -- callers can keep their existing missing-entry path.
+    pub fn read_zip_entry_text(
+        &self,
+        zip_path: &std::path::Path,
+        entry_name: &str,
+        max_archive_bytes: u64,
+        max_entry_bytes: u64,
+    ) -> std::io::Result<Option<String>> {
+        match self {
+            Self::Native => {
+                read_zip_entry_text_native(zip_path, entry_name, max_archive_bytes, max_entry_bytes)
+            }
+            Self::Wasm(w) => {
+                w.read_zip_entry_text(zip_path, entry_name, max_archive_bytes, max_entry_bytes)
+            }
+        }
+    }
+
+    /// Bulk variant: read every text entry whose name starts with
+    /// `prefix` from a zip archive. The history reader uses this to
+    /// fetch `content/*.txt` in one round-trip instead of paying the
+    /// wasm boot cost per turn. `max_total_bytes` is the budget over
+    /// the sum of decompressed payloads; a swarm of small bombs
+    /// cannot collectively exceed it.
+    pub fn read_zip_entries_with_prefix(
+        &self,
+        zip_path: &std::path::Path,
+        prefix: &str,
+        max_archive_bytes: u64,
+        max_entry_bytes: u64,
+        max_total_bytes: u64,
+    ) -> std::io::Result<std::collections::HashMap<String, String>> {
+        match self {
+            Self::Native => read_zip_entries_with_prefix_native(
+                zip_path,
+                prefix,
+                max_archive_bytes,
+                max_entry_bytes,
+                max_total_bytes,
+            ),
+            Self::Wasm(w) => w.read_zip_entries_with_prefix(
+                zip_path,
+                prefix,
+                max_archive_bytes,
+                max_entry_bytes,
+                max_total_bytes,
+            ),
+        }
+    }
+}
+
+/// Native implementation of `read_zip_entry_text`. Reads the whole
+/// archive into memory first (bounded by `max_archive_bytes`) and
+/// then uses the same minimal parser that ships in the wasm sandbox.
+/// Going through the shared parser keeps the failure modes identical
+/// across backends so the `native_and_wasm_agree_on_...` parity test
+/// can pin the contract.
+fn read_zip_entry_text_native(
+    zip_path: &std::path::Path,
+    entry_name: &str,
+    max_archive_bytes: u64,
+    max_entry_bytes: u64,
+) -> std::io::Result<Option<String>> {
+    let bytes = match read_archive_bounded_native(zip_path, max_archive_bytes)? {
+        Some(b) => b,
+        None => return Ok(None),
+    };
+    brokk_acp_sandbox::read_zip_entry_text(&bytes, entry_name, max_entry_bytes)
+        .map_err(|e| std::io::Error::other(format!("{e}")))
+}
+
+fn read_zip_entries_with_prefix_native(
+    zip_path: &std::path::Path,
+    prefix: &str,
+    max_archive_bytes: u64,
+    max_entry_bytes: u64,
+    max_total_bytes: u64,
+) -> std::io::Result<std::collections::HashMap<String, String>> {
+    let bytes = match read_archive_bounded_native(zip_path, max_archive_bytes)? {
+        Some(b) => b,
+        None => return Ok(std::collections::HashMap::new()),
+    };
+    brokk_acp_sandbox::read_zip_entries_with_prefix(
+        &bytes,
+        prefix,
+        max_entry_bytes,
+        max_total_bytes,
+    )
+    .map_err(|e| std::io::Error::other(format!("{e}")))
+}
+
+/// Shared helper: read the archive bytes off disk with a size cap.
+/// Returns `None` if the path is missing or not a regular file so
+/// callers can keep their "no zip here" path.
+fn read_archive_bounded_native(
+    zip_path: &std::path::Path,
+    max_archive_bytes: u64,
+) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::ErrorKind;
+    let meta = match std::fs::metadata(zip_path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    if !meta.is_file() {
+        return Ok(None);
+    }
+    if meta.len() > max_archive_bytes {
+        return Err(std::io::Error::new(
+            ErrorKind::FileTooLarge,
+            format!(
+                "{} archive is {} bytes, exceeds cap of {max_archive_bytes}",
+                zip_path.display(),
+                meta.len()
+            ),
+        ));
+    }
+    Ok(Some(std::fs::read(zip_path)?))
 }
 
 /// Native implementation of `read_file_bounded`. Returns `Ok(None)`
@@ -267,6 +399,153 @@ impl WasmSandbox {
             SandboxBody::Err(msg) => {
                 // Mirror the native fallback: a missing file is `Ok(None)`
                 // so callers do not have to special-case "no file here".
+                if msg.contains("No such file or directory")
+                    || msg.contains("file not found")
+                    || msg.contains("ENOENT")
+                {
+                    return Ok(None);
+                }
+                if msg.contains("exceeds cap of") {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::FileTooLarge,
+                        format!("[sandbox] {msg}"),
+                    ));
+                }
+                Err(std::io::Error::other(format!("[sandbox] {msg}")))
+            }
+        }
+    }
+
+    /// Bulk prefix variant of `read_zip_entry_text`. One sandbox boot
+    /// returns every matching entry as a name-to-contents map, so the
+    /// history reader pays the wasm overhead once for the whole
+    /// `content/` set instead of N times.
+    fn read_zip_entries_with_prefix(
+        &self,
+        zip_path: &std::path::Path,
+        prefix: &str,
+        max_archive_bytes: u64,
+        max_entry_bytes: u64,
+        max_total_bytes: u64,
+    ) -> std::io::Result<std::collections::HashMap<String, String>> {
+        let parent = match zip_path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("zip path {} has no parent directory", zip_path.display()),
+                ));
+            }
+        };
+        let file_name = match zip_path.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n.to_string(),
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("zip path {} has no UTF-8 basename", zip_path.display()),
+                ));
+            }
+        };
+        let guest_path = format!("/d/{file_name}");
+        let id = self.next_id();
+        let req = SandboxRequest {
+            id,
+            kind: SandboxRequestKind::ReadZipEntriesWithPrefix(ReadZipEntriesWithPrefixParams {
+                guest_path,
+                prefix: prefix.to_string(),
+                max_archive_bytes,
+                max_entry_bytes,
+                max_total_bytes,
+            }),
+        };
+        let resp: SandboxResponse<ReadEntriesResult> = self
+            .round_trip(&req, Some((parent, "/d")))
+            .map_err(|e| std::io::Error::other(format!("[sandbox] {e}")))?;
+        if resp.id != id {
+            return Err(std::io::Error::other(format!(
+                "[sandbox] response id mismatch: sent {id}, got {}",
+                resp.id
+            )));
+        }
+        match resp.body {
+            SandboxBody::Ok(r) => Ok(r.entries),
+            SandboxBody::Err(msg) => {
+                if msg.contains("No such file or directory")
+                    || msg.contains("file not found")
+                    || msg.contains("ENOENT")
+                {
+                    return Ok(std::collections::HashMap::new());
+                }
+                if msg.contains("exceeds cap of") {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::FileTooLarge,
+                        format!("[sandbox] {msg}"),
+                    ));
+                }
+                Err(std::io::Error::other(format!("[sandbox] {msg}")))
+            }
+        }
+    }
+
+    /// Read a single text entry out of a zip archive through the
+    /// sandbox. Mirrors `read_file_bounded`: preopen the parent dir
+    /// of the archive read-only, ask the guest to open the archive
+    /// at its leaf name, decompress only the requested entry inside
+    /// the wasm memory limit.
+    fn read_zip_entry_text(
+        &self,
+        zip_path: &std::path::Path,
+        entry_name: &str,
+        max_archive_bytes: u64,
+        max_entry_bytes: u64,
+    ) -> std::io::Result<Option<String>> {
+        let parent = match zip_path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("zip path {} has no parent directory", zip_path.display()),
+                ));
+            }
+        };
+        let file_name = match zip_path.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n.to_string(),
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("zip path {} has no UTF-8 basename", zip_path.display()),
+                ));
+            }
+        };
+        let guest_path = format!("/d/{file_name}");
+        let id = self.next_id();
+        let req = SandboxRequest {
+            id,
+            kind: SandboxRequestKind::ReadZipEntryText(ReadZipEntryTextParams {
+                guest_path,
+                entry_name: entry_name.to_string(),
+                max_archive_bytes,
+                max_entry_bytes,
+            }),
+        };
+        let resp: SandboxResponse<ReadFileResult> = self
+            .round_trip(&req, Some((parent, "/d")))
+            .map_err(|e| std::io::Error::other(format!("[sandbox] {e}")))?;
+        if resp.id != id {
+            return Err(std::io::Error::other(format!(
+                "[sandbox] response id mismatch: sent {id}, got {}",
+                resp.id
+            )));
+        }
+        match resp.body {
+            SandboxBody::Ok(r) => Ok(Some(r.content)),
+            SandboxBody::Err(msg) => {
+                // The guest sends this sentinel for "archive exists,
+                // entry not present" so we can keep parity with the
+                // native fallback's `Ok(None)` return path.
+                if msg == "zip entry not found" {
+                    return Ok(None);
+                }
                 if msg.contains("No such file or directory")
                     || msg.contains("file not found")
                     || msg.contains("ENOENT")
@@ -434,6 +713,8 @@ impl WasmSandbox {
 enum SandboxRequestKind {
     ParseSkillFrontmatter(ParseSkillFrontmatterParams),
     ReadFileBounded(ReadFileBoundedParams),
+    ReadZipEntryText(ReadZipEntryTextParams),
+    ReadZipEntriesWithPrefix(ReadZipEntriesWithPrefixParams),
 }
 
 #[derive(Serialize)]
@@ -449,6 +730,28 @@ struct ReadFileBoundedParams {
     // plain snake_case.
     guest_path: String,
     max_bytes: u64,
+}
+
+#[derive(Serialize)]
+struct ReadZipEntryTextParams {
+    guest_path: String,
+    entry_name: String,
+    max_archive_bytes: u64,
+    max_entry_bytes: u64,
+}
+
+#[derive(Serialize)]
+struct ReadZipEntriesWithPrefixParams {
+    guest_path: String,
+    prefix: String,
+    max_archive_bytes: u64,
+    max_entry_bytes: u64,
+    max_total_bytes: u64,
+}
+
+#[derive(Deserialize)]
+struct ReadEntriesResult {
+    entries: std::collections::HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -613,5 +916,87 @@ mod tests {
             .read_file_bounded(&path, 1024)
             .unwrap();
         assert_eq!(native, wasm);
+    }
+
+    /// Build a tiny session-style zip with `zip` (Deflated) and read it
+    /// back through both backends. Anchors the wire contract for the
+    /// zip-entry primitive and the parity between the host's `zip` crate
+    /// (used to build the fixture) and the sandbox's minimal parser
+    /// (used to read it inside wasm).
+    fn build_session_fixture_zip(path: &std::path::Path, entries: &[(&str, &str)]) {
+        let file = std::fs::File::create(path).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, body) in entries {
+            writer.start_file(*name, options).unwrap();
+            std::io::Write::write_all(&mut writer, body.as_bytes()).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    #[test]
+    fn native_and_wasm_agree_on_read_zip_entry_text() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let zip_path = tmp.path().join("session.zip");
+        build_session_fixture_zip(
+            &zip_path,
+            &[
+                ("manifest.json", r#"{"id":"abc","name":"demo"}"#),
+                ("content/hello.txt", "hello from inside the zip"),
+            ],
+        );
+
+        let native = SandboxBackend::Native
+            .read_zip_entry_text(&zip_path, "manifest.json", 1 << 20, 1 << 20)
+            .unwrap();
+        let wasm_sandbox = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let wasm = SandboxBackend::Wasm(Arc::new(wasm_sandbox))
+            .read_zip_entry_text(&zip_path, "manifest.json", 1 << 20, 1 << 20)
+            .unwrap();
+        assert_eq!(native, wasm);
+        assert_eq!(
+            native.as_deref(),
+            Some(r#"{"id":"abc","name":"demo"}"#),
+            "manifest bytes should round-trip through the zip parser"
+        );
+    }
+
+    #[test]
+    fn wasm_read_zip_entry_missing_returns_none() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let zip_path = tmp.path().join("session.zip");
+        build_session_fixture_zip(&zip_path, &[("manifest.json", "{}")]);
+
+        let wasm = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let backend = SandboxBackend::Wasm(Arc::new(wasm));
+        let result = backend
+            .read_zip_entry_text(&zip_path, "missing.json", 1 << 20, 1 << 20)
+            .expect("read should not error for a missing entry");
+        assert!(
+            result.is_none(),
+            "missing entry should be Ok(None), got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn wasm_read_zip_entry_rejects_oversize_entry() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let zip_path = tmp.path().join("session.zip");
+        // 16 KiB entry, but cap is 1 KiB. The wasm parser must reject
+        // before allocating the full decompressed buffer.
+        let body = "x".repeat(16 * 1024);
+        build_session_fixture_zip(&zip_path, &[("big.txt", &body)]);
+
+        let wasm = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let backend = SandboxBackend::Wasm(Arc::new(wasm));
+        let err = backend
+            .read_zip_entry_text(&zip_path, "big.txt", 1 << 20, 1024)
+            .expect_err("oversize entry must be rejected");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::FileTooLarge,
+            "expected FileTooLarge, got: {err}"
+        );
     }
 }

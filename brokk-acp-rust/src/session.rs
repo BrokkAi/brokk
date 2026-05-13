@@ -12,6 +12,40 @@ use crate::llm_client::ModelMetadata;
 use crate::tools::ToolRegistry;
 
 // ---------------------------------------------------------------------------
+// Sandbox-bounded read limits
+// ---------------------------------------------------------------------------
+
+/// Upper bound on the size of a session zip we will read off disk. Any
+/// archive larger than this is rejected before bytes flow through
+/// `SandboxBackend::read_zip_entry_text`, so a corrupted or hostile
+/// `~/.brokk/sessions/<id>.zip` cannot OOM the agent. 256 MiB is well
+/// above what `write_new_session_zip` produces in practice (sessions
+/// dominated by conversation text rarely cross a few MB).
+const MAX_SESSION_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
+/// Upper bound on the decompressed `manifest.json` payload. The schema
+/// is tiny (id, name, timestamps, mode, model); 1 MiB is loose enough
+/// to absorb future fields while still rejecting absurd values.
+const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+/// Upper bound on the decompressed `fragments-v4.json` payload.
+/// Fragments hold one node per turn (no message bodies -- those live in
+/// `content/<id>.txt`), so 16 MiB is large enough for any plausible
+/// session and small enough to fail fast on a crafted archive.
+const MAX_FRAGMENTS_BYTES: u64 = 16 * 1024 * 1024;
+/// Upper bound on the decompressed `contexts.jsonl` payload. One JSON
+/// line per turn, each line is small (~few KB at most).
+const MAX_CONTEXTS_BYTES: u64 = 16 * 1024 * 1024;
+/// Per-entry cap when reading `content/*.txt`. A single conversation
+/// turn or tool exchange should never approach this size; the cap is
+/// there to bound a single hostile entry without dropping legitimate
+/// turns that carry, say, a large file dump.
+const MAX_CONTENT_ENTRY_BYTES: u64 = 32 * 1024 * 1024;
+/// Total budget across all `content/*.txt` entries pulled out of a
+/// session zip in one read. A swarm of small bomb entries cannot
+/// collectively exceed this, even when each is below the per-entry
+/// cap.
+const MAX_CONTENT_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
+
+// ---------------------------------------------------------------------------
 // Store limits
 // ---------------------------------------------------------------------------
 
@@ -407,58 +441,89 @@ fn session_zip_path(cwd: &Path, id: &str) -> PathBuf {
 }
 
 /// Read manifest.json from a session zip. Returns None if the zip or manifest is unreadable.
+///
+/// Routed through `SandboxBackend::read_zip_entry_text` so the parser
+/// runs inside the wasm sandbox by default: a malformed or hostile
+/// session zip on disk cannot OOM the agent (the archive read is
+/// bounded by `MAX_SESSION_ARCHIVE_BYTES` and the manifest entry by
+/// `MAX_MANIFEST_BYTES`, and the wasm linear-memory limit catches
+/// anything those size pre-checks miss).
 fn read_manifest_from_zip(zip_path: &Path) -> Option<SessionManifest> {
-    let file = std::fs::File::open(zip_path).ok()?;
-    let mut archive = zip::ZipArchive::new(file).ok()?;
-    let mut manifest_entry = archive.by_name("manifest.json").ok()?;
-    let mut buf = String::new();
-    manifest_entry.read_to_string(&mut buf).ok()?;
-    serde_json::from_str(&buf).ok()
+    let body = match crate::sandbox_backend::global().read_zip_entry_text(
+        zip_path,
+        "manifest.json",
+        MAX_SESSION_ARCHIVE_BYTES,
+        MAX_MANIFEST_BYTES,
+    ) {
+        Ok(Some(s)) => s,
+        Ok(None) => return None,
+        Err(e) => {
+            tracing::warn!(
+                path = %zip_path.display(),
+                "session manifest unreadable: {e}"
+            );
+            return None;
+        }
+    };
+    serde_json::from_str(&body).ok()
 }
 
 /// Read conversation history from a session zip.
 /// Reads TaskFragmentDto entries from fragments-v4.json and resolves their
 /// markdownContentId / messages[].contentId against content/*.txt files.
+///
+/// Three sandboxed pulls per zip: one prefix-scan to grab every
+/// `content/<id>.txt` in a single sandbox boot, one named fetch for
+/// `fragments-v4.json`, one for `contexts.jsonl`. The wasm memory cap
+/// (`StoreLimits::memory_size`) and the per-entry / per-total byte
+/// limits above keep a crafted archive from OOM-ing the host.
 fn read_history_from_zip(zip_path: &Path) -> Vec<ConversationTurn> {
-    let file = match std::fs::File::open(zip_path) {
-        Ok(f) => f,
-        Err(_) => return vec![],
-    };
-    let mut archive = match zip::ZipArchive::new(file) {
-        Ok(a) => a,
-        Err(_) => return vec![],
-    };
+    let backend = crate::sandbox_backend::global();
 
     // 1. Read all content/*.txt files into a map: content_id -> text
-    let mut content_map: HashMap<String, String> = HashMap::new();
-    for i in 0..archive.len() {
-        let mut entry = match archive.by_index(i) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        let name = entry.name().to_string();
+    let content_entries = match backend.read_zip_entries_with_prefix(
+        zip_path,
+        "content/",
+        MAX_SESSION_ARCHIVE_BYTES,
+        MAX_CONTENT_ENTRY_BYTES,
+        MAX_CONTENT_TOTAL_BYTES,
+    ) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!(
+                path = %zip_path.display(),
+                "session content entries unreadable: {e}"
+            );
+            return vec![];
+        }
+    };
+    let mut content_map: HashMap<String, String> =
+        HashMap::with_capacity(content_entries.len());
+    for (name, body) in content_entries {
         if let Some(content_id) = name
             .strip_prefix("content/")
             .and_then(|s| s.strip_suffix(".txt"))
         {
-            let mut buf = String::new();
-            if entry.read_to_string(&mut buf).is_ok() {
-                content_map.insert(content_id.to_string(), buf);
-            }
+            content_map.insert(content_id.to_string(), body);
         }
     }
 
-    // 2. Read fragments-v4.json to find task fragments with conversation content
-    let fragments_json = {
-        let mut entry = match archive.by_name("fragments-v4.json") {
-            Ok(e) => e,
-            Err(_) => return vec![],
-        };
-        let mut buf = String::new();
-        if entry.read_to_string(&mut buf).is_err() {
+    // 2. Read fragments-v4.json
+    let fragments_json = match backend.read_zip_entry_text(
+        zip_path,
+        "fragments-v4.json",
+        MAX_SESSION_ARCHIVE_BYTES,
+        MAX_FRAGMENTS_BYTES,
+    ) {
+        Ok(Some(s)) => s,
+        Ok(None) => return vec![],
+        Err(e) => {
+            tracing::warn!(
+                path = %zip_path.display(),
+                "fragments-v4.json unreadable: {e}"
+            );
             return vec![];
         }
-        buf
     };
 
     let fragments: serde_json::Value = match serde_json::from_str(&fragments_json) {
@@ -481,7 +546,7 @@ fn read_history_from_zip(zip_path: &Path) -> Vec<ConversationTurn> {
     //      collecting `virtuals` in first-seen order gives the chronological
     //      sequence of task fragments. Works for both newly-written zips and
     //      older ones that already followed this convention -- no migration.
-    let chronological_ids = read_task_fragment_order(&mut archive);
+    let chronological_ids = read_task_fragment_order_from_zip(zip_path);
 
     // 3. Extract conversation from task fragments, in chronological order
     //    where recoverable. Each task fragment may have:
@@ -584,15 +649,23 @@ fn read_history_from_zip(zip_path: &Path) -> Vec<ConversationTurn> {
 /// caller falls back to the BTreeMap iteration order on the fragments map,
 /// which keeps the prior shuffled-but-best-effort behavior for malformed
 /// zips rather than dropping turns outright.
-fn read_task_fragment_order(archive: &mut zip::ZipArchive<std::fs::File>) -> Vec<String> {
-    let mut buf = String::new();
-    let Ok(mut entry) = archive.by_name("contexts.jsonl") else {
-        return Vec::new();
+fn read_task_fragment_order_from_zip(zip_path: &Path) -> Vec<String> {
+    let buf = match crate::sandbox_backend::global().read_zip_entry_text(
+        zip_path,
+        "contexts.jsonl",
+        MAX_SESSION_ARCHIVE_BYTES,
+        MAX_CONTEXTS_BYTES,
+    ) {
+        Ok(Some(s)) => s,
+        Ok(None) => return Vec::new(),
+        Err(e) => {
+            tracing::warn!(
+                path = %zip_path.display(),
+                "contexts.jsonl unreadable: {e}"
+            );
+            return Vec::new();
+        }
     };
-    if entry.read_to_string(&mut buf).is_err() {
-        return Vec::new();
-    }
-    drop(entry);
 
     let mut ids: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
