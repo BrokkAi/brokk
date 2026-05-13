@@ -12,11 +12,14 @@ import java.util.stream.Collectors;
 
 /** JS/TS-specific analyzer caches for module and path resolution. */
 public final class JsTsAnalyzerCache extends AnalyzerCache {
+    private final Cache<String, Optional<String>> importModuleSpecifierCache;
     private final Cache<ModulePathKey, JsTsAnalyzer.ResolutionOutcome> moduleResolutionCache;
     private final Cache<ModulePathFromBaseKey, Optional<ProjectFile>> moduleResolutionFromBaseCache;
 
     public JsTsAnalyzerCache() {
         super();
+        this.importModuleSpecifierCache =
+                Caffeine.newBuilder().maximumSize(20_000).build();
         this.moduleResolutionCache = Caffeine.newBuilder().maximumSize(10_000).build();
         this.moduleResolutionFromBaseCache =
                 Caffeine.newBuilder().maximumSize(20_000).build();
@@ -24,10 +27,13 @@ public final class JsTsAnalyzerCache extends AnalyzerCache {
 
     public JsTsAnalyzerCache(JsTsAnalyzerCache previous, Set<ProjectFile> changedFiles) {
         super(previous, changedFiles);
+        this.importModuleSpecifierCache =
+                Caffeine.newBuilder().maximumSize(20_000).build();
         this.moduleResolutionCache = Caffeine.newBuilder().maximumSize(10_000).build();
         this.moduleResolutionFromBaseCache =
                 Caffeine.newBuilder().maximumSize(20_000).build();
 
+        previous.importModuleSpecifierCache.asMap().forEach(this.importModuleSpecifierCache::put);
         if (changedFiles.isEmpty()) {
             previous.moduleResolutionCache.asMap().forEach(this.moduleResolutionCache::put);
             previous.moduleResolutionFromBaseCache.asMap().forEach(this.moduleResolutionFromBaseCache::put);
@@ -59,6 +65,10 @@ public final class JsTsAnalyzerCache extends AnalyzerCache {
             }
             this.moduleResolutionCache.put(key, outcome);
         });
+    }
+
+    public Cache<String, Optional<String>> importModuleSpecifierCache() {
+        return importModuleSpecifierCache;
     }
 
     public Cache<ModulePathKey, JsTsAnalyzer.ResolutionOutcome> moduleResolutionCache() {
