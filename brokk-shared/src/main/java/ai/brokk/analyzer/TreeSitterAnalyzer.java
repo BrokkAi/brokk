@@ -3,7 +3,9 @@ package ai.brokk.analyzer;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.ICoreProject;
+import ai.brokk.util.AsciiUtil;
 import ai.brokk.util.ConcurrencyUtil;
+import ai.brokk.util.RegexLiteralSet;
 import ai.brokk.util.TextCanonicalizer;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -1389,12 +1391,34 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     private Set<CodeUnit> searchDefinitionsInternal(Pattern compiledPattern, @Nullable String substringFilter) {
         checkStale("searchDefinitionsInternal");
+        var literalSearch = RegexLiteralSet.fromContainsPattern(compiledPattern, substringFilter);
+        if (literalSearch.isPresent()) {
+            return searchDefinitionsByLiterals(literalSearch.get(), compiledPattern);
+        }
         var threadLocalMatcher = ThreadLocal.withInitial(() -> compiledPattern.matcher(""));
         return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> !cu.isSynthetic())
                 .filter(cu -> substringFilter == null
                         || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
                 .filter(cu -> threadLocalMatcher.get().reset(cu.fqName()).find())
+                .filter(cu -> !isAnonymousStructure(cu.fqName()))
+                .collect(Collectors.toSet());
+    }
+
+    private Set<CodeUnit> searchDefinitionsByLiterals(RegexLiteralSet search, Pattern compiledPattern) {
+        var literals = search.literals();
+        return this.state.codeUnitState.keySet().parallelStream()
+                .filter(cu -> !cu.isSynthetic())
+                .filter(cu -> {
+                    String fqName = cu.fqName();
+                    if (!search.caseInsensitive()) {
+                        return literals.stream().anyMatch(fqName::contains);
+                    }
+                    if (!AsciiUtil.isAscii(fqName)) {
+                        return compiledPattern.matcher(fqName).find();
+                    }
+                    return literals.stream().anyMatch(literal -> AsciiUtil.containsIgnoreCase(fqName, literal));
+                })
                 .filter(cu -> !isAnonymousStructure(cu.fqName()))
                 .collect(Collectors.toSet());
     }
