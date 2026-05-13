@@ -72,6 +72,15 @@ enum Request {
         max_entry_bytes: u64,
         max_total_bytes: u64,
     },
+    /// List every entry name in the zip archive at `guest_path`. Cheap
+    /// next to `ReadZipEntryText` because no entry is decompressed; the
+    /// host uses this to stream entries one-at-a-time when rewriting
+    /// session zips, keeping peak memory at one entry instead of the
+    /// whole archive.
+    ListZipEntryNames {
+        guest_path: String,
+        max_archive_bytes: u64,
+    },
     /// Walk the directory the host has preopened at `guest_root` and
     /// return lines that match `pattern`, optionally restricted to
     /// files whose relative path matches `glob`. The user-supplied
@@ -123,6 +132,11 @@ struct EntriesResult {
     entries: std::collections::HashMap<String, String>,
 }
 
+#[derive(Serialize)]
+struct NamesResult {
+    names: Vec<String>,
+}
+
 /// Read at most `max_bytes` bytes from the file at `guest_path` (which
 /// must resolve through a host-provided WASI preopen). Errors when:
 ///   - the file does not exist or the preopen does not cover its dir,
@@ -170,6 +184,15 @@ fn read_zip_entry_in_sandbox(
     let bytes = read_archive_bounded(guest_path, max_archive_bytes)?;
     let parsed = brokk_acp_sandbox::read_zip_entry_text(&bytes, entry_name, max_entry_bytes)?;
     Ok(parsed)
+}
+
+fn list_zip_entry_names_in_sandbox(
+    guest_path: &str,
+    max_archive_bytes: u64,
+) -> Result<Vec<String>, anyhow::Error> {
+    let bytes = read_archive_bounded(guest_path, max_archive_bytes)?;
+    let names = brokk_acp_sandbox::list_zip_entry_names(&bytes)?;
+    Ok(names)
 }
 
 fn read_zip_entries_with_prefix_in_sandbox(
@@ -304,6 +327,19 @@ fn main() -> anyhow::Result<()> {
             ) {
                 Ok(entries) => {
                     let payload = EntriesResult { entries };
+                    serde_json::to_string(&OkResponse { id, ok: &payload })?
+                }
+                Err(err) => {
+                    let body = err.to_string();
+                    serde_json::to_string(&ErrResponse { id, err: &body })?
+                }
+            },
+            Request::ListZipEntryNames {
+                guest_path,
+                max_archive_bytes,
+            } => match list_zip_entry_names_in_sandbox(&guest_path, max_archive_bytes) {
+                Ok(names) => {
+                    let payload = NamesResult { names };
                     serde_json::to_string(&OkResponse { id, ok: &payload })?
                 }
                 Err(err) => {

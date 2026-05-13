@@ -24,6 +24,7 @@ pub mod zip_reader;
 pub use search::{SearchError, SearchMatch, SearchOutcome, search as search_file_contents};
 pub use skills::{ParsedFrontmatter, parse_frontmatter, split_frontmatter};
 pub use zip_reader::{
-    ZipReadError, read_entries_with_prefix as read_zip_entries_with_prefix,
+    ZipReadError, list_entry_names as list_zip_entry_names,
+    read_entries_with_prefix as read_zip_entries_with_prefix,
     read_entry_bytes as read_zip_entry_bytes, read_entry_text as read_zip_entry_text,
 };

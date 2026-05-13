@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::io::{Read as IoRead, Write as IoWrite};
+use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -838,8 +838,17 @@ where
 /// Copy every entry from `archive` into `writer` whose name does not match `skip`.
 /// Per-entry I/O failures bubble up; callers in `with_temp_zip_writer` will discard
 /// the half-written temp zip.
-fn copy_zip_entries_except<F>(
-    archive: &mut zip::ZipArchive<std::fs::File>,
+/// Stream the entries of an existing session zip through the sandbox,
+/// writing each one into `writer` as soon as it comes back. We list
+/// names first, then fetch each entry individually so the host's peak
+/// memory is bounded by the per-entry cap (`MAX_CONTENT_ENTRY_BYTES`,
+/// 32 MiB) rather than the full decompressed archive. This is the
+/// load-bearing piece that lets `append_turn_to_zip` and
+/// `rewrite_manifest_in_zip` rebuild a session zip without ever
+/// re-parsing it with the host's `zip` crate, closing the TOCTOU
+/// window between session load and the next turn append.
+fn copy_zip_entries_via_sandbox<F>(
+    zip_path: &Path,
     writer: &mut zip::ZipWriter<std::fs::File>,
     options: zip::write::SimpleFileOptions,
     skip: F,
@@ -848,23 +857,51 @@ where
     F: Fn(&str) -> bool,
 {
     use anyhow::Context;
-    for i in 0..archive.len() {
-        let mut entry = archive
-            .by_index(i)
-            .with_context(|| format!("reading zip entry at index {i}"))?;
-        let name = entry.name().to_string();
+    // The sandbox primitives translate a missing archive into
+    // "no entries" so most callers can stay silent. The rewrite path
+    // is different: silently producing an archive that does not
+    // contain the prior session's entries would corrupt the on-disk
+    // state. Match the prior `File::open(...).with_context(...)`
+    // behaviour and fail loudly so `with_temp_zip_writer` rolls back.
+    if !zip_path.exists() {
+        anyhow::bail!(
+            "opening session zip {} for update: file not found",
+            zip_path.display()
+        );
+    }
+    let backend = crate::sandbox_backend::global();
+    let names = backend
+        .list_zip_entry_names(zip_path, MAX_SESSION_ARCHIVE_BYTES)
+        .with_context(|| format!("listing entries in {}", zip_path.display()))?;
+    for name in names {
         if skip(&name) {
             continue;
         }
-        let mut buf = Vec::new();
-        entry
-            .read_to_end(&mut buf)
-            .with_context(|| format!("reading zip entry {name}"))?;
+        let body = match backend.read_zip_entry_text(
+            zip_path,
+            &name,
+            MAX_SESSION_ARCHIVE_BYTES,
+            MAX_CONTENT_ENTRY_BYTES,
+        ) {
+            Ok(Some(s)) => s,
+            // Race: an entry disappeared between list and read. Treat
+            // as a transient zip mutation and abort the rewrite -- the
+            // atomic temp-then-rename in `with_temp_zip_writer` keeps
+            // the on-disk zip unchanged.
+            Ok(None) => anyhow::bail!(
+                "zip entry {name} disappeared between list and read in {}",
+                zip_path.display()
+            ),
+            Err(e) => {
+                return Err(anyhow::anyhow!(e))
+                    .with_context(|| format!("reading zip entry {name}"));
+            }
+        };
         writer
             .start_file(&name, options)
             .with_context(|| format!("starting zip entry {name}"))?;
         writer
-            .write_all(&buf)
+            .write_all(body.as_bytes())
             .with_context(|| format!("writing zip entry {name}"))?;
     }
     Ok(())
@@ -928,46 +965,54 @@ fn append_turn_to_zip(
 ) -> anyhow::Result<()> {
     use anyhow::Context;
 
-    let file = std::fs::File::open(zip_path)
-        .with_context(|| format!("opening session zip {} for update", zip_path.display()))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .with_context(|| format!("reading session zip {}", zip_path.display()))?;
-
-    // Pre-read the entries we plan to rewrite. A missing or unparseable entry falls back
-    // to a known-empty default, matching prior behavior; a stale corruption shouldn't
+    // Pre-read the entries we plan to rewrite through the sandbox so a
+    // mutated zip on disk (an attacker swapping the file between the
+    // initial load and this append) cannot panic the host's `zip`
+    // crate. A missing or unparseable entry falls back to a known-empty
+    // default, matching prior behavior; a stale corruption shouldn't
     // abort persistence of the new turn.
+    let backend = crate::sandbox_backend::global();
     let mut existing_fragments: serde_json::Value =
         serde_json::json!({"version": 4, "referenced": {}, "virtual": {}, "task": {}});
-    if let Ok(mut e) = archive.by_name("fragments-v4.json") {
-        let mut buf = String::new();
-        if e.read_to_string(&mut buf).is_ok()
-            && let Ok(v) = serde_json::from_str(&buf)
-        {
-            existing_fragments = v;
-        }
+    if let Ok(Some(buf)) = backend.read_zip_entry_text(
+        zip_path,
+        "fragments-v4.json",
+        MAX_SESSION_ARCHIVE_BYTES,
+        MAX_FRAGMENTS_BYTES,
+    ) && let Ok(v) = serde_json::from_str(&buf)
+    {
+        existing_fragments = v;
     }
-    let mut existing_contexts = String::new();
-    if let Ok(mut e) = archive.by_name("contexts.jsonl") {
-        let _ = e.read_to_string(&mut existing_contexts);
-    }
+    let existing_contexts = backend
+        .read_zip_entry_text(
+            zip_path,
+            "contexts.jsonl",
+            MAX_SESSION_ARCHIVE_BYTES,
+            MAX_CONTEXTS_BYTES,
+        )
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let mut existing_content_metadata: serde_json::Value = serde_json::json!({});
-    if let Ok(mut e) = archive.by_name("content_metadata.json") {
-        let mut buf = String::new();
-        if e.read_to_string(&mut buf).is_ok()
-            && let Ok(v) = serde_json::from_str(&buf)
-        {
-            existing_content_metadata = v;
-        }
+    if let Ok(Some(buf)) = backend.read_zip_entry_text(
+        zip_path,
+        "content_metadata.json",
+        MAX_SESSION_ARCHIVE_BYTES,
+        MAX_MANIFEST_BYTES,
+    ) && let Ok(v) = serde_json::from_str(&buf)
+    {
+        existing_content_metadata = v;
     }
     let mut existing_group_info: serde_json::Value =
         serde_json::json!({"contextToGroupId": {}, "groupLabels": {}});
-    if let Ok(mut e) = archive.by_name("group_info.json") {
-        let mut buf = String::new();
-        if e.read_to_string(&mut buf).is_ok()
-            && let Ok(v) = serde_json::from_str(&buf)
-        {
-            existing_group_info = v;
-        }
+    if let Ok(Some(buf)) = backend.read_zip_entry_text(
+        zip_path,
+        "group_info.json",
+        MAX_SESSION_ARCHIVE_BYTES,
+        MAX_MANIFEST_BYTES,
+    ) && let Ok(v) = serde_json::from_str(&buf)
+    {
+        existing_group_info = v;
     }
 
     let user_content_id = uuid::Uuid::new_v4().to_string();
@@ -1057,7 +1102,7 @@ fn append_turn_to_zip(
     ];
 
     with_temp_zip_writer(zip_path, |writer, options| {
-        copy_zip_entries_except(&mut archive, writer, options, |n| REWRITTEN.contains(&n))?;
+        copy_zip_entries_via_sandbox(zip_path, writer, options, |n| REWRITTEN.contains(&n))?;
 
         let manifest_json =
             serde_json::to_string_pretty(manifest).context("serializing session manifest")?;
@@ -1101,17 +1146,11 @@ fn append_turn_to_zip(
 fn rewrite_manifest_in_zip(zip_path: &Path, manifest: &SessionManifest) -> anyhow::Result<()> {
     use anyhow::Context;
 
-    let file = std::fs::File::open(zip_path).with_context(|| {
-        format!(
-            "opening session zip {} for manifest rewrite",
-            zip_path.display()
-        )
-    })?;
-    let mut archive = zip::ZipArchive::new(file)
-        .with_context(|| format!("reading session zip {}", zip_path.display()))?;
-
     with_temp_zip_writer(zip_path, |writer, options| {
-        copy_zip_entries_except(&mut archive, writer, options, |n| n == "manifest.json")?;
+        // Stream every existing entry except `manifest.json` through
+        // the sandbox so a mutated zip on disk cannot panic the
+        // host's `zip` parser during the rewrite.
+        copy_zip_entries_via_sandbox(zip_path, writer, options, |n| n == "manifest.json")?;
         let manifest_json =
             serde_json::to_string_pretty(manifest).context("serializing session manifest")?;
         writer.start_file("manifest.json", options)?;

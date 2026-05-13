@@ -163,12 +163,14 @@ pub fn read_entries_with_prefix(
     Ok(out)
 }
 
-/// Walk the central directory and collect every entry name. Used as
-/// the first step in `read_entries_with_prefix`; the names are
-/// returned in archive order. UTF-8 names are required; non-UTF-8
+/// Walk the central directory and collect every entry name. Names
+/// are returned in archive order. UTF-8 names are required; non-UTF-8
 /// names are skipped with no error (they are valid in the spec but
-/// session zips never produce them).
-fn list_entry_names(archive: &[u8]) -> Result<Vec<String>, ZipReadError> {
+/// session zips never produce them). Used by `read_entries_with_prefix`
+/// and exposed publicly so callers that want to stream entries
+/// one-at-a-time (e.g. the session-zip rewrite path) can iterate
+/// names without decompressing.
+pub fn list_entry_names(archive: &[u8]) -> Result<Vec<String>, ZipReadError> {
     let eocd = find_eocd(archive)?;
     let cd_offset = read_u32_le(archive, eocd + 16)? as usize;
     let cd_size = read_u32_le(archive, eocd + 12)? as usize;

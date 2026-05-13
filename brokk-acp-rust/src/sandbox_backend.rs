@@ -154,6 +154,22 @@ impl SandboxBackend {
         }
     }
 
+    /// List every entry name in a session zip without decompressing
+    /// any payload. Cheap relative to `read_zip_entry_text`; the
+    /// session-zip rewrite path uses this to drive a streaming copy
+    /// that holds at most one decompressed entry in memory at a time
+    /// instead of the whole archive.
+    pub fn list_zip_entry_names(
+        &self,
+        zip_path: &std::path::Path,
+        max_archive_bytes: u64,
+    ) -> std::io::Result<Vec<String>> {
+        match self {
+            Self::Native => list_zip_entry_names_native(zip_path, max_archive_bytes),
+            Self::Wasm(w) => w.list_zip_entry_names(zip_path, max_archive_bytes),
+        }
+    }
+
     /// Bulk variant: read every text entry whose name starts with
     /// `prefix` from a zip archive. The history reader uses this to
     /// fetch `content/*.txt` in one round-trip instead of paying the
@@ -244,6 +260,18 @@ fn read_zip_entry_text_native(
         None => return Ok(None),
     };
     brokk_acp_sandbox::read_zip_entry_text(&bytes, entry_name, max_entry_bytes)
+        .map_err(|e| std::io::Error::other(format!("{e}")))
+}
+
+fn list_zip_entry_names_native(
+    zip_path: &std::path::Path,
+    max_archive_bytes: u64,
+) -> std::io::Result<Vec<String>> {
+    let bytes = match read_archive_bounded_native(zip_path, max_archive_bytes)? {
+        Some(b) => b,
+        None => return Ok(Vec::new()),
+    };
+    brokk_acp_sandbox::list_zip_entry_names(&bytes)
         .map_err(|e| std::io::Error::other(format!("{e}")))
 }
 
@@ -517,6 +545,71 @@ impl WasmSandbox {
                         "[sandbox] {msg}"
                     )))
                 }
+            }
+        }
+    }
+
+    /// List entry names only. One sandbox boot, no decompression, so
+    /// it is cheap enough to drive a streaming rewrite that pulls
+    /// each entry separately afterwards (peak host memory: one
+    /// entry).
+    fn list_zip_entry_names(
+        &self,
+        zip_path: &std::path::Path,
+        max_archive_bytes: u64,
+    ) -> std::io::Result<Vec<String>> {
+        let parent = match zip_path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("zip path {} has no parent directory", zip_path.display()),
+                ));
+            }
+        };
+        let file_name = match zip_path.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n.to_string(),
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("zip path {} has no UTF-8 basename", zip_path.display()),
+                ));
+            }
+        };
+        let guest_path = format!("/d/{file_name}");
+        let id = self.next_id();
+        let req = SandboxRequest {
+            id,
+            kind: SandboxRequestKind::ListZipEntryNames(ListZipEntryNamesParams {
+                guest_path,
+                max_archive_bytes,
+            }),
+        };
+        let resp: SandboxResponse<NamesResult> = self
+            .round_trip(&req, Some((parent, "/d")))
+            .map_err(|e| std::io::Error::other(format!("[sandbox] {e}")))?;
+        if resp.id != id {
+            return Err(std::io::Error::other(format!(
+                "[sandbox] response id mismatch: sent {id}, got {}",
+                resp.id
+            )));
+        }
+        match resp.body {
+            SandboxBody::Ok(r) => Ok(r.names),
+            SandboxBody::Err(msg) => {
+                if msg.contains("No such file or directory")
+                    || msg.contains("file not found")
+                    || msg.contains("ENOENT")
+                {
+                    return Ok(Vec::new());
+                }
+                if msg.contains("exceeds cap of") {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::FileTooLarge,
+                        format!("[sandbox] {msg}"),
+                    ));
+                }
+                Err(std::io::Error::other(format!("[sandbox] {msg}")))
             }
         }
     }
@@ -820,6 +913,7 @@ enum SandboxRequestKind {
     ReadFileBounded(ReadFileBoundedParams),
     ReadZipEntryText(ReadZipEntryTextParams),
     ReadZipEntriesWithPrefix(ReadZipEntriesWithPrefixParams),
+    ListZipEntryNames(ListZipEntryNamesParams),
     SearchFileContents(SearchFileContentsParams),
 }
 
@@ -853,6 +947,17 @@ struct ReadZipEntriesWithPrefixParams {
     max_archive_bytes: u64,
     max_entry_bytes: u64,
     max_total_bytes: u64,
+}
+
+#[derive(Serialize)]
+struct ListZipEntryNamesParams {
+    guest_path: String,
+    max_archive_bytes: u64,
+}
+
+#[derive(Deserialize)]
+struct NamesResult {
+    names: Vec<String>,
 }
 
 #[derive(Serialize)]
