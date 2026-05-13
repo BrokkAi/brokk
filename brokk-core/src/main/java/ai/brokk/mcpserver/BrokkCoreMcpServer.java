@@ -1009,6 +1009,33 @@ public class BrokkCoreMcpServer {
                             intArg(request, "maxUsagesPerSymbol", 0)));
                 })));
 
+        specs.add(tool(
+                "reportSecretLikeCode",
+                "Scans non-test text files for secret-looking strings, including current/default-branch files and "
+                        + "git history. Findings are heuristic and redacted for LLM triage. "
+                        + "Requires a JGit-backed repository; returns a notice otherwise. "
+                        + "Use maxFindings/maxCommits to bound output and work. "
+                        + "May be slow on large histories.",
+                schema(
+                        Map.ofEntries(
+                                entry("maxFindings", intProp("Maximum findings to emit; values <= 0 default to 100.")),
+                                entry(
+                                        "maxCommits",
+                                        intProp("Maximum commits to walk from HEAD; values <= 0 default to 2000.")),
+                                entry(
+                                        "includeHistoryOnly",
+                                        boolProp(
+                                                "Include findings that only appear in history and are not present in the current/default branch.")),
+                                entry(
+                                        "includeLowConfidence",
+                                        boolProp("Include lower-confidence short credential-like assignments."))),
+                        List.of()),
+                (exchange, request) -> withReadLock(() -> textResult(codeQualityTools.reportSecretLikeCode(
+                        intArg(request, "maxFindings", 0),
+                        intArg(request, "maxCommits", 0),
+                        boolArg(request, "includeHistoryOnly", false),
+                        boolArg(request, "includeLowConfidence", false))))));
+
         // NOTE: analyzeGitHotspots is not exposed here because GitHotspotAnalyzer
         // lives in the app module with dependencies not available in brokk-core.
 

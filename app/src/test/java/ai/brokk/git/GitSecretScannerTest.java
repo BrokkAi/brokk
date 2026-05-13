@@ -36,7 +36,7 @@ class GitSecretScannerTest {
     void matcherDetectsProviderTokensAndPrivateKeys() {
         String text =
                 """
-                aws = "AKIAABCDEFGHIJKLMNOP"
+                aws = "AKIAIOSFODNN7EXAMPLE"
                 token = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
                 key = "-----BEGIN RSA PRIVATE KEY-----"
                 """
@@ -53,7 +53,7 @@ class GitSecretScannerTest {
     void matcherDetectsProviderTokensWithoutCredentialKeywords() {
         String text =
                 """
-                value = "AKIAABCDEFGHIJKLMNOP"
+                value = "AKIAIOSFODNN7EXAMPLE"
                 value = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
                 value = "xoxb-1234567890-abcedfghij"
                 value = "AIza12345678901234567890123456789012345"
@@ -234,7 +234,7 @@ class GitSecretScannerTest {
             repo.getGit().commit().setSign(false).setMessage("add late secret").call();
 
             repo.invalidateCaches();
-            var report = new GitSecretScanner(repo).scan(20, true, false, 2);
+            var report = new GitSecretScanner(repo, repo.getGit().getRepository()).scan(20, true, false, 2);
             Set<String> paths = report.findings().stream()
                     .map(GitSecretScanner.SecretFinding::path)
                     .collect(Collectors.toSet());

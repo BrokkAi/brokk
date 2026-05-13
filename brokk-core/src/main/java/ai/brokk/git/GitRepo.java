@@ -133,8 +133,8 @@ public class GitRepo implements Closeable, IGitRepo {
         return repository;
     }
 
-    // package-private accessor for projectRoot for the extracted worktrees helper
-    Path getProjectRoot() {
+    @Override
+    public Path getProjectRoot() {
         return projectRoot;
     }
 
@@ -662,6 +662,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * Returns an abbreviated (short) hash for the given revision. Attempts to abbreviate via JGit to a unique short id;
      * falls back to the first 7 chars on error.
      */
+    @Override
     public String shortHash(String rev) {
         try {
             var id = resolveToObject(rev);
