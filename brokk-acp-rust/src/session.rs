@@ -968,18 +968,28 @@ fn append_turn_to_zip(
     // Pre-read the entries we plan to rewrite through the sandbox so a
     // mutated zip on disk (an attacker swapping the file between the
     // initial load and this append) cannot panic the host's `zip`
-    // crate. A missing or unparseable entry falls back to a known-empty
-    // default, matching prior behavior; a stale corruption shouldn't
-    // abort persistence of the new turn.
+    // crate.
+    //
+    // Error policy here is load-bearing: only an *explicitly missing*
+    // entry (`Ok(None)`) or a legacy-malformed entry (`Ok(Some(_))` that
+    // does not parse as JSON) is allowed to fall back to the empty
+    // default. Any real read failure -- `FileTooLarge`, sandbox crash,
+    // transient I/O, an entry that exceeds the per-entry cap -- must
+    // propagate so `add_turn` rolls back the in-memory state instead of
+    // silently rewriting the on-disk zip with empty fragments/contexts
+    // (which would erase prior history).
     let backend = crate::sandbox_backend::global();
     let mut existing_fragments: serde_json::Value =
         serde_json::json!({"version": 4, "referenced": {}, "virtual": {}, "task": {}});
-    if let Ok(Some(buf)) = backend.read_zip_entry_text(
-        zip_path,
-        "fragments-v4.json",
-        MAX_SESSION_ARCHIVE_BYTES,
-        MAX_FRAGMENTS_BYTES,
-    ) && let Ok(v) = serde_json::from_str(&buf)
+    if let Some(buf) = backend
+        .read_zip_entry_text(
+            zip_path,
+            "fragments-v4.json",
+            MAX_SESSION_ARCHIVE_BYTES,
+            MAX_FRAGMENTS_BYTES,
+        )
+        .context("reading fragments-v4.json from session zip")?
+        && let Ok(v) = serde_json::from_str(&buf)
     {
         existing_fragments = v;
     }
@@ -990,27 +1000,32 @@ fn append_turn_to_zip(
             MAX_SESSION_ARCHIVE_BYTES,
             MAX_CONTEXTS_BYTES,
         )
-        .ok()
-        .flatten()
+        .context("reading contexts.jsonl from session zip")?
         .unwrap_or_default();
     let mut existing_content_metadata: serde_json::Value = serde_json::json!({});
-    if let Ok(Some(buf)) = backend.read_zip_entry_text(
-        zip_path,
-        "content_metadata.json",
-        MAX_SESSION_ARCHIVE_BYTES,
-        MAX_MANIFEST_BYTES,
-    ) && let Ok(v) = serde_json::from_str(&buf)
+    if let Some(buf) = backend
+        .read_zip_entry_text(
+            zip_path,
+            "content_metadata.json",
+            MAX_SESSION_ARCHIVE_BYTES,
+            MAX_MANIFEST_BYTES,
+        )
+        .context("reading content_metadata.json from session zip")?
+        && let Ok(v) = serde_json::from_str(&buf)
     {
         existing_content_metadata = v;
     }
     let mut existing_group_info: serde_json::Value =
         serde_json::json!({"contextToGroupId": {}, "groupLabels": {}});
-    if let Ok(Some(buf)) = backend.read_zip_entry_text(
-        zip_path,
-        "group_info.json",
-        MAX_SESSION_ARCHIVE_BYTES,
-        MAX_MANIFEST_BYTES,
-    ) && let Ok(v) = serde_json::from_str(&buf)
+    if let Some(buf) = backend
+        .read_zip_entry_text(
+            zip_path,
+            "group_info.json",
+            MAX_SESSION_ARCHIVE_BYTES,
+            MAX_MANIFEST_BYTES,
+        )
+        .context("reading group_info.json from session zip")?
+        && let Ok(v) = serde_json::from_str(&buf)
     {
         existing_group_info = v;
     }

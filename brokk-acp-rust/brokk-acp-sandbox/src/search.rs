@@ -32,8 +32,11 @@ pub const SEARCH_DEFAULT_MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
 /// explicit budget fails fast.
 pub const SEARCH_DEFAULT_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 /// Number of leading bytes we sniff for a NUL to classify a file as
-/// binary. Matches the host's prior heuristic.
-const BINARY_SNIFF_BYTES: usize = 4096;
+/// binary. Matches the host's prior heuristic exactly -- shrinking the
+/// window lets a binary file whose first NUL is past the sniff point
+/// slip through and `read_to_string` does NOT reject embedded NULs, so
+/// the bytes would end up in the LLM-visible match output.
+const BINARY_SNIFF_BYTES: usize = 8192;
 
 /// A single line that matched the requested pattern. Path is given
 /// relative to the root the search started from.
@@ -220,4 +223,52 @@ fn compile_glob(g: &str) -> Result<Regex, SearchError> {
 #[allow(dead_code)]
 fn _phantom_pathbuf(p: PathBuf) -> PathBuf {
     p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pins the binary-sniff window at 8192 bytes (matching the
+    /// pre-sandbox `tools/filesystem.rs` heuristic). A file whose
+    /// pattern-matching region is preceded by 4 KiB of legitimate
+    /// text but contains a NUL within the second 4 KiB must be
+    /// classified as binary -- shrinking the window past the NUL
+    /// would let the byte slip into `read_to_string`, and `regex`
+    /// happily matches across embedded NULs, so the LLM's output
+    /// would carry raw binary.
+    #[test]
+    fn nul_between_4k_and_8k_is_classified_as_binary() {
+        let tmp = std::env::temp_dir().join(format!(
+            "brokk-acp-sandbox-nul-sniff-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("payload.bin");
+
+        let mut body: Vec<u8> = b"a".repeat(5000);
+        body.push(0);
+        body.extend_from_slice(b"needle\n");
+        std::fs::write(&path, &body).unwrap();
+
+        assert!(
+            is_binary_file(&path),
+            "file with NUL at offset 5000 must be classified as binary"
+        );
+
+        // End-to-end: a search for `needle` must return zero matches
+        // because the file should have been skipped on the binary
+        // sniff, not opened and string-matched.
+        let outcome = search(&tmp, "needle", None, 100, 1 << 20, 1 << 30).unwrap();
+        assert!(
+            outcome.matches.is_empty(),
+            "binary-classified file must not produce matches, got: {:?}",
+            outcome.matches
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
 }
