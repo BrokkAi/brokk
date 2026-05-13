@@ -854,6 +854,54 @@ public class BrokkCoreMcpServer {
                             intArg(request, "largeLiteralLengthThreshold", -1)));
                 })));
 
+        specs.add(tool(
+                "reportDeadCodeAndUnusedAbstractionSmells",
+                "Reports likely generated-code residue: unused declarations and one-call abstractions in the given files. "
+                        + "Uses analyzer declarations plus symbol/reference usage analysis where available, not text-only matching. "
+                        + "Pass fqNames to target specific symbols; leave fqNames empty to scan declarations in the bounded files. "
+                        + "Java uses JDT analysis; JavaScript/TypeScript/Python/Rust route through export-graph strategies with regex fallback. "
+                        + "No LLM disambiguation.",
+                schema(
+                        Map.ofEntries(
+                                entry("filePaths", arrayProp("File paths relative to the project root.")),
+                                entry(
+                                        "fqNames",
+                                        arrayProp(
+                                                "Optional fully qualified symbol names to analyze. Empty means discover candidates from filePaths.")),
+                                entry(
+                                        "minScore",
+                                        intProp("Minimum score to include a finding; values <= 0 default to 8.")),
+                                entry("maxFindings", intProp("Maximum findings to emit; values <= 0 default to 40.")),
+                                entry(
+                                        "maxInputFiles",
+                                        intProp(
+                                                "Maximum existing files to scan for candidate declarations; values <= 0 default to 25.")),
+                                entry(
+                                        "maxCandidateSymbols",
+                                        intProp("Maximum candidate symbols to analyze; values <= 0 default to 200.")),
+                                entry(
+                                        "maxUsageCandidateFiles",
+                                        intProp(
+                                                "Maximum usage-candidate files to inspect; values <= 0 default to the usage finder default.")),
+                                entry(
+                                        "maxUsagesPerSymbol",
+                                        intProp(
+                                                "Maximum usage hits per symbol before usage lookup returns a guardrail result; values <= 0 default to 100."))),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    var fqNames = stringListArgOrEmpty(request, "fqNames");
+                    return textResult(codeQualityTools.reportDeadCodeAndUnusedAbstractionSmells(
+                            filePaths,
+                            fqNames,
+                            intArg(request, "minScore", 0),
+                            intArg(request, "maxFindings", 0),
+                            intArg(request, "maxInputFiles", 0),
+                            intArg(request, "maxCandidateSymbols", 0),
+                            intArg(request, "maxUsageCandidateFiles", 0),
+                            intArg(request, "maxUsagesPerSymbol", 0)));
+                })));
+
         // NOTE: analyzeGitHotspots is not exposed here because GitHotspotAnalyzer
         // lives in the app module with dependencies not available in brokk-core.
 
@@ -1013,6 +1061,18 @@ public class BrokkCoreMcpServer {
         var value = args.get(name);
         if (value == null) {
             throw new IllegalArgumentException("Missing required argument: " + name);
+        }
+        if (value instanceof List<?> list) {
+            return list.stream().map(Object::toString).toList();
+        }
+        throw new IllegalArgumentException("Argument " + name + " must be an array");
+    }
+
+    private static List<String> stringListArgOrEmpty(McpSchema.CallToolRequest request, String name) {
+        var args = request.arguments() != null ? request.arguments() : Map.<String, Object>of();
+        var value = args.get(name);
+        if (value == null) {
+            return List.of();
         }
         if (value instanceof List<?> list) {
             return list.stream().map(Object::toString).toList();
