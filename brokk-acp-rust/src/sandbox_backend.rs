@@ -95,6 +95,62 @@ impl SandboxBackend {
             Self::Wasm(w) => w.parse_skill_frontmatter(yaml).map_err(|e| e.to_string()),
         }
     }
+
+    /// Read a file as a UTF-8 string with a host-imposed byte cap.
+    /// `path` must be absolute on every platform (callers in this
+    /// crate canonicalize before calling).
+    ///
+    /// Native dispatch checks `fs::metadata().len()` before issuing
+    /// `read_to_string`, so a multi-gigabyte file fails fast with
+    /// `FileTooLarge` instead of OOM-ing the agent.
+    ///
+    /// Wasm dispatch preopens `path.parent()` read-only, invokes the
+    /// guest with the leaf name, and lets the guest enforce both the
+    /// pre-read size cap and the wasm linear-memory limit. The host
+    /// never sees the bytes if either limit trips.
+    ///
+    /// `None` is returned for `NotFound` / `not a regular file` so
+    /// callers can keep their "missing is normal" code path; all
+    /// other errors are returned verbatim.
+    pub fn read_file_bounded(
+        &self,
+        path: &std::path::Path,
+        max_bytes: u64,
+    ) -> std::io::Result<Option<String>> {
+        match self {
+            Self::Native => read_file_bounded_native(path, max_bytes),
+            Self::Wasm(w) => w.read_file_bounded(path, max_bytes),
+        }
+    }
+}
+
+/// Native implementation of `read_file_bounded`. Returns `Ok(None)`
+/// when the path is missing or not a regular file (callers treat that
+/// as "no file here, move on"); propagates `FileTooLarge` and other
+/// errors so the caller can log and skip.
+fn read_file_bounded_native(
+    path: &std::path::Path,
+    max_bytes: u64,
+) -> std::io::Result<Option<String>> {
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    if !meta.is_file() {
+        return Ok(None);
+    }
+    if meta.len() > max_bytes {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::FileTooLarge,
+            format!(
+                "{} is {} bytes, exceeds cap of {max_bytes}",
+                path.display(),
+                meta.len()
+            ),
+        ));
+    }
+    Ok(Some(std::fs::read_to_string(path)?))
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +210,80 @@ impl WasmSandbox {
         id
     }
 
+    /// Read `path` through the sandbox: preopen its parent dir, ask
+    /// the guest to read just the basename, return the contents (or
+    /// `None` if the file is missing). The sandbox enforces both the
+    /// pre-read size cap and the wasm linear-memory limit, so a
+    /// pathological huge file cannot OOM the host.
+    fn read_file_bounded(
+        &self,
+        path: &std::path::Path,
+        max_bytes: u64,
+    ) -> std::io::Result<Option<String>> {
+        let parent = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("path {} has no parent directory", path.display()),
+                ));
+            }
+        };
+        let file_name = match path.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n.to_string(),
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "path {} has no UTF-8 basename (wasi cannot route non-UTF-8 paths)",
+                        path.display()
+                    ),
+                ));
+            }
+        };
+        // The guest sees the parent dir mounted at `/d`; constructing
+        // `/d/<basename>` keeps the request encoding trivial and never
+        // exposes the host absolute path to the guest.
+        let guest_path = format!("/d/{file_name}");
+        let id = self.next_id();
+        let req = SandboxRequest {
+            id,
+            kind: SandboxRequestKind::ReadFileBounded(ReadFileBoundedParams {
+                guest_path,
+                max_bytes,
+            }),
+        };
+        let resp: SandboxResponse<ReadFileResult> = self
+            .round_trip(&req, Some((parent, "/d")))
+            .map_err(|e| std::io::Error::other(format!("[sandbox] {e}")))?;
+        if resp.id != id {
+            return Err(std::io::Error::other(format!(
+                "[sandbox] response id mismatch: sent {id}, got {}",
+                resp.id
+            )));
+        }
+        match resp.body {
+            SandboxBody::Ok(r) => Ok(Some(r.content)),
+            SandboxBody::Err(msg) => {
+                // Mirror the native fallback: a missing file is `Ok(None)`
+                // so callers do not have to special-case "no file here".
+                if msg.contains("No such file or directory")
+                    || msg.contains("file not found")
+                    || msg.contains("ENOENT")
+                {
+                    return Ok(None);
+                }
+                if msg.contains("exceeds cap of") {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::FileTooLarge,
+                        format!("[sandbox] {msg}"),
+                    ));
+                }
+                Err(std::io::Error::other(format!("[sandbox] {msg}")))
+            }
+        }
+    }
+
     /// Run one round-trip through a freshly-instantiated sandbox: send
     /// a JSON request line on stdin, read one JSON response line back
     /// from stdout, tear the store down.
@@ -165,7 +295,7 @@ impl WasmSandbox {
                 yaml: yaml.to_string(),
             }),
         };
-        let resp: SandboxResponse<ParsedFrontmatter> = self.round_trip(&req)?;
+        let resp: SandboxResponse<ParsedFrontmatter> = self.round_trip(&req, None)?;
         if resp.id != id {
             return Err(anyhow!(
                 "[sandbox] response id mismatch: sent {id}, got {}",
@@ -181,9 +311,13 @@ impl WasmSandbox {
     fn round_trip<Resp: serde::de::DeserializeOwned>(
         &self,
         req: &SandboxRequest,
+        preopen: Option<(&std::path::Path, &str)>,
     ) -> Result<SandboxResponse<Resp>> {
+        use wasmtime::{StoreLimits, StoreLimitsBuilder};
         use wasmtime_wasi::pipe::{MemoryInputPipe, MemoryOutputPipe};
-        use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
+        use wasmtime_wasi::{
+            DirPerms, FilePerms, ResourceTable, WasiCtx, WasiCtxBuilder, WasiView,
+        };
 
         // Serialize one JSON-RPC line and feed it as the entire stdin
         // of the wasm process. Newline-terminate so the guest's
@@ -196,17 +330,36 @@ impl WasmSandbox {
         let stdout = MemoryOutputPipe::new(MEMORY_LIMIT_BYTES);
         let stderr = MemoryOutputPipe::new(64 * 1024);
 
-        let wasi_ctx = WasiCtxBuilder::new()
+        let mut wasi_builder = WasiCtxBuilder::new();
+        wasi_builder
             .stdin(stdin)
             .stdout(stdout.clone())
-            .stderr(stderr.clone())
-            .build();
+            .stderr(stderr.clone());
+        // Optional per-call preopen. The host hands us a host path and the
+        // guest mount point; the guest then reads files using just the
+        // basename relative to that mount point, so it never sees the host
+        // absolute path. Read-only by design: the sandbox only consumes
+        // bytes for parsing, it never writes.
+        if let Some((host_dir, guest_mount)) = preopen {
+            wasi_builder
+                .preopened_dir(host_dir, guest_mount, DirPerms::READ, FilePerms::READ)
+                .with_context(|| {
+                    format!(
+                        "preopening sandbox dir '{}' as '{guest_mount}'",
+                        host_dir.display()
+                    )
+                })?;
+        }
+        let wasi_ctx = wasi_builder.build();
 
-        // The store holds the wasi ctx + a resource table. We attach
-        // `WasiView` via a small adapter so wasmtime-wasi can find it.
+        // The store holds the wasi ctx + a resource table + a memory
+        // limiter. `StoreLimits` caps the wasm linear memory so a
+        // pathological input (huge file, expansion bomb) traps the
+        // guest instead of growing the host's address space.
         struct Host {
             ctx: WasiCtx,
             table: ResourceTable,
+            limits: StoreLimits,
         }
         impl WasiView for Host {
             fn ctx(&mut self) -> &mut WasiCtx {
@@ -217,13 +370,18 @@ impl WasmSandbox {
             }
         }
 
+        let limits = StoreLimitsBuilder::new()
+            .memory_size(MEMORY_LIMIT_BYTES)
+            .build();
         let mut store = wasmtime::Store::new(
             &self.engine,
             Host {
                 ctx: wasi_ctx,
                 table: ResourceTable::new(),
+                limits,
             },
         );
+        store.limiter(|h| &mut h.limits);
         store
             .set_fuel(FUEL_PER_REQUEST)
             .context("setting sandbox fuel")?;
@@ -275,11 +433,27 @@ impl WasmSandbox {
 #[serde(tag = "method", content = "params", rename_all = "camelCase")]
 enum SandboxRequestKind {
     ParseSkillFrontmatter(ParseSkillFrontmatterParams),
+    ReadFileBounded(ReadFileBoundedParams),
 }
 
 #[derive(Serialize)]
 struct ParseSkillFrontmatterParams {
     yaml: String,
+}
+
+#[derive(Serialize)]
+struct ReadFileBoundedParams {
+    // Field names stay snake_case to match the guest deserializer in
+    // `brokk-acp-sandbox/src/main.rs`. Only the enum variant names are
+    // camelCased (for the `method` field on the wire); inner params are
+    // plain snake_case.
+    guest_path: String,
+    max_bytes: u64,
+}
+
+#[derive(Deserialize)]
+struct ReadFileResult {
+    content: String,
 }
 
 /// Newtype wrapper so we can carry the request id alongside the
@@ -365,5 +539,79 @@ mod tests {
             wasm_result.as_ref().ok().map(|p| (p.name.clone(), p.description.clone())),
             "native vs wasm disagreement: native={native_result:?} wasm={wasm_result:?}"
         );
+    }
+
+    /// Happy path for the wasm-backed reader: host preopens the parent,
+    /// guest reads the file, contents come back through stdout.
+    #[test]
+    fn wasm_read_file_bounded_returns_contents() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("hello.txt");
+        std::fs::write(&path, "wasm-roundtrip\n").unwrap();
+
+        let wasm = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let backend = SandboxBackend::Wasm(Arc::new(wasm));
+        let content = backend
+            .read_file_bounded(&path, 1024)
+            .expect("read should succeed")
+            .expect("file should be present");
+        assert_eq!(content, "wasm-roundtrip\n");
+    }
+
+    /// A file over the byte cap must come back as `FileTooLarge`
+    /// without ever streaming through the host. This is the load-bearing
+    /// guarantee for callers like `agents_md` that read user-controlled
+    /// files in a project tree -- a 10 GB AGENTS.md must not OOM the
+    /// agent. Use a tight cap so the fixture stays small.
+    #[test]
+    fn wasm_read_file_bounded_rejects_oversize() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("big.txt");
+        let body = "x".repeat(8 * 1024);
+        std::fs::write(&path, &body).unwrap();
+
+        let wasm = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let backend = SandboxBackend::Wasm(Arc::new(wasm));
+        let err = backend
+            .read_file_bounded(&path, 1024)
+            .expect_err("oversize file must be rejected");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::FileTooLarge,
+            "expected FileTooLarge, got: {err}"
+        );
+    }
+
+    /// Missing file -> `Ok(None)` so callers can keep the "no file here,
+    /// move on" code path that the native fallback uses.
+    #[test]
+    fn wasm_read_file_bounded_missing_returns_none() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("does-not-exist.txt");
+
+        let wasm = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let backend = SandboxBackend::Wasm(Arc::new(wasm));
+        let result = backend.read_file_bounded(&path, 1024);
+        assert!(
+            matches!(result, Ok(None)),
+            "missing file should be Ok(None), got: {result:?}"
+        );
+    }
+
+    /// Parity between Native and Wasm on the same fixture, mirroring
+    /// the frontmatter parity test. Pins the contract so a future
+    /// guest change cannot silently disagree with the native fallback.
+    #[test]
+    fn native_and_wasm_agree_on_read_file_bounded() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("agree.txt");
+        std::fs::write(&path, "same content on both backends\n").unwrap();
+
+        let native = SandboxBackend::Native.read_file_bounded(&path, 1024).unwrap();
+        let wasm_sandbox = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let wasm = SandboxBackend::Wasm(Arc::new(wasm_sandbox))
+            .read_file_bounded(&path, 1024)
+            .unwrap();
+        assert_eq!(native, wasm);
     }
 }

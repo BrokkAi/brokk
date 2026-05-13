@@ -35,6 +35,15 @@ enum Request {
     ParseSkillFrontmatter { yaml: String },
     /// Split a full SKILL.md file into `(frontmatter, body)`.
     SplitSkillFrontmatter { raw: String },
+    /// Read a file the host has exposed via a preopened directory, up
+    /// to `max_bytes`. `guest_path` is the absolute path the host
+    /// preopened (e.g. `/d/AGENTS.md`); a path the host did not
+    /// preopen will fail to open. Returns the contents as a UTF-8
+    /// string if valid UTF-8 and within the cap; an error otherwise.
+    /// The byte cap is the second line of defense after the wasm
+    /// memory limit -- a multi-gigabyte file traps the guest on
+    /// linear-memory growth before we even see the bytes.
+    ReadFileBounded { guest_path: String, max_bytes: u64 },
 }
 
 #[derive(Deserialize)]
@@ -60,6 +69,40 @@ struct ErrResponse<'a> {
 struct SplitResult {
     frontmatter: String,
     body: String,
+}
+
+#[derive(Serialize)]
+struct ReadResult {
+    content: String,
+}
+
+/// Read at most `max_bytes` bytes from the file at `guest_path` (which
+/// must resolve through a host-provided WASI preopen). Errors when:
+///   - the file does not exist or the preopen does not cover its dir,
+///   - the file is larger than `max_bytes`,
+///   - the bytes are not valid UTF-8.
+/// The size pre-check is on `metadata().len()` to fail fast without
+/// streaming gigabytes through the guest's linear memory; the wasm
+/// memory cap (`StoreLimits::memory_size`) is the backstop if the FS
+/// metadata is unreliable.
+fn read_bounded(guest_path: &str, max_bytes: u64) -> Result<String, std::io::Error> {
+    let meta = std::fs::metadata(guest_path)?;
+    if !meta.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("not a regular file: {guest_path}"),
+        ));
+    }
+    if meta.len() > max_bytes {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::FileTooLarge,
+            format!(
+                "{guest_path} is {} bytes, exceeds cap of {max_bytes}",
+                meta.len()
+            ),
+        ));
+    }
+    std::fs::read_to_string(guest_path)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -101,6 +144,19 @@ fn main() -> anyhow::Result<()> {
                     serde_json::to_string(&OkResponse { id, ok: &payload })?
                 }
                 Err(err) => serde_json::to_string(&ErrResponse { id, err })?,
+            },
+            Request::ReadFileBounded {
+                guest_path,
+                max_bytes,
+            } => match read_bounded(&guest_path, max_bytes) {
+                Ok(content) => {
+                    let payload = ReadResult { content };
+                    serde_json::to_string(&OkResponse { id, ok: &payload })?
+                }
+                Err(err) => {
+                    let body = err.to_string();
+                    serde_json::to_string(&ErrResponse { id, err: &body })?
+                }
             },
         };
         writeln!(out, "{response_line}")?;

@@ -18,6 +18,12 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 pub const MAX_TOTAL_BYTES: usize = 64 * 1024;
+/// Per-file ceiling enforced before any bytes are read. Generous enough
+/// to fit any plausible hand-written AGENTS.md, snug enough that a
+/// pathological multi-MB / multi-GB file fails fast instead of OOM-ing
+/// the agent. Routed through `SandboxBackend::read_file_bounded`, so on
+/// the wasm path the wasm linear-memory cap is the second backstop.
+const MAX_FILE_BYTES: u64 = 1024 * 1024;
 const PRIMARY: &str = "AGENTS.md";
 const FALLBACK: &str = "CLAUDE.md";
 
@@ -162,26 +168,25 @@ fn read_preferred(dir: &Path) -> Option<(PathBuf, String)> {
 }
 
 fn read_if_exists(path: &Path) -> Option<(PathBuf, String)> {
-    match std::fs::metadata(path) {
-        Ok(metadata) if metadata.is_file() => {}
-        Ok(_) => return None,
-        Err(e) if e.kind() == ErrorKind::NotFound => return None,
-        Err(e) => {
+    // Route the read through the parser sandbox so an uncapped or
+    // malicious file size cannot OOM the agent: the wasm backend
+    // enforces both a metadata-size cap and a wasm linear-memory
+    // limit, and the native backend honours the same `max_bytes`
+    // pre-read check.
+    match crate::sandbox_backend::global().read_file_bounded(path, MAX_FILE_BYTES) {
+        Ok(Some(content)) => Some((path.to_path_buf(), content)),
+        Ok(None) => None,
+        Err(e) if e.kind() == ErrorKind::FileTooLarge => {
             tracing::warn!(
                 path = %path.display(),
-                "AGENTS.md candidate metadata is unreadable: {e}"
+                "AGENTS.md candidate exceeds {MAX_FILE_BYTES}-byte cap; skipping: {e}"
             );
-            return None;
+            None
         }
-    }
-
-    match std::fs::read_to_string(path) {
-        Ok(content) => Some((path.to_path_buf(), content)),
-        Err(e) if e.kind() == ErrorKind::NotFound => None,
         Err(e) => {
             tracing::warn!(
                 path = %path.display(),
-                "AGENTS.md candidate exists but is unreadable: {e}"
+                "AGENTS.md candidate is unreadable: {e}"
             );
             None
         }
