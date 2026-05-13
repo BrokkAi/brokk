@@ -6,6 +6,14 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * Narrow recognizer for generated regex shapes that are safe to evaluate as literal contains checks.
+ *
+ * <p>This is intentionally not a general regex parser. Its job is to recognize the simple definition-search patterns
+ * produced by Brokk callers, for example {@code (?i).*?\QFoo\E.*?} or
+ * {@code (?i).*?(?:\QFoo\E|\QBar\E).*?}. Any pattern outside that small grammar must return {@link Optional#empty()}
+ * so the caller keeps using normal regex matching.
+ */
 public record RegexLiteralSet(List<String> literals, boolean caseInsensitive) {
     public static Optional<RegexLiteralSet> fromContainsPattern(Pattern pattern, @Nullable String substringFilter) {
         String regex = pattern.pattern();
@@ -26,6 +34,9 @@ public record RegexLiteralSet(List<String> literals, boolean caseInsensitive) {
     }
 
     private static Optional<RegexLiteralSet> fromLiteralPattern(String regex, boolean caseInsensitive) {
+        // Keep this recognizer conservative: optional contains wrappers, one optional grouping layer, and literal terms
+        // separated by '|'. If any term is not a plain or \Q...\E literal, callers fall back to the compiled regex
+        // path.
         String body = stripContainsWrapper(regex);
         body = stripGroup(body);
         if (body.isEmpty()) {
