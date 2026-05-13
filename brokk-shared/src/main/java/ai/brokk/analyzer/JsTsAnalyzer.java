@@ -1134,7 +1134,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         var resolved = importStatements.stream()
-                .map(JsTsAnalyzer::extractModulePathFromImport)
+                .map(this::cachedModulePathFromImport)
                 .flatMap(Optional::stream)
                 .flatMap(path -> resolveImportModule(file, path).stream())
                 .flatMap(resolvedFile -> {
@@ -1159,7 +1159,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     @Override
     public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
         for (ImportInfo imp : imports) {
-            Optional<String> modulePathOpt = extractModulePathFromImport(imp.rawSnippet());
+            Optional<String> modulePathOpt = cachedModulePathFromImport(imp.rawSnippet());
             if (modulePathOpt.isEmpty()) {
                 continue;
             }
@@ -1203,7 +1203,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         // Prefer the 3-arg variant so we can use TSConfig context; keep this as a conservative fallback.
         for (ImportInfo imp : imports) {
-            Optional<String> modulePathOpt = extractModulePathFromImport(imp.rawSnippet());
+            Optional<String> modulePathOpt = cachedModulePathFromImport(imp.rawSnippet());
             if (modulePathOpt.isEmpty()) {
                 continue;
             }
@@ -1301,6 +1301,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         if (cjsMatcher.find()) return Optional.of(cjsMatcher.group(1));
 
         return Optional.empty();
+    }
+
+    private Optional<String> cachedModulePathFromImport(String importStatement) {
+        return jsTsCache().importModuleSpecifierCache().get(importStatement, JsTsAnalyzer::extractModulePathFromImport);
     }
 
     protected static @Nullable ProjectFile resolveJavaScriptLikeModulePath(
