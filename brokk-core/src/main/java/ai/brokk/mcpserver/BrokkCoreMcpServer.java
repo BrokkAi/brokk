@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -45,6 +46,7 @@ public class BrokkCoreMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkCoreMcpServer.class);
     private static final String VERSION = "0.1.0";
     private static final String MCP_HISTORY_PATH_FLAG = "--mcp-history-path";
+    private static final Duration ANALYZER_READY_TIMEOUT = Duration.ofMinutes(5);
 
     private final ReentrantReadWriteLock workspaceLock = new ReentrantReadWriteLock(true);
     private CoreProject project;
@@ -53,6 +55,7 @@ public class BrokkCoreMcpServer {
     private CodeQualityToolsMcp codeQualityTools;
     private Path activeWorkspaceRoot;
     private final CountDownLatch analyzerReady = new CountDownLatch(1);
+    private volatile @Nullable Throwable analyzerBuildFailure;
     private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
 
     public BrokkCoreMcpServer(CoreProject project, ICodeIntelligence intelligence, SearchTools searchTools) {
@@ -67,7 +70,7 @@ public class BrokkCoreMcpServer {
         this(project, intelligence, searchTools, mcpHistoryPath, true);
     }
 
-    private BrokkCoreMcpServer(
+    BrokkCoreMcpServer(
             CoreProject project,
             ICodeIntelligence intelligence,
             SearchTools searchTools,
@@ -193,7 +196,7 @@ public class BrokkCoreMcpServer {
         }
     }
 
-    private Thread startAnalyzerBuild(Language langHandle) {
+    Thread startAnalyzerBuild(Language langHandle) {
         var thread = Thread.ofVirtual().name("BrokkCoreMCP-AnalyzerBuild").unstarted(() -> {
             workspaceLock.writeLock().lock();
             try {
@@ -222,6 +225,7 @@ public class BrokkCoreMcpServer {
                 this.searchTools = new SearchTools(this.intelligence);
                 this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
             } catch (Throwable t) {
+                this.analyzerBuildFailure = t;
                 logger.error("Failed to build analyzer", t);
             } finally {
                 analyzerReady.countDown();
@@ -274,6 +278,7 @@ public class BrokkCoreMcpServer {
     }
 
     private void activateWorkspace(String workspacePath) {
+        awaitAnalyzerReady();
         Path newRoot = resolveProjectRoot(Path.of(workspacePath));
         workspaceLock.writeLock().lock();
         try {
@@ -759,12 +764,29 @@ public class BrokkCoreMcpServer {
     }
 
     private McpSchema.CallToolResult withReadLock(LockedSupplier supplier) throws Exception {
-        analyzerReady.await();
+        awaitAnalyzerReady();
         workspaceLock.readLock().lock();
         try {
             return supplier.get();
         } finally {
             workspaceLock.readLock().unlock();
+        }
+    }
+
+    private void awaitAnalyzerReady() {
+        boolean ready;
+        try {
+            ready = analyzerReady.await(ANALYZER_READY_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for analyzer build", e);
+        }
+        if (!ready) {
+            throw new IllegalStateException("Analyzer is still building after " + ANALYZER_READY_TIMEOUT);
+        }
+        var failure = analyzerBuildFailure;
+        if (failure != null) {
+            throw new IllegalStateException("Analyzer build failed: " + failure, failure);
         }
     }
 

@@ -6,7 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.DisabledAnalyzer;
+import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Language;
 import ai.brokk.project.CoreProject;
+import ai.brokk.project.ICoreProject;
 import ai.brokk.tools.SearchTools;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.nio.file.Files;
@@ -194,6 +197,54 @@ class BrokkCoreMcpServerTest {
     }
 
     @Test
+    void analyzerBuildFailureIsReturnedFromAnalyzerBackedTools() throws Exception {
+        server = newServerAwaitingAnalyzer();
+
+        var thread = server.startAnalyzerBuild(failingLanguage());
+        thread.join();
+
+        var result = callTool("searchSymbols", Map.of("patterns", List.of(".*"), "includeTests", false, "limit", 10));
+
+        assertTrue(result.isError() != null && result.isError());
+        assertTrue(textContent(result).contains("Analyzer build failed"));
+    }
+
+    @Test
+    void analyzerBuildFailurePreventsWorkspaceActivation() throws Exception {
+        server = newServerAwaitingAnalyzer();
+
+        var thread = server.startAnalyzerBuild(failingLanguage());
+        thread.join();
+
+        var newRoot = tempDir.resolve("other-repo");
+        Files.createDirectories(newRoot);
+        try (Git git = Git.init().setDirectory(newRoot.toFile()).call()) {
+            Files.writeString(newRoot.resolve("README.md"), "# Other");
+            git.add().addFilepattern("README.md").call();
+            git.commit()
+                    .setMessage("init")
+                    .setAuthor("Test", "test@test.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        var result = callTool("activateWorkspace", Map.of("workspacePath", newRoot.toString()));
+
+        assertTrue(result.isError() != null && result.isError());
+        assertTrue(textContent(result).contains("Analyzer build failed"));
+        assertEquals(
+                projectRoot,
+                BrokkCoreMcpServer.resolveProjectRoot(Path.of(textContent(callTool("getActiveWorkspace", Map.of())))));
+    }
+
+    private BrokkCoreMcpServer newServerAwaitingAnalyzer() {
+        var analyzer = new DisabledAnalyzer(project);
+        var intel = new StandaloneCodeIntelligence(project, analyzer);
+        var searchTools = new SearchTools(intel);
+        return new BrokkCoreMcpServer(project, intel, searchTools, null, false);
+    }
+
+    @Test
     void toolCallsAreLoggedToMcpHistoryWhenEnabled() throws Exception {
         var analyzer = new DisabledAnalyzer(project);
         var intel = new StandaloneCodeIntelligence(project, analyzer);
@@ -237,6 +288,43 @@ class BrokkCoreMcpServerTest {
                 .orElseThrow(() -> new AssertionError("Tool not found: " + name));
         var request = new McpSchema.CallToolRequest(name, args);
         return tool.callHandler().apply(null, request);
+    }
+
+    private static Language failingLanguage() {
+        return new Language() {
+            @Override
+            public Set<String> getExtensions() {
+                return Set.of("fail");
+            }
+
+            @Override
+            public String name() {
+                return "Failing";
+            }
+
+            @Override
+            public String internalName() {
+                return "FAILING";
+            }
+
+            @Override
+            public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
+                throw new IllegalStateException("boom");
+            }
+
+            @Override
+            public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
+                throw new IllegalStateException("boom");
+            }
+        };
+    }
+
+    private static String textContent(McpSchema.CallToolResult result) {
+        return result.content().stream()
+                .filter(McpSchema.TextContent.class::isInstance)
+                .map(McpSchema.TextContent.class::cast)
+                .map(McpSchema.TextContent::text)
+                .collect(Collectors.joining("\n"));
     }
 
     @Test
