@@ -28,6 +28,7 @@ import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.executor.routers.SettingsRouter;
 import ai.brokk.executor.routers.StaticAnalysisRouter;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.DebugLogPath;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -50,8 +51,6 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 public final class HeadlessExecutorMain {
-    private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
-
     // Valid argument keys that the application accepts
     private static final Set<String> VALID_ARGS = Set.of(
             "exec-id",
@@ -61,8 +60,17 @@ public final class HeadlessExecutorMain {
             "brokk-api-key",
             "proxy-setting",
             "vendor",
+            DebugLogPath.ARG,
             "exit-on-stdin-eof",
             "help");
+
+    private static Logger logger() {
+        return LoggerHolder.LOGGER;
+    }
+
+    private static final class LoggerHolder {
+        private static final Logger LOGGER = LogManager.getLogger(HeadlessExecutorMain.class);
+    }
 
     private final UUID execId;
     private final SimpleHttpServer server;
@@ -137,13 +145,14 @@ public final class HeadlessExecutorMain {
         System.out.println("  --proxy-setting <setting>  LLM proxy: BROKK, LOCALHOST, STAGING (optional)");
         System.out.println(
                 "  --vendor <vendor>          Other-models vendor: Default, Anthropic, Gemini, OpenAI, OpenAI - Codex (optional)");
+        System.out.println("  --debug-log-path <path>    Debug log file path (optional; env BROKK_DEBUG_LOG_PATH)");
         System.out.println(
                 "  --exit-on-stdin-eof[=bool] Exit when stdin closes/errors (default: false; env EXIT_ON_STDIN_EOF)");
         System.out.println("  --help                     Show this help message");
         System.out.println();
         System.out.println("Arguments can also be provided via environment variables:");
         System.out.println(
-                "  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, BROKK_API_KEY, PROXY_SETTING, EXIT_ON_STDIN_EOF");
+                "  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, BROKK_API_KEY, PROXY_SETTING, BROKK_DEBUG_LOG_PATH, EXIT_ON_STDIN_EOF");
         System.out.println();
 
         System.exit(invalidArgs.isEmpty() ? 0 : 1);
@@ -174,12 +183,12 @@ public final class HeadlessExecutorMain {
         var workspaceDir = contextManager.getProject().getRoot();
         var sessionsDir = contextManager.getProject().getSessionManager().getSessionsDir();
 
-        logger.info(
-                "Initializing HeadlessExecutorMain: execId={}, listen={}:{}, workspace={}",
-                execId,
-                host,
-                port,
-                workspaceDir);
+        logger().info(
+                        "Initializing HeadlessExecutorMain: execId={}, listen={}:{}, workspace={}",
+                        execId,
+                        host,
+                        port,
+                        workspaceDir);
 
         // Ensure sessions directory exists
         Files.createDirectories(sessionsDir);
@@ -195,10 +204,10 @@ public final class HeadlessExecutorMain {
                     try {
                         this.contextManager.createHeadless(false, new HeadlessConsole());
                         headlessInit.complete(null);
-                        logger.info("ContextManager headless initialization complete");
+                        logger().info("ContextManager headless initialization complete");
                     } catch (Exception e) {
                         headlessInit.completeExceptionally(e);
-                        logger.warn("ContextManager headless initialization failed", e);
+                        logger().warn("ContextManager headless initialization failed", e);
                     }
                 },
                 "ContextManager-Init");
@@ -271,16 +280,19 @@ public final class HeadlessExecutorMain {
         var settingsRouter = new SettingsRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/settings", settingsRouter);
 
-        logger.info("HeadlessExecutorMain initialized successfully");
+        logger().info("HeadlessExecutorMain initialized successfully");
     }
 
     private void logAgentStoreLoadSnapshot(AgentStore.LoadSnapshot snapshot) {
         var loadedNames = snapshot.agents().stream().map(AgentDefinition::name).toList();
-        logger.info("Loaded {} custom agents from layered store: {}", loadedNames.size(), loadedNames);
+        logger().info("Loaded {} custom agents from layered store: {}", loadedNames.size(), loadedNames);
         List<String> skipped =
                 snapshot.skippedInvalidFiles().stream().map(Path::toString).toList();
         if (!skipped.isEmpty()) {
-            logger.warn("Skipped {} invalid custom agent files while loading agent store: {}", skipped.size(), skipped);
+            logger().warn(
+                            "Skipped {} invalid custom agent files while loading agent store: {}",
+                            skipped.size(),
+                            skipped);
         }
     }
 
@@ -311,7 +323,7 @@ public final class HeadlessExecutorMain {
         response.put("execId", this.execId.toString());
         response.put("version", BuildInfo.version);
         response.put("protocolVersion", 1);
-        logger.info("/health/ready served as deprecated liveness alias");
+        logger().info("/health/ready served as deprecated liveness alias");
         SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
@@ -333,7 +345,7 @@ public final class HeadlessExecutorMain {
             // already exists on disk. Report the newest known session instead of a transient null.
             return sessions.getFirst().id().toString();
         } catch (Exception e) {
-            logger.warn("Failed to resolve sessionId for /health/ready payload", e);
+            logger().warn("Failed to resolve sessionId for /health/ready payload", e);
             return null;
         }
     }
@@ -347,9 +359,9 @@ public final class HeadlessExecutorMain {
 
     public void start() {
         this.server.start();
-        logger.info(
-                "HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/sessions, /v1/jobs, etc.; cmSession={}",
-                contextManager.getCurrentSessionId());
+        logger().info(
+                        "HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/sessions, /v1/jobs, etc.; cmSession={}",
+                        contextManager.getCurrentSessionId());
     }
 
     public void stop(int delaySeconds) {
@@ -366,10 +378,10 @@ public final class HeadlessExecutorMain {
         try {
             this.contextManager.close();
         } catch (Exception e) {
-            logger.warn("Error closing ContextManager", e);
+            logger().warn("Error closing ContextManager", e);
         }
         this.server.stop(delaySeconds);
-        logger.info("HeadlessExecutorMain stopped");
+        logger().info("HeadlessExecutorMain stopped");
     }
 
     /**
@@ -431,7 +443,10 @@ public final class HeadlessExecutorMain {
         try {
             // Must be set before any Swing/AWT code paths are touched.
             System.setProperty("java.awt.headless", "true");
-            // Parse command-line arguments and validate them
+            // Configure debug logging before the first application log event.
+            var debugLogPath = DebugLogPath.configureHeadless(args);
+
+            // Parse command-line arguments and validate them.
             var parseResult = parseArgs(args);
             var parsedArgs = parseResult.args();
             var invalidKeys = parseResult.invalidKeys();
@@ -439,7 +454,7 @@ public final class HeadlessExecutorMain {
             // Log parsed arguments (with sensitive values redacted) early for debugging
             var redactedArgs = redactSensitiveArgs(parsedArgs);
             var argsDisplay = CliArgParser.formatForLogging(redactedArgs);
-            logger.info("Parsed arguments: {}", argsDisplay);
+            logger().info("Parsed arguments: {}", argsDisplay);
             System.out.println("Parsed arguments: {" + argsDisplay + "}");
 
             // Check for help flag or invalid arguments
@@ -491,12 +506,12 @@ public final class HeadlessExecutorMain {
 
             var derivedSessionsDir = workspaceDir.resolve(".brokk").resolve("sessions");
 
-            logger.info(
-                    "Starting HeadlessExecutorMain with config: execId={}, listenAddr={}, workspaceDir={}, sessionsDir={}",
-                    execId,
-                    listenAddr,
-                    workspaceDir,
-                    derivedSessionsDir);
+            logger().info(
+                            "Starting HeadlessExecutorMain with config: execId={}, listenAddr={}, workspaceDir={}, sessionsDir={}",
+                            execId,
+                            listenAddr,
+                            workspaceDir,
+                            derivedSessionsDir);
 
             // Print startup banner and config summary to console
             System.out.println();
@@ -504,6 +519,7 @@ public final class HeadlessExecutorMain {
             System.out.println("  execId:      " + execId);
             System.out.println("  listenAddr:  " + listenAddr);
             System.out.println("  workspaceDir: " + workspaceDir);
+            System.out.println("  debugLogPath: " + debugLogPath);
             var brokkApiKeyArg = getConfigValue(parsedArgs, "brokk-api-key", "BROKK_API_KEY");
             System.out.println("  brokkApiKey:  " + (brokkApiKeyArg != null ? "(provided)" : "(using global config)"));
             var proxySettingArg = getConfigValue(parsedArgs, "proxy-setting", "PROXY_SETTING");
@@ -590,19 +606,21 @@ public final class HeadlessExecutorMain {
                                     // Consume bytes without processing. If stdin is a terminal, this will
                                     // block until user input / EOF and thus not interfere with normal usage.
                                 }
-                                logger.info("System.in closed (EOF detected). Initiating controlled shutdown.");
+                                logger().info("System.in closed (EOF detected). Initiating controlled shutdown.");
                             } catch (IOException e) {
-                                logger.info(
-                                        "IOException while monitoring System.in; initiating controlled shutdown.", e);
+                                logger().info(
+                                                "IOException while monitoring System.in; initiating controlled shutdown.",
+                                                e);
                             } catch (Throwable t) {
-                                logger.warn(
-                                        "Unexpected error in System.in monitor; initiating controlled shutdown.", t);
+                                logger().warn(
+                                                "Unexpected error in System.in monitor; initiating controlled shutdown.",
+                                                t);
                             } finally {
                                 try {
                                     // Try to stop executor gracefully; use a short delay to speed shutdown.
                                     executor.stop(5);
                                 } catch (Exception e) {
-                                    logger.warn("Error while stopping executor from stdin monitor", e);
+                                    logger().warn("Error while stopping executor from stdin monitor", e);
                                 } finally {
                                     // Ensure process exits even if shutdown hook doesn't run immediately.
                                     System.exit(0);
@@ -612,9 +630,9 @@ public final class HeadlessExecutorMain {
                         "HeadlessExecutor-StdInMonitor");
                 stdinMonitor.setDaemon(true);
                 stdinMonitor.start();
-                logger.info("System.in EOF monitor enabled; process will exit when stdin closes or errors.");
+                logger().info("System.in EOF monitor enabled; process will exit when stdin closes or errors.");
             } else {
-                logger.info("System.in EOF monitor disabled; executor will ignore stdin closure.");
+                logger().info("System.in EOF monitor disabled; executor will ignore stdin closure.");
             }
 
             // Add shutdown hook
@@ -623,22 +641,22 @@ public final class HeadlessExecutorMain {
                             () -> {
                                 System.out.println();
                                 System.out.println("Shutting down Brokk Headless Executor...");
-                                logger.info("Shutdown signal received, stopping executor");
+                                logger().info("Shutdown signal received, stopping executor");
                                 executor.stop(5);
                                 System.out.println("Executor stopped.");
                             },
                             "HeadlessExecutor-ShutdownHook"));
-            logger.info("HeadlessExecutorMain is running");
+            logger().info("HeadlessExecutorMain is running");
             Thread.currentThread().join(); // Keep the main thread alive
         } catch (InterruptedException e) {
             System.out.println("HeadlessExecutorMain interrupted: " + e.getMessage());
-            logger.info("HeadlessExecutorMain interrupted", e);
+            logger().info("HeadlessExecutorMain interrupted", e);
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             var formattedError = formatFatalStartupError(e);
             System.err.println(formattedError);
             System.out.println(formattedError);
-            logger.error("Fatal error in HeadlessExecutorMain", e);
+            logger().error("Fatal error in HeadlessExecutorMain", e);
             System.exit(1);
         }
     }
