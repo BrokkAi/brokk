@@ -35,7 +35,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          # `wasm32-wasip2` is required by `brokk-acp-rust/build.rs` to
+          # cross-compile the sandboxed parser crate; the host target
+          # comes from the matrix.
+          targets: ${{ matrix.target }}, wasm32-wasip2
 
       - name: Cache cargo registry and build
         uses: actions/cache@v4

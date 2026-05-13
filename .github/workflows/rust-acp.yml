@@ -27,6 +27,11 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt, clippy
+        # `brokk-acp-rust/build.rs` cross-compiles the `brokk-acp-sandbox`
+        # crate to `wasm32-wasip2` and embeds the resulting `.wasm` bytes
+        # via `include_bytes!`, so the runner must have the target's
+        # std-aware sysroot available before `cargo build`.
+        targets: wasm32-wasip2
 
     - name: Install bubblewrap (Linux sandbox runtime)
       if: runner.os == 'Linux'
