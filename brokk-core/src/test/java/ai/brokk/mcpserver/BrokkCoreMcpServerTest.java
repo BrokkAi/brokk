@@ -218,7 +218,7 @@ class BrokkCoreMcpServerTest {
     }
 
     @Test
-    void analyzerBuildFailurePreventsWorkspaceActivation() throws Exception {
+    void analyzerBuildFailureDoesNotPreventWorkspaceActivation() throws Exception {
         server = newServerAwaitingAnalyzer();
 
         var thread = server.startAnalyzerBuild(failingLanguage());
@@ -238,11 +238,15 @@ class BrokkCoreMcpServerTest {
 
         var result = callTool("activateWorkspace", Map.of("workspacePath", newRoot.toString()));
 
-        assertTrue(result.isError() != null && result.isError());
-        assertTrue(textContent(result).contains("Analyzer build failed"));
+        assertFalse(result.isError() != null && result.isError());
         assertEquals(
-                projectRoot,
+                newRoot,
                 BrokkCoreMcpServer.resolveProjectRoot(Path.of(textContent(callTool("getActiveWorkspace", Map.of())))));
+
+        var searchResult =
+                callTool("searchSymbols", Map.of("patterns", List.of(".*"), "includeTests", false, "limit", 10));
+        assertFalse(searchResult.isError() != null && searchResult.isError());
+        assertFalse(textContent(searchResult).contains("Analyzer build failed"));
     }
 
     private BrokkCoreMcpServer newServerAwaitingAnalyzer() {

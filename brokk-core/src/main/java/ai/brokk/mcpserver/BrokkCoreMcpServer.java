@@ -55,6 +55,7 @@ public class BrokkCoreMcpServer {
     private CodeQualityToolsMcp codeQualityTools;
     private Path activeWorkspaceRoot;
     private final CountDownLatch analyzerReady = new CountDownLatch(1);
+    private volatile @Nullable Thread analyzerBuildThread;
     private volatile @Nullable Throwable analyzerBuildFailure;
     private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
 
@@ -230,8 +231,12 @@ public class BrokkCoreMcpServer {
             } finally {
                 analyzerReady.countDown();
                 workspaceLock.writeLock().unlock();
+                if (analyzerBuildThread == Thread.currentThread()) {
+                    analyzerBuildThread = null;
+                }
             }
         });
+        analyzerBuildThread = thread;
         thread.start();
         return thread;
     }
@@ -278,35 +283,51 @@ public class BrokkCoreMcpServer {
     }
 
     private void activateWorkspace(String workspacePath) {
-        awaitAnalyzerReady();
         Path newRoot = resolveProjectRoot(Path.of(workspacePath));
+        interruptAnalyzerBuild();
         workspaceLock.writeLock().lock();
         try {
-            if (newRoot.equals(activeWorkspaceRoot)) {
+            if (newRoot.equals(activeWorkspaceRoot) && analyzerReady.getCount() == 0 && analyzerBuildFailure == null) {
                 logger.info("Workspace already active: {}", newRoot);
                 return;
             }
             logger.info("Switching workspace from {} to {}", activeWorkspaceRoot, newRoot);
 
-            project.close();
-
+            var oldProject = project;
             var newProject = new CoreProject(newRoot);
-            var langHandle = Languages.aggregate(newProject.getAnalyzerLanguages());
-            IAnalyzer newAnalyzer;
-            if (langHandle == Languages.NONE) {
-                newAnalyzer = new DisabledAnalyzer(newProject);
-            } else {
-                newAnalyzer = langHandle.createAnalyzer(newProject, (current, total, phase) -> {});
-            }
+            boolean assigned = false;
+            try {
+                var langHandle = Languages.aggregate(newProject.getAnalyzerLanguages());
+                IAnalyzer newAnalyzer;
+                if (langHandle == Languages.NONE) {
+                    newAnalyzer = new DisabledAnalyzer(newProject);
+                } else {
+                    newAnalyzer = langHandle.createAnalyzer(newProject, (current, total, phase) -> {});
+                }
 
-            this.project = newProject;
-            this.intelligence = new StandaloneCodeIntelligence(newProject, newAnalyzer);
-            this.searchTools = new SearchTools(this.intelligence);
-            this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
-            this.activeWorkspaceRoot = newRoot;
+                this.project = newProject;
+                this.intelligence = new StandaloneCodeIntelligence(newProject, newAnalyzer);
+                this.searchTools = new SearchTools(this.intelligence);
+                this.codeQualityTools = new CodeQualityToolsMcp(this.intelligence);
+                this.activeWorkspaceRoot = newRoot;
+                this.analyzerBuildFailure = null;
+                assigned = true;
+                oldProject.close();
+            } finally {
+                if (!assigned) {
+                    newProject.close();
+                }
+            }
             logger.info("Workspace switched to {}", newRoot);
         } finally {
             workspaceLock.writeLock().unlock();
+        }
+    }
+
+    private void interruptAnalyzerBuild() {
+        var thread = analyzerBuildThread;
+        if (thread != null) {
+            thread.interrupt();
         }
     }
 
