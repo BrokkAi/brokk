@@ -14,6 +14,7 @@ mod discovery;
 mod llm_client;
 mod multi_backend;
 mod openrouter_auth;
+mod sandbox_backend;
 mod session;
 mod skills;
 mod tool_loop;
@@ -99,6 +100,14 @@ struct Args {
     /// `~/.codex/auth.json` is present.
     #[arg(long, hide = true)]
     use_codex: bool,
+
+    /// Disable the wasmtime-hosted parser sandbox and run all parsing
+    /// (SKILL.md YAML, AGENTS.md, session zip, regex search) natively
+    /// in-process. The sandbox guards against YAML bombs, ReDoS, and
+    /// parser panics taking down the agent; disabling it trades that
+    /// isolation for ~5-20ms per call and the host's full memory pool.
+    #[arg(long, env = "BROKK_ACP_NO_WASM_SANDBOX", default_value_t = false)]
+    no_wasm_sandbox: bool,
 }
 
 impl std::fmt::Debug for Args {
@@ -312,6 +321,20 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+
+    // Install the parser sandbox before any code that might load a SKILL.md
+    // (or, eventually, parse AGENTS.md / session zips / regex queries) so
+    // every parse goes through the chosen backend from the first call.
+    // The wasm backend is the default; `--no-wasm-sandbox` is the explicit
+    // opt-out that trades isolation for raw speed.
+    if args.no_wasm_sandbox {
+        tracing::info!(
+            "wasm parser sandbox disabled by flag; YAML/zip/regex parses run natively in-process"
+        );
+        sandbox_backend::install_global(sandbox_backend::SandboxBackend::Native);
+    } else {
+        sandbox_backend::install_global(sandbox_backend::SandboxBackend::wasm_or_native());
+    }
 
     if args.endpoint_url.is_some() {
         tracing::warn!(

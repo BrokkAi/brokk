@@ -32,6 +32,8 @@ use std::ffi::OsStr;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
+use brokk_acp_sandbox::split_frontmatter;
+
 /// Per-root cap on walked directory entries. Cheap insurance against
 /// accidental scans into a `node_modules`/`target` tree if a user drops
 /// `.agents/skills/` at a wrong level. opencode has no such cap; this
@@ -292,7 +294,7 @@ fn load_skill(path: &Path, scope: SkillScope, reg: &mut SkillRegistry) {
         }
     };
 
-    let parsed = match parse_frontmatter(front) {
+    let parsed = match crate::sandbox_backend::global().parse_skill_frontmatter(front) {
         Ok(p) => p,
         Err(e) => {
             reg.push_diagnostic(format!(
@@ -371,124 +373,13 @@ fn load_skill(path: &Path, scope: SkillScope, reg: &mut SkillRegistry) {
     });
 }
 
-/// Returned by `parse_frontmatter`. Only fields the registry consumes are
-/// extracted; the rest of the YAML is intentionally ignored to keep
-/// validation lenient across vendors.
-#[derive(Debug, Default)]
-struct ParsedFrontmatter {
-    name: Option<String>,
-    description: Option<String>,
-}
-
-/// Split a SKILL.md into `(frontmatter, body)`. Frontmatter is the block
-/// between a leading `---` line and the next `---` line on its own.
-fn split_frontmatter(raw: &str) -> Result<(&str, &str), &'static str> {
-    let trimmed = raw.trim_start_matches('\u{feff}');
-    let rest = trimmed
-        .strip_prefix("---\n")
-        .or_else(|| trimmed.strip_prefix("---\r\n"))
-        .ok_or("file does not start with `---`")?;
-    // Search for a closing `---` on its own line.
-    let mut offset = 0usize;
-    for line in rest.split_inclusive('\n') {
-        let stripped = line.trim_end_matches(['\n', '\r']);
-        if stripped == "---" {
-            let front = &rest[..offset];
-            let body_start = offset + line.len();
-            let body = if body_start < rest.len() {
-                &rest[body_start..]
-            } else {
-                ""
-            };
-            return Ok((front, body));
-        }
-        offset += line.len();
-    }
-    Err("no closing `---` for frontmatter")
-}
-
-/// Lenient YAML parse: extracts `name` and `description`. On a YAML
-/// scanner error we retry once with the offending unquoted-colon value
-/// wrapped in quotes, matching the spec's recommended fallback for
-/// "Use this skill when: the user asks about PDFs" style values.
-fn parse_frontmatter(yaml: &str) -> Result<ParsedFrontmatter, String> {
-    match serde_yaml::from_str::<RawFrontmatter>(yaml) {
-        Ok(r) => Ok(r.into_parsed()),
-        Err(first_err) => {
-            // Heuristic recovery: if the YAML scanner choked on a
-            // `description:` value containing an unquoted colon, try
-            // again with the value wrapped in double quotes. We don't
-            // attempt this for arbitrary fields -- only `description`,
-            // which is by far the most common offender in skills shipped
-            // by other clients.
-            if let Some(retry) = requote_description(yaml)
-                && let Ok(r) = serde_yaml::from_str::<RawFrontmatter>(&retry)
-            {
-                return Ok(r.into_parsed());
-            }
-            Err(first_err.to_string())
-        }
-    }
-}
-
-#[derive(Debug, serde::Deserialize, Default)]
-struct RawFrontmatter {
-    #[serde(default)]
-    name: Option<serde_yaml::Value>,
-    #[serde(default)]
-    description: Option<serde_yaml::Value>,
-}
-
-impl RawFrontmatter {
-    fn into_parsed(self) -> ParsedFrontmatter {
-        ParsedFrontmatter {
-            name: self.name.and_then(yaml_value_to_trimmed_string),
-            description: self.description.and_then(yaml_value_to_trimmed_string),
-        }
-    }
-}
-
-/// Coerce a YAML scalar to a trimmed `String`. Returns `None` for nulls
-/// or non-scalar values (sequences, maps) -- callers treat missing values
-/// the same as malformed.
-fn yaml_value_to_trimmed_string(v: serde_yaml::Value) -> Option<String> {
-    match v {
-        serde_yaml::Value::String(s) => Some(s.trim().to_string()),
-        serde_yaml::Value::Bool(b) => Some(b.to_string()),
-        serde_yaml::Value::Number(n) => Some(n.to_string()),
-        _ => None,
-    }
-}
-
-/// Rewrite `description: <unquoted value with colon>` to wrap the value
-/// in double quotes. Best-effort; only touches the first matching line.
-fn requote_description(yaml: &str) -> Option<String> {
-    let mut out = String::with_capacity(yaml.len() + 4);
-    let mut changed = false;
-    for line in yaml.split_inclusive('\n') {
-        let stripped = line.trim_end_matches(['\n', '\r']);
-        if !changed && let Some(rest) = stripped.strip_prefix("description:") {
-            let trimmed = rest.trim_start();
-            // Only requote when the value isn't already quoted, isn't a
-            // block scalar (`|` / `>`), and contains a colon (the trigger
-            // for the YAML scanner error we're recovering from).
-            let already_safe = trimmed.starts_with('"')
-                || trimmed.starts_with('\'')
-                || trimmed.starts_with('|')
-                || trimmed.starts_with('>')
-                || trimmed.is_empty();
-            if !already_safe && trimmed.contains(':') {
-                let escaped = trimmed.replace('\\', "\\\\").replace('"', "\\\"");
-                let newline_tail = &line[stripped.len()..line.len()];
-                out.push_str(&format!("description: \"{escaped}\"{newline_tail}"));
-                changed = true;
-                continue;
-            }
-        }
-        out.push_str(line);
-    }
-    if changed { Some(out) } else { None }
-}
+// Frontmatter parsing (`split_frontmatter`, `parse_frontmatter`, and the
+// YAML recovery helpers) moved to the `brokk-acp-sandbox` crate so the
+// same code can run in a wasm sandbox via `SandboxBackend::Wasm`. The
+// host calls those entry points through `SandboxBackend` above and
+// `brokk_acp_sandbox::split_frontmatter` directly (the splitter does no
+// untrusted-format parsing, only newline scanning, so it is safe to keep
+// native even when the YAML parser is sandboxed).
 
 fn normalize_path(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
