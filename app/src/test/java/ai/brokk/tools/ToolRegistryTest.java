@@ -394,6 +394,67 @@ class ToolRegistryTest {
         return MAPPER.writeValueAsString(map);
     }
 
+    @Test
+    void readOnlyRegistry_skipsMethodLevelDestructive() {
+        // A read-only registry must drop methods annotated @Destructive but keep safe methods on
+        // the same class. Tools annotated @Destructive only via a class-level annotation are also dropped.
+        var readOnlyRoot = new ToolRegistry(true);
+        var mixed = new MixedTools();
+        var readOnly = readOnlyRoot.builder().register(mixed).build();
+
+        assertTrue(readOnly.isReadOnly(), "Registry should report read-only");
+        assertTrue(readOnly.isRegistered("readMethod"), "Non-destructive method must remain registered");
+        assertFalse(
+                readOnly.isRegistered("destructiveMethod"),
+                "@Destructive method-level annotation must be filtered from a read-only registry");
+    }
+
+    @Test
+    void readOnlyRegistry_skipsClassLevelDestructive() {
+        var readOnly = new ToolRegistry(true)
+                .builder()
+                .register(new AllDestructiveTools())
+                .build();
+        assertFalse(
+                readOnly.isRegistered("dangerousMethod"),
+                "Class-level @Destructive must filter all of the class's tool methods");
+    }
+
+    @Test
+    void writableRegistry_keepsAllTools() {
+        var writable =
+                new ToolRegistry(false).builder().register(new MixedTools()).build();
+        assertFalse(writable.isReadOnly());
+        assertTrue(writable.isRegistered("readMethod"));
+        assertTrue(
+                writable.isRegistered("destructiveMethod"),
+                "Writable registries must keep destructive tools registered (backwards compatible)");
+    }
+
+    @Test
+    void readOnlyFlag_inheritedThroughDerivedBuilders() {
+        // A registry's readOnly flag must propagate to every Builder derived from it via .builder()
+        // or fromBase(), so call sites that compose per-turn registries cannot accidentally
+        // re-enable destructive tools.
+        var readOnlyRoot = new ToolRegistry(true);
+        var derived = readOnlyRoot.builder().register(new MixedTools()).build();
+        assertTrue(derived.isReadOnly(), "Derived builder must inherit readOnly from its base");
+
+        var furtherDerived =
+                derived.builder().register(new AllDestructiveTools()).build();
+        assertTrue(furtherDerived.isReadOnly());
+        assertFalse(furtherDerived.isRegistered("dangerousMethod"));
+        assertTrue(furtherDerived.isRegistered("readMethod"), "Non-destructive entries from prior layer survive");
+    }
+
+    @Test
+    void emptyRegistry_acceptsReadOnlyOverload() {
+        var empty = ToolRegistry.empty(true);
+        assertTrue(empty.isReadOnly());
+        var emptyDefault = ToolRegistry.empty();
+        assertFalse(emptyDefault.isReadOnly());
+    }
+
     // Local tool provider for testing
     static class TestTools {
         @Tool("Fetch class sources for testing")
@@ -434,6 +495,27 @@ class ToolRegistryTest {
         @Tool("Tool that throws an unchecked exception with no message")
         public String throwingToolNoMessage() {
             throw new NullPointerException();
+        }
+    }
+
+    static class MixedTools {
+        @Tool("Read-only method")
+        public String readMethod() {
+            return "ok";
+        }
+
+        @Tool("Destructive method")
+        @Destructive
+        public String destructiveMethod() {
+            return "boom";
+        }
+    }
+
+    @Destructive
+    static class AllDestructiveTools {
+        @Tool("Dangerous")
+        public String dangerousMethod() {
+            return "danger";
         }
     }
 

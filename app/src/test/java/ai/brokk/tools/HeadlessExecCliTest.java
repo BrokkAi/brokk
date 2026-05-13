@@ -651,4 +651,46 @@ class HeadlessExecCliTest {
                 "Temp dir name should include owner/repo prefix");
         assertFalse(selection.root().equals(cwd), "ISSUE_WRITER workspace should not be CWD");
     }
+
+    @Test
+    void testParseArgs_ReadOnlyFlagIsAcceptedAsBareBoolean() {
+        // Verify that --read-only parses without requiring a value, matching --auto-commit / --pre-scan.
+        // Use reflection to read the resulting field rather than running the executor end-to-end.
+        try {
+            String[] args = {"--planner-model", "gpt-5", "--mode", "ASK", "--read-only", "explain the project layout"};
+
+            HeadlessExecCli cli = new HeadlessExecCli();
+            java.lang.reflect.Method parseArgs = HeadlessExecCli.class.getDeclaredMethod("parseArgs", String[].class);
+            parseArgs.setAccessible(true);
+
+            boolean result = (boolean) parseArgs.invoke(cli, (Object) args);
+            assertTrue(result, "Parsing should succeed with bare --read-only");
+
+            var field = HeadlessExecCli.class.getDeclaredField("readOnly");
+            field.setAccessible(true);
+            assertTrue(field.getBoolean(cli), "readOnly field should be set to true after --read-only");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Test
+    void testParseArgs_ReadOnlyFlagDefaultsToFalse() {
+        try {
+            String[] args = {"--planner-model", "gpt-5", "--mode", "ASK", "what files exist"};
+
+            HeadlessExecCli cli = new HeadlessExecCli();
+            java.lang.reflect.Method parseArgs = HeadlessExecCli.class.getDeclaredMethod("parseArgs", String[].class);
+            parseArgs.setAccessible(true);
+
+            boolean result = (boolean) parseArgs.invoke(cli, (Object) args);
+            assertTrue(result, "Parsing should succeed without --read-only");
+
+            var field = HeadlessExecCli.class.getDeclaredField("readOnly");
+            field.setAccessible(true);
+            assertFalse(field.getBoolean(cli), "readOnly field should default to false");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 }

@@ -62,6 +62,7 @@ public final class HeadlessExecutorMain {
             "proxy-setting",
             "vendor",
             "exit-on-stdin-eof",
+            "read-only",
             "help");
 
     private final UUID execId;
@@ -139,11 +140,13 @@ public final class HeadlessExecutorMain {
                 "  --vendor <vendor>          Other-models vendor: Default, Anthropic, Gemini, OpenAI, OpenAI - Codex (optional)");
         System.out.println(
                 "  --exit-on-stdin-eof[=bool] Exit when stdin closes/errors (default: false; env EXIT_ON_STDIN_EOF)");
+        System.out.println(
+                "  --read-only[=bool]         Refuse file edits, shell, and other destructive tools (default: false; env READ_ONLY)");
         System.out.println("  --help                     Show this help message");
         System.out.println();
         System.out.println("Arguments can also be provided via environment variables:");
         System.out.println(
-                "  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, BROKK_API_KEY, PROXY_SETTING, EXIT_ON_STDIN_EOF");
+                "  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, BROKK_API_KEY, PROXY_SETTING, EXIT_ON_STDIN_EOF, READ_ONLY");
         System.out.println();
 
         System.exit(invalidArgs.isEmpty() ? 0 : 1);
@@ -151,11 +154,20 @@ public final class HeadlessExecutorMain {
 
     public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, ContextManager contextManager)
             throws IOException {
+        this(execId, listenAddr, authToken, contextManager, false);
+    }
+
+    public HeadlessExecutorMain(
+            UUID execId, String listenAddr, String authToken, ContextManager contextManager, boolean readOnly)
+            throws IOException {
         // Headless executor can be constructed directly in tests/in-process callers, not only via main().
         // Set this early so any Swing/AWT calls route to headless toolkit and do not require X11 libraries.
         System.setProperty("java.awt.headless", "true");
         this.execId = execId;
         this.contextManager = contextManager;
+        // Apply read-only as early as possible so the ContextManager's baseline ToolRegistry is rebuilt
+        // before any job submission consults it.
+        contextManager.setReadOnly(readOnly);
 
         // Parse listen address
         var parts = Splitter.on(':').splitToList(listenAddr);
@@ -217,7 +229,7 @@ public final class HeadlessExecutorMain {
                 this.contextManager, this.contextManager.getProject().getSessionManager());
         this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
 
-        this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
+        this.jobRunner = new JobRunner(this.contextManager, this.jobStore, readOnly);
         var agentStore = this.contextManager.getAgentStore();
         logAgentStoreLoadSnapshot(agentStore.loadSnapshot());
         var jobsRouter = new JobsRouter(
@@ -479,6 +491,7 @@ public final class HeadlessExecutorMain {
             var workspaceDir = Path.of(workspaceDirStr);
 
             var exitOnStdinEof = getBooleanConfigValue(parsedArgs, "exit-on-stdin-eof", "EXIT_ON_STDIN_EOF", false);
+            var readOnly = getBooleanConfigValue(parsedArgs, "read-only", "READ_ONLY", false);
 
             // Build ContextManager from workspace
             var project = new MainProject(workspaceDir);
@@ -515,6 +528,7 @@ public final class HeadlessExecutorMain {
             }
             System.out.println();
             System.out.println("  exitOnStdinEof: " + exitOnStdinEof);
+            System.out.println("  readOnly:       " + readOnly);
             System.out.println();
             System.out.println("Available HTTP Endpoints:");
             System.out.println();
@@ -564,7 +578,7 @@ public final class HeadlessExecutorMain {
             System.out.println();
 
             // Create and start executor
-            var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, contextManager);
+            var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, contextManager, readOnly);
             executor.start();
 
             // Print effective bind address and curl example after server starts

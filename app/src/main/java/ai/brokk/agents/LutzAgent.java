@@ -131,9 +131,16 @@ public class LutzAgent {
     private final String goal;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchTools searchTools;
-    private final List<String> staticTools;
-    private final List<String> terminalTools;
-    private final Set<String> terminalToolNames;
+    private List<String> staticTools;
+    private List<String> terminalTools;
+    private Set<String> terminalToolNames;
+
+    /**
+     * When true, this LUTZ run may not invoke CodeAgent or ShellAgent. Mirrors
+     * {@link ArchitectAgent#setReadOnly(boolean)}.
+     */
+    private boolean readOnly = false;
+
     private final SearchMetrics metrics;
     private ScanConfig scanConfig;
     private boolean scanPerformed;
@@ -264,7 +271,25 @@ public class LutzAgent {
         this.terminalTools = List.copyOf(calculateTerminalTools());
         this.terminalToolNames = Set.copyOf(terminalTools);
 
-        this.staticTools = initStaticTools(cm.getProject(), mcpTools);
+        this.staticTools = initStaticTools(cm.getProject(), mcpTools, readOnly);
+    }
+
+    /**
+     * Toggle read-only mode for this LUTZ run. When enabled, {@code callCodeAgent} and
+     * {@code callShellAgent} are removed from the agent's static and terminal palettes,
+     * matching {@link ArchitectAgent#setReadOnly(boolean)}. Must be called before {@link #execute()}.
+     */
+    public void setReadOnly(boolean readOnly) {
+        this.readOnly = readOnly;
+        // Recompute palettes that bake the destructive entries; the agent may already have been
+        // constructed (in which case the lists were built with readOnly=false).
+        this.terminalTools = List.copyOf(calculateTerminalTools());
+        this.terminalToolNames = Set.copyOf(terminalTools);
+        this.staticTools = initStaticTools(cm.getProject(), mcpTools, readOnly);
+    }
+
+    public boolean isReadOnly() {
+        return readOnly;
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
@@ -286,7 +311,7 @@ public class LutzAgent {
         return tools;
     }
 
-    private static List<String> initStaticTools(IProject project, List<McpPrompts.McpTool> mcpTools) {
+    private static List<String> initStaticTools(IProject project, List<McpPrompts.McpTool> mcpTools, boolean readOnly) {
         var tools = new ArrayList<String>();
 
         tools.add("callSearchAgent");
@@ -309,8 +334,10 @@ public class LutzAgent {
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
 
-        // Shell agent for command execution
-        tools.add("callShellAgent");
+        // Shell agent for command execution: omit in read-only mode (destructive).
+        if (!readOnly) {
+            tools.add("callShellAgent");
+        }
 
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");
@@ -590,7 +617,8 @@ public class LutzAgent {
         if (allowed.contains(Terminal.TASK_LIST)) {
             terminals.add("createOrReplaceTaskList");
         }
-        if (allowed.contains(Terminal.CODE)) {
+        // CODE terminal hands the plan to CodeAgent; omit in read-only mode.
+        if (allowed.contains(Terminal.CODE) && !readOnly) {
             terminals.add("callCodeAgent");
         }
 
@@ -786,6 +814,9 @@ public class LutzAgent {
      */
     @Blocking
     public TaskResult callCodeAgent(String instructions) throws InterruptedException {
+        if (readOnly) {
+            throw new IllegalStateException("LutzAgent.callCodeAgent invoked while read-only mode is active");
+        }
         ArchitectAgent architect =
                 new ArchitectAgent(cm, model, effectiveCodeModel(), instructions, scope, currentState.context());
 
@@ -1372,6 +1403,10 @@ public class LutzAgent {
                                 "Description of the shell task to accomplish, e.g. 'Install golangci-lint using the system package manager'")
                         String task)
                 throws InterruptedException {
+            if (agent.readOnly) {
+                throw new ToolRegistry.FatalLlmException(
+                        "ShellAgent is disabled because LUTZ is running in read-only mode.");
+            }
             logger.debug("callShellAgent invoked with task: {}", task);
             agent.io.llmOutput("**Shell Agent** engaged:\n" + task, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
 
@@ -1387,6 +1422,10 @@ public class LutzAgent {
                 @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
                         String instructions)
                 throws InterruptedException, ToolRegistry.FatalLlmException {
+            if (agent.readOnly) {
+                throw new ToolRegistry.FatalLlmException(
+                        "CodeAgent is disabled because LUTZ is running in read-only mode. Produce a plan or final answer without editing files.");
+            }
             if (agent.isPruningWorthwhile(context)) {
                 var janitor = new JanitorAgent(agent.cm, agent.io, agent.goal, context);
                 var janitorResult = janitor.execute();
