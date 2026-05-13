@@ -72,6 +72,20 @@ enum Request {
         max_entry_bytes: u64,
         max_total_bytes: u64,
     },
+    /// Walk the directory the host has preopened at `guest_root` and
+    /// return lines that match `pattern`, optionally restricted to
+    /// files whose relative path matches `glob`. The user-supplied
+    /// regex is the threat surface here: the wasm fuel cap is the
+    /// final backstop in case `regex`'s linear-time guarantee is
+    /// ever broken by a future engine bug or a feature flag.
+    SearchFileContents {
+        guest_root: String,
+        pattern: String,
+        glob: Option<String>,
+        max_results: u64,
+        max_file_bytes: u64,
+        max_total_bytes: u64,
+    },
 }
 
 #[derive(Deserialize)]
@@ -287,6 +301,27 @@ fn main() -> anyhow::Result<()> {
                     let payload = EntriesResult { entries };
                     serde_json::to_string(&OkResponse { id, ok: &payload })?
                 }
+                Err(err) => {
+                    let body = err.to_string();
+                    serde_json::to_string(&ErrResponse { id, err: &body })?
+                }
+            },
+            Request::SearchFileContents {
+                guest_root,
+                pattern,
+                glob,
+                max_results,
+                max_file_bytes,
+                max_total_bytes,
+            } => match brokk_acp_sandbox::search_file_contents(
+                std::path::Path::new(&guest_root),
+                &pattern,
+                glob.as_deref(),
+                max_results as usize,
+                max_file_bytes,
+                max_total_bytes,
+            ) {
+                Ok(outcome) => serde_json::to_string(&OkResponse { id, ok: &outcome })?,
                 Err(err) => {
                     let body = err.to_string();
                     serde_json::to_string(&ErrResponse { id, err: &body })?

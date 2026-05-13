@@ -305,9 +305,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "miniz_oxide 0.9.1",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml",
+ "walkdir",
 ]
 
 [[package]]

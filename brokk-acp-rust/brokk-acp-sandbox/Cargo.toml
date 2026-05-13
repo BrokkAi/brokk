@@ -24,6 +24,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 anyhow = "1"
+# `regex` is the ReDoS-safe (linear-time) regex engine the host's
+# `searchFileContents` already uses; running it inside the sandbox
+# adds wasm-fuel as a second backstop in case a future regex feature
+# breaks the linear-time guarantee.
+regex = "1"
+# Recursive directory walking inside the sandbox for `searchFileContents`.
+# `walkdir` is pure Rust and works through WASI preopens, so the
+# guest can walk a host directory that the host hands it.
+walkdir = "2"
 # DEFLATE decoder for the minimal zip reader in `src/zip_reader.rs`.
 # We do not pull the full `zip` crate here because its transitive
 # `typed-path` dep activates `#![feature(wasip2)]` on `wasm32-wasip2`,

@@ -185,6 +185,46 @@ impl SandboxBackend {
             ),
         }
     }
+
+    /// Run `searchFileContents` (regex match across a directory tree)
+    /// through the sandbox. The user-controlled regex pattern is the
+    /// load-bearing threat: the `regex` crate is linear-time by
+    /// design, but the wasm fuel cap + linear-memory limit are a
+    /// second line of defense in case a future engine bug or feature
+    /// flag breaks the linear-time guarantee.
+    ///
+    /// `glob` follows the same simple-glob syntax (`*.rs`, `**/*.java`)
+    /// as the host's prior implementation; an invalid pattern is
+    /// returned as a `SearchError::InvalidGlob` for the caller to
+    /// surface to the LLM.
+    pub fn search_file_contents(
+        &self,
+        root: &std::path::Path,
+        pattern: &str,
+        glob: Option<&str>,
+        max_results: u64,
+        max_file_bytes: u64,
+        max_total_bytes: u64,
+    ) -> Result<brokk_acp_sandbox::SearchOutcome, brokk_acp_sandbox::SearchError> {
+        match self {
+            Self::Native => brokk_acp_sandbox::search_file_contents(
+                root,
+                pattern,
+                glob,
+                max_results as usize,
+                max_file_bytes,
+                max_total_bytes,
+            ),
+            Self::Wasm(w) => w.search_file_contents(
+                root,
+                pattern,
+                glob,
+                max_results,
+                max_file_bytes,
+                max_total_bytes,
+            ),
+        }
+    }
 }
 
 /// Native implementation of `read_zip_entry_text`. Reads the whole
@@ -412,6 +452,67 @@ impl WasmSandbox {
                     ));
                 }
                 Err(std::io::Error::other(format!("[sandbox] {msg}")))
+            }
+        }
+    }
+
+    /// Run `searchFileContents` through the sandbox. Preopen the
+    /// search root read-only, ask the guest to walk it and apply the
+    /// pattern, return the structured outcome. The guest's wasm
+    /// memory cap and fuel budget bound the worst case for a
+    /// pathological regex or a huge tree.
+    fn search_file_contents(
+        &self,
+        root: &std::path::Path,
+        pattern: &str,
+        glob: Option<&str>,
+        max_results: u64,
+        max_file_bytes: u64,
+        max_total_bytes: u64,
+    ) -> Result<brokk_acp_sandbox::SearchOutcome, brokk_acp_sandbox::SearchError> {
+        let id = self.next_id();
+        let req = SandboxRequest {
+            id,
+            kind: SandboxRequestKind::SearchFileContents(SearchFileContentsParams {
+                guest_root: "/d".to_string(),
+                pattern: pattern.to_string(),
+                glob: glob.map(|g| g.to_string()),
+                max_results,
+                max_file_bytes,
+                max_total_bytes,
+            }),
+        };
+        let resp: SandboxResponse<brokk_acp_sandbox::SearchOutcome> =
+            match self.round_trip(&req, Some((root, "/d"))) {
+                Ok(r) => r,
+                Err(e) => {
+                    return Err(brokk_acp_sandbox::SearchError::Walk(format!(
+                        "[sandbox] {e}"
+                    )));
+                }
+            };
+        if resp.id != id {
+            return Err(brokk_acp_sandbox::SearchError::Walk(format!(
+                "[sandbox] response id mismatch: sent {id}, got {}",
+                resp.id
+            )));
+        }
+        match resp.body {
+            SandboxBody::Ok(outcome) => Ok(outcome),
+            SandboxBody::Err(msg) => {
+                // Surface the original kind back to the caller so the
+                // LLM still sees "Invalid regex: ..." rather than a
+                // generic sandbox-wrapped error. Best effort: match
+                // the display strings produced by `SearchError`.
+                if let Some(rest) = msg.strip_prefix("Invalid regex: ") {
+                    Err(brokk_acp_sandbox::SearchError::InvalidRegex(rest.to_string()))
+                } else if let Some(rest) = msg.strip_prefix("Invalid glob: ") {
+                    Err(brokk_acp_sandbox::SearchError::InvalidGlob(rest.to_string()))
+                } else {
+                    Err(brokk_acp_sandbox::SearchError::Walk(format!(
+                        "[sandbox] {msg}"
+                    )))
+                }
             }
         }
     }
@@ -715,6 +816,7 @@ enum SandboxRequestKind {
     ReadFileBounded(ReadFileBoundedParams),
     ReadZipEntryText(ReadZipEntryTextParams),
     ReadZipEntriesWithPrefix(ReadZipEntriesWithPrefixParams),
+    SearchFileContents(SearchFileContentsParams),
 }
 
 #[derive(Serialize)]
@@ -746,6 +848,16 @@ struct ReadZipEntriesWithPrefixParams {
     prefix: String,
     max_archive_bytes: u64,
     max_entry_bytes: u64,
+    max_total_bytes: u64,
+}
+
+#[derive(Serialize)]
+struct SearchFileContentsParams {
+    guest_root: String,
+    pattern: String,
+    glob: Option<String>,
+    max_results: u64,
+    max_file_bytes: u64,
     max_total_bytes: u64,
 }
 
@@ -977,6 +1089,70 @@ mod tests {
             result.is_none(),
             "missing entry should be Ok(None), got: {result:?}"
         );
+    }
+
+    /// Happy path: a known fixture tree returns the same match set
+    /// via both backends, pinning the contract that the sandbox does
+    /// not silently drop or reorder hits.
+    #[test]
+    fn native_and_wasm_agree_on_search_file_contents() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "hello\nworld\nfoo bar\n").unwrap();
+        std::fs::write(tmp.path().join("b.md"), "# title\nworld peace\n").unwrap();
+        let native = SandboxBackend::Native
+            .search_file_contents(tmp.path(), "world", None, 100, 1 << 20, 1 << 30)
+            .expect("native search should succeed");
+        let wasm_sandbox = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let wasm = SandboxBackend::Wasm(Arc::new(wasm_sandbox))
+            .search_file_contents(tmp.path(), "world", None, 100, 1 << 20, 1 << 30)
+            .expect("wasm search should succeed");
+        let mut native_paths: Vec<_> =
+            native.matches.iter().map(|m| (m.path.clone(), m.line_num)).collect();
+        let mut wasm_paths: Vec<_> =
+            wasm.matches.iter().map(|m| (m.path.clone(), m.line_num)).collect();
+        native_paths.sort();
+        wasm_paths.sort();
+        assert_eq!(native_paths, wasm_paths);
+        assert_eq!(native.matches.len(), 2, "should find 'world' in two files");
+    }
+
+    /// An invalid regex must come back as `InvalidRegex`, not a
+    /// generic sandbox error. The host's `search_file_contents` tool
+    /// converts that into a `RequestError` so the LLM gets a clear
+    /// "fix the pattern" message rather than an opaque crash.
+    #[test]
+    fn wasm_search_file_contents_invalid_regex_is_surfaced() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let wasm = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let backend = SandboxBackend::Wasm(Arc::new(wasm));
+        let err = backend
+            .search_file_contents(tmp.path(), "(unclosed", None, 100, 1 << 20, 1 << 30)
+            .expect_err("invalid regex must fail");
+        assert!(
+            matches!(err, brokk_acp_sandbox::SearchError::InvalidRegex(_)),
+            "expected InvalidRegex, got: {err}"
+        );
+    }
+
+    /// A regex that would catastrophically backtrack in PCRE is
+    /// linear-time in the `regex` crate, so the sandbox returns
+    /// promptly even on a worst-case input. This test pins the
+    /// behaviour so a future engine swap that re-introduces
+    /// backtracking will surface as a fuel-exhaustion failure here
+    /// rather than as a wedged agent in production.
+    #[test]
+    fn wasm_search_file_contents_redos_is_bounded() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Classic ReDoS bait: `(a+)+b` over a long all-`a` input.
+        let body = "a".repeat(8 * 1024) + "x\n";
+        std::fs::write(tmp.path().join("payload.txt"), &body).unwrap();
+        let wasm = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let backend = SandboxBackend::Wasm(Arc::new(wasm));
+        let outcome = backend
+            .search_file_contents(tmp.path(), "(a+)+b", None, 100, 1 << 20, 1 << 30)
+            .expect("regex crate is linear-time; this must not hang");
+        // No `b` in the payload, so we expect zero matches.
+        assert!(outcome.matches.is_empty());
     }
 
     #[test]

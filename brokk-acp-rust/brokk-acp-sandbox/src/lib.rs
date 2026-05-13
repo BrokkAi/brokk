@@ -17,9 +17,11 @@
 //! Adding a new parser to this crate is the standard path for getting
 //! "wasm-by-default with native fallback" coverage in `brokk-acp-rust`.
 
+pub mod search;
 pub mod skills;
 pub mod zip_reader;
 
+pub use search::{SearchError, SearchMatch, SearchOutcome, search as search_file_contents};
 pub use skills::{ParsedFrontmatter, parse_frontmatter, split_frontmatter};
 pub use zip_reader::{
     ZipReadError, read_entries_with_prefix as read_zip_entries_with_prefix,
