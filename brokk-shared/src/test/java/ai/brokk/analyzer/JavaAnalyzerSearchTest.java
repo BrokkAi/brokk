@@ -6,6 +6,7 @@ import ai.brokk.testutil.CoreTestProject;
 import ai.brokk.testutil.TestCodeProject;
 import java.io.IOException;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -173,6 +174,26 @@ public class JavaAnalyzerSearchTest {
 
         assertEquals(method2Names1, method2Names2, "Auto-wrapped pattern should match explicit pattern");
         assertTrue(method2Names1.contains("A.method2"), "Should find 'A.method2'");
+    }
+
+    @Test
+    public void testSearchDefinitions_LiteralAlternationPattern() {
+        var symbols = analyzer.searchDefinitions(Pattern.compile("(?i).*?(?:\\Qmethod1\\E|\\Qfield2\\E).*?"));
+        var names = symbols.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        assertTrue(names.contains("A.method1"), "Should find quoted literal method alternation");
+        assertTrue(names.contains("D.field2"), "Should find quoted literal field alternation");
+        assertFalse(names.contains("A.method2"), "Should not match literals outside the alternation");
+    }
+
+    @Test
+    public void testSearchDefinitions_LiteralAlternationFallbackForRegexTerms() {
+        var symbols = analyzer.searchDefinitions(Pattern.compile("(?i).*?(?:method[12]|\\Qfield2\\E).*?"));
+        var names = symbols.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        assertTrue(names.contains("A.method1"), "Regex fallback should preserve character class behavior");
+        assertTrue(names.contains("A.method2"), "Regex fallback should preserve character class behavior");
+        assertTrue(names.contains("D.field2"), "Regex fallback should preserve quoted alternation behavior");
     }
 
     @Test
