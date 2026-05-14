@@ -19,7 +19,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.NullMarked;
 
@@ -236,7 +235,7 @@ public final class StaticAnalysisLeadExpansionService {
             }
             try {
                 var text = Files.readString(file.absPath());
-                var count = text.split(Pattern.quote(symbol.identifier()), -1).length - 1;
+                var count = literalOccurrenceCount(text, symbol.identifier());
                 if (count > 0) {
                     counts.put(file, count);
                 }
@@ -245,6 +244,22 @@ public final class StaticAnalysisLeadExpansionService {
             }
         }
         return counts;
+    }
+
+    static int literalOccurrenceCount(String text, String needle) {
+        if (needle.isEmpty()) {
+            return 0;
+        }
+        var count = 0;
+        var fromIndex = 0;
+        while (true) {
+            var index = text.indexOf(needle, fromIndex);
+            if (index < 0) {
+                return count;
+            }
+            count++;
+            fromIndex = index + needle.length();
+        }
     }
 
     private Set<ProjectFile> sourceFiles(IAnalyzer analyzer) {

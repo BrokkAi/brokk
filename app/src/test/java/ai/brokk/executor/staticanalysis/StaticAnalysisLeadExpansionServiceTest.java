@@ -129,6 +129,45 @@ class StaticAnalysisLeadExpansionServiceTest {
         assertTrue(response.seeds().isEmpty());
     }
 
+    @Test
+    void expandLeads_skipsFilesWithoutLiteralFallbackMatches(@TempDir Path root) throws Exception {
+        var target = javaFile(root, "src/main/java/p/Target.java", "package p; public class Target {}");
+        javaFile(root, "src/main/java/p/User.java", "package p; class User { String value = \"missing\"; }");
+        var analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(new CodeUnit(target, CodeUnitType.CLASS, "p", "Target", null, false));
+        var service = service(root, analyzer);
+
+        var response = service.expandLeads(new StaticAnalysisSeedDtos.NormalizedLeadExpansionRequest(
+                "scan-1",
+                List.of("src/main/java/p/Target.java"),
+                List.of("src/main/java/p/Target.java"),
+                5,
+                15_000,
+                false));
+
+        assertEquals(
+                "skipped",
+                response.state(),
+                response.events().getLast().outcome().message());
+        assertTrue(response.seeds().isEmpty());
+    }
+
+    @Test
+    void literalOccurrenceCount_countsAdjacentRepeatedMatches() {
+        assertEquals(2, StaticAnalysisLeadExpansionService.literalOccurrenceCount("TargetTarget", "Target"));
+    }
+
+    @Test
+    void literalOccurrenceCount_countsRegexShapedNeedleLiterally() {
+        assertEquals(1, StaticAnalysisLeadExpansionService.literalOccurrenceCount("A.B AxB", "A.B"));
+    }
+
+    @Test
+    void literalOccurrenceCount_returnsZeroForMissingAndEmptyNeedle() {
+        assertEquals(0, StaticAnalysisLeadExpansionService.literalOccurrenceCount("Target", "Missing"));
+        assertEquals(0, StaticAnalysisLeadExpansionService.literalOccurrenceCount("Target", ""));
+    }
+
     private static StaticAnalysisLeadExpansionService service(Path root, TestAnalyzer analyzer) {
         return new StaticAnalysisLeadExpansionService(
                 new TestContextManager(new TestProject(root, Languages.JAVA), new TestConsoleIO(), Set.of(), analyzer));
