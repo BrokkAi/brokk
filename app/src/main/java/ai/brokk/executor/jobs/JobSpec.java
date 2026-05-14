@@ -40,7 +40,11 @@ public record JobSpec(
         REPORT_ONLY
     }
 
-    public record ExecutionPolicy(@JsonProperty("preset") ExecutionPolicyPreset preset) {}
+    public record ExecutionPolicy(@JsonProperty("preset") ExecutionPolicyPreset preset) {
+        public ExecutionPolicy(@JsonProperty("preset") @Nullable ExecutionPolicyPreset preset) {
+            this.preset = Objects.requireNonNull(preset, "preset");
+        }
+    }
 
     public record ModelOverrides(
             @Nullable String reasoningLevel,

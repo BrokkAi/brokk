@@ -174,7 +174,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         var overrides = validateModelOverrides(exchange, request);
         if (overrides == null) return;
 
-        var executionPolicy = Objects.requireNonNullElse(request.executionPolicy(), request.jobPolicy());
+        var executionPolicy = request.executionPolicy() != null ? request.executionPolicy() : request.jobPolicy();
 
         var validJobContextTexts = validateContextTexts(exchange, request);
         if (validJobContextTexts == null && (request.contextText() != null || request.context() != null)) return;

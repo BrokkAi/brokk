@@ -110,6 +110,20 @@ class JobsRouterValidationTest {
         assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed; job may have been created");
     }
 
+    @Test
+    void postJobs_withoutPolicyFields_acceptsLegacyRequest() throws Exception {
+        Map<String, Object> body = Map.of("taskInput", "test task", "plannerModel", "gpt-4");
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(201, exchange.responseCode());
+        var response = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+        assertNotNull(response.get("jobId"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"TUI Session", "New Session", "Session"})
     void postJobs_withDefaultSessionName_triggersAutoRename(String defaultName) throws Exception {

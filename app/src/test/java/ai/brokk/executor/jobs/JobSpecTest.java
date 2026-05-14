@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -101,6 +102,16 @@ class JobSpecTest {
                 JobSpec.ExecutionPolicyPreset.REPORT_ONLY,
                 requireNonNull(roundTrip.executionPolicy()).preset());
         assertTrue(json.contains("\"executionPolicy\""));
+    }
+
+    @Test
+    void executionPolicyRejectsMissingPreset() {
+        assertThrows(Exception.class, () -> MAPPER.readValue("{\"executionPolicy\":{}}", JobSpec.class));
+    }
+
+    @Test
+    void executionPolicyRejectsNullPreset() {
+        assertThrows(Exception.class, () -> MAPPER.readValue("{\"executionPolicy\":{\"preset\":null}}", JobSpec.class));
     }
 
     @Test

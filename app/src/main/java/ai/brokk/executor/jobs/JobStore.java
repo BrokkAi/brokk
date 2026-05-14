@@ -107,7 +107,8 @@ public final class JobStore {
                 spec.temperature(),
                 spec.temperatureCode(),
                 spec.skipVerification(),
-                spec.maxIssueFixAttempts());
+                spec.maxIssueFixAttempts(),
+                spec.executionPolicy());
         objectMapper.writeValue(tempMetaFile.toFile(), specForPersistence);
         Files.move(tempMetaFile, metaFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
@@ -313,7 +314,8 @@ public final class JobStore {
                 spec.temperature(),
                 spec.temperatureCode(),
                 spec.skipVerification(),
-                spec.maxIssueFixAttempts());
+                spec.maxIssueFixAttempts(),
+                spec.executionPolicy());
 
         var tempMetaFile = metaFile.resolveSibling(".meta.json.tmp");
         objectMapper.writeValue(tempMetaFile.toFile(), updated);
