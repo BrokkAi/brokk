@@ -90,6 +90,11 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             return;
         }
 
+        if (path.equals("/v1/jobs/status") && method.equals("GET")) {
+            handleGetJobsStatus(exchange);
+            return;
+        }
+
         if (path.equals("/v1/jobs/pr-review") && method.equals("POST")) {
             handlePostPrReviewJob(exchange);
             return;
@@ -238,7 +243,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
 
         if (!jobReservation.tryReserve(jobId)) {
             SimpleHttpServer.sendJsonResponse(
-                    exchange, 409, ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing"));
+                    exchange, 409, JobLifecycleResponses.jobInProgress(jobStore, jobReservation));
             return;
         }
         try {
@@ -350,7 +355,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (createResult.isNewJob()) {
             if (!jobReservation.tryReserve(jobId)) {
                 SimpleHttpServer.sendJsonResponse(
-                        exchange, 409, ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing"));
+                        exchange, 409, JobLifecycleResponses.jobInProgress(jobStore, jobReservation));
                 return;
             }
             try {
@@ -424,7 +429,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (createResult.isNewJob()) {
             if (!jobReservation.tryReserve(jobId)) {
                 SimpleHttpServer.sendJsonResponse(
-                        exchange, 409, ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing"));
+                        exchange, 409, JobLifecycleResponses.jobInProgress(jobStore, jobReservation));
                 return;
             }
             try {
@@ -462,7 +467,11 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             SimpleHttpServer.sendJsonResponse(exchange, 404, ErrorPayload.jobNotFound(jobId));
             return;
         }
-        SimpleHttpServer.sendJsonResponse(exchange, status);
+        SimpleHttpServer.sendJsonResponse(exchange, JobLifecycleResponses.status(status, jobReservation));
+    }
+
+    private void handleGetJobsStatus(HttpExchange exchange) throws IOException {
+        SimpleHttpServer.sendJsonResponse(exchange, JobLifecycleResponses.readiness(jobStore, jobReservation));
     }
 
     private void handleGetJobEvents(HttpExchange exchange, String jobId) throws IOException {
@@ -494,9 +503,12 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
 
     private void handleCancelJob(HttpExchange exchange, String jobId) throws IOException {
         try {
-            jobRunner.cancel(jobId);
-            exchange.sendResponseHeaders(202, 0);
-            exchange.close();
+            boolean cancelRequested = jobRunner.cancel(jobId);
+            var status = jobStore.loadStatus(jobId);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange,
+                    202,
+                    JobLifecycleResponses.cancelResponse(jobId, status, cancelRequested, jobReservation));
         } catch (Exception e) {
             logger.error("Error handling POST /v1/jobs/{}/cancel", jobId, e);
             var error = ErrorPayload.internalError("Failed to cancel job", e);

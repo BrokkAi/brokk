@@ -101,6 +101,18 @@ class JobRunnerTest {
     }
 
     @Test
+    void jobStatusTerminalTreatsCancellingAsNonTerminal() {
+        var queued = JobStatus.queued("job-1");
+
+        assertFalse(queued.terminal());
+        assertFalse(queued.withState(JobStatus.State.RUNNING.name()).terminal());
+        assertFalse(queued.cancelling().terminal());
+        assertTrue(queued.completed(null).terminal());
+        assertTrue(queued.failed("boom").terminal());
+        assertTrue(queued.cancelled().terminal());
+    }
+
+    @Test
     void maybeAnnotateDiffBlocks_rewritesDiffFence_whenClosingFenceOnOwnLine() {
         String body = "Before\n```diff\n@@ -1,0 +1,1 @@\n+foo\n```\nAfter\n";
         String result = IssueRewriterAgent.maybeAnnotateDiffBlocks(body);

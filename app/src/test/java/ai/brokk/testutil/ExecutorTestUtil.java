@@ -15,6 +15,7 @@ public final class ExecutorTestUtil {
 
     /**
      * Polls the job status endpoint until the job reaches a terminal state (COMPLETED, FAILED, or CANCELLED).
+     * CANCELLING is intentionally non-terminal because the executor may still be draining the active reservation.
      *
      * @param baseUrl   the base URL of the executor (e.g., "http://127.0.0.1:8080")
      * @param jobId     the job ID to poll

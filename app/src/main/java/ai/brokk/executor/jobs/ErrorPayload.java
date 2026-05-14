@@ -9,7 +9,7 @@ import org.jetbrains.annotations.Nullable;
  * @param message A human-readable error message.
  * @param details Additional details; null if no extra information is available.
  */
-public record ErrorPayload(String code, String message, @Nullable String details) {
+public record ErrorPayload(String code, String message, @Nullable Object details) {
 
     /**
      * Validate that code and message are non-blank.
@@ -50,6 +50,10 @@ public record ErrorPayload(String code, String message, @Nullable String details
      */
     public static ErrorPayload of(String code, String message) {
         return new ErrorPayload(code, message, null);
+    }
+
+    public static ErrorPayload of(String code, String message, Object details) {
+        return new ErrorPayload(code, message, details);
     }
 
     /**

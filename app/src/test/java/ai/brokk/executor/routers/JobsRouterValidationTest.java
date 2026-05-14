@@ -240,6 +240,110 @@ class JobsRouterValidationTest {
     }
 
     @Test
+    void getJobsStatus_whenIdle_reportsReady() throws Exception {
+        var exchange = TestHttpExchange.jsonRequest("GET", "/v1/jobs/status", Map.of());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+        assertEquals(true, payload.get("readyForJobSubmission"));
+        assertEquals(null, payload.get("activeJobId"));
+        assertEquals(null, payload.get("activeJobState"));
+        assertEquals(0, payload.get("retryAfterMs"));
+        assertEquals(true, payload.get("terminal"));
+    }
+
+    @Test
+    void getJobsStatus_whenReserved_reportsActiveJobState() throws Exception {
+        String jobId = createQueuedJob("reserved status");
+        assertTrue(jobReservation.tryReserve(jobId));
+        try {
+            var exchange = TestHttpExchange.jsonRequest("GET", "/v1/jobs/status", Map.of());
+
+            jobsRouter.handle(exchange);
+
+            assertEquals(200, exchange.responseCode());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+            assertEquals(false, payload.get("readyForJobSubmission"));
+            assertEquals(jobId, payload.get("activeJobId"));
+            assertEquals("QUEUED", payload.get("activeJobState"));
+            assertEquals(1000, payload.get("retryAfterMs"));
+            assertEquals(false, payload.get("terminal"));
+        } finally {
+            jobReservation.releaseIfOwner(jobId);
+        }
+    }
+
+    @Test
+    void postJobs_whenReserved_returnsStructuredJobInProgressDetails() throws Exception {
+        String activeJobId = createQueuedJob("active job");
+        assertTrue(jobReservation.tryReserve(activeJobId));
+        try {
+            Map<String, Object> body = Map.of("taskInput", "blocked job", "plannerModel", "gpt-4");
+            var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+            exchange.getRequestHeaders()
+                    .set("Idempotency-Key", UUID.randomUUID().toString());
+
+            jobsRouter.handle(exchange);
+
+            assertEquals(409, exchange.responseCode());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+            assertEquals("JOB_IN_PROGRESS", payload.get("code"));
+            @SuppressWarnings("unchecked")
+            Map<String, Object> details = (Map<String, Object>) payload.get("details");
+            assertEquals(activeJobId, details.get("activeJobId"));
+            assertEquals("QUEUED", details.get("activeJobState"));
+            assertEquals(false, details.get("readyForJobSubmission"));
+            assertEquals(1000, details.get("retryAfterMs"));
+        } finally {
+            jobReservation.releaseIfOwner(activeJobId);
+        }
+    }
+
+    @Test
+    void cancelInactivePersistedJob_returnsStructuredLifecycleResponse() throws Exception {
+        String jobId = createQueuedJob("inactive cancel");
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs/" + jobId + "/cancel", Map.of());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(202, exchange.responseCode());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+        assertEquals(jobId, payload.get("jobId"));
+        assertEquals(false, payload.get("cancelRequested"));
+        assertEquals("QUEUED", payload.get("state"));
+        assertEquals(false, payload.get("terminal"));
+        assertEquals(true, payload.get("executorReady"));
+        assertEquals(null, payload.get("activeJobId"));
+    }
+
+    @Test
+    void getJobStatus_includesTerminalAndExecutorReady() throws Exception {
+        String jobId = createQueuedJob("status metadata");
+        assertTrue(jobReservation.tryReserve(jobId));
+        try {
+            var exchange = TestHttpExchange.jsonRequest("GET", "/v1/jobs/" + jobId, Map.of());
+
+            jobsRouter.handle(exchange);
+
+            assertEquals(200, exchange.responseCode());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+            assertEquals(jobId, payload.get("jobId"));
+            assertEquals("QUEUED", payload.get("state"));
+            assertEquals(false, payload.get("terminal"));
+            assertEquals(false, payload.get("executorReady"));
+        } finally {
+            jobReservation.releaseIfOwner(jobId);
+        }
+    }
+
+    @Test
     void postJobs_withSessionHeader_waitsForHeadlessInit_beforeUnknownSessionValidation() throws Exception {
         var failingInit = new CompletableFuture<Void>();
         failingInit.completeExceptionally(new IllegalStateException("init failed"));
@@ -516,6 +620,11 @@ class JobsRouterValidationTest {
         assertTrue(payload.message().contains("temperatureCode must be between 0.0 and 2.0"), payload.message());
 
         assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed; job may have been created");
+    }
+
+    private String createQueuedJob(String taskInput) throws IOException {
+        var spec = JobSpec.of(taskInput, "gpt-4");
+        return jobStore.createOrGetJob(UUID.randomUUID().toString(), spec).jobId();
     }
 
     private static List<String> snapshotTree(Path root) throws IOException {
