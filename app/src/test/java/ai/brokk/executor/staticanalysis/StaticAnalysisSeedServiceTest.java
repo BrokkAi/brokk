@@ -16,6 +16,7 @@ import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -135,6 +136,48 @@ class StaticAnalysisSeedServiceTest {
     }
 
     @Test
+    void fetchSeeds_capsWeightedSampleWithDeterministicBoundedSelection(@TempDir Path root) throws Exception {
+        var first = javaFile(root, "src/main/java/z/First.java", "class First {}");
+        var lexicallyEarlier = javaFile(root, "src/main/java/a/Later.java", "class Later {}");
+        var analyzer = new OrderedFilesAnalyzer(List.of(first, lexicallyEarlier));
+        analyzer.addDeclaration(new CodeUnit(first, CodeUnitType.CLASS, "z", "First", null, false));
+        analyzer.addDeclaration(new CodeUnit(lexicallyEarlier, CodeUnitType.CLASS, "a", "Later", null, false));
+        var service = service(root, analyzer);
+
+        var response = service.fetchSeeds(new StaticAnalysisSeedDtos.NormalizedRequest("scan-1", 1, 15_000, false));
+
+        assertEquals("completed", response.state());
+        assertEquals(1, response.seeds().size());
+        assertEquals("src/main/java/a/Later.java", response.seeds().getFirst().file());
+        assertEquals("weighted_sample", response.seeds().getFirst().selection().kind());
+    }
+
+    @Test
+    void fetchSeeds_capsSizeComplexityCandidatesWithDeterministicBoundedSelection(@TempDir Path root) throws Exception {
+        var first = javaFile(root, "src/main/java/z/First.java", "class First {}");
+        var second = javaFile(root, "src/main/java/z/Second.java", "class Second {}");
+        var third = javaFile(root, "src/main/java/z/Third.java", "class Third {}");
+        var fourth = javaFile(root, "src/main/java/z/Fourth.java", "class Fourth {}");
+        var lexicallyEarlier = javaFile(root, "src/main/java/a/Complex.java", "class Complex { void run() {} }");
+        var analyzer = new OrderedFilesAnalyzer(List.of(first, second, third, fourth, lexicallyEarlier));
+        analyzer.addDeclaration(new CodeUnit(first, CodeUnitType.CLASS, "z", "First", null, false));
+        analyzer.addDeclaration(new CodeUnit(second, CodeUnitType.CLASS, "z", "Second", null, false));
+        analyzer.addDeclaration(new CodeUnit(third, CodeUnitType.CLASS, "z", "Third", null, false));
+        analyzer.addDeclaration(new CodeUnit(fourth, CodeUnitType.CLASS, "z", "Fourth", null, false));
+        var complexMethod = new CodeUnit(lexicallyEarlier, CodeUnitType.FUNCTION, "a.Complex", "run", "()", false);
+        analyzer.addDeclaration(complexMethod);
+        analyzer.setComplexity(complexMethod, 50);
+        var service = service(root, analyzer);
+
+        var response = service.fetchSeeds(new StaticAnalysisSeedDtos.NormalizedRequest("scan-1", 1, 15_000, false));
+
+        assertEquals("completed", response.state());
+        assertEquals(1, response.seeds().size());
+        assertEquals("src/main/java/a/Complex.java", response.seeds().getFirst().file());
+        assertEquals("size_complexity", response.seeds().getFirst().selection().kind());
+    }
+
+    @Test
     void fetchSeeds_usesProjectSourceFilesWhenAnalyzerHasNoIndexedFiles(@TempDir Path root) throws Exception {
         javaFile(root, "src/main/java/Unindexed.java", "class Unindexed {}");
         var service = service(root, new TestAnalyzer());
@@ -200,6 +243,19 @@ class StaticAnalysisSeedServiceTest {
 
         private int directChildrenCalls(CodeUnit cu) {
             return directChildrenCalls.getOrDefault(cu, 0);
+        }
+    }
+
+    private static final class OrderedFilesAnalyzer extends TestAnalyzer {
+        private final List<ProjectFile> files;
+
+        private OrderedFilesAnalyzer(List<ProjectFile> files) {
+            this.files = List.copyOf(files);
+        }
+
+        @Override
+        public Set<ProjectFile> getAnalyzedFiles() {
+            return new LinkedHashSet<>(files);
         }
     }
 }
