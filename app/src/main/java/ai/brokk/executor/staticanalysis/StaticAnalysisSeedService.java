@@ -42,6 +42,7 @@ public final class StaticAnalysisSeedService {
     }
 
     public StaticAnalysisSeedDtos.Response fetchSeeds(StaticAnalysisSeedDtos.NormalizedRequest request) {
+        var pathCache = new PathCache();
         var events = new ArrayList<StaticAnalysisSeedDtos.Event>();
         events.add(event(
                 request.scanId(),
@@ -60,25 +61,25 @@ public final class StaticAnalysisSeedService {
         var capped = false;
 
         try {
-            capped |= addWeightedSampleSeeds(request, candidates, deadline);
-            capped |= addGitHotspots(request, candidates, deadline);
-            capped |= addSizeComplexitySeeds(request, candidates, deadline);
-            capped |= addUsageExpansionSeeds(request, candidates, deadline);
+            capped |= addWeightedSampleSeeds(request, candidates, deadline, pathCache);
+            capped |= addGitHotspots(request, candidates, deadline, pathCache);
+            capped |= addSizeComplexitySeeds(request, candidates, deadline, pathCache);
+            capped |= addUsageExpansionSeeds(request, candidates, deadline, pathCache);
 
             var seeds = candidates.values().stream()
                     .sorted(Comparator.comparingDouble(Candidate::score)
                             .reversed()
-                            .thenComparing(candidate -> externalPath(candidate.file)))
+                            .thenComparing(candidate -> pathCache.externalPath(candidate.file)))
                     .limit(request.targetSeedCount())
                     .toList();
 
             var records = new ArrayList<StaticAnalysisSeedDtos.SeedRecord>();
             var rank = 1;
             for (var seed : seeds) {
-                records.add(seed.toRecord(rank++, externalPath(seed.file)));
+                records.add(seed.toRecord(rank++, pathCache.externalPath(seed.file)));
             }
             var previews = request.includePreview()
-                    ? addPreviewFindings(records, deadline)
+                    ? addPreviewFindings(records, deadline, pathCache)
                     : List.<StaticAnalysisSeedDtos.Preview>of();
 
             if (records.isEmpty()) {
@@ -149,7 +150,10 @@ public final class StaticAnalysisSeedService {
     }
 
     private boolean addGitHotspots(
-            StaticAnalysisSeedDtos.NormalizedRequest request, Map<String, Candidate> candidates, long deadline) {
+            StaticAnalysisSeedDtos.NormalizedRequest request,
+            Map<String, Candidate> candidates,
+            long deadline,
+            PathCache pathCache) {
         if (timedOut(deadline)) return true;
         if (!(contextManager.getRepo() instanceof GitRepo gitRepo)) return false;
 
@@ -167,7 +171,7 @@ public final class StaticAnalysisSeedService {
             for (var file : report.files()) {
                 if (timedOut(deadline)) return true;
                 var score = 0.35 + (0.45 * file.churn() / Math.max(1.0, maxChurn));
-                var candidate = candidate(candidates, file.path(), score, "git_hotspot");
+                var candidate = candidate(candidates, pathCache.normalize(file.path()), score, "git_hotspot");
                 candidate.addSignal(
                         "git_churn",
                         Map.of(
@@ -191,11 +195,14 @@ public final class StaticAnalysisSeedService {
     }
 
     private boolean addSizeComplexitySeeds(
-            StaticAnalysisSeedDtos.NormalizedRequest request, Map<String, Candidate> candidates, long deadline) {
+            StaticAnalysisSeedDtos.NormalizedRequest request,
+            Map<String, Candidate> candidates,
+            long deadline,
+            PathCache pathCache) {
         if (timedOut(deadline)) return true;
         IAnalyzer analyzer = contextManager.getAnalyzer();
         var files = sourceFiles(analyzer).stream()
-                .sorted(Comparator.comparing(this::externalPath))
+                .sorted(Comparator.comparing(pathCache::externalPath))
                 .limit(Math.max(request.targetSeedCount() * 4L, request.targetSeedCount()))
                 .toList();
         for (var file : files) {
@@ -205,7 +212,7 @@ public final class StaticAnalysisSeedService {
             if (maxComplexity < COMPLEXITY_SIGNAL_THRESHOLD && sizeBytes < LARGE_FILE_BYTES_THRESHOLD) continue;
 
             var score = Math.min(0.95, 0.45 + (maxComplexity / 50.0) + (sizeBytes / 200_000.0));
-            var candidate = candidate(candidates, externalPath(file), score, "size_complexity");
+            var candidate = candidate(candidates, pathCache.externalPath(file), score, "size_complexity");
             if (maxComplexity > 0) {
                 candidate.addSignal("complexity", Map.of("maxCyclomaticComplexity", maxComplexity));
             }
@@ -219,7 +226,7 @@ public final class StaticAnalysisSeedService {
     }
 
     private List<StaticAnalysisSeedDtos.Preview> addPreviewFindings(
-            List<StaticAnalysisSeedDtos.SeedRecord> records, long deadline) {
+            List<StaticAnalysisSeedDtos.SeedRecord> records, long deadline, PathCache pathCache) {
         if (timedOut(deadline)) return List.of();
         IAnalyzer analyzer = contextManager.getAnalyzer();
         var weights = IAnalyzer.MaintainabilitySizeSmellWeights.defaults();
@@ -242,14 +249,14 @@ public final class StaticAnalysisSeedService {
                 if (timedOut(deadline) || previews.size() >= PREVIEW_FINDING_CAP) {
                     break;
                 }
-                previews.add(toPreview(seed, finding));
+                previews.add(toPreview(seed, finding, pathCache));
             }
         }
         return previews;
     }
 
     private StaticAnalysisSeedDtos.Preview toPreview(
-            StaticAnalysisSeedDtos.SeedRecord seed, IAnalyzer.MaintainabilitySizeSmell finding) {
+            StaticAnalysisSeedDtos.SeedRecord seed, IAnalyzer.MaintainabilitySizeSmell finding, PathCache pathCache) {
         var cu = finding.codeUnit();
         var range = finding.range();
         var lineStart = range.isEmpty() ? null : range.startLine() + 1;
@@ -267,7 +274,7 @@ public final class StaticAnalysisSeedService {
         var message = "%s scored %d in %s".formatted(cu.fqName(), finding.score(), cu.source());
         return new StaticAnalysisSeedDtos.Preview(
                 UUID.randomUUID().toString(),
-                externalPath(cu.source()),
+                pathCache.externalPath(cu.source()),
                 LONG_METHOD_TOOL,
                 finding.score(),
                 title,
@@ -281,7 +288,10 @@ public final class StaticAnalysisSeedService {
     }
 
     private boolean addUsageExpansionSeeds(
-            StaticAnalysisSeedDtos.NormalizedRequest request, Map<String, Candidate> candidates, long deadline)
+            StaticAnalysisSeedDtos.NormalizedRequest request,
+            Map<String, Candidate> candidates,
+            long deadline,
+            PathCache pathCache)
             throws InterruptedException {
         if (timedOut(deadline)) return true;
         if (contextManager.liveContext().allFragments().findAny().isEmpty()) return false;
@@ -289,7 +299,8 @@ public final class StaticAnalysisSeedService {
         var rank = 1;
         for (var file : related) {
             if (timedOut(deadline)) return true;
-            var candidate = candidate(candidates, externalPath(file), 0.55 - (rank * 0.01), "usage_expansion");
+            var candidate =
+                    candidate(candidates, pathCache.externalPath(file), 0.55 - (rank * 0.01), "usage_expansion");
             candidate.addSignal("usage_connectivity", Map.of("relatedRank", rank));
             rank++;
         }
@@ -297,17 +308,21 @@ public final class StaticAnalysisSeedService {
     }
 
     private boolean addWeightedSampleSeeds(
-            StaticAnalysisSeedDtos.NormalizedRequest request, Map<String, Candidate> candidates, long deadline) {
+            StaticAnalysisSeedDtos.NormalizedRequest request,
+            Map<String, Candidate> candidates,
+            long deadline,
+            PathCache pathCache) {
         var needed = request.targetSeedCount() - candidates.size();
         if (needed <= 0) return false;
         var capped = timedOut(deadline);
         var files = sourceFiles(contextManager.getAnalyzer()).stream()
-                .sorted(Comparator.comparing(this::externalPath))
+                .sorted(Comparator.comparing(pathCache::externalPath))
                 .limit(needed)
                 .toList();
         var rank = 1;
         for (var file : files) {
-            var candidate = candidate(candidates, externalPath(file), 0.2 - (rank * 0.001), "weighted_sample");
+            var candidate =
+                    candidate(candidates, pathCache.externalPath(file), 0.2 - (rank * 0.001), "weighted_sample");
             candidate.addSignal("size", Map.of("bytes", file.size().orElse(0L)));
             rank++;
         }
@@ -347,8 +362,8 @@ public final class StaticAnalysisSeedService {
         return result;
     }
 
-    private Candidate candidate(Map<String, Candidate> candidates, String path, double score, String selectionKind) {
-        var normalizedPath = normalizePath(path);
+    private Candidate candidate(
+            Map<String, Candidate> candidates, String normalizedPath, double score, String selectionKind) {
         return candidates
                 .computeIfAbsent(
                         normalizedPath,
@@ -359,16 +374,6 @@ public final class StaticAnalysisSeedService {
 
     private static boolean timedOut(long deadlineNanos) {
         return System.nanoTime() >= deadlineNanos;
-    }
-
-    private String normalizePath(String path) {
-        return PathNormalizer.canonicalizeForProject(
-                path, contextManager.getProject().getRoot());
-    }
-
-    private String externalPath(ProjectFile file) {
-        return PathNormalizer.canonicalizeForProject(
-                file.toString(), contextManager.getProject().getRoot());
     }
 
     private static StaticAnalysisSeedDtos.Event event(
@@ -383,6 +388,19 @@ public final class StaticAnalysisSeedService {
             List<String> findingTypes) {
         return StaticAnalysisSeedDtos.event(
                 scanId, state, tools, files, selection, null, code, message, findingCount, findingTypes, List.of());
+    }
+
+    private final class PathCache {
+        private final Map<ProjectFile, String> externalPaths = new LinkedHashMap<>();
+
+        private String normalize(String path) {
+            return PathNormalizer.canonicalizeForProject(
+                    path, contextManager.getProject().getRoot());
+        }
+
+        private String externalPath(ProjectFile file) {
+            return externalPaths.computeIfAbsent(file, key -> normalize(key.toString()));
+        }
     }
 
     private static final class Candidate {

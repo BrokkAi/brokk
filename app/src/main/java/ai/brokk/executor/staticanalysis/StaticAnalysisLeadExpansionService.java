@@ -41,11 +41,12 @@ public final class StaticAnalysisLeadExpansionService {
     }
 
     public StaticAnalysisSeedDtos.Response expandLeads(StaticAnalysisSeedDtos.NormalizedLeadExpansionRequest request) {
+        var pathCache = new PathCache();
         var knownFiles = request.knownFiles().stream()
-                .map(this::normalizePath)
+                .map(pathCache::normalize)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         var frontierFiles = request.frontierFiles().stream()
-                .map(this::normalizePath)
+                .map(pathCache::normalize)
                 .collect(Collectors.toCollection(ArrayList::new));
         if (frontierFiles.isEmpty()) {
             frontierFiles.addAll(knownFiles);
@@ -106,14 +107,15 @@ public final class StaticAnalysisLeadExpansionService {
                         }
                         usageCountByFile = usageCountByFile(query.result());
                     } catch (RuntimeException e) {
-                        usageCountByFile = textUsageCountByFile(analyzer, symbol, deadline);
+                        usageCountByFile = textUsageCountByFile(analyzer, symbol, deadline, pathCache);
                     }
                     for (var entry : usageCountByFile.entrySet()) {
                         var file = entry.getKey();
-                        if (file.equals(sourceFile) || knownFiles.contains(externalPath(file))) {
+                        var filePath = pathCache.externalPath(file);
+                        if (file.equals(sourceFile) || knownFiles.contains(filePath)) {
                             continue;
                         }
-                        var candidate = candidates.computeIfAbsent(externalPath(file), ignored -> new Candidate(file));
+                        var candidate = candidates.computeIfAbsent(filePath, ignored -> new Candidate(file));
                         candidate.merge(
                                 sourcePath,
                                 sourceRank,
@@ -136,10 +138,10 @@ public final class StaticAnalysisLeadExpansionService {
             for (var candidate : candidates.values().stream()
                     .sorted(Comparator.comparingDouble(Candidate::score)
                             .reversed()
-                            .thenComparing(candidate -> externalPath(candidate.file)))
+                            .thenComparing(candidate -> pathCache.externalPath(candidate.file)))
                     .limit(request.maxResults())
                     .toList()) {
-                ranked.add(candidate.toRecord(analyzer, rank++, externalPath(candidate.file)));
+                ranked.add(candidate.toRecord(analyzer, rank++, pathCache.externalPath(candidate.file)));
             }
 
             var state = capped || timedOut(deadline) ? "capped" : ranked.isEmpty() ? "skipped" : "completed";
@@ -217,11 +219,11 @@ public final class StaticAnalysisLeadExpansionService {
         return counts;
     }
 
-    private Map<ProjectFile, Integer> textUsageCountByFile(IAnalyzer analyzer, CodeUnit symbol, long deadline)
-            throws InterruptedException {
+    private Map<ProjectFile, Integer> textUsageCountByFile(
+            IAnalyzer analyzer, CodeUnit symbol, long deadline, PathCache pathCache) throws InterruptedException {
         var counts = new LinkedHashMap<ProjectFile, Integer>();
         var files = sourceFiles(analyzer).stream()
-                .sorted(Comparator.comparing(this::externalPath))
+                .sorted(Comparator.comparing(pathCache::externalPath))
                 .limit(MAX_USAGE_CANDIDATE_FILES)
                 .toList();
         for (var file : files) {
@@ -260,16 +262,6 @@ public final class StaticAnalysisLeadExpansionService {
         return System.nanoTime() >= deadlineNanos;
     }
 
-    private String normalizePath(String path) {
-        return PathNormalizer.canonicalizeForProject(
-                path, contextManager.getProject().getRoot());
-    }
-
-    private String externalPath(ProjectFile file) {
-        return PathNormalizer.canonicalizeForProject(
-                file.toString(), contextManager.getProject().getRoot());
-    }
-
     private static StaticAnalysisSeedDtos.Event event(
             String scanId,
             String state,
@@ -281,6 +273,19 @@ public final class StaticAnalysisLeadExpansionService {
             List<String> findingTypes) {
         return StaticAnalysisSeedDtos.event(
                 scanId, state, tools, files, null, null, code, message, findingCount, findingTypes, List.of());
+    }
+
+    private final class PathCache {
+        private final Map<ProjectFile, String> externalPaths = new LinkedHashMap<>();
+
+        private String normalize(String path) {
+            return PathNormalizer.canonicalizeForProject(
+                    path, contextManager.getProject().getRoot());
+        }
+
+        private String externalPath(ProjectFile file) {
+            return externalPaths.computeIfAbsent(file, key -> normalize(key.toString()));
+        }
     }
 
     private static final class Candidate {
