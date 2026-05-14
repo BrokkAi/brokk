@@ -52,6 +52,10 @@ public record ErrorPayload(String code, String message, @Nullable String details
         return new ErrorPayload(code, message, null);
     }
 
+    public static ErrorPayload of(String code, String message, String details) {
+        return new ErrorPayload(code, message, details);
+    }
+
     /**
      * Create a validation error.
      * @param message The validation error message.

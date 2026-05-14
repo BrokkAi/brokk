@@ -13,13 +13,18 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.cli.MemoryConsole;
+import ai.brokk.project.MainProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.testutil.TestService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiChatResponseMetadata;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
@@ -28,8 +33,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -98,6 +106,99 @@ class JobRunnerTest {
 
         var mode = JobRunner.parseMode(spec);
         assertEquals(JobRunner.Mode.REVIEW, mode);
+    }
+
+    @Test
+    void jobStatusTerminalTreatsCancellingAsNonTerminal() {
+        var queued = JobStatus.queued("job-1");
+
+        assertFalse(queued.terminal());
+        assertFalse(queued.withState(JobStatus.State.RUNNING.name()).terminal());
+        assertFalse(queued.cancelling().terminal());
+        assertTrue(queued.completed(null).terminal());
+        assertTrue(queued.failed("boom").terminal());
+        assertTrue(queued.cancelled().terminal());
+    }
+
+    @Test
+    void cancelActiveJobTransitionsThroughCancellingThenCancelled() throws Exception {
+        var project = MainProject.forTests(tempDir);
+        var modelEntered = new CountDownLatch(1);
+        var releaseModel = new CountDownLatch(1);
+        StreamingChatModel blockingModel = new StreamingChatModel() {
+            @Override
+            public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
+                modelEntered.countDown();
+                try {
+                    releaseModel.await(5, TimeUnit.SECONDS);
+                    handler.onCompleteResponse(ChatResponse.builder()
+                            .aiMessage(new AiMessage("done"))
+                            .build());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        Service.Provider provider = new Service.Provider() {
+            private TestService svc = serviceFor(project);
+
+            @Override
+            public ai.brokk.AbstractService get() {
+                return svc;
+            }
+
+            @Override
+            public void reinit(ai.brokk.project.IProject p) {
+                svc = serviceFor(p);
+            }
+
+            private TestService serviceFor(ai.brokk.project.IProject p) {
+                return new TestService(p) {
+                    @Override
+                    public @Nullable StreamingChatModel getModel(
+                            Service.ModelConfig config,
+                            @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+                        return blockingModel;
+                    }
+                };
+            }
+        };
+
+        try (var cm = new ContextManager(project, provider)) {
+            cm.createHeadless(true, new NoOpConsoleIO());
+            var store = new JobStore(tempDir.resolve("job-store-active-cancel"));
+            var runner = new JobRunner(cm, store);
+            var spec = JobSpec.of(
+                    "hold until cancelled",
+                    false,
+                    false,
+                    "test-model",
+                    null,
+                    null,
+                    false,
+                    Map.of("mode", "ASK"),
+                    null,
+                    null,
+                    null);
+            var jobId = store.createOrGetJob("active-cancel", spec).jobId();
+            var future = runner.runAsync(jobId, spec, new NoOpConsoleIO());
+
+            assertTrue(modelEntered.await(5, TimeUnit.SECONDS), "ASK model should start before cancellation");
+            assertTrue(runner.cancel(jobId));
+            var cancelling = store.loadStatus(jobId);
+            assertNotNull(cancelling);
+            assertEquals(JobStatus.State.CANCELLING.name(), cancelling.state());
+            assertFalse(cancelling.terminal());
+
+            releaseModel.countDown();
+            future.get(5, TimeUnit.SECONDS);
+            var cancelled = store.loadStatus(jobId);
+            assertNotNull(cancelled);
+            assertEquals(JobStatus.State.CANCELLED.name(), cancelled.state());
+            assertTrue(cancelled.terminal());
+            runner.shutdown();
+        }
     }
 
     @Test

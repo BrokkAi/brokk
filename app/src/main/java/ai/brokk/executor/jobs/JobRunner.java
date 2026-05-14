@@ -1447,10 +1447,10 @@ public final class JobRunner {
      *
      * @param jobId The job ID to cancel
      */
-    public void cancel(String jobId) {
+    public boolean cancel(String jobId) {
         if (activeJobId == null || !Objects.equals(activeJobId, jobId)) {
             logger.info("Cancel requested for job {}, but no active job or different jobId", jobId);
-            return;
+            return false;
         }
 
         logger.info("Cancelling job {}", jobId);
@@ -1463,27 +1463,26 @@ public final class JobRunner {
             logger.debug("Failed to interrupt LLM action", ignore);
         }
 
-        // Update status to CANCELLED if not already terminal
+        // Update status to CANCELLING if not already terminal; the runner marks CANCELLED after it drains.
         try {
             JobStatus s = store.loadStatus(jobId);
             if (s != null) {
                 String state = s.state();
                 // Only transition if not already in a terminal state
-                if (!JobStatus.State.COMPLETED.name().equals(state)
-                        && !JobStatus.State.FAILED.name().equals(state)
-                        && !JobStatus.State.CANCELLED.name().equals(state)) {
-                    s = s.cancelled();
+                if (!JobStatus.isTerminalState(state)) {
+                    s = s.cancelling();
                     long lastSeq = store.getLastSeq(jobId);
                     if (lastSeq >= 0) {
                         s = s.withMetadata("lastSeq", Long.toString(lastSeq));
                     }
                     store.updateStatus(jobId, s);
-                    logger.info("Job {} status updated to CANCELLED", jobId);
+                    logger.info("Job {} status updated to CANCELLING", jobId);
                 }
             }
         } catch (Exception e) {
-            logger.warn("Failed to mark job {} as CANCELLED", jobId, e);
+            logger.warn("Failed to mark job {} as CANCELLING", jobId, e);
         }
+        return true;
     }
 
     private record AppliedOverrides(

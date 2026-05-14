@@ -98,7 +98,7 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
             if (isNewJob) {
                 if (!jobReservation.tryReserve(jobId)) {
                     SimpleHttpServer.sendJsonResponse(
-                            exchange, 409, ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing"));
+                            exchange, 409, JobLifecycleResponses.jobInProgress(jobStore, jobReservation));
                     return;
                 }
                 try {

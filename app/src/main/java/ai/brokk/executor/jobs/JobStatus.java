@@ -22,6 +22,7 @@ public record JobStatus(
     public enum State {
         QUEUED,
         RUNNING,
+        CANCELLING,
         COMPLETED,
         FAILED,
         CANCELLED
@@ -84,6 +85,20 @@ public record JobStatus(
                 null,
                 null,
                 metadata);
+    }
+
+    public JobStatus cancelling() {
+        return new JobStatus(jobId, State.CANCELLING.name(), startTime, endTime, progressPercent, null, null, metadata);
+    }
+
+    public boolean terminal() {
+        return isTerminalState(state);
+    }
+
+    public static boolean isTerminalState(String state) {
+        return State.COMPLETED.name().equals(state)
+                || State.FAILED.name().equals(state)
+                || State.CANCELLED.name().equals(state);
     }
 
     /**
