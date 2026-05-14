@@ -243,7 +243,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
 
         if (!jobReservation.tryReserve(jobId)) {
             SimpleHttpServer.sendJsonResponse(
-                    exchange, 409, JobLifecycleResponses.jobInProgress(jobStore, jobReservation));
+                    exchange, 409, JobLifecycleResponses.jobInProgress(jobStore, jobReservation, sessionIdHeader));
             return;
         }
         try {
@@ -355,7 +355,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (createResult.isNewJob()) {
             if (!jobReservation.tryReserve(jobId)) {
                 SimpleHttpServer.sendJsonResponse(
-                        exchange, 409, JobLifecycleResponses.jobInProgress(jobStore, jobReservation));
+                        exchange, 409, JobLifecycleResponses.jobInProgress(jobStore, jobReservation, null));
                 return;
             }
             try {
@@ -429,7 +429,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (createResult.isNewJob()) {
             if (!jobReservation.tryReserve(jobId)) {
                 SimpleHttpServer.sendJsonResponse(
-                        exchange, 409, JobLifecycleResponses.jobInProgress(jobStore, jobReservation));
+                        exchange, 409, JobLifecycleResponses.jobInProgress(jobStore, jobReservation, null));
                 return;
             }
             try {
@@ -471,7 +471,9 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
     }
 
     private void handleGetJobsStatus(HttpExchange exchange) throws IOException {
-        SimpleHttpServer.sendJsonResponse(exchange, JobLifecycleResponses.readiness(jobStore, jobReservation));
+        SimpleHttpServer.sendJsonResponse(
+                exchange,
+                JobLifecycleResponses.readiness(jobStore, jobReservation, parseOptionalSessionHeader(exchange)));
     }
 
     private void handleGetJobEvents(HttpExchange exchange, String jobId) throws IOException {
@@ -508,7 +510,13 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             SimpleHttpServer.sendJsonResponse(
                     exchange,
                     202,
-                    JobLifecycleResponses.cancelResponse(jobId, status, cancelRequested, jobReservation));
+                    JobLifecycleResponses.cancelResponse(
+                            jobStore,
+                            jobId,
+                            status,
+                            cancelRequested,
+                            jobReservation,
+                            parseOptionalSessionHeader(exchange)));
         } catch (Exception e) {
             logger.error("Error handling POST /v1/jobs/{}/cancel", jobId, e);
             var error = ErrorPayload.internalError("Failed to cancel job", e);
@@ -563,6 +571,19 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
     private boolean hasKnownSession(UUID sessionId) {
         return contextManager.getProject().getSessionManager().listSessions().stream()
                 .anyMatch(session -> session.id().equals(sessionId));
+    }
+
+    private @Nullable UUID parseOptionalSessionHeader(HttpExchange exchange) {
+        var sessionIdStr = exchange.getRequestHeaders().getFirst("X-Session-Id");
+        if (sessionIdStr == null || sessionIdStr.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(sessionIdStr);
+        } catch (IllegalArgumentException e) {
+            logger.debug("Ignoring invalid X-Session-Id header for lifecycle response: {}", sessionIdStr);
+            return null;
+        }
     }
 
     private UUID ensureActiveSessionForSubmission(@Nullable UUID requestedSessionId) throws Exception {

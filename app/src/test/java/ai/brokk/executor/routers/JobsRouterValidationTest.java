@@ -268,10 +268,33 @@ class JobsRouterValidationTest {
             @SuppressWarnings("unchecked")
             Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
             assertEquals(false, payload.get("readyForJobSubmission"));
-            assertEquals(jobId, payload.get("activeJobId"));
+            assertEquals(null, payload.get("activeJobId"));
             assertEquals("QUEUED", payload.get("activeJobState"));
             assertEquals(1000, payload.get("retryAfterMs"));
             assertEquals(false, payload.get("terminal"));
+        } finally {
+            jobReservation.releaseIfOwner(jobId);
+        }
+    }
+
+    @Test
+    void getJobsStatus_withOwningSession_reportsActiveJobId() throws Exception {
+        var sessionId = UUID.randomUUID();
+        String jobId = createQueuedJob("reserved owner status");
+        jobStore.persistSessionId(jobId, sessionId);
+        assertTrue(jobReservation.tryReserve(jobId));
+        try {
+            var exchange = TestHttpExchange.jsonRequest("GET", "/v1/jobs/status", Map.of());
+            exchange.getRequestHeaders().set("X-Session-Id", sessionId.toString());
+
+            jobsRouter.handle(exchange);
+
+            assertEquals(200, exchange.responseCode());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+            assertEquals(false, payload.get("readyForJobSubmission"));
+            assertEquals(jobId, payload.get("activeJobId"));
+            assertEquals("QUEUED", payload.get("activeJobState"));
         } finally {
             jobReservation.releaseIfOwner(jobId);
         }
@@ -295,10 +318,42 @@ class JobsRouterValidationTest {
             assertEquals("JOB_IN_PROGRESS", payload.get("code"));
             @SuppressWarnings("unchecked")
             Map<String, Object> details = (Map<String, Object>) payload.get("details");
-            assertEquals(activeJobId, details.get("activeJobId"));
+            assertEquals(null, details.get("activeJobId"));
             assertEquals("QUEUED", details.get("activeJobState"));
             assertEquals(false, details.get("readyForJobSubmission"));
             assertEquals(1000, details.get("retryAfterMs"));
+        } finally {
+            jobReservation.releaseIfOwner(activeJobId);
+        }
+    }
+
+    @Test
+    void postJobs_whenReservedBySameSession_returnsStructuredJobInProgressDetailsWithActiveJobId() throws Exception {
+        var sessionId = jobsRouter
+                .contextManager
+                .getProject()
+                .getSessionManager()
+                .newSession("Owner")
+                .id();
+        String activeJobId = createQueuedJob("owned active job");
+        jobStore.persistSessionId(activeJobId, sessionId);
+        assertTrue(jobReservation.tryReserve(activeJobId));
+        try {
+            Map<String, Object> body = Map.of("taskInput", "blocked owned job", "plannerModel", "gpt-4");
+            var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+            exchange.getRequestHeaders()
+                    .set("Idempotency-Key", UUID.randomUUID().toString());
+            exchange.getRequestHeaders().set("X-Session-Id", sessionId.toString());
+
+            jobsRouter.handle(exchange);
+
+            assertEquals(409, exchange.responseCode());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> details = (Map<String, Object>) payload.get("details");
+            assertEquals(activeJobId, details.get("activeJobId"));
+            assertEquals("QUEUED", details.get("activeJobState"));
         } finally {
             jobReservation.releaseIfOwner(activeJobId);
         }
