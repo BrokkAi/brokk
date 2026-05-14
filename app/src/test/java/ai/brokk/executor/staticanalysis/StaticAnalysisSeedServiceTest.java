@@ -93,6 +93,27 @@ class StaticAnalysisSeedServiceTest {
     }
 
     @Test
+    void fetchSeeds_ordersWeightedSamplesByNormalizedPath(@TempDir Path root) throws Exception {
+        var zFile = javaFile(root, "src/main/java/Zed.java", "class Zed {}");
+        var aFile = javaFile(root, "src/main/java/Alpha.java", "class Alpha {}");
+        var analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(new CodeUnit(zFile, CodeUnitType.CLASS, "", "Zed", null, false));
+        analyzer.addDeclaration(new CodeUnit(aFile, CodeUnitType.CLASS, "", "Alpha", null, false));
+        var service = service(root, analyzer);
+
+        var response = service.fetchSeeds(new StaticAnalysisSeedDtos.NormalizedRequest("scan-1", 5, 15_000, false));
+
+        assertEquals("completed", response.state());
+        assertEquals(
+                List.of("src/main/java/Alpha.java", "src/main/java/Zed.java"),
+                response.seeds().stream()
+                        .map(StaticAnalysisSeedDtos.SeedRecord::file)
+                        .toList());
+        assertEquals(1, response.seeds().getFirst().rank());
+        assertEquals("weighted_sample", response.seeds().getFirst().selection().kind());
+    }
+
+    @Test
     void fetchSeeds_usesProjectSourceFilesWhenAnalyzerHasNoIndexedFiles(@TempDir Path root) throws Exception {
         javaFile(root, "src/main/java/Unindexed.java", "class Unindexed {}");
         var service = service(root, new TestAnalyzer());

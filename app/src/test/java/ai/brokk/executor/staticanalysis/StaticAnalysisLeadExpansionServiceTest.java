@@ -51,6 +51,36 @@ class StaticAnalysisLeadExpansionServiceTest {
     }
 
     @Test
+    void expandLeads_ordersEqualScoreCandidatesByNormalizedPath(@TempDir Path root) throws Exception {
+        var target = javaFile(root, "src/main/java/p/Target.java", "package p; public class Target {}");
+        javaFile(root, "src/main/java/p/ZUser.java", "package p; class ZUser { Target target; }");
+        javaFile(root, "src/main/java/p/AUser.java", "package p; class AUser { Target target; }");
+        var analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(new CodeUnit(target, CodeUnitType.CLASS, "p", "Target", null, false));
+        var service = service(root, analyzer);
+
+        var response = service.expandLeads(new StaticAnalysisSeedDtos.NormalizedLeadExpansionRequest(
+                "scan-1",
+                List.of("src/main/java/p/Target.java"),
+                List.of("src/main/java/p/Target.java"),
+                5,
+                15_000,
+                false));
+
+        assertEquals(
+                "completed",
+                response.state(),
+                response.events().getLast().outcome().message());
+        assertEquals(
+                List.of("src/main/java/p/AUser.java", "src/main/java/p/ZUser.java"),
+                response.seeds().stream()
+                        .map(StaticAnalysisSeedDtos.SeedRecord::file)
+                        .toList());
+        assertEquals(1, response.seeds().getFirst().rank());
+        assertEquals("usage_expansion", response.seeds().getFirst().selection().kind());
+    }
+
+    @Test
     void expandLeads_suggestsTestAssertionToolForTestFiles(@TempDir Path root) throws Exception {
         var target = javaFile(root, "src/main/java/p/Target.java", "package p; public class Target {}");
         var testFile =
