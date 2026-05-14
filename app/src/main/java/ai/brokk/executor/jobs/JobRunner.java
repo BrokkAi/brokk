@@ -655,16 +655,16 @@ public final class JobRunner {
                                                             "REPORT_ONLY",
                                                             "blocked",
                                                             "search, workspace_mutation, context_cleanup, subagents, shell, code_agent, auto_compress"));
-                                            var result = askUsingPlannerModel(
+                                            runDirectAnswer(
+                                                    jobId,
+                                                    "REPORT_ONLY",
+                                                    scope,
                                                     cm.liveContext(),
                                                     requireNonNull(
                                                             askPlannerModel,
                                                             "plannerModel required for REPORT_ONLY jobs"),
-                                                    spec.taskInput());
-                                            finalStopReason.set(result.stopDetails()
-                                                    .reason()
-                                                    .name());
-                                            scope.append(result);
+                                                    spec.taskInput(),
+                                                    finalStopReason);
                                         }
                                     }
                                     case ASK -> {
@@ -788,68 +788,14 @@ public final class JobRunner {
                                                 }
                                             }
 
-                                            try {
-                                                // Use helper that builds a workspace-only prompt and calls the
-                                                // planner model.
-                                                TaskResult askResult = askUsingPlannerModel(
-                                                        context, requireNonNull(askPlannerModel), spec.taskInput());
-                                                finalStopReason.set(askResult
-                                                        .stopDetails()
-                                                        .reason()
-                                                        .name());
-                                                scope.append(askResult);
-                                            } catch (Throwable t) {
-                                                // Do not allow a planner-model failure to abort the entire job.
-                                                logger.error(
-                                                        "ASK direct-answer failed for job {}: {}",
-                                                        jobId,
-                                                        t.getMessage(),
-                                                        t);
-                                                // Report to console (best-effort).
-                                                try {
-                                                    activeConsole.toolError(
-                                                            "ASK direct-answer failed: "
-                                                                    + (t.getMessage() == null
-                                                                            ? t.getClass()
-                                                                                    .getSimpleName()
-                                                                            : t.getMessage()),
-                                                            "ASK error");
-                                                } catch (Throwable ignore) {
-                                                    // best-effort only
-                                                }
-                                                // Append a non-fatal TaskResult indicating the failure so the task
-                                                // has a record,
-                                                // but do not rethrow (so job status handling can complete
-                                                // normally).
-                                                var stopDetails = new TaskResult.StopDetails(
-                                                        TaskResult.StopReason.LLM_ERROR,
-                                                        t.getMessage() == null
-                                                                ? t.getClass().getSimpleName()
-                                                                : t.getMessage());
-                                                List<ChatMessage> uiMessages = List.of(
-                                                        new UserMessage(spec.taskInput()),
-                                                        new SystemMessage("ASK direct-answer failed: "
-                                                                + stopDetails.explanation()));
-                                                context = context.addHistoryEntry(
-                                                        uiMessages,
-                                                        TaskResult.Type.ASK,
-                                                        requireNonNull(askPlannerModel),
-                                                        spec.taskInput());
-                                                var failureResult = new TaskResult(context, stopDetails);
-                                                try {
-                                                    scope.append(failureResult);
-                                                } catch (Throwable e2) {
-                                                    // If appending also fails, log it but keep proceeding so we can
-                                                    // update job status normally.
-                                                    logger.warn(
-                                                            "Failed to append ASK failure result for job {}: {}",
-                                                            jobId,
-                                                            e2.getMessage(),
-                                                            e2);
-                                                }
-                                                // Do not rethrow; allow outer flow to mark job completed
-                                                // (read-only) where appropriate.
-                                            }
+                                            runDirectAnswer(
+                                                    jobId,
+                                                    "ASK",
+                                                    scope,
+                                                    context,
+                                                    requireNonNull(askPlannerModel),
+                                                    spec.taskInput(),
+                                                    finalStopReason);
                                         }
                                     }
                                     case SEARCH -> {
@@ -1399,20 +1345,7 @@ public final class JobRunner {
                         current = current.completed(null);
                         logger.info("Job {} completed successfully", jobId);
                     }
-                    long lastSeq = store.getLastSeq(jobId);
-                    if (lastSeq >= 0) {
-                        current = current.withMetadata("lastSeq", Long.toString(lastSeq));
-                    }
-                    if (spec.executionPolicy() != null) {
-                        current = current.withMetadata(
-                                "executionPolicy",
-                                spec.executionPolicy().preset().name());
-                    }
-                    var stopReason = finalStopReason.get();
-                    if (stopReason != null) {
-                        current = current.withMetadata("stopReason", stopReason);
-                    }
-                    store.updateStatus(jobId, current);
+                    store.updateStatus(jobId, enrichStatusMetadata(jobId, current, spec, finalStopReason.get()));
                 }
             } catch (Throwable t) {
                 var failure = unwrapFailure(t);
@@ -1438,13 +1371,10 @@ public final class JobRunner {
                             s = s.cancelled();
                         }
 
-                        long lastSeq = store.getLastSeq(jobId);
-                        if (lastSeq >= 0) {
-                            s = s.withMetadata("lastSeq", Long.toString(lastSeq));
-                        }
+                        s = enrichStatusMetadata(jobId, s, spec, null);
 
                         // Update if state changed or if we enriched with missing metadata
-                        if (!alreadyCancelled || !hadLastSeq) {
+                        if (!alreadyCancelled || !hadLastSeq || spec.executionPolicy() != null) {
                             store.updateStatus(jobId, s);
                         } else {
                             logger.debug(
@@ -1472,11 +1402,7 @@ public final class JobRunner {
                             s = JobStatus.queued(jobId);
                         }
                         s = s.failed(errorMessage);
-                        long lastSeq = store.getLastSeq(jobId);
-                        if (lastSeq >= 0) {
-                            s = s.withMetadata("lastSeq", Long.toString(lastSeq));
-                        }
-                        store.updateStatus(jobId, s);
+                        store.updateStatus(jobId, enrichStatusMetadata(jobId, s, spec, null));
                     } catch (Exception e2) {
                         logger.warn("Failed to persist FAILED status for job {}", jobId, e2);
                     }
@@ -1739,6 +1665,63 @@ public final class JobRunner {
 
         ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.ASK, model, question);
         return new TaskResult(ctx, stop);
+    }
+
+    private void runDirectAnswer(
+            String jobId,
+            String label,
+            ContextManager.TaskScope scope,
+            Context context,
+            StreamingChatModel model,
+            String question,
+            AtomicReference<String> finalStopReason) {
+        try {
+            var result = askUsingPlannerModel(context, model, question);
+            finalStopReason.set(result.stopDetails().reason().name());
+            scope.append(result);
+        } catch (Throwable t) {
+            logger.error("{} direct-answer failed for job {}: {}", label, jobId, t.getMessage(), t);
+            try {
+                cm.getIo()
+                        .toolError(
+                                label + " direct-answer failed: "
+                                        + (t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage()),
+                                label + " error");
+            } catch (Throwable ignore) {
+                // best-effort only
+            }
+
+            var stopDetails = new TaskResult.StopDetails(
+                    TaskResult.StopReason.LLM_ERROR,
+                    t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage());
+            finalStopReason.set(stopDetails.reason().name());
+            List<ChatMessage> uiMessages = List.of(
+                    new UserMessage(question),
+                    new SystemMessage(label + " direct-answer failed: " + stopDetails.explanation()));
+            var failureContext = context.addHistoryEntry(uiMessages, TaskResult.Type.ASK, model, question);
+            var failureResult = new TaskResult(failureContext, stopDetails);
+            try {
+                scope.append(failureResult);
+            } catch (Throwable e2) {
+                logger.warn("Failed to append {} failure result for job {}: {}", label, jobId, e2.getMessage(), e2);
+            }
+        }
+    }
+
+    private JobStatus enrichStatusMetadata(
+            String jobId, JobStatus status, JobSpec spec, @Nullable String finalStopReason) {
+        long lastSeq = store.getLastSeq(jobId);
+        if (lastSeq >= 0) {
+            status = status.withMetadata("lastSeq", Long.toString(lastSeq));
+        }
+        if (spec.executionPolicy() != null) {
+            status = status.withMetadata(
+                    "executionPolicy", spec.executionPolicy().preset().name());
+        }
+        if (finalStopReason != null) {
+            status = status.withMetadata("stopReason", finalStopReason);
+        }
+        return status;
     }
 
     private static List<Map<String, Object>> convertExcerpts(List<ReviewParser.CodeExcerpt> excerpts) {

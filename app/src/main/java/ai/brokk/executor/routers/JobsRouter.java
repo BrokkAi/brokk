@@ -157,6 +157,15 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (sessionIdHeader != null) tags.put("session_id", sessionIdHeader.toString());
         if (githubToken != null && !githubToken.isBlank()) tags.put("github_token", githubToken);
 
+        var executionPolicy = request.executionPolicy() != null ? request.executionPolicy() : request.jobPolicy();
+        if (executionPolicy != null
+                && executionPolicy.preset() == JobSpec.ExecutionPolicyPreset.REPORT_ONLY
+                && request.agent() != null
+                && !request.agent().isBlank()) {
+            RouterUtil.sendValidationError(exchange, "agent is not allowed with REPORT_ONLY executionPolicy");
+            return;
+        }
+
         // If an agent is specified, validate it exists and route to SEARCH mode with an instruction
         String effectiveTaskInput = request.taskInput();
         if (request.agent() != null && !request.agent().isBlank()) {
@@ -173,8 +182,6 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
 
         var overrides = validateModelOverrides(exchange, request);
         if (overrides == null) return;
-
-        var executionPolicy = request.executionPolicy() != null ? request.executionPolicy() : request.jobPolicy();
 
         var validJobContextTexts = validateContextTexts(exchange, request);
         if (validJobContextTexts == null && (request.contextText() != null || request.context() != null)) return;
