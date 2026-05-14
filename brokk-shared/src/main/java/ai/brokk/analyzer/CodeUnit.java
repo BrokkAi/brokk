@@ -29,6 +29,8 @@ public class CodeUnit implements Comparable<CodeUnit> {
 
     private final transient String fqName;
 
+    private final transient int hashCode;
+
     @JsonCreator
     public CodeUnit(
             @JsonProperty("source") ProjectFile source,
@@ -47,6 +49,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this.signature = signature;
         this.synthetic = synthetic;
         this.fqName = packageName.isEmpty() ? shortName : packageName + "." + shortName;
+        this.hashCode = computeHashCode();
     }
 
     public CodeUnit(
@@ -246,8 +249,17 @@ public class CodeUnit implements Comparable<CodeUnit> {
 
     @Override
     public int hashCode() {
-        // Hash code based on the derived fully qualified name, kind, source file, signature AND synthetic flag
-        return Objects.hash(kind, fqName(), source, signature, synthetic);
+        return hashCode;
+    }
+
+    private int computeHashCode() {
+        // CodeUnit is a hot map/set key in analyzer paths; keep hashCode() cached and allocation-free.
+        int result = kind.hashCode();
+        result = 31 * result + fqName.hashCode();
+        result = 31 * result + Objects.hashCode(source);
+        result = 31 * result + Objects.hashCode(signature);
+        result = 31 * result + Boolean.hashCode(synthetic);
+        return result;
     }
 
     @Override
