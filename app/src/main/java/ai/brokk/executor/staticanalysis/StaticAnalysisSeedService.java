@@ -1,7 +1,6 @@
 package ai.brokk.executor.staticanalysis;
 
 import ai.brokk.IAppContextManager;
-import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitHotspotAnalyzer;
@@ -61,9 +60,11 @@ public final class StaticAnalysisSeedService {
         var capped = false;
 
         try {
+            var analyzer = contextManager.getAnalyzer();
+            var facts = new StaticAnalysisRequestFacts(analyzer);
             capped |= addWeightedSampleSeeds(request, candidates, deadline, pathCache);
             capped |= addGitHotspots(request, candidates, deadline, pathCache);
-            capped |= addSizeComplexitySeeds(request, candidates, deadline, pathCache);
+            capped |= addSizeComplexitySeeds(request, candidates, deadline, pathCache, analyzer, facts);
             capped |= addUsageExpansionSeeds(request, candidates, deadline, pathCache);
 
             var seeds = candidates.values().stream()
@@ -198,16 +199,17 @@ public final class StaticAnalysisSeedService {
             StaticAnalysisSeedDtos.NormalizedRequest request,
             Map<String, Candidate> candidates,
             long deadline,
-            PathCache pathCache) {
+            PathCache pathCache,
+            IAnalyzer analyzer,
+            StaticAnalysisRequestFacts facts) {
         if (timedOut(deadline)) return true;
-        IAnalyzer analyzer = contextManager.getAnalyzer();
         var files = sourceFiles(analyzer).stream()
                 .sorted(Comparator.comparing(pathCache::externalPath))
                 .limit(Math.max(request.targetSeedCount() * 4L, request.targetSeedCount()))
                 .toList();
         for (var file : files) {
             if (timedOut(deadline)) return true;
-            var maxComplexity = maxCyclomaticComplexity(analyzer, file);
+            var maxComplexity = facts.maxCyclomaticComplexity(file);
             var sizeBytes = file.size().orElse(0L);
             if (maxComplexity < COMPLEXITY_SIGNAL_THRESHOLD && sizeBytes < LARGE_FILE_BYTES_THRESHOLD) continue;
 
@@ -338,28 +340,6 @@ public final class StaticAnalysisSeedService {
         return project.getAnalyzerLanguages().stream()
                 .flatMap(language -> project.getAnalyzableFiles(language).stream())
                 .collect(Collectors.toSet());
-    }
-
-    private static int maxCyclomaticComplexity(IAnalyzer analyzer, ProjectFile file) {
-        try {
-            return analyzer.getTopLevelDeclarations(file).stream()
-                    .flatMap(cu -> flatten(analyzer, cu).stream())
-                    .filter(CodeUnit::isFunction)
-                    .mapToInt(analyzer::computeCyclomaticComplexity)
-                    .max()
-                    .orElse(0);
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    private static List<CodeUnit> flatten(IAnalyzer analyzer, CodeUnit root) {
-        var result = new ArrayList<CodeUnit>();
-        result.add(root);
-        for (var child : analyzer.getDirectChildren(root)) {
-            result.addAll(flatten(analyzer, child));
-        }
-        return result;
     }
 
     private Candidate candidate(

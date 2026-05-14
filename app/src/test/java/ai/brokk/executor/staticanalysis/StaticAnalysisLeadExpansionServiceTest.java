@@ -14,7 +14,9 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -198,6 +200,34 @@ class StaticAnalysisLeadExpansionServiceTest {
         assertEquals(0, StaticAnalysisLeadExpansionService.literalOccurrenceCount("Target", ""));
     }
 
+    @Test
+    void expandLeads_reusesCachedDeclarationTraversalForDuplicateFrontierFile(@TempDir Path root) throws Exception {
+        var target = javaFile(root, "src/main/java/p/Target.java", "package p; public class Target {}");
+        javaFile(root, "src/main/java/p/User.java", "package p; class User { Target target; }");
+        var targetClass = new CodeUnit(target, CodeUnitType.CLASS, "p", "Target", null, false);
+        var targetMethod = new CodeUnit(target, CodeUnitType.FUNCTION, "p.Target", "run", "()", false);
+        var analyzer = new CountingAnalyzer();
+        analyzer.addDeclaration(targetClass);
+        analyzer.setDirectChildren(targetClass, List.of(targetMethod));
+        var service = service(root, analyzer);
+
+        var response = service.expandLeads(new StaticAnalysisSeedDtos.NormalizedLeadExpansionRequest(
+                "scan-1",
+                List.of("src/main/java/p/Target.java"),
+                List.of("src/main/java/p/Target.java", "src/main/java/p/Target.java"),
+                5,
+                15_000,
+                false));
+
+        assertEquals(
+                "completed",
+                response.state(),
+                response.events().getLast().outcome().message());
+        assertFalse(response.seeds().isEmpty());
+        assertEquals(1, analyzer.topLevelDeclarationCalls(target));
+        assertEquals(1, analyzer.directChildrenCalls(targetClass));
+    }
+
     private static StaticAnalysisLeadExpansionService service(Path root, TestAnalyzer analyzer) {
         return new StaticAnalysisLeadExpansionService(
                 new TestContextManager(new TestProject(root, Languages.JAVA), new TestConsoleIO(), Set.of(), analyzer));
@@ -208,5 +238,35 @@ class StaticAnalysisLeadExpansionServiceTest {
         Files.createDirectories(file.absPath().getParent());
         Files.writeString(file.absPath(), source);
         return file;
+    }
+
+    private static final class CountingAnalyzer extends TestAnalyzer {
+        private final Map<ProjectFile, Integer> topLevelDeclarationCalls = new HashMap<>();
+        private final Map<CodeUnit, Integer> directChildrenCalls = new HashMap<>();
+        private final Map<CodeUnit, List<CodeUnit>> directChildren = new HashMap<>();
+
+        @Override
+        public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
+            topLevelDeclarationCalls.merge(file, 1, Integer::sum);
+            return super.getTopLevelDeclarations(file);
+        }
+
+        @Override
+        public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+            directChildrenCalls.merge(cu, 1, Integer::sum);
+            return directChildren.getOrDefault(cu, List.of());
+        }
+
+        private void setDirectChildren(CodeUnit cu, List<CodeUnit> children) {
+            directChildren.put(cu, List.copyOf(children));
+        }
+
+        private int topLevelDeclarationCalls(ProjectFile file) {
+            return topLevelDeclarationCalls.getOrDefault(file, 0);
+        }
+
+        private int directChildrenCalls(CodeUnit cu) {
+            return directChildrenCalls.getOrDefault(cu, 0);
+        }
     }
 }
