@@ -1,7 +1,6 @@
 package ai.brokk.executor.routers;
 
 import ai.brokk.executor.JobReservation;
-import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobStatus;
 import ai.brokk.executor.jobs.JobStore;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -9,7 +8,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.UUID;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
@@ -21,12 +19,11 @@ final class JobLifecycleResponses {
 
     private JobLifecycleResponses() {}
 
-    static Map<String, Object> readiness(
-            JobStore jobStore, JobReservation reservation, @Nullable UUID requesterSessionId) throws IOException {
+    static Map<String, Object> readiness(JobStore jobStore, JobReservation reservation) throws IOException {
         var activeJobId = reservation.current();
         var response = new LinkedHashMap<String, Object>();
         response.put("readyForJobSubmission", activeJobId == null);
-        response.put("activeJobId", visibleActiveJobId(jobStore, reservation, requesterSessionId));
+        response.put("activeJobId", null);
         response.put("activeJobState", activeJobState(jobStore, activeJobId));
         response.put("retryAfterMs", activeJobId == null ? 0 : RETRY_AFTER_MS);
         response.put("terminal", activeJobId == null);
@@ -41,13 +38,7 @@ final class JobLifecycleResponses {
     }
 
     static Map<String, Object> cancelResponse(
-            JobStore jobStore,
-            String jobId,
-            @Nullable JobStatus status,
-            boolean cancelRequested,
-            JobReservation reservation,
-            @Nullable UUID requesterSessionId)
-            throws IOException {
+            String jobId, @Nullable JobStatus status, boolean cancelRequested, JobReservation reservation) {
         var state = status != null ? status.state() : "UNKNOWN";
         var response = new LinkedHashMap<String, Object>();
         response.put("jobId", jobId);
@@ -55,28 +46,18 @@ final class JobLifecycleResponses {
         response.put("state", state);
         response.put("terminal", status == null || JobStatus.isTerminalState(state));
         response.put("executorReady", executorReady(reservation));
-        response.put(
-                "activeJobId", cancelRequested ? jobId : visibleActiveJobId(jobStore, reservation, requesterSessionId));
+        response.put("activeJobId", cancelRequested ? jobId : null);
         return response;
     }
 
-    static ErrorPayload jobInProgress(JobStore jobStore, JobReservation reservation, @Nullable UUID requesterSessionId)
-            throws IOException {
-        return ErrorPayload.of(
-                "JOB_IN_PROGRESS",
-                "A job is currently executing",
-                busyDetails(jobStore, reservation, requesterSessionId));
+    static JobInProgressError jobInProgress(JobStore jobStore, JobReservation reservation) throws IOException {
+        return new JobInProgressError(
+                "JOB_IN_PROGRESS", "A job is currently executing", busyDetails(jobStore, reservation));
     }
 
-    private static Map<String, Object> busyDetails(
-            JobStore jobStore, JobReservation reservation, @Nullable UUID requesterSessionId) throws IOException {
+    private static JobInProgressDetails busyDetails(JobStore jobStore, JobReservation reservation) throws IOException {
         var activeJobId = reservation.current();
-        var details = new LinkedHashMap<String, Object>();
-        details.put("activeJobId", visibleActiveJobId(jobStore, reservation, requesterSessionId));
-        details.put("activeJobState", activeJobState(jobStore, activeJobId));
-        details.put("readyForJobSubmission", false);
-        details.put("retryAfterMs", RETRY_AFTER_MS);
-        return details;
+        return new JobInProgressDetails(null, activeJobState(jobStore, activeJobId), false, RETRY_AFTER_MS);
     }
 
     private static @Nullable String activeJobState(JobStore jobStore, @Nullable String activeJobId) throws IOException {
@@ -87,20 +68,15 @@ final class JobLifecycleResponses {
         return status != null ? status.state() : "UNKNOWN";
     }
 
-    private static @Nullable String visibleActiveJobId(
-            JobStore jobStore, JobReservation reservation, @Nullable UUID requesterSessionId) throws IOException {
-        var activeJobId = reservation.current();
-        if (activeJobId == null || requesterSessionId == null) {
-            return null;
-        }
-        var spec = jobStore.loadSpec(activeJobId);
-        if (spec == null) {
-            return null;
-        }
-        return requesterSessionId.toString().equals(spec.tags().get("session_id")) ? activeJobId : null;
-    }
-
     private static boolean executorReady(JobReservation reservation) {
         return reservation.current() == null;
     }
+
+    record JobInProgressError(String code, String message, JobInProgressDetails details) {}
+
+    record JobInProgressDetails(
+            @Nullable String activeJobId,
+            @Nullable String activeJobState,
+            boolean readyForJobSubmission,
+            int retryAfterMs) {}
 }

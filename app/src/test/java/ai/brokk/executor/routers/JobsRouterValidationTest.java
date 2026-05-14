@@ -1,22 +1,33 @@
 package ai.brokk.executor.routers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
+import ai.brokk.Service;
 import ai.brokk.executor.JobReservation;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
+import ai.brokk.executor.jobs.JobStatus;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
+import ai.brokk.testutil.NoOpConsoleIO;
+import ai.brokk.testutil.TestService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpContext;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpPrincipal;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -32,7 +43,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -278,7 +292,7 @@ class JobsRouterValidationTest {
     }
 
     @Test
-    void getJobsStatus_withOwningSession_reportsActiveJobId() throws Exception {
+    void getJobsStatus_withOwningSession_doesNotRevealActiveJobId() throws Exception {
         var sessionId = UUID.randomUUID();
         String jobId = createQueuedJob("reserved owner status");
         jobStore.persistSessionId(jobId, sessionId);
@@ -293,7 +307,7 @@ class JobsRouterValidationTest {
             @SuppressWarnings("unchecked")
             Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
             assertEquals(false, payload.get("readyForJobSubmission"));
-            assertEquals(jobId, payload.get("activeJobId"));
+            assertEquals(null, payload.get("activeJobId"));
             assertEquals("QUEUED", payload.get("activeJobState"));
         } finally {
             jobReservation.releaseIfOwner(jobId);
@@ -328,7 +342,7 @@ class JobsRouterValidationTest {
     }
 
     @Test
-    void postJobs_whenReservedBySameSession_returnsStructuredJobInProgressDetailsWithActiveJobId() throws Exception {
+    void postJobs_whenReservedBySameSession_doesNotRevealActiveJobId() throws Exception {
         var sessionId = jobsRouter
                 .contextManager
                 .getProject()
@@ -352,7 +366,7 @@ class JobsRouterValidationTest {
             Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
             @SuppressWarnings("unchecked")
             Map<String, Object> details = (Map<String, Object>) payload.get("details");
-            assertEquals(activeJobId, details.get("activeJobId"));
+            assertEquals(null, details.get("activeJobId"));
             assertEquals("QUEUED", details.get("activeJobState"));
         } finally {
             jobReservation.releaseIfOwner(activeJobId);
@@ -375,6 +389,110 @@ class JobsRouterValidationTest {
         assertEquals(false, payload.get("terminal"));
         assertEquals(true, payload.get("executorReady"));
         assertEquals(null, payload.get("activeJobId"));
+    }
+
+    @Test
+    void cancelActiveJob_returnsStructuredDrainingResponse(@TempDir Path tempDir) throws Exception {
+        var projectRoot = tempDir.resolve("project");
+        Files.createDirectories(projectRoot);
+        var project = MainProject.forTests(projectRoot);
+        var modelEntered = new CountDownLatch(1);
+        var releaseModel = new CountDownLatch(1);
+        StreamingChatModel blockingModel = new StreamingChatModel() {
+            @Override
+            public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
+                modelEntered.countDown();
+                try {
+                    releaseModel.await(5, TimeUnit.SECONDS);
+                    handler.onCompleteResponse(ChatResponse.builder()
+                            .aiMessage(new AiMessage("done"))
+                            .build());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        Service.Provider provider = new Service.Provider() {
+            private TestService svc = serviceFor(project);
+
+            @Override
+            public ai.brokk.AbstractService get() {
+                return svc;
+            }
+
+            @Override
+            public void reinit(ai.brokk.project.IProject p) {
+                svc = serviceFor(p);
+            }
+
+            private TestService serviceFor(ai.brokk.project.IProject p) {
+                return new TestService(p) {
+                    @Override
+                    public @Nullable StreamingChatModel getModel(
+                            Service.ModelConfig config,
+                            @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+                        return blockingModel;
+                    }
+                };
+            }
+        };
+
+        try (var cm = new ContextManager(project, provider)) {
+            cm.createHeadless(true, new NoOpConsoleIO());
+            var activeStore = new JobStore(tempDir.resolve("job-store-active-cancel"));
+            var activeRunner = new JobRunner(cm, activeStore);
+            var activeReservation = new JobReservation();
+            var router = new JobsRouter(
+                    cm,
+                    activeStore,
+                    activeRunner,
+                    activeReservation,
+                    CompletableFuture.completedFuture(null),
+                    cm.getAgentStore());
+            var spec = JobSpec.of(
+                    "hold until router cancel",
+                    false,
+                    false,
+                    "test-model",
+                    null,
+                    null,
+                    false,
+                    Map.of("mode", "ASK"),
+                    null,
+                    null,
+                    null);
+            var jobId = activeStore.createOrGetJob("router-active-cancel", spec).jobId();
+            assertTrue(activeReservation.tryReserve(jobId));
+            var future = activeRunner.runAsync(jobId, spec, new NoOpConsoleIO());
+
+            try {
+                assertTrue(modelEntered.await(5, TimeUnit.SECONDS), "ASK model should start before cancellation");
+                var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs/" + jobId + "/cancel", Map.of());
+
+                router.handle(exchange);
+
+                assertEquals(202, exchange.responseCode());
+                @SuppressWarnings("unchecked")
+                Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+                assertEquals(jobId, payload.get("jobId"));
+                assertEquals(true, payload.get("cancelRequested"));
+                assertEquals(JobStatus.State.CANCELLING.name(), payload.get("state"));
+                assertEquals(false, payload.get("terminal"));
+                assertEquals(false, payload.get("executorReady"));
+                assertEquals(jobId, payload.get("activeJobId"));
+
+                var cancelling = activeStore.loadStatus(jobId);
+                assertNotNull(cancelling);
+                assertEquals(JobStatus.State.CANCELLING.name(), cancelling.state());
+                assertFalse(cancelling.terminal());
+            } finally {
+                releaseModel.countDown();
+                future.get(5, TimeUnit.SECONDS);
+                activeRunner.shutdown();
+                activeReservation.releaseIfOwner(jobId);
+            }
+        }
     }
 
     @Test

@@ -102,6 +102,43 @@ class JobStoreTest {
     }
 
     @Test
+    void loadPersistedSessionId_returnsNullWhenMissing(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var result = store.createOrGetJob("idem-key-session-missing", JobSpec.of("test task", DEFAULT_PLANNER_MODEL));
+
+        assertNull(store.loadPersistedSessionId(result.jobId()));
+    }
+
+    @Test
+    void loadPersistedSessionId_returnsPersistedSession(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var result = store.createOrGetJob("idem-key-session-valid", JobSpec.of("test task", DEFAULT_PLANNER_MODEL));
+        var sessionId = UUID.randomUUID();
+
+        store.persistSessionId(result.jobId(), sessionId);
+
+        assertEquals(sessionId, store.loadPersistedSessionId(result.jobId()));
+    }
+
+    @Test
+    void loadPersistedSessionId_returnsNullForInvalidPersistedSession(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var spec = JobSpec.of(
+                "test task",
+                false,
+                false,
+                DEFAULT_PLANNER_MODEL,
+                null,
+                null,
+                false,
+                Map.of("session_id", "not-a-uuid"),
+                (String) null);
+        var result = store.createOrGetJob("idem-key-session-invalid", spec);
+
+        assertNull(store.loadPersistedSessionId(result.jobId()));
+    }
+
+    @Test
     void testCreateOrGetJob_Idempotency(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
         var spec = JobSpec.of("test task", DEFAULT_PLANNER_MODEL);

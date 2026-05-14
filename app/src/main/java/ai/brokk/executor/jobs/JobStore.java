@@ -273,6 +273,23 @@ public final class JobStore {
         return objectMapper.readValue(metaFile.toFile(), JobSpec.class);
     }
 
+    public @Nullable UUID loadPersistedSessionId(String jobId) throws IOException {
+        var spec = loadSpec(jobId);
+        if (spec == null) {
+            return null;
+        }
+        var raw = spec.tags().get("session_id");
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Job {} has invalid persisted session_id '{}'", jobId, raw);
+            return null;
+        }
+    }
+
     /**
      * Persist the effective session id for a job in meta.json.
      *
