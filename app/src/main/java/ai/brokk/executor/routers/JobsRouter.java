@@ -174,6 +174,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         var overrides = validateModelOverrides(exchange, request);
         if (overrides == null) return;
 
+        var executionPolicy = Objects.requireNonNullElse(request.executionPolicy(), request.jobPolicy());
+
         var validJobContextTexts = validateContextTexts(exchange, request);
         if (validJobContextTexts == null && (request.contextText() != null || request.context() != null)) return;
 
@@ -197,7 +199,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 overrides.temperature(),
                 overrides.temperatureCode(),
                 skipVerificationFlag,
-                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                executionPolicy);
 
         if (awaitHeadlessInitOrRespond(exchange, null)) return;
 
@@ -742,6 +745,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             @Nullable Double temperature,
             @Nullable Double temperatureCode,
             @Nullable Boolean skipVerification,
+            JobSpec.@Nullable ExecutionPolicy executionPolicy,
+            JobSpec.@Nullable ExecutionPolicy jobPolicy,
             @Nullable String agent) {}
 
     private record ContextPayload(@Nullable List<String> text) {}

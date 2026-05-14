@@ -48,6 +48,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -240,6 +241,7 @@ public final class JobRunner {
         ARCHITECT,
         CODE,
         ASK,
+        REPORT_ONLY,
         SEARCH,
         REVIEW,
         GUIDED_REVIEW,
@@ -254,7 +256,7 @@ public final class JobRunner {
 
     static SearchPrompts.Objective objectiveForMode(Mode mode) {
         return switch (mode) {
-            case ASK, SEARCH, REVIEW, GUIDED_REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
+            case ASK, REPORT_ONLY, SEARCH, REVIEW, GUIDED_REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
             case LUTZ -> SearchPrompts.Objective.LUTZ;
             case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER, LITE_AGENT, LITE_PLAN ->
                 SearchPrompts.Objective.TASKS_ONLY;
@@ -268,6 +270,7 @@ public final class JobRunner {
     public static Mode parseMode(JobSpec spec) {
         try {
             var tags = spec.tags();
+            if (spec.isReportOnly()) return Mode.REPORT_ONLY;
             var raw = tags.getOrDefault("mode", "").trim();
             if (raw.isEmpty()) return Mode.ARCHITECT;
             return Mode.valueOf(raw.toUpperCase(Locale.ROOT));
@@ -305,6 +308,14 @@ public final class JobRunner {
     /** Returns whether this JobRunner refuses write-capable agents. */
     public boolean isReadOnly() {
         return readOnly;
+    }
+
+    private void appendEventBestEffort(String jobId, String type, Object data) {
+        try {
+            store.appendEvent(jobId, JobEvent.of(type, data));
+        } catch (IOException e) {
+            logger.warn("Failed to append {} event for job {}: {}", type, jobId, e.getMessage());
+        }
     }
 
     /**
@@ -422,6 +433,7 @@ public final class JobRunner {
                 Mode mode = parseMode(spec);
 
                 var completed = new AtomicInteger(0);
+                var finalStopReason = new AtomicReference<String>();
 
                 var rawCodeModelName = spec.codeModel() != null
                         ? spec.codeModel()
@@ -460,9 +472,10 @@ public final class JobRunner {
                                         spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
                                 : defaultScanModel(spec))
                         : null;
-                final StreamingChatModel askPlannerModel = mode == Mode.ASK || mode == Mode.ISSUE
-                        ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
-                        : null;
+                final StreamingChatModel askPlannerModel =
+                        mode == Mode.ASK || mode == Mode.REPORT_ONLY || mode == Mode.ISSUE
+                                ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
+                                : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(
@@ -487,7 +500,7 @@ public final class JobRunner {
                         switch (mode) {
                             case ARCHITECT, LUTZ, PLAN, ISSUE, LITE_AGENT, LITE_PLAN ->
                                 service.nameOf(requireNonNull(architectPlannerModel));
-                            case ASK -> service.nameOf(requireNonNull(askPlannerModel));
+                            case ASK, REPORT_ONLY -> service.nameOf(requireNonNull(askPlannerModel));
                             case SEARCH -> service.nameOf(requireNonNull(searchPlannerModel));
                             case CODE -> {
                                 var plannerName = spec.plannerModel();
@@ -502,6 +515,7 @@ public final class JobRunner {
                             case ARCHITECT, LUTZ, ISSUE, LITE_AGENT, LITE_PLAN ->
                                 service.nameOf(requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
+                            case REPORT_ONLY -> "(default, ignored for REPORT_ONLY)";
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case PLAN -> "(default, ignored for PLAN)";
                             case CODE -> service.nameOf(requireNonNull(codeModeModel));
@@ -512,7 +526,7 @@ public final class JobRunner {
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE, LITE_AGENT, LITE_PLAN -> !hasCodeModelOverride;
-                            case ASK, SEARCH, PLAN, REVIEW, GUIDED_REVIEW -> true;
+                            case ASK, REPORT_ONLY, SEARCH, PLAN, REVIEW, GUIDED_REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> true;
                         };
@@ -624,6 +638,32 @@ public final class JobRunner {
                                                 architectAgent.setReadOnly(true);
                                             }
                                             var result = architectAgent.executeWithScan();
+                                            scope.append(result);
+                                        }
+                                    }
+                                    case REPORT_ONLY -> {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
+                                            appendEventBestEffort(
+                                                    jobId,
+                                                    "POLICY_APPLIED",
+                                                    Map.of("preset", "REPORT_ONLY", "mode", "REPORT_ONLY"));
+                                            appendEventBestEffort(
+                                                    jobId,
+                                                    "POLICY_BLOCKED_TOOL",
+                                                    Map.of(
+                                                            "preset",
+                                                            "REPORT_ONLY",
+                                                            "blocked",
+                                                            "search, workspace_mutation, context_cleanup, subagents, shell, code_agent, auto_compress"));
+                                            var result = askUsingPlannerModel(
+                                                    cm.liveContext(),
+                                                    requireNonNull(
+                                                            askPlannerModel,
+                                                            "plannerModel required for REPORT_ONLY jobs"),
+                                                    spec.taskInput());
+                                            finalStopReason.set(result.stopDetails()
+                                                    .reason()
+                                                    .name());
                                             scope.append(result);
                                         }
                                     }
@@ -753,6 +793,10 @@ public final class JobRunner {
                                                 // planner model.
                                                 TaskResult askResult = askUsingPlannerModel(
                                                         context, requireNonNull(askPlannerModel), spec.taskInput());
+                                                finalStopReason.set(askResult
+                                                        .stopDetails()
+                                                        .reason()
+                                                        .name());
                                                 scope.append(askResult);
                                             } catch (Throwable t) {
                                                 // Do not allow a planner-model failure to abort the entire job.
@@ -1340,7 +1384,7 @@ public final class JobRunner {
 
                 // Optional compress after execution:
                 // - For ARCHITECT/LUTZ: per-task compression already honored via spec.autoCompress().
-                if (mode != Mode.ARCHITECT && mode != Mode.LUTZ && spec.autoCompress()) {
+                if (mode != Mode.ARCHITECT && mode != Mode.LUTZ && mode != Mode.REPORT_ONLY && spec.autoCompress()) {
                     logger.info("Job {} auto-compressing history", jobId);
                     cm.compressHistoryAsync().join();
                 }
@@ -1358,6 +1402,15 @@ public final class JobRunner {
                     long lastSeq = store.getLastSeq(jobId);
                     if (lastSeq >= 0) {
                         current = current.withMetadata("lastSeq", Long.toString(lastSeq));
+                    }
+                    if (spec.executionPolicy() != null) {
+                        current = current.withMetadata(
+                                "executionPolicy",
+                                spec.executionPolicy().preset().name());
+                    }
+                    var stopReason = finalStopReason.get();
+                    if (stopReason != null) {
+                        current = current.withMetadata("stopReason", stopReason);
                     }
                     store.updateStatus(jobId, current);
                 }
