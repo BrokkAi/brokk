@@ -4,19 +4,25 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CapabilityProvider;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -185,6 +191,44 @@ class StaticAnalysisLeadExpansionServiceTest {
     }
 
     @Test
+    void expandLeads_textFallbackCapsCandidateFilesWithDeterministicBoundedSelection(@TempDir Path root)
+            throws Exception {
+        var target = javaFile(root, "src/main/java/z/Target.java", "package z; public class Target {}");
+        var user = javaFile(root, "src/main/java/z/User.java", "package z; class User { Target target; }");
+        var files = new ArrayList<ProjectFile>();
+        files.add(target);
+        files.add(user);
+        for (int i = 0; i < 248; i++) {
+            files.add(javaFile(
+                    root, "src/main/java/z/Filler%03d.java".formatted(i), "package z; class Filler%d {}".formatted(i)));
+        }
+        var lexicallyEarlierOutsideCap =
+                javaFile(root, "src/main/java/a/Outside.java", "package a; class Outside { Target target; }");
+        files.add(lexicallyEarlierOutsideCap);
+        var analyzer = new FallbackOrderedFilesAnalyzer(files);
+        analyzer.addDeclaration(new CodeUnit(target, CodeUnitType.CLASS, "z", "Target", null, false));
+        var service = service(root, analyzer);
+
+        var response = service.expandLeads(new StaticAnalysisSeedDtos.NormalizedLeadExpansionRequest(
+                "scan-1",
+                List.of("src/main/java/z/Target.java"),
+                List.of("src/main/java/z/Target.java"),
+                5,
+                15_000,
+                false));
+
+        assertEquals(
+                "completed",
+                response.state(),
+                response.events().getLast().outcome().message());
+        assertEquals(
+                List.of("src/main/java/a/Outside.java"),
+                response.seeds().stream()
+                        .map(StaticAnalysisSeedDtos.SeedRecord::file)
+                        .toList());
+    }
+
+    @Test
     void literalOccurrenceCount_countsAdjacentRepeatedMatches() {
         assertEquals(2, StaticAnalysisLeadExpansionService.literalOccurrenceCount("TargetTarget", "Target"));
     }
@@ -267,6 +311,27 @@ class StaticAnalysisLeadExpansionServiceTest {
 
         private int directChildrenCalls(CodeUnit cu) {
             return directChildrenCalls.getOrDefault(cu, 0);
+        }
+    }
+
+    private static final class FallbackOrderedFilesAnalyzer extends TestAnalyzer {
+        private final List<ProjectFile> files;
+
+        private FallbackOrderedFilesAnalyzer(List<ProjectFile> files) {
+            this.files = List.copyOf(files);
+        }
+
+        @Override
+        public Set<ProjectFile> getAnalyzedFiles() {
+            return new LinkedHashSet<>(files);
+        }
+
+        @Override
+        public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
+            if (capability == TypeHierarchyProvider.class || capability == ImportAnalysisProvider.class) {
+                throw new RuntimeException("force fallback");
+            }
+            return super.as(capability);
         }
     }
 }

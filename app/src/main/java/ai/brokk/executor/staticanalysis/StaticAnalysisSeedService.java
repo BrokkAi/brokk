@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -203,10 +204,14 @@ public final class StaticAnalysisSeedService {
             IAnalyzer analyzer,
             StaticAnalysisRequestFacts facts) {
         if (timedOut(deadline)) return true;
-        var files = sourceFiles(analyzer).stream()
-                .sorted(Comparator.comparing(pathCache::externalPath))
-                .limit(Math.max(request.targetSeedCount() * 4L, request.targetSeedCount()))
-                .toList();
+        var files =
+                limitedSourceFiles(
+                                analyzer,
+                                Math.max(request.targetSeedCount() * 4L, request.targetSeedCount()),
+                                pathCache)
+                        .stream()
+                        .sorted(Comparator.comparing(pathCache::externalPath))
+                        .toList();
         for (var file : files) {
             if (timedOut(deadline)) return true;
             var maxComplexity = facts.maxCyclomaticComplexity(file);
@@ -317,9 +322,8 @@ public final class StaticAnalysisSeedService {
         var needed = request.targetSeedCount() - candidates.size();
         if (needed <= 0) return false;
         var capped = timedOut(deadline);
-        var files = sourceFiles(contextManager.getAnalyzer()).stream()
+        var files = limitedSourceFiles(contextManager.getAnalyzer(), needed, pathCache).stream()
                 .sorted(Comparator.comparing(pathCache::externalPath))
-                .limit(needed)
                 .toList();
         var rank = 1;
         for (var file : files) {
@@ -329,6 +333,28 @@ public final class StaticAnalysisSeedService {
             rank++;
         }
         return capped || timedOut(deadline);
+    }
+
+    private List<ProjectFile> limitedSourceFiles(IAnalyzer analyzer, long limit, PathCache pathCache) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        record PathFile(String path, ProjectFile file) {}
+        var selected = new PriorityQueue<PathFile>(
+                Comparator.<PathFile, String>comparing(PathFile::path).reversed());
+        for (var file : sourceFiles(analyzer)) {
+            var pathFile = new PathFile(pathCache.externalPath(file), file);
+            if (selected.size() < limit) {
+                selected.add(pathFile);
+            } else if (pathFile.path().compareTo(selected.peek().path()) < 0) {
+                selected.poll();
+                selected.add(pathFile);
+            }
+        }
+        return selected.stream()
+                .sorted(Comparator.comparing(PathFile::path))
+                .map(PathFile::file)
+                .toList();
     }
 
     private Set<ProjectFile> sourceFiles(IAnalyzer analyzer) {

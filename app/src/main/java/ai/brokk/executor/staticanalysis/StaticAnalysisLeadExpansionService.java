@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.NullMarked;
@@ -210,9 +211,8 @@ public final class StaticAnalysisLeadExpansionService {
     private Map<ProjectFile, Integer> textUsageCountByFile(
             IAnalyzer analyzer, CodeUnit symbol, long deadline, PathCache pathCache) throws InterruptedException {
         var counts = new LinkedHashMap<ProjectFile, Integer>();
-        var files = sourceFiles(analyzer).stream()
+        var files = limitedSourceFiles(analyzer, MAX_USAGE_CANDIDATE_FILES, pathCache).stream()
                 .sorted(Comparator.comparing(pathCache::externalPath))
-                .limit(MAX_USAGE_CANDIDATE_FILES)
                 .toList();
         for (var file : files) {
             if (timedOut(deadline) || Thread.currentThread().isInterrupted()) {
@@ -251,6 +251,28 @@ public final class StaticAnalysisLeadExpansionService {
             count++;
             fromIndex = index + needle.length();
         }
+    }
+
+    private List<ProjectFile> limitedSourceFiles(IAnalyzer analyzer, long limit, PathCache pathCache) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        record PathFile(String path, ProjectFile file) {}
+        var selected = new PriorityQueue<PathFile>(
+                Comparator.<PathFile, String>comparing(PathFile::path).reversed());
+        for (var file : sourceFiles(analyzer)) {
+            var pathFile = new PathFile(pathCache.externalPath(file), file);
+            if (selected.size() < limit) {
+                selected.add(pathFile);
+            } else if (pathFile.path().compareTo(selected.peek().path()) < 0) {
+                selected.poll();
+                selected.add(pathFile);
+            }
+        }
+        return selected.stream()
+                .sorted(Comparator.comparing(PathFile::path))
+                .map(PathFile::file)
+                .toList();
     }
 
     private Set<ProjectFile> sourceFiles(IAnalyzer analyzer) {
