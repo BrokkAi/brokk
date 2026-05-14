@@ -14,7 +14,16 @@ import org.jetbrains.annotations.Nullable;
  * {@code (?i).*?(?:\QFoo\E|\QBar\E).*?}. Any pattern outside that small grammar must return {@link Optional#empty()}
  * so the caller keeps using normal regex matching.
  */
-public record RegexLiteralSet(List<String> literals, boolean caseInsensitive) {
+public record RegexLiteralSet(
+        List<String> literals,
+        boolean caseInsensitive,
+        List<AsciiUtil.CaseInsensitiveLiteral> caseInsensitiveLiterals) {
+    public RegexLiteralSet {
+        literals = List.copyOf(literals);
+        caseInsensitiveLiterals = List.copyOf(caseInsensitiveLiterals);
+        assert caseInsensitive || caseInsensitiveLiterals.isEmpty();
+    }
+
     public static Optional<RegexLiteralSet> fromContainsPattern(Pattern pattern, @Nullable String substringFilter) {
         String regex = pattern.pattern();
         if (regex.startsWith("(?i)")) {
@@ -28,7 +37,7 @@ public record RegexLiteralSet(List<String> literals, boolean caseInsensitive) {
             if (!AsciiUtil.isAscii(substringFilter)) {
                 return Optional.empty();
             }
-            return Optional.of(new RegexLiteralSet(List.of(substringFilter), true));
+            return Optional.of(create(List.of(substringFilter), true));
         }
         return fromLiteralPattern(regex, false);
     }
@@ -54,7 +63,17 @@ public record RegexLiteralSet(List<String> literals, boolean caseInsensitive) {
             }
             literals.add(literal.get());
         }
-        return Optional.of(new RegexLiteralSet(List.copyOf(literals), caseInsensitive));
+        return Optional.of(create(literals, caseInsensitive));
+    }
+
+    private static RegexLiteralSet create(List<String> literals, boolean caseInsensitive) {
+        var copiedLiterals = List.copyOf(literals);
+        var caseInsensitiveLiterals = caseInsensitive
+                ? copiedLiterals.stream()
+                        .map(AsciiUtil.CaseInsensitiveLiteral::new)
+                        .toList()
+                : List.<AsciiUtil.CaseInsensitiveLiteral>of();
+        return new RegexLiteralSet(copiedLiterals, caseInsensitive, caseInsensitiveLiterals);
     }
 
     private static String stripContainsWrapper(String regex) {

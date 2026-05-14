@@ -1407,6 +1407,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     private Set<CodeUnit> searchDefinitionsByLiterals(RegexLiteralSet search, Pattern compiledPattern) {
         var literals = search.literals();
+        var caseInsensitiveLiterals = search.caseInsensitiveLiterals();
         return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> !cu.isSynthetic())
                 .filter(cu -> {
@@ -1417,7 +1418,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     if (!AsciiUtil.isAscii(fqName)) {
                         return compiledPattern.matcher(fqName).find();
                     }
-                    return literals.stream().anyMatch(literal -> AsciiUtil.containsIgnoreCase(fqName, literal));
+                    return caseInsensitiveLiterals.stream().anyMatch(literal -> literal.containedIn(fqName));
                 })
                 .filter(cu -> !isAnonymousStructure(cu.fqName()))
                 .collect(Collectors.toSet());
