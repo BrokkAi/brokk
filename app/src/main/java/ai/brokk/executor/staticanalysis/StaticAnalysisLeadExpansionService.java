@@ -11,7 +11,6 @@ import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.util.PathNormalizer;
 import java.nio.file.Files;
 import java.time.Duration;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -68,6 +67,7 @@ public final class StaticAnalysisLeadExpansionService {
         var capped = false;
         try {
             var analyzer = contextManager.getAnalyzer();
+            var facts = new StaticAnalysisRequestFacts(analyzer);
             var finder = new UsageFinder(
                     contextManager.getProject(),
                     analyzer,
@@ -86,7 +86,7 @@ public final class StaticAnalysisLeadExpansionService {
                 if (!sourceFile.exists()) {
                     continue;
                 }
-                var symbols = declarations(analyzer, sourceFile).stream()
+                var symbols = facts.declarations(sourceFile).stream()
                         .filter(cu -> !cu.fqName().isBlank())
                         .sorted(Comparator.comparing(CodeUnit::fqName))
                         .limit(MAX_SYMBOLS_PER_FILE)
@@ -193,17 +193,6 @@ public final class StaticAnalysisLeadExpansionService {
             return new StaticAnalysisSeedDtos.Response(
                     request.scanId(), StaticAnalysisSeedDtos.PHASE_STATIC_SEED, "failed", List.of(), List.of(), events);
         }
-    }
-
-    private static List<CodeUnit> declarations(IAnalyzer analyzer, ProjectFile file) {
-        var result = new ArrayList<CodeUnit>();
-        var work = new ArrayDeque<>(analyzer.getTopLevelDeclarations(file));
-        while (!work.isEmpty()) {
-            var next = work.removeFirst();
-            result.add(next);
-            work.addAll(analyzer.getDirectChildren(next));
-        }
-        return result;
     }
 
     private static Map<ProjectFile, Integer> usageCountByFile(FuzzyResult result) {
