@@ -1,14 +1,18 @@
 package ai.brokk.executor.jobs;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class JobSpecTest {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Test
     void testOfPrReview_CreatesJobWithCorrectTags() {
@@ -67,6 +71,47 @@ class JobSpecTest {
         assertNull(spec.getRepoOwner());
         assertNull(spec.getRepoName());
         assertNull(spec.getPrNumber());
+    }
+
+    @Test
+    void executionPolicyPersistsThroughJson() throws Exception {
+        var spec = new JobSpec(
+                "write final report",
+                false,
+                true,
+                "planner",
+                null,
+                null,
+                false,
+                Map.of("mode", "SEARCH"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                new JobSpec.ExecutionPolicy(JobSpec.ExecutionPolicyPreset.REPORT_ONLY));
+
+        var json = MAPPER.writeValueAsString(spec);
+        var roundTrip = MAPPER.readValue(json, JobSpec.class);
+
+        assertTrue(roundTrip.isReportOnly());
+        assertEquals(
+                JobSpec.ExecutionPolicyPreset.REPORT_ONLY,
+                requireNonNull(roundTrip.executionPolicy()).preset());
+        assertTrue(json.contains("\"executionPolicy\""));
+    }
+
+    @Test
+    void executionPolicyRejectsMissingPreset() {
+        assertThrows(Exception.class, () -> MAPPER.readValue("{\"executionPolicy\":{}}", JobSpec.class));
+    }
+
+    @Test
+    void executionPolicyRejectsNullPreset() {
+        assertThrows(Exception.class, () -> MAPPER.readValue("{\"executionPolicy\":{\"preset\":null}}", JobSpec.class));
     }
 
     @Test

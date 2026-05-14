@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -11,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -35,6 +37,68 @@ class JobStoreTest {
 
         var loadedSpec = store.loadSpec(result.jobId());
         assertEquals(spec.taskInput(), loadedSpec.taskInput());
+    }
+
+    @Test
+    void testCreateOrGetJob_PreservesExecutionPolicy(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var spec = new JobSpec(
+                "test task",
+                true,
+                true,
+                DEFAULT_PLANNER_MODEL,
+                null,
+                null,
+                false,
+                Map.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                new JobSpec.ExecutionPolicy(JobSpec.ExecutionPolicyPreset.REPORT_ONLY));
+
+        var result = store.createOrGetJob("idem-key-policy", spec);
+        var loadedSpec = store.loadSpec(result.jobId());
+
+        assertNotNull(loadedSpec);
+        assertTrue(loadedSpec.isReportOnly());
+    }
+
+    @Test
+    void testPersistSessionId_PreservesExecutionPolicy(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var spec = new JobSpec(
+                "test task",
+                true,
+                true,
+                DEFAULT_PLANNER_MODEL,
+                null,
+                null,
+                false,
+                Map.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                new JobSpec.ExecutionPolicy(JobSpec.ExecutionPolicyPreset.REPORT_ONLY));
+
+        var result = store.createOrGetJob("idem-key-policy-session", spec);
+        var sessionId = UUID.randomUUID();
+        store.persistSessionId(result.jobId(), sessionId);
+        var loadedSpec = store.loadSpec(result.jobId());
+
+        assertNotNull(loadedSpec);
+        assertTrue(loadedSpec.isReportOnly());
+        assertEquals(sessionId.toString(), loadedSpec.tags().get("session_id"));
+        assertNull(loadedSpec.tags().get("github_token"));
     }
 
     @Test

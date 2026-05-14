@@ -94,6 +94,30 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void testReportOnlyPolicyOverridesSearchModeTag() {
+        var spec = new JobSpec(
+                "write final report",
+                false,
+                true,
+                "gpt-4",
+                null,
+                null,
+                false,
+                Map.of("mode", "SEARCH"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                new JobSpec.ExecutionPolicy(JobSpec.ExecutionPolicyPreset.REPORT_ONLY));
+
+        assertEquals(JobRunner.Mode.REPORT_ONLY, JobRunner.parseMode(spec));
+    }
+
+    @Test
     void testParseMode_fallsBackToArchitect_onMissingBlankOrInvalidMode() {
         JobSpec missingMode =
                 JobSpec.of("task", false, false, "gpt-4", null, null, false, Map.of("x", "y"), (String) null);

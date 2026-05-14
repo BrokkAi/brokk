@@ -110,6 +110,44 @@ class JobsRouterValidationTest {
         assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed; job may have been created");
     }
 
+    @Test
+    void postJobs_withoutPolicyFields_acceptsLegacyRequest() throws Exception {
+        Map<String, Object> body = Map.of("taskInput", "test task", "plannerModel", "gpt-4");
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(201, exchange.responseCode());
+        var response = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+        assertNotNull(response.get("jobId"));
+    }
+
+    @Test
+    void postJobs_reportOnlyWithAgent_returnsValidationErrorAndDoesNotCreateJob() throws Exception {
+        Map<String, Object> body = Map.of(
+                "taskInput",
+                "test task",
+                "plannerModel",
+                "gpt-4",
+                "agent",
+                "architect-reviewer",
+                "executionPolicy",
+                Map.of("preset", "REPORT_ONLY"));
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains("agent is not allowed"), payload.message());
+        assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed; job may have been created");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"TUI Session", "New Session", "Session"})
     void postJobs_withDefaultSessionName_triggersAutoRename(String defaultName) throws Exception {

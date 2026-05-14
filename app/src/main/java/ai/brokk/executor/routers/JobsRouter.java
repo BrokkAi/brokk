@@ -157,6 +157,15 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (sessionIdHeader != null) tags.put("session_id", sessionIdHeader.toString());
         if (githubToken != null && !githubToken.isBlank()) tags.put("github_token", githubToken);
 
+        var executionPolicy = request.executionPolicy() != null ? request.executionPolicy() : request.jobPolicy();
+        if (executionPolicy != null
+                && executionPolicy.preset() == JobSpec.ExecutionPolicyPreset.REPORT_ONLY
+                && request.agent() != null
+                && !request.agent().isBlank()) {
+            RouterUtil.sendValidationError(exchange, "agent is not allowed with REPORT_ONLY executionPolicy");
+            return;
+        }
+
         // If an agent is specified, validate it exists and route to SEARCH mode with an instruction
         String effectiveTaskInput = request.taskInput();
         if (request.agent() != null && !request.agent().isBlank()) {
@@ -197,7 +206,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 overrides.temperature(),
                 overrides.temperatureCode(),
                 skipVerificationFlag,
-                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                executionPolicy);
 
         if (awaitHeadlessInitOrRespond(exchange, null)) return;
 
@@ -742,6 +752,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             @Nullable Double temperature,
             @Nullable Double temperatureCode,
             @Nullable Boolean skipVerification,
+            JobSpec.@Nullable ExecutionPolicy executionPolicy,
+            JobSpec.@Nullable ExecutionPolicy jobPolicy,
             @Nullable String agent) {}
 
     private record ContextPayload(@Nullable List<String> text) {}

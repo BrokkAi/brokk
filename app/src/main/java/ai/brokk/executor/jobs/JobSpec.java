@@ -31,9 +31,20 @@ public record JobSpec(
         @JsonProperty("temperature") @Nullable Double temperature,
         @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
         @JsonProperty("skipVerification") boolean skipVerification,
-        @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts) {
+        @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts,
+        @JsonProperty("executionPolicy") @Nullable ExecutionPolicy executionPolicy) {
 
     public static final int DEFAULT_MAX_ISSUE_FIX_ATTEMPTS = 20;
+
+    public enum ExecutionPolicyPreset {
+        REPORT_ONLY
+    }
+
+    public record ExecutionPolicy(@JsonProperty("preset") ExecutionPolicyPreset preset) {
+        public ExecutionPolicy(@JsonProperty("preset") @Nullable ExecutionPolicyPreset preset) {
+            this.preset = Objects.requireNonNull(preset, "preset");
+        }
+    }
 
     public record ModelOverrides(
             @Nullable String reasoningLevel,
@@ -46,11 +57,7 @@ public record JobSpec(
      */
     private static final Set<String> SENSITIVE_TAG_KEYS = Set.of("github_token");
 
-    /**
-     * Returns a copy of tags with sensitive values redacted for safe persistence/logging.
-     * Sensitive keys are replaced with "[REDACTED]" rather than removed entirely,
-     * to preserve the structure for debugging while protecting the actual values.
-     */
+    /** Backward-compatible constructor for callers that do not specify an execution policy. */
     public JobSpec(
             @JsonProperty("taskInput") String taskInput,
             @JsonProperty("autoCommit") boolean autoCommit,
@@ -68,6 +75,45 @@ public record JobSpec(
             @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
             @JsonProperty("skipVerification") boolean skipVerification,
             @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts) {
+        this(
+                taskInput,
+                autoCommit,
+                autoCompress,
+                plannerModel,
+                scanModel,
+                codeModel,
+                preScan,
+                tags,
+                sourceBranch,
+                targetBranch,
+                reasoningLevel,
+                reasoningLevelCode,
+                temperature,
+                temperatureCode,
+                skipVerification,
+                maxIssueFixAttempts,
+                null);
+    }
+
+    /** Normalizes nullable collection fields during deserialization and direct construction. */
+    public JobSpec(
+            @JsonProperty("taskInput") String taskInput,
+            @JsonProperty("autoCommit") boolean autoCommit,
+            @JsonProperty("autoCompress") boolean autoCompress,
+            @JsonProperty("plannerModel") String plannerModel,
+            @JsonProperty("scanModel") @Nullable String scanModel,
+            @JsonProperty("codeModel") @Nullable String codeModel,
+            @JsonProperty("preScan") boolean preScan,
+            @JsonProperty("tags") @Nullable Map<String, String> tags,
+            @JsonProperty("sourceBranch") @Nullable String sourceBranch,
+            @JsonProperty("targetBranch") @Nullable String targetBranch,
+            @JsonProperty("reasoningLevel") @Nullable String reasoningLevel,
+            @JsonProperty("reasoningLevelCode") @Nullable String reasoningLevelCode,
+            @JsonProperty("temperature") @Nullable Double temperature,
+            @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
+            @JsonProperty("skipVerification") boolean skipVerification,
+            @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts,
+            @JsonProperty("executionPolicy") @Nullable ExecutionPolicy executionPolicy) {
         this.taskInput = taskInput;
         this.autoCommit = autoCommit;
         this.autoCompress = autoCompress;
@@ -84,6 +130,7 @@ public record JobSpec(
         this.temperatureCode = temperatureCode;
         this.skipVerification = skipVerification;
         this.maxIssueFixAttempts = maxIssueFixAttempts;
+        this.executionPolicy = executionPolicy;
     }
 
     public Map<String, String> redactedTags() {
@@ -94,6 +141,11 @@ public record JobSpec(
             }
         }
         return Map.copyOf(result);
+    }
+
+    @JsonIgnore
+    public boolean isReportOnly() {
+        return executionPolicy != null && executionPolicy.preset() == ExecutionPolicyPreset.REPORT_ONLY;
     }
 
     /**
