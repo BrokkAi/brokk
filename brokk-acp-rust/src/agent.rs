@@ -558,6 +558,51 @@ fn send_available_commands_update(
     }
 }
 
+/// Defer the `available_commands_update` notification so the client has
+/// time to register the freshly-issued session id before the
+/// notification references it.
+///
+/// History: #3611 fixed the same symptom by responding to `session/new`
+/// *before* sending this notification, relying on the
+/// agent-client-protocol crate's single FIFO outbound channel. That
+/// ordered the two messages correctly on the wire. The bug has come
+/// back because of how Zed dispatches incoming traffic: its
+/// `new_session` handler (zed `crates/agent_servers/src/acp.rs`) inserts
+/// the session into `self.sessions` only *after* the `session/new`
+/// response future resolves and follow-up work runs (default
+/// `SetSessionMode` / `SetSessionModel` RPCs, default-config-option
+/// application, `AcpThread::new`). The response and any notification on
+/// the same session arrive on Zed as two independent dispatch tasks;
+/// the notification handler can be polled in the window between the
+/// response future resolving and `sessions.borrow_mut().insert(...)`,
+/// and is dropped with `Received session notification for unknown
+/// session`. Symptom: the command palette stays empty even though the
+/// wire order matches #3611.
+///
+/// `session/load` and `session/resume` go through Zed's
+/// `open_or_create_session`, which *pre*-registers the session id before
+/// awaiting the RPC (the client knows the id up front on those paths).
+/// `session/new` cannot pre-register because the id is issued by the
+/// server in the response, so it stays exposed to this race.
+///
+/// Wire-order alone is not enough. We send the notification from a
+/// short-delay tokio task so it lands on Zed *after* Zed's post-response
+/// bookkeeping has run and the session id is in the map. ~100ms is
+/// invisible to a human at the command palette and well above the
+/// post-response sync work measured locally. Applied symmetrically to
+/// new/load/resume so a future Zed refactor that reshapes a
+/// load/resume path can't silently re-introduce the regression.
+fn spawn_delayed_available_commands_update(
+    cx: ConnectionTo<Client>,
+    session_id: String,
+    skills: Arc<crate::skills::SkillRegistry>,
+) {
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        send_available_commands_update(&cx, &session_id, &skills);
+    });
+}
+
 /// Spawn a background discovery refresh that updates the session
 /// store's cached model catalog. Throttled by `refresh_lock`: if a
 /// previous refresh is still in flight the call is a no-op (the
@@ -725,12 +770,19 @@ pub async fn run_agent(
                     ))
                     .meta(meta_map);
 
-                // Respond first so the client registers the session ID before
-                // notifications referencing it; ACP uses a single FIFO outbound
-                // channel, so enqueue order is wire order. Notifying first made
-                // Zed drop AvailableCommandsUpdate as "unknown session".
+                // Respond first so the client receives the session id, then
+                // schedule the available-commands notification on a short
+                // delay so it lands on Zed *after* its `new_session` handler
+                // has inserted the session id into its sessions map. See
+                // `spawn_delayed_available_commands_update` for the full
+                // rationale (FIFO wire order alone is not enough on the
+                // session/new path).
                 let result = responder.respond(response);
-                send_available_commands_update(&cx, &session.id, &session.skills);
+                spawn_delayed_available_commands_update(
+                    cx.clone(),
+                    session.id.clone(),
+                    session.skills.clone(),
+                );
                 result
             },
             on_receive_request!(),
@@ -779,7 +831,11 @@ pub async fn run_agent(
                             session.selected_reasoning_effort.as_deref(),
                         )),
                 );
-                send_available_commands_update(&cx, &session_id, &session.skills);
+                spawn_delayed_available_commands_update(
+                    cx.clone(),
+                    session_id.clone(),
+                    session.skills.clone(),
+                );
                 result
             },
             on_receive_request!(),
@@ -808,7 +864,11 @@ pub async fn run_agent(
                                     session.selected_reasoning_effort.as_deref(),
                                 )),
                         );
-                        send_available_commands_update(&cx, &session_id, &session.skills);
+                        spawn_delayed_available_commands_update(
+                            cx.clone(),
+                            session_id.clone(),
+                            session.skills.clone(),
+                        );
                         result
                     }
                     None => {
