@@ -372,9 +372,12 @@ impl ToolRegistry {
 
     /// Execute a tool by name with JSON arguments.
     ///
-    /// SECURITY: callers MUST consult `tool_loop::consult_gate` first.
-    /// `pub(crate)` is intentional -- this is the trust boundary; outside
-    /// callers should not be able to dispatch tools without the gate.
+    /// SECURITY: LLM-initiated callers MUST consult `tool_loop::consult_gate`
+    /// first. User-initiated callers (slash command handlers like
+    /// `handle_pr_create`) are exempt because the slash command itself is
+    /// the user's explicit consent for the action. `pub(crate)` is
+    /// intentional -- external crates must not be able to dispatch tools
+    /// at all.
     ///
     /// `policy` controls the OS-level sandbox applied to `runShellCommand`.
     /// Other tools ignore it (their own seams, e.g. `safe_resolve_for_write`,
