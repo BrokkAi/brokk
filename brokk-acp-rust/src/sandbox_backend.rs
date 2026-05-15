@@ -834,9 +834,7 @@ fn run_wasm_round_trip(
 ) -> Result<String> {
     use wasmtime::{StoreLimits, StoreLimitsBuilder};
     use wasmtime_wasi::pipe::{MemoryInputPipe, MemoryOutputPipe};
-    use wasmtime_wasi::{
-        DirPerms, FilePerms, ResourceTable, WasiCtx, WasiCtxBuilder, WasiView,
-    };
+    use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 
     let stdin = MemoryInputPipe::new(req_bytes);
     let stdout = MemoryOutputPipe::new(MEMORY_LIMIT_BYTES);
@@ -904,12 +902,9 @@ fn run_wasm_round_trip(
 
     // Instantiate as a CLI command component (the binary's
     // `_start` is the entry point we want to run end-to-end).
-    let command = wasmtime_wasi::bindings::sync::Command::instantiate(
-        &mut store,
-        component,
-        &linker,
-    )
-    .context("instantiating sandbox component")?;
+    let command =
+        wasmtime_wasi::bindings::sync::Command::instantiate(&mut store, component, &linker)
+            .context("instantiating sandbox component")?;
 
     let run_result = command
         .wasi_cli_run()
