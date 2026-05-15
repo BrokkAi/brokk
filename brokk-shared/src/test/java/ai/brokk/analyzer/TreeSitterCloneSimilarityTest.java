@@ -94,6 +94,21 @@ class TreeSitterCloneSimilarityTest {
     }
 
     @Test
+    void candidatePrefilterStaysConservativeForRepetitiveTokenStreams() {
+        var left = repeatedTokens("A", "B", "C", 50);
+        var right = repeatedTokens("A", "B", "C", 100);
+        var weights = new IAnalyzer.CloneSmellWeights(1, 70, 2, 1, 70);
+        var leftShingles = TreeSitterAnalyzer.hashedShingles(left, weights.shingleSize());
+        var rightShingles = TreeSitterAnalyzer.hashedShingles(right, weights.shingleSize());
+
+        assertTrue(TreeSitterAnalyzer.canReachCloneSimilarity(
+                leftShingles.size(), rightShingles.size(), weights));
+        assertEquals(
+                100,
+                TreeSitterAnalyzer.computeCloneTokenSimilarity(leftShingles, rightShingles, weights));
+    }
+
+    @Test
     @Tag("benchmark")
     void computeCloneTokenSimilarity_RealisticPrimitiveShingleCardinalityBenchmark() {
         var left = TreeSitterAnalyzer.LongShingles.from(overlappingShingles(8_000, 0), 8_000);
@@ -162,5 +177,15 @@ class TreeSitterCloneSimilarityTest {
             shingles[i] = i + offset;
         }
         return shingles;
+    }
+
+    private static List<String> repeatedTokens(String first, String second, String third, int repetitions) {
+        var tokens = new java.util.ArrayList<String>(repetitions * 3);
+        for (int i = 0; i < repetitions; i++) {
+            tokens.add(first);
+            tokens.add(second);
+            tokens.add(third);
+        }
+        return List.copyOf(tokens);
     }
 }

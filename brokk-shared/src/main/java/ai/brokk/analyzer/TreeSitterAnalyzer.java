@@ -5005,10 +5005,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     private static boolean canReachCloneSimilarity(
             CloneCandidateProfile left, CloneCandidateProfile right, CloneSmellWeights weights) {
-        if (!canReachCloneSimilarity(left.shingleCount(), right.shingleCount(), weights)) {
-            return false;
-        }
-        return canReachRoundedSimilarity(left.normalizedTokenCount(), right.normalizedTokenCount(), weights);
+        return canReachCloneSimilarity(left.shingleCount(), right.shingleCount(), weights);
     }
 
     static boolean canReachCloneSimilarity(int leftShingleCount, int rightShingleCount, CloneSmellWeights weights) {
@@ -5295,13 +5292,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
     }
 
-    private record CloneCandidateProfile(
-            CloneCandidateData data, LongShingles shingles, int normalizedTokenCount, int shingleCount) {
+    private record CloneCandidateProfile(CloneCandidateData data, LongShingles shingles, int shingleCount) {
 
         private static CloneCandidateProfile create(CloneCandidateData data, CloneSmellWeights weights) {
             LongShingles shingles = hashedShingleArray(data.normalizedTokens(), weights.shingleSize());
-            return new CloneCandidateProfile(
-                    data, shingles, data.normalizedTokens().size(), shingles.size());
+            return new CloneCandidateProfile(data, shingles, shingles.size());
         }
     }
 
