@@ -10,7 +10,7 @@ default-members = ["."]
 
 [package]
 name = "brokk-acp-rust"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 description = "Rust ACP server for Brokk with auto-discovery for Codex (~/.codex/auth.json) and Ollama"
 license = "LGPL-3.0"

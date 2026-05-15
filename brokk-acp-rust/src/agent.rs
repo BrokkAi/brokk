@@ -558,6 +558,66 @@ fn send_available_commands_update(
     }
 }
 
+/// Reply to a session-bootstrap request (session/new, session/load,
+/// session/resume) AND publish the `available_commands_update`
+/// notification, in that strict order. All three handlers MUST funnel
+/// through this helper so the order invariant below cannot be silently
+/// regressed by a careless refactor.
+///
+/// # Why the order matters (PR #3611)
+///
+/// `agent-client-protocol` routes every outbound message -- responses
+/// AND session notifications -- through a single FIFO `mpsc::unbounded`
+/// channel, so enqueue order IS wire order. ACP clients (notably Zed)
+/// register the session's local record only when the response to
+/// `session/new` lands; any `SessionUpdate` notification arriving
+/// FIRST is dropped with "Received session notification for unknown
+/// session". The user-visible symptom is the command palette staying
+/// empty -- typing `/codex-login` produces "The /codex-login command
+/// is not supported by Brokk Code (Rust). Available commands: none."
+/// This is the regression that PR #3611 fixed; we centralise the fix
+/// here so it cannot drift across the three handlers again.
+///
+/// # How the order is enforced
+///
+/// We synchronously enqueue the response via `responder.respond(...)`
+/// and THEN synchronously enqueue the notification via
+/// `send_available_commands_update(...)`. Both calls are sync and
+/// there is no `.await` between them in this body, so no other task
+/// can interleave a push into the outbound FIFO.
+///
+/// # Do NOT, when modifying this helper or its callers
+///
+/// * Swap the order of the two calls. Notifying first re-introduces
+///   the "Available commands: none" regression for Zed and any client
+///   that follows the same session-registration model.
+/// * Insert ANY `.await` between `responder.respond(...)` and
+///   `send_available_commands_update(...)`. A yield here lets a
+///   concurrently-spawned task push a notification onto the FIFO
+///   BEFORE the response is drained, and the client drops it as
+///   "unknown session" -- same failure mode, harder to reproduce.
+/// * Push any other `cx.send_notification(...)` to the FIFO between
+///   the two calls (e.g. history replay, status chunks) without first
+///   verifying the client will accept a session-scoped notification
+///   before the response lands. `session/load`'s history replay
+///   happens BEFORE `respond` for exactly this reason -- if you ever
+///   need to send notifications post-respond, do it AFTER this
+///   helper returns.
+fn respond_then_publish_commands<T>(
+    responder: Responder<T>,
+    response: T,
+    cx: &ConnectionTo<Client>,
+    session_id: &str,
+    registry: &crate::skills::SkillRegistry,
+) -> Result<(), agent_client_protocol::Error>
+where
+    T: agent_client_protocol::JsonRpcResponse,
+{
+    let result = responder.respond(response);
+    send_available_commands_update(cx, session_id, registry);
+    result
+}
+
 /// Spawn a background discovery refresh that updates the session
 /// store's cached model catalog. Throttled by `refresh_lock`: if a
 /// previous refresh is still in flight the call is a no-op (the
@@ -725,13 +785,17 @@ pub async fn run_agent(
                     ))
                     .meta(meta_map);
 
-                // Respond first so the client registers the session ID before
-                // notifications referencing it; ACP uses a single FIFO outbound
-                // channel, so enqueue order is wire order. Notifying first made
-                // Zed drop AvailableCommandsUpdate as "unknown session".
-                let result = responder.respond(response);
-                send_available_commands_update(&cx, &session.id, &session.skills);
-                result
+                // Strict respond-then-notify order; see
+                // `respond_then_publish_commands` for the FIFO invariant
+                // and the "Available commands: none" failure mode this
+                // prevents (originally PR #3611).
+                respond_then_publish_commands(
+                    responder,
+                    response,
+                    &cx,
+                    &session.id,
+                    &session.skills,
+                )
             },
             on_receive_request!(),
         )
@@ -768,7 +832,13 @@ pub async fn run_agent(
                 }
 
                 let catalog = sessions_load.available_model_metadata().await;
-                let result = responder.respond(
+                // Strict respond-then-notify order; see
+                // `respond_then_publish_commands`. Note: the history
+                // replay above runs BEFORE respond on purpose -- it
+                // predates the FIFO fix and is left here pending a
+                // separate audit of session/load's notification flow.
+                respond_then_publish_commands(
+                    responder,
                     LoadSessionResponse::new()
                         .modes(mode_state(session.mode.as_str()))
                         .config_options(all_config_options(
@@ -778,9 +848,10 @@ pub async fn run_agent(
                             &catalog,
                             session.selected_reasoning_effort.as_deref(),
                         )),
-                );
-                send_available_commands_update(&cx, &session_id, &session.skills);
-                result
+                    &cx,
+                    &session_id,
+                    &session.skills,
+                )
             },
             on_receive_request!(),
         )
@@ -797,7 +868,11 @@ pub async fn run_agent(
                     Some(session) => {
                         sessions_resume.update_cwd(&session_id, cwd).await;
                         let catalog = sessions_resume.available_model_metadata().await;
-                        let result = responder.respond(
+                        // Strict respond-then-notify order; see
+                        // `respond_then_publish_commands` for the FIFO
+                        // invariant.
+                        respond_then_publish_commands(
+                            responder,
                             ResumeSessionResponse::new()
                                 .modes(mode_state(session.mode.as_str()))
                                 .config_options(all_config_options(
@@ -807,9 +882,10 @@ pub async fn run_agent(
                                     &catalog,
                                     session.selected_reasoning_effort.as_deref(),
                                 )),
-                        );
-                        send_available_commands_update(&cx, &session_id, &session.skills);
-                        result
+                            &cx,
+                            &session_id,
+                            &session.skills,
+                        )
                     }
                     None => {
                         tracing::warn!("session/resume: unknown session {session_id}");
