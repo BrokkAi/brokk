@@ -101,11 +101,8 @@ class TreeSitterCloneSimilarityTest {
         var leftShingles = TreeSitterAnalyzer.hashedShingles(left, weights.shingleSize());
         var rightShingles = TreeSitterAnalyzer.hashedShingles(right, weights.shingleSize());
 
-        assertTrue(TreeSitterAnalyzer.canReachCloneSimilarity(
-                leftShingles.size(), rightShingles.size(), weights));
-        assertEquals(
-                100,
-                TreeSitterAnalyzer.computeCloneTokenSimilarity(leftShingles, rightShingles, weights));
+        assertTrue(TreeSitterAnalyzer.canReachCloneSimilarity(leftShingles.size(), rightShingles.size(), weights));
+        assertEquals(100, TreeSitterAnalyzer.computeCloneTokenSimilarity(leftShingles, rightShingles, weights));
     }
 
     @Test
