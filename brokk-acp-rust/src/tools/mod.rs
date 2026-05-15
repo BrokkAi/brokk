@@ -112,6 +112,76 @@ const TOOLS: &[ToolMeta] = &[
         kind: ToolKind::Search,
         display_name: "Finding related files",
     },
+    ToolMeta {
+        name: "scan_usages",
+        kind: ToolKind::Search,
+        display_name: "Scanning symbol usages",
+    },
+    ToolMeta {
+        name: "get_file_contents",
+        kind: ToolKind::Read,
+        display_name: "Reading file contents",
+    },
+    ToolMeta {
+        name: "find_filenames",
+        kind: ToolKind::Search,
+        display_name: "Finding filenames",
+    },
+    ToolMeta {
+        name: "find_files_containing",
+        kind: ToolKind::Search,
+        display_name: "Finding files containing text",
+    },
+    ToolMeta {
+        name: "search_file_contents",
+        kind: ToolKind::Search,
+        display_name: "Searching file contents",
+    },
+    ToolMeta {
+        name: "list_files",
+        kind: ToolKind::Read,
+        display_name: "Listing files",
+    },
+    ToolMeta {
+        name: "skim_files",
+        kind: ToolKind::Read,
+        display_name: "Skimming files",
+    },
+    ToolMeta {
+        name: "search_git_commit_messages",
+        kind: ToolKind::Search,
+        display_name: "Searching git commit messages",
+    },
+    ToolMeta {
+        name: "get_git_log",
+        kind: ToolKind::Read,
+        display_name: "Reading git log",
+    },
+    ToolMeta {
+        name: "get_commit_diff",
+        kind: ToolKind::Read,
+        display_name: "Reading commit diff",
+    },
+    ToolMeta {
+        name: "jq",
+        kind: ToolKind::Search,
+        display_name: "Querying JSON",
+    },
+    ToolMeta {
+        name: "xml_skim",
+        kind: ToolKind::Read,
+        display_name: "Skimming XML",
+    },
+    ToolMeta {
+        name: "xml_select",
+        kind: ToolKind::Search,
+        display_name: "Selecting XML",
+    },
+    ToolMeta {
+        name: "compute_cyclomatic_complexity",
+        kind: ToolKind::Read,
+        display_name: "Computing cyclomatic complexity",
+    },
     // `activate_workspace` and `refresh` mutate analyzer state, so they
     // stay `Other` rather than `Read`: prompted in `default`, refused in
     // `readOnly`.

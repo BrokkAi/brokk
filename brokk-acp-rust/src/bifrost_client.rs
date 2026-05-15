@@ -298,7 +298,7 @@ mod tests {
     /// edit here, not whatever happens to be on a contributor's `$PATH`.
     /// Must stay in sync with `BUNDLED_BIFROST_VERSION` in
     /// `brokk-code/brokk_code/rust_acp_install.py`.
-    const TEST_BIFROST_VERSION: &str = "0.1.3";
+    const TEST_BIFROST_VERSION: &str = "0.3.0";
 
     const TEST_BIFROST_RELEASE_BASE: &str = "https://github.com/BrokkAi/bifrost/releases/download";
 
