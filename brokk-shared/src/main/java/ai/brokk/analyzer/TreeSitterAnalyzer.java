@@ -234,6 +234,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     private volatile boolean isStale = false;
     private final AtomicBoolean staleWarningLogged = new AtomicBoolean(false);
+    private volatile @Nullable Map<CodeUnit, SearchNameMetadata> searchNameMetadataCache;
 
     protected void checkStale(String methodName) {
         if (this.isStale && staleWarningLogged.compareAndSet(false, true)) {
@@ -524,6 +525,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         int size() {
             return keys.size();
+        }
+    }
+
+    record SearchNameMetadata(String fqName, String lowerCaseFqName, boolean ascii) {
+        static SearchNameMetadata from(CodeUnit codeUnit) {
+            String fqName = codeUnit.fqName();
+            return new SearchNameMetadata(fqName, fqName.toLowerCase(Locale.ROOT), AsciiUtil.isAscii(fqName));
         }
     }
 
@@ -956,6 +964,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected <R> R withCodeUnitProperties(Function<Map<CodeUnit, CodeUnitProperties>, R> function) {
         var current = this.state;
         return function.apply(current.codeUnitState());
+    }
+
+    private SearchNameMetadata searchNameMetadata(CodeUnit codeUnit) {
+        return Objects.requireNonNull(searchNameMetadataCache().get(codeUnit));
+    }
+
+    private Map<CodeUnit, SearchNameMetadata> searchNameMetadataCache() {
+        var existing = searchNameMetadataCache;
+        if (existing != null) {
+            return existing;
+        }
+
+        synchronized (this) {
+            if (searchNameMetadataCache == null) {
+                searchNameMetadataCache = buildSearchNameState(this.state.codeUnitState());
+            }
+            return searchNameMetadataCache;
+        }
+    }
+
+    private static Map<CodeUnit, SearchNameMetadata> buildSearchNameState(
+            Map<CodeUnit, CodeUnitProperties> codeUnitState) {
+        var searchNameState = new HashMap<CodeUnit, SearchNameMetadata>();
+        codeUnitState.keySet().forEach(codeUnit -> searchNameState.put(codeUnit, SearchNameMetadata.from(codeUnit)));
+        return Map.copyOf(searchNameState);
     }
 
     /**
@@ -1456,10 +1489,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var threadLocalMatcher = ThreadLocal.withInitial(() -> compiledPattern.matcher(""));
         return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> !cu.isSynthetic())
-                .filter(cu -> substringFilter == null
-                        || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
-                .filter(cu -> threadLocalMatcher.get().reset(cu.fqName()).find())
-                .filter(cu -> !isAnonymousStructure(cu.fqName()))
+                .filter(cu -> {
+                    var metadata = searchNameMetadata(cu);
+                    return substringFilter == null || metadata.lowerCaseFqName().contains(substringFilter);
+                })
+                .filter(cu -> threadLocalMatcher
+                        .get()
+                        .reset(searchNameMetadata(cu).fqName())
+                        .find())
+                .filter(cu -> !isAnonymousStructure(searchNameMetadata(cu).fqName()))
                 .collect(Collectors.toSet());
     }
 
@@ -1469,16 +1507,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> !cu.isSynthetic())
                 .filter(cu -> {
-                    String fqName = cu.fqName();
+                    var metadata = searchNameMetadata(cu);
+                    String fqName = metadata.fqName();
                     if (!search.caseInsensitive()) {
                         return literals.stream().anyMatch(fqName::contains);
                     }
-                    if (!AsciiUtil.isAscii(fqName)) {
+                    if (!metadata.ascii()) {
                         return compiledPattern.matcher(fqName).find();
                     }
-                    return caseInsensitiveLiterals.stream().anyMatch(literal -> literal.containedIn(fqName));
+                    return caseInsensitiveLiterals.stream()
+                            .anyMatch(literal -> metadata.lowerCaseFqName().contains(literal.foldedLiteral()));
                 })
-                .filter(cu -> !isAnonymousStructure(cu.fqName()))
+                .filter(cu -> !isAnonymousStructure(searchNameMetadata(cu).fqName()))
                 .collect(Collectors.toSet());
     }
 
