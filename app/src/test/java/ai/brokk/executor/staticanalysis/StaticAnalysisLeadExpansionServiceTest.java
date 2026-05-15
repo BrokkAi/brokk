@@ -339,6 +339,23 @@ class StaticAnalysisLeadExpansionServiceTest {
                         .toList());
     }
 
+    @Test
+    void expandLeads_preservesStableOrderWhenSameFqNameExceedsCap(@TempDir Path root) throws Exception {
+        var target = javaFile(root, "src/main/java/p/Target.java", "package p; class Target {}");
+        var declarations = new ArrayList<CodeUnit>();
+        for (int i = 0; i < 8; i++) {
+            declarations.add(new CodeUnit(target, CodeUnitType.FUNCTION, "p", "run", "(z%d)".formatted(i), false));
+        }
+        var lexicallyEarlierLateDeclaration = new CodeUnit(target, CodeUnitType.FUNCTION, "p", "run", "(a)", false);
+        declarations.add(lexicallyEarlierLateDeclaration);
+
+        var selected = StaticAnalysisLeadExpansionService.firstAlphabeticalSymbols(declarations, 8);
+
+        assertEquals(8, selected.size());
+        assertEquals(declarations.subList(0, 8), selected);
+        assertFalse(selected.contains(lexicallyEarlierLateDeclaration));
+    }
+
     private static StaticAnalysisLeadExpansionService service(Path root, TestAnalyzer analyzer) {
         return new StaticAnalysisLeadExpansionService(
                 new TestContextManager(new TestProject(root, Languages.JAVA), new TestConsoleIO(), Set.of(), analyzer));

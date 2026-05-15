@@ -245,24 +245,25 @@ public final class StaticAnalysisLeadExpansionService {
         }
     }
 
-    private static List<CodeUnit> firstAlphabeticalSymbols(List<CodeUnit> declarations, int limit) {
+    static List<CodeUnit> firstAlphabeticalSymbols(List<CodeUnit> declarations, int limit) {
         if (limit <= 0) {
             return List.of();
         }
-        var selected = new TreeSet<CodeUnit>(Comparator.comparing(CodeUnit::fqName)
-                .thenComparing(cu -> cu.source().toString())
-                .thenComparing(cu -> cu.signature() == null ? "" : cu.signature())
-                .thenComparing(cu -> cu.kind().name()));
-        for (var declaration : declarations) {
+        record IndexedCodeUnit(int index, CodeUnit codeUnit) {}
+        var selected = new TreeSet<IndexedCodeUnit>(Comparator.comparing((IndexedCodeUnit indexed) ->
+                        indexed.codeUnit().fqName())
+                .thenComparingInt(IndexedCodeUnit::index));
+        for (int index = 0; index < declarations.size(); index++) {
+            var declaration = declarations.get(index);
             if (declaration.fqName().isBlank()) {
                 continue;
             }
-            selected.add(declaration);
+            selected.add(new IndexedCodeUnit(index, declaration));
             if (selected.size() > limit) {
                 selected.pollLast();
             }
         }
-        return List.copyOf(selected);
+        return selected.stream().map(IndexedCodeUnit::codeUnit).toList();
     }
 
     private static List<Candidate> topCandidates(Iterable<Candidate> candidates, int limit, PathCache pathCache) {
