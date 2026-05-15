@@ -250,8 +250,8 @@ public final class StaticAnalysisLeadExpansionService {
             return List.of();
         }
         record IndexedCodeUnit(int index, CodeUnit codeUnit) {}
-        var selected = new TreeSet<IndexedCodeUnit>(Comparator.comparing((IndexedCodeUnit indexed) ->
-                        indexed.codeUnit().fqName())
+        var selected = new TreeSet<IndexedCodeUnit>(Comparator.comparing(
+                        (IndexedCodeUnit indexed) -> indexed.codeUnit().fqName())
                 .thenComparingInt(IndexedCodeUnit::index));
         for (int index = 0; index < declarations.size(); index++) {
             var declaration = declarations.get(index);
