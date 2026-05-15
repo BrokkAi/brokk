@@ -272,6 +272,90 @@ class StaticAnalysisLeadExpansionServiceTest {
         assertEquals(1, analyzer.directChildrenCalls(targetClass));
     }
 
+    @Test
+    void expandLeads_limitsSymbolsWithoutSortingEveryDeclaration(@TempDir Path root) throws Exception {
+        var target = javaFile(root, "src/main/java/p/Target.java", "package p; public class Target {}");
+        javaFile(root, "src/main/java/p/User.java", "package p; class User { A00 target; }");
+        var analyzer = new CountingAnalyzer();
+        analyzer.addDeclaration(new CodeUnit(target, CodeUnitType.CLASS, "p", "Target", null, false));
+        analyzer.addDeclaration(new CodeUnit(target, CodeUnitType.CLASS, "p", "A00", null, false));
+        for (int i = 0; i < 16; i++) {
+            analyzer.addDeclaration(new CodeUnit(target, CodeUnitType.CLASS, "p", "Z%02d".formatted(i), null, false));
+        }
+        var service = service(root, analyzer);
+
+        var response = service.expandLeads(new StaticAnalysisSeedDtos.NormalizedLeadExpansionRequest(
+                "scan-1",
+                List.of("src/main/java/p/Target.java"),
+                List.of("src/main/java/p/Target.java"),
+                5,
+                15_000,
+                false));
+
+        assertEquals(
+                "completed",
+                response.state(),
+                response.events().getLast().outcome().message());
+        assertEquals(
+                List.of("src/main/java/p/User.java"),
+                response.seeds().stream()
+                        .map(StaticAnalysisSeedDtos.SeedRecord::file)
+                        .toList());
+    }
+
+    @Test
+    void expandLeads_preservesDistinctDeclarationsWithSameFqName(@TempDir Path root) throws Exception {
+        var target = javaFile(root, "src/main/java/p/Target.java", "package p; public class Target {}");
+        javaFile(
+                root,
+                "src/main/java/p/User.java",
+                "package p; class User { int x = Target.run(1) + Target.run(2, 3); }");
+        var analyzer = new CountingAnalyzer();
+        var targetClass = new CodeUnit(target, CodeUnitType.CLASS, "p", "Target", null, false);
+        analyzer.addDeclaration(targetClass);
+        analyzer.setDirectChildren(
+                targetClass,
+                List.of(
+                        new CodeUnit(target, CodeUnitType.FUNCTION, "p.Target", "run", "(int)", false),
+                        new CodeUnit(target, CodeUnitType.FUNCTION, "p.Target", "run", "(int,int)", false)));
+        var service = service(root, analyzer);
+
+        var response = service.expandLeads(new StaticAnalysisSeedDtos.NormalizedLeadExpansionRequest(
+                "scan-1",
+                List.of("src/main/java/p/Target.java"),
+                List.of("src/main/java/p/Target.java"),
+                5,
+                15_000,
+                false));
+
+        assertEquals(
+                "completed",
+                response.state(),
+                response.events().getLast().outcome().message());
+        assertEquals(
+                List.of("src/main/java/p/User.java"),
+                response.seeds().stream()
+                        .map(StaticAnalysisSeedDtos.SeedRecord::file)
+                        .toList());
+    }
+
+    @Test
+    void expandLeads_preservesStableOrderWhenSameFqNameExceedsCap(@TempDir Path root) throws Exception {
+        var target = javaFile(root, "src/main/java/p/Target.java", "package p; class Target {}");
+        var declarations = new ArrayList<CodeUnit>();
+        for (int i = 0; i < 8; i++) {
+            declarations.add(new CodeUnit(target, CodeUnitType.FUNCTION, "p", "run", "(z%d)".formatted(i), false));
+        }
+        var lexicallyEarlierLateDeclaration = new CodeUnit(target, CodeUnitType.FUNCTION, "p", "run", "(a)", false);
+        declarations.add(lexicallyEarlierLateDeclaration);
+
+        var selected = StaticAnalysisLeadExpansionService.firstAlphabeticalSymbols(declarations, 8);
+
+        assertEquals(8, selected.size());
+        assertEquals(declarations.subList(0, 8), selected);
+        assertFalse(selected.contains(lexicallyEarlierLateDeclaration));
+    }
+
     private static StaticAnalysisLeadExpansionService service(Path root, TestAnalyzer analyzer) {
         return new StaticAnalysisLeadExpansionService(
                 new TestContextManager(new TestProject(root, Languages.JAVA), new TestConsoleIO(), Set.of(), analyzer));

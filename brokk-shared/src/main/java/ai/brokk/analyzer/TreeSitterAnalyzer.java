@@ -5020,19 +5020,40 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         rightData.excerpt()));
             }
         }
-        return findings.stream()
-                .sorted(Comparator.comparingInt(CloneSmell::score)
+        var sortedFindings = findings.stream()
+                .map(SortableCloneSmell::new)
+                .sorted(Comparator.comparingInt(SortableCloneSmell::score)
                         .reversed()
-                        .thenComparing(f -> f.file().toString())
-                        .thenComparing(CloneSmell::enclosingFqName)
-                        .thenComparing(f -> f.peerFile().toString())
-                        .thenComparing(CloneSmell::peerEnclosingFqName))
+                        .thenComparing(SortableCloneSmell::filePath)
+                        .thenComparing(SortableCloneSmell::enclosingFqName)
+                        .thenComparing(SortableCloneSmell::peerFilePath)
+                        .thenComparing(SortableCloneSmell::peerEnclosingFqName))
+                .map(SortableCloneSmell::finding)
                 .toList();
+        return List.copyOf(sortedFindings);
     }
 
     protected int refineCloneSimilarityPercent(
             CloneCandidateData left, CloneCandidateData right, int tokenSimilarity, CloneSmellWeights weights) {
         return tokenSimilarity;
+    }
+
+    private record SortableCloneSmell(
+            CloneSmell finding,
+            int score,
+            String filePath,
+            String enclosingFqName,
+            String peerFilePath,
+            String peerEnclosingFqName) {
+        private SortableCloneSmell(CloneSmell finding) {
+            this(
+                    finding,
+                    finding.score(),
+                    finding.file().toString(),
+                    finding.enclosingFqName(),
+                    finding.peerFile().toString(),
+                    finding.peerEnclosingFqName());
+        }
     }
 
     protected Optional<CloneCandidateData> buildCloneCandidateData(CodeUnit cu, CloneSmellWeights weights) {
