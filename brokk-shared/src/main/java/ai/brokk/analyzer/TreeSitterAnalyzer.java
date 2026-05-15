@@ -493,9 +493,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
     }
 
+    record SearchNameMetadata(String fqName, String lowerCaseFqName, boolean ascii) {
+        static SearchNameMetadata from(CodeUnit codeUnit) {
+            String fqName = codeUnit.fqName();
+            return new SearchNameMetadata(fqName, fqName.toLowerCase(Locale.ROOT), AsciiUtil.isAscii(fqName));
+        }
+    }
+
     public record AnalyzerState(
             PMap<String, Set<CodeUnit>> symbolIndex,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
+            PMap<CodeUnit, SearchNameMetadata> searchNameState,
             PMap<ProjectFile, FileProperties> fileState,
             SymbolKeyIndex symbolKeyIndex,
             PMap<ProjectFile, List<TemplateAnalysisResult>> templateResults,
@@ -506,8 +514,49 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 PMap<CodeUnit, CodeUnitProperties> codeUnitState,
                 PMap<ProjectFile, FileProperties> fileState,
                 SymbolKeyIndex symbolKeyIndex,
+                PMap<ProjectFile, List<TemplateAnalysisResult>> templateResults,
                 long snapshotEpochNanos) {
-            this(symbolIndex, codeUnitState, fileState, symbolKeyIndex, HashTreePMap.empty(), snapshotEpochNanos);
+            this(
+                    symbolIndex,
+                    codeUnitState,
+                    buildSearchNameState(codeUnitState),
+                    fileState,
+                    symbolKeyIndex,
+                    templateResults,
+                    snapshotEpochNanos);
+        }
+
+        public AnalyzerState(
+                PMap<String, Set<CodeUnit>> symbolIndex,
+                PMap<CodeUnit, CodeUnitProperties> codeUnitState,
+                PMap<CodeUnit, SearchNameMetadata> searchNameState,
+                PMap<ProjectFile, FileProperties> fileState,
+                SymbolKeyIndex symbolKeyIndex,
+                long snapshotEpochNanos) {
+            this(
+                    symbolIndex,
+                    codeUnitState,
+                    searchNameState,
+                    fileState,
+                    symbolKeyIndex,
+                    HashTreePMap.empty(),
+                    snapshotEpochNanos);
+        }
+
+        public AnalyzerState(
+                PMap<String, Set<CodeUnit>> symbolIndex,
+                PMap<CodeUnit, CodeUnitProperties> codeUnitState,
+                PMap<ProjectFile, FileProperties> fileState,
+                SymbolKeyIndex symbolKeyIndex,
+                long snapshotEpochNanos) {
+            this(
+                    symbolIndex,
+                    codeUnitState,
+                    buildSearchNameState(codeUnitState),
+                    fileState,
+                    symbolKeyIndex,
+                    HashTreePMap.empty(),
+                    snapshotEpochNanos);
         }
     }
 
@@ -836,6 +885,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         this.state = new AnalyzerState(
                 HashTreePMap.from(immutableSymbolIndex),
                 HashTreePMap.from(localCodeUnitState),
+                buildSearchNameState(localCodeUnitState),
                 HashTreePMap.from(localFileState),
                 symbolKeyIndex,
                 HashTreePMap.empty(),
@@ -922,6 +972,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected <R> R withCodeUnitProperties(Function<Map<CodeUnit, CodeUnitProperties>, R> function) {
         var current = this.state;
         return function.apply(current.codeUnitState());
+    }
+
+    private SearchNameMetadata searchNameMetadata(CodeUnit codeUnit) {
+        return Objects.requireNonNull(this.state.searchNameState().get(codeUnit));
+    }
+
+    private static PMap<CodeUnit, SearchNameMetadata> buildSearchNameState(
+            Map<CodeUnit, CodeUnitProperties> codeUnitState) {
+        var searchNameState = new HashMap<CodeUnit, SearchNameMetadata>();
+        codeUnitState.keySet().forEach(codeUnit -> searchNameState.put(codeUnit, SearchNameMetadata.from(codeUnit)));
+        return HashTreePMap.from(searchNameState);
     }
 
     /**
@@ -1034,6 +1095,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var snapshot = new AnalyzerState(
                 HashTreePMap.from(symbolIndex),
                 HashTreePMap.from(analysisResult.codeUnitState()),
+                buildSearchNameState(analysisResult.codeUnitState()),
                 HashTreePMap.from(Map.of(file, fileState)),
                 new SymbolKeyIndex(Collections.unmodifiableNavigableSet(keySet)),
                 System.nanoTime());
@@ -1398,10 +1460,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var threadLocalMatcher = ThreadLocal.withInitial(() -> compiledPattern.matcher(""));
         return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> !cu.isSynthetic())
-                .filter(cu -> substringFilter == null
-                        || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
-                .filter(cu -> threadLocalMatcher.get().reset(cu.fqName()).find())
-                .filter(cu -> !isAnonymousStructure(cu.fqName()))
+                .filter(cu -> {
+                    var metadata = searchNameMetadata(cu);
+                    return substringFilter == null || metadata.lowerCaseFqName().contains(substringFilter);
+                })
+                .filter(cu -> threadLocalMatcher
+                        .get()
+                        .reset(searchNameMetadata(cu).fqName())
+                        .find())
+                .filter(cu -> !isAnonymousStructure(searchNameMetadata(cu).fqName()))
                 .collect(Collectors.toSet());
     }
 
@@ -1411,16 +1478,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> !cu.isSynthetic())
                 .filter(cu -> {
-                    String fqName = cu.fqName();
+                    var metadata = searchNameMetadata(cu);
+                    String fqName = metadata.fqName();
                     if (!search.caseInsensitive()) {
                         return literals.stream().anyMatch(fqName::contains);
                     }
-                    if (!AsciiUtil.isAscii(fqName)) {
+                    if (!metadata.ascii()) {
                         return compiledPattern.matcher(fqName).find();
                     }
-                    return caseInsensitiveLiterals.stream().anyMatch(literal -> literal.containedIn(fqName));
+                    return caseInsensitiveLiterals.stream()
+                            .anyMatch(literal -> metadata.lowerCaseFqName().contains(literal.foldedLiteral()));
                 })
-                .filter(cu -> !isAnonymousStructure(cu.fqName()))
+                .filter(cu -> !isAnonymousStructure(searchNameMetadata(cu).fqName()))
                 .collect(Collectors.toSet());
     }
 
@@ -4179,6 +4248,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var typedState = new AnalyzerState(
                 HashTreePMap.from(immutableNextSymbolIndex),
                 HashTreePMap.from(newCodeUnitState),
+                buildSearchNameState(newCodeUnitState),
                 HashTreePMap.from(newFileState),
                 nextSymbolKeyIndex,
                 HashTreePMap.empty(),
