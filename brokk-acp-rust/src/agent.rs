@@ -472,6 +472,10 @@ fn builtin_commands() -> Vec<AvailableCommand> {
         "configure",
         "Show or change session settings (e.g. `/configure model_selection gpt-5`)",
     ));
+    commands.push(AvailableCommand::new(
+        "pr-create",
+        "Create a GitHub pull request from the current branch (e.g. `/pr-create [title]`)",
+    ));
     commands
 }
 
@@ -486,6 +490,7 @@ fn builtin_command_names() -> std::collections::HashSet<&'static str> {
         "openrouter-login",
         "idle-timeout",
         "configure",
+        "pr-create",
     ]
     .into_iter()
     .collect()
@@ -924,6 +929,29 @@ pub async fn run_agent(
                 if is_slash_command(&prompt_text, "configure") {
                     let report =
                         handle_configure(&cx, &prompt_text, &session_id, &sessions_prompt).await;
+                    send_message(&cx, &session_id, &report);
+                    return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                }
+
+                if is_slash_command(&prompt_text, "pr-create") {
+                    let permission_mode = sessions_prompt
+                        .permission_mode(&session_id)
+                        .await
+                        .unwrap_or(PermissionMode::Default);
+                    // Reuse the per-session ToolRegistry so shell calls
+                    // route through the same `runShellCommand` dispatch
+                    // (env scrub, sandbox, rlimits) the LLM tool path
+                    // uses. The registry is created on demand if this is
+                    // the session's first prompt.
+                    let registry = sessions_prompt
+                        .get_or_create_registry(
+                            &session_id,
+                            snap.cwd.clone(),
+                            bifrost_binary_prompt.as_deref(),
+                        )
+                        .await;
+                    let report =
+                        handle_pr_create(&prompt_text, &registry, permission_mode).await;
                     send_message(&cx, &session_id, &report);
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
@@ -1975,10 +2003,7 @@ async fn handle_configure(
     session_id: &str,
     sessions: &SessionStore,
 ) -> String {
-    let args = parse_slash_command(prompt_text)
-        .map(|(_, a)| a)
-        .unwrap_or_default();
-    let trimmed = args.trim();
+    let trimmed = slash_command_args(prompt_text);
 
     // No args, or a single token: show current state.
     if trimmed.is_empty() || trimmed.split_whitespace().count() == 1 {
@@ -1989,7 +2014,7 @@ async fn handle_configure(
         if trimmed.is_empty() {
             return render_configure_dump(&session);
         }
-        return render_configure_single(trimmed, &session);
+        return render_configure_single(&trimmed, &session);
     }
 
     let mut parts = trimmed.splitn(2, char::is_whitespace);
@@ -2015,6 +2040,205 @@ async fn handle_configure(
             msg
         }
         Err(e) => format!("Error: {}", e.human_message()),
+    }
+}
+
+/// Trimmed args for a slash command. Returns the empty string when the
+/// prompt is not a slash command at all, or when the command has no
+/// trailing args. Shared between `handle_configure` and
+/// `parse_pr_create_arg` -- both want "args after the command name,
+/// trimmed of surrounding whitespace".
+fn slash_command_args(prompt_text: &str) -> String {
+    parse_slash_command(prompt_text)
+        .map(|(_, a)| a)
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// Parse the optional title from `/pr-create [title]`. Whitespace-only
+/// arguments collapse to `None` so `gh pr create --fill` derives the title
+/// from commit messages instead.
+fn parse_pr_create_arg(prompt_text: &str) -> Option<String> {
+    let trimmed = slash_command_args(prompt_text);
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+/// Quote a string for `sh -c` by wrapping in single quotes and
+/// escaping any embedded single quote via the standard `'\''` trick.
+/// `runShellCommand` invokes `sh -c` with a single argv element, so
+/// command parts that come from user input (PR title) or external
+/// lookups (default branch name) need shell-safe quoting.
+fn shell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Per-shell-call timeout for slash-command-driven `runShellCommand`
+/// invocations. Generous enough for `gh pr create` over a slow link
+/// without leaving a stuck child for minutes.
+const HANDLER_SHELL_TIMEOUT_SECS: u64 = 60;
+
+/// Run `cmd` via `runShellCommand` on the per-session `ToolRegistry`
+/// and return its stdout/stderr blob on success, or a pre-formatted
+/// `Error: ...` string on failure. `label` is the short command name
+/// shown in the error message.
+async fn run_or_report(
+    registry: &crate::tools::ToolRegistry,
+    cmd: &str,
+    label: &str,
+    policy: crate::tools::sandbox::SandboxPolicy,
+) -> Result<String, String> {
+    let result = registry
+        .execute(
+            "runShellCommand",
+            serde_json::json!({ "command": cmd, "timeoutSeconds": HANDLER_SHELL_TIMEOUT_SECS }),
+            policy,
+        )
+        .await;
+    if matches!(result.status, crate::tools::ToolStatus::Success) {
+        Ok(result.output)
+    } else {
+        Err(format!("Error: `{label}` failed.\n\n{}", result.output))
+    }
+}
+
+/// Handle the `/pr-create` slash command. Creates a GitHub pull request
+/// from the current branch by shelling out to `gh pr create`.
+///
+/// Flow (each step short-circuits with a user-facing error on failure):
+///   1. Refuse on `PermissionMode::ReadOnly` -- git push won't be allowed
+///      under the resulting sandbox tier.
+///   2. Refuse if `git status --porcelain` is non-empty so we never push
+///      with uncommitted state.
+///   3. Refuse if the branch has no upstream and instruct the user to
+///      push manually. We deliberately do NOT auto-push: the choice of
+///      which remote to push to is meaningful in fork-based workflows
+///      (`origin` may be the user's personal fork OR the upstream repo)
+///      and a server-side handler should not make that call silently.
+///   4. Detect the repository's default branch via `gh repo view` and
+///      pass it explicitly to `--base`.
+///   5. Invoke `gh pr create --base <default> --fill [--title <user-arg>]`
+///      and surface the resulting PR URL.
+///
+/// All shell calls go through `ToolRegistry::execute("runShellCommand")`
+/// so they share the LLM tool path's env scrubbing, sandbox policy,
+/// rlimits, and output truncation. The user typed `/pr-create`, so the
+/// `consult_gate` step the LLM path requires is unnecessary -- the
+/// slash command itself is the user's consent.
+///
+/// Notes:
+///   - `gh` falls back to `~/.config/gh/hosts.yml` for auth; `GH_TOKEN`
+///     and `GITHUB_TOKEN` are scrubbed from the child env, so users who
+///     rely on env-var auth must `gh auth login` first.
+async fn handle_pr_create(
+    prompt_text: &str,
+    registry: &crate::tools::ToolRegistry,
+    permission_mode: PermissionMode,
+) -> String {
+    if matches!(permission_mode, PermissionMode::ReadOnly) {
+        return "Error: `/pr-create` is disabled in read-only permission mode. \
+                Switch to `default`, `acceptEdits`, or `bypassPermissions` to \
+                create PRs."
+            .to_string();
+    }
+
+    let policy = crate::tools::sandbox::SandboxPolicy::from_permission_mode(permission_mode);
+
+    let status = match run_or_report(
+        registry,
+        "git status --porcelain",
+        "git status --porcelain",
+        policy,
+    )
+    .await
+    {
+        Ok(o) => o,
+        Err(e) => return e,
+    };
+    let dirty = status.trim();
+    if !dirty.is_empty() {
+        return format!(
+            "Error: working tree is dirty. Commit or stash these paths before \
+             running `/pr-create`:\n\n{dirty}"
+        );
+    }
+
+    // No-upstream check. Failure of `git rev-parse @{u}` is the trigger
+    // for the "no upstream" branch -- it can also fire for unrelated
+    // git errors (detached HEAD, corrupt refs), but the user-facing
+    // remediation is the same: push manually and re-run.
+    let upstream = registry
+        .execute(
+            "runShellCommand",
+            serde_json::json!({
+                "command": "git rev-parse --abbrev-ref --symbolic-full-name @{u}",
+                "timeoutSeconds": HANDLER_SHELL_TIMEOUT_SECS,
+            }),
+            policy,
+        )
+        .await;
+    if !matches!(upstream.status, crate::tools::ToolStatus::Success) {
+        let remotes = run_or_report(registry, "git remote -v", "git remote -v", policy)
+            .await
+            .unwrap_or_else(|e| e);
+        return format!(
+            "Error: this branch has no upstream. Push it manually and re-run \
+             `/pr-create` -- the choice of remote is yours, not the server's.\n\n\
+             Try: `git push -u <remote> HEAD`\n\n\
+             Detected remotes:\n{remotes}"
+        );
+    }
+
+    let base = match run_or_report(
+        registry,
+        "gh repo view --json defaultBranchRef --jq .defaultBranchRef.name",
+        "gh repo view",
+        policy,
+    )
+    .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            return format!("{e}\n\nIs `gh` installed and authenticated (`gh auth login`)?");
+        }
+    };
+    let base_branch = base.trim();
+    if base_branch.is_empty() {
+        return "Error: `gh repo view` returned an empty default branch name.".to_string();
+    }
+
+    let title_arg = match parse_pr_create_arg(prompt_text) {
+        Some(t) => format!(" --title {}", shell_single_quote(&t)),
+        None => String::new(),
+    };
+    let cmd = format!(
+        "gh pr create --base {} --fill{title_arg}",
+        shell_single_quote(base_branch)
+    );
+    match run_or_report(registry, &cmd, "gh pr create", policy).await {
+        Ok(output) => {
+            // `gh pr create` prints the PR URL on stdout. Surface it
+            // prominently; combined output may also contain a "Creating
+            // pull request..." line on stderr that we keep below.
+            let url = output
+                .lines()
+                .map(str::trim)
+                .find(|l| l.starts_with("https://") && l.contains("/pull/"))
+                .unwrap_or("");
+            if url.is_empty() {
+                format!(
+                    "Pull request created against `{base_branch}`, but the URL \
+                     could not be parsed from `gh`'s output. Raw output:\n\n{output}"
+                )
+            } else {
+                format!("Pull request created against `{base_branch}`:\n\n{url}")
+            }
+        }
+        Err(e) => e,
     }
 }
 
@@ -2223,6 +2447,78 @@ mod tests {
         // Empty input.
         assert!(!is_slash_command("", "context"));
         assert!(!is_slash_command("/", "context"));
+    }
+
+    #[test]
+    fn parse_pr_create_arg_returns_none_when_bare() {
+        assert_eq!(parse_pr_create_arg("/pr-create"), None);
+        assert_eq!(parse_pr_create_arg("  /pr-create  "), None);
+        assert_eq!(parse_pr_create_arg("/pr-create   "), None);
+    }
+
+    #[test]
+    fn parse_pr_create_arg_returns_title_when_present() {
+        assert_eq!(
+            parse_pr_create_arg("/pr-create Fix the thing"),
+            Some("Fix the thing".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_pr_create_arg_trims_surrounding_whitespace() {
+        assert_eq!(
+            parse_pr_create_arg("/pr-create   Fix the thing   "),
+            Some("Fix the thing".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_pr_create_arg_preserves_internal_punctuation_and_case() {
+        // Conventional-commit prefixes, parens, colons and mixed case
+        // must round-trip verbatim into the title.
+        assert_eq!(
+            parse_pr_create_arg("/pr-create feat(api): Add NewThing"),
+            Some("feat(api): Add NewThing".to_string())
+        );
+    }
+
+    #[test]
+    fn is_slash_command_matches_pr_create_variants() {
+        assert!(is_slash_command("/pr-create", "pr-create"));
+        assert!(is_slash_command("  /pr-create  ", "pr-create"));
+        assert!(is_slash_command("/pr-create my title", "pr-create"));
+        // Case-insensitive matching, like other slash commands.
+        assert!(is_slash_command("/PR-Create", "pr-create"));
+        assert!(is_slash_command("/PR-CREATE", "pr-create"));
+        // Hyphen-prefix collisions must not match.
+        assert!(!is_slash_command("/pr-create-extra", "pr-create"));
+    }
+
+    #[test]
+    fn builtin_commands_includes_pr_create() {
+        // The advertised list must surface `/pr-create` so editors put
+        // it in autocomplete; the collision set must reserve the name
+        // so a same-named skill cannot shadow the built-in dispatcher.
+        let cmds = builtin_commands();
+        assert!(
+            cmds.iter().any(|c| c.name == "pr-create"),
+            "builtin_commands() missing pr-create; got: {:?}",
+            cmds.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
+        assert!(
+            builtin_command_names().contains("pr-create"),
+            "builtin_command_names() missing pr-create"
+        );
+    }
+
+    #[test]
+    fn shell_single_quote_escapes_embedded_quote() {
+        assert_eq!(shell_single_quote("hello"), "'hello'");
+        assert_eq!(shell_single_quote(""), "''");
+        // The standard `'\''` escape: close, escaped quote, reopen.
+        assert_eq!(shell_single_quote("it's"), "'it'\\''s'");
+        // Backticks/$/" are harmless inside single quotes -- preserved as-is.
+        assert_eq!(shell_single_quote("$x `y` \"z\""), "'$x `y` \"z\"'");
     }
 
     #[test]
@@ -2675,6 +2971,7 @@ mod tests {
                 "openrouter-login",
                 "idle-timeout",
                 "configure",
+                "pr-create",
                 "apple",
                 "zebra",
             ]
