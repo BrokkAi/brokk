@@ -928,6 +928,23 @@ public class JavaImportTest {
     }
 
     @Test
+    public void testCouldImportFileDefaultPackageNoImport() throws IOException {
+        try (var testProject = InlineCoreProject.code("public class Foo {}", "Foo.java")
+                .addFileContents("public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+
+            var imports = analyzer.importInfoOf(barFile);
+            assertTrue(imports.isEmpty(), "Bar should have no imports");
+            assertTrue(
+                    analyzer.couldImportFile(barFile, imports, fooFile),
+                    "Default-package files should be considered importable without explicit imports");
+        }
+    }
+
+    @Test
     public void testReferencingFilesOfSamePackageNoImport() throws IOException {
         // Two files in the same package - Bar references Foo without an import
         try (var testProject = InlineCoreProject.code(
@@ -944,6 +961,23 @@ public class JavaImportTest {
             assertTrue(
                     referencingFiles.contains(barFile),
                     "Bar.java should be a referencing file of Foo.java since they're in the same package");
+        }
+    }
+
+    @Test
+    public void testReferencingFilesOfDefaultPackageNoImport() throws IOException {
+        try (var testProject = InlineCoreProject.code("public class Foo {}", "Foo.java")
+                .addFileContents("public class Bar { private Foo foo; }", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) testProject.getAnalyzer();
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+
+            var referencingFiles = analyzer.referencingFilesOf(fooFile);
+
+            assertTrue(
+                    referencingFiles.contains(barFile),
+                    "Bar.java should be a referencing file of Foo.java in the default package");
         }
     }
 }

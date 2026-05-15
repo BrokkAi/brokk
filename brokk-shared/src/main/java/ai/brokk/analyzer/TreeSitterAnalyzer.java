@@ -405,15 +405,49 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SequencedSet<CodeUnit> topLevelCodeUnits,
             List<ImportInfo> importStatements,
             boolean containsTests,
-            List<CodeUnit> topLevelList) {
+            List<CodeUnit> topLevelList,
+            FileMetadata metadata) {
 
         public FileProperties(
                 SequencedSet<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
-            this(topLevelCodeUnits, importStatements, containsTests, List.copyOf(topLevelCodeUnits));
+            this(
+                    topLevelCodeUnits,
+                    importStatements,
+                    containsTests,
+                    List.copyOf(topLevelCodeUnits),
+                    FileMetadata.from(topLevelCodeUnits));
         }
 
+        private static final FileProperties EMPTY =
+                new FileProperties(Collections.unmodifiableSequencedSet(new LinkedHashSet<>()), List.of(), false);
+
         public static FileProperties empty() {
-            return new FileProperties(Collections.unmodifiableSequencedSet(new LinkedHashSet<>()), List.of(), false);
+            return EMPTY;
+        }
+    }
+
+    public record FileMetadata(String packageName, String fileName, String extensionlessName, String pathString) {
+
+        // Derived-only cache entry. This is intentionally recomputed from top-level declarations and is not
+        // persisted in TreeSitterStateIO, so adding fields here does not require an analyzer snapshot schema bump.
+        private static FileMetadata from(SequencedSet<CodeUnit> topLevelCodeUnits) {
+            String packageName = topLevelCodeUnits.stream()
+                    .filter(cu -> cu.isClass() || cu.isModule())
+                    .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                    .findFirst()
+                    .orElse("");
+            String fileName = topLevelCodeUnits.stream()
+                    .map(CodeUnit::source)
+                    .findFirst()
+                    .map(ProjectFile::getFileName)
+                    .orElse("");
+            String extensionlessName = stripExtension(fileName);
+            String pathString = topLevelCodeUnits.stream()
+                    .map(CodeUnit::source)
+                    .findFirst()
+                    .map(ProjectFile::toString)
+                    .orElse("");
+            return new FileMetadata(packageName, fileName, extensionlessName, pathString);
         }
     }
 
@@ -985,6 +1019,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     private FileProperties fileProperties(ProjectFile file) {
         return withFileProperties(props -> props.getOrDefault(file, FileProperties.empty()));
+    }
+
+    protected final FileMetadata fileMetadata(ProjectFile file) {
+        return fileProperties(file).metadata();
+    }
+
+    protected final String cachedPackageNameOf(ProjectFile file) {
+        return fileMetadata(file).packageName();
+    }
+
+    protected final String cachedExtensionlessNameOf(ProjectFile file) {
+        return fileMetadata(file).extensionlessName();
+    }
+
+    protected final String cachedPathStringOf(ProjectFile file) {
+        return fileMetadata(file).pathString();
+    }
+
+    private static String stripExtension(String fileName) {
+        int lastDot = fileName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return fileName;
+        }
+        return fileName.substring(0, lastDot);
     }
 
     /**

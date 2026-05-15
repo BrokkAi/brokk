@@ -491,37 +491,26 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             return result.isEmpty() ? Set.of() : Collections.unmodifiableSet(result);
         }
 
-        String targetPackage = targetDecls.stream()
-                .filter(cu -> cu.isClass() || cu.isModule())
-                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
-                .findFirst()
-                .orElse("");
+        String targetPackage = cachedPackageNameOf(file);
+        Set<String> targetIdentifiers =
+                targetDecls.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
 
-        if (!targetPackage.isEmpty()) {
-            Set<String> targetIdentifiers =
-                    targetDecls.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
+        withFileProperties(fileState -> {
+            for (ProjectFile candidate : fileState.keySet()) {
+                if (candidate.equals(file) || result.contains(candidate)) continue;
 
-            withFileProperties(fileState -> {
-                for (ProjectFile candidate : fileState.keySet()) {
-                    if (candidate.equals(file) || result.contains(candidate)) continue;
+                String candidatePackage = cachedPackageNameOf(candidate);
 
-                    String candidatePackage = getTopLevelDeclarations(candidate).stream()
-                            .filter(cu -> cu.isClass() || cu.isModule())
-                            .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
-                            .findFirst()
-                            .orElse("");
-
-                    if (targetPackage.equals(candidatePackage)) {
-                        // Check if the candidate actually uses any of target's identifiers
-                        Set<String> candidateSymbols = typeIdentifiersOf(candidate);
-                        if (candidateSymbols.stream().anyMatch(targetIdentifiers::contains)) {
-                            result.add(candidate);
-                        }
+                if (targetPackage.equals(candidatePackage)) {
+                    // Check if the candidate actually uses any of target's identifiers
+                    Set<String> candidateSymbols = typeIdentifiersOf(candidate);
+                    if (candidateSymbols.stream().anyMatch(targetIdentifiers::contains)) {
+                        result.add(candidate);
                     }
                 }
-                return null;
-            });
-        }
+            }
+            return null;
+        });
 
         return result.isEmpty() ? Set.of() : Collections.unmodifiableSet(result);
     }
@@ -1124,19 +1113,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
     @Override
     public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
-        // Determine target package from its top-level declarations
-        String targetPackage = getTopLevelDeclarations(target).stream()
-                .filter(cu -> cu.isClass() || cu.isModule())
-                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
-                .findFirst()
-                .orElse("");
+        String targetPackage = cachedPackageNameOf(target);
 
         // Check for explicit or wildcard imports
-        String targetName = target.getFileName();
-        if (targetName.endsWith(".java")) {
-            targetName = targetName.substring(0, targetName.length() - 5);
-        }
-        final String targetClassName = targetName;
+        final String targetClassName = cachedExtensionlessNameOf(target);
 
         for (ImportInfo imp : imports) {
             // Case 1: Explicit import (e.g. import com.example.Foo; or import static com.example.Foo.METHOD;)
@@ -1173,17 +1153,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             return false;
         }
 
-        String sourcePackage = getTopLevelDeclarations(sourceFile).stream()
-                .filter(cu -> cu.isClass() || cu.isModule())
-                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
-                .findFirst()
-                .orElse("");
-
-        String targetPackage = getTopLevelDeclarations(target).stream()
-                .filter(cu -> cu.isClass() || cu.isModule())
-                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
-                .findFirst()
-                .orElse("");
+        String sourcePackage = cachedPackageNameOf(sourceFile);
+        String targetPackage = cachedPackageNameOf(target);
 
         // In Java, files in the same package (including the default package) see each other.
         if (sourcePackage.equals(targetPackage)) {
