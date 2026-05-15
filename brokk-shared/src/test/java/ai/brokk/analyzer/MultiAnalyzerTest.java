@@ -157,25 +157,6 @@ public class MultiAnalyzerTest {
     }
 
     @Test
-    public void testSnapshotStateBackfillsSearchNameMetadata() {
-        var snapshot = multiAnalyzer.snapshotState();
-
-        assertFalse(snapshot.codeUnitState().isEmpty(), "Snapshot should include code units");
-        assertEquals(snapshot.codeUnitState().size(), snapshot.searchNameState().size());
-
-        var classUnit = snapshot.codeUnitState().keySet().stream()
-                .filter(cu -> cu.fqName().equals("TestClass"))
-                .findFirst()
-                .orElseThrow();
-        var metadata = snapshot.searchNameState().get(classUnit);
-
-        assertNotNull(metadata);
-        assertEquals("TestClass", metadata.fqName());
-        assertEquals("testclass", metadata.lowerCaseFqName());
-        assertTrue(metadata.ascii());
-    }
-
-    @Test
     public void testIsTestFile_FallsBackToHeuristicsWhenDelegateLacksCapability() {
         var pythonTestFile = new ProjectFile(tempDir, "test_script.py");
 
