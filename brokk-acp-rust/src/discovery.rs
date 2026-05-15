@@ -1,5 +1,5 @@
 //! Auto-discover available LLM models from Codex (`~/.codex/auth.json`),
-//! a local Ollama daemon (`http://localhost:11434/api/tags`), and
+//! a local Ollama daemon (`http://localhost:11434/v1/models`), and
 //! OpenRouter (`https://openrouter.ai/api/v1/models`, gated on the
 //! `OPENROUTER_API_KEY` env var).
 //!
@@ -97,18 +97,18 @@ pub const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 pub const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
 
 // ---------------------------------------------------------------------------
-// Ollama discovery (native /api/tags)
+// Ollama discovery (OpenAI-compatible /v1/models)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
-struct OllamaTagsResponse {
+struct OpenAiModelsResponse {
     #[serde(default)]
-    models: Vec<OllamaTagEntry>,
+    data: Vec<OpenAiModelEntry>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OllamaTagEntry {
-    name: String,
+struct OpenAiModelEntry {
+    id: String,
 }
 
 /// Build a short-timeout HTTP client tuned for discovery. Ollama is local;
@@ -121,16 +121,17 @@ pub fn discovery_http_client() -> reqwest::Client {
         .expect("failed to build discovery HTTP client")
 }
 
-/// Query Ollama's native `/api/tags` endpoint. Native API, not the
-/// OpenAI-compatible `/v1/models` -- `/api/tags` is the canonical list of
-/// downloaded models and includes tag suffixes (`llama3:latest`) that
-/// `/v1/models` strips.
+/// Query Ollama's OpenAI-compatible `/v1/models` endpoint. Recent Ollama
+/// versions preserve tag suffixes (`llama3:latest`) in the OpenAI shim,
+/// so we use it directly instead of the native `/api/tags`. This also
+/// keeps the parsing identical to any other OpenAI-compatible local
+/// server a user might run on the same port.
 pub async fn discover_ollama(
     http: &reqwest::Client,
     base_url: &str,
 ) -> Result<Vec<DiscoveredModel>> {
     let base = base_url.trim_end_matches('/');
-    let url = format!("{base}/api/tags");
+    let url = format!("{base}/v1/models");
     let resp = http
         .get(&url)
         .send()
@@ -138,14 +139,14 @@ pub async fn discover_ollama(
         .with_context(|| format!("GET {url}"))?;
     let status = resp.status();
     if !status.is_success() {
-        anyhow::bail!("ollama /api/tags returned HTTP {status}");
+        anyhow::bail!("ollama /v1/models returned HTTP {status}");
     }
-    let parsed: OllamaTagsResponse = resp.json().await.context("parsing /api/tags JSON")?;
+    let parsed: OpenAiModelsResponse = resp.json().await.context("parsing /v1/models JSON")?;
     Ok(parsed
-        .models
+        .data
         .into_iter()
         .map(|m| DiscoveredModel {
-            id: m.name,
+            id: m.id,
             source: ModelSource::Ollama,
         })
         .collect())
