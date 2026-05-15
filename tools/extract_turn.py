@@ -58,7 +58,36 @@ def _resolve_worktree_path(worktree: Path) -> Path:
     if resolved.exists():
         return resolved
 
+    path_str = str(resolved)
+    if "brokkbench/" in path_str and resolved.suffix != ".zip":
+        archive_str = path_str.replace("brokkbench/", "brokkbench-archive/", 1) + ".zip"
+        archive_path = Path(archive_str)
+        if archive_path.exists():
+            return archive_path
+
     raise FileNotFoundError(f"worktree path does not exist: {resolved}")
+
+
+def _resolve_worktree_reference(path: Path) -> Path:
+    if path.suffix != ".json" or not path.is_file():
+        return _resolve_worktree_path(path)
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid JSON in worktree reference file {path}: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"worktree reference file must contain a JSON object: {path}")
+
+    worktree_value = payload.get("worktree")
+    if not isinstance(worktree_value, str) or not worktree_value:
+        raise ValueError(f"worktree reference file missing string 'worktree' field: {path}")
+
+    referenced_path = Path(worktree_value).expanduser()
+    if not referenced_path.is_absolute():
+        referenced_path = path.parent / referenced_path
+    return _resolve_worktree_path(referenced_path)
 
 
 def _is_code_turn_path(path: Path) -> bool:
@@ -413,7 +442,7 @@ def extract_turn_messages(worktree: Path, turn: int) -> dict[str, Any]:
     if turn < 1:
         raise ValueError("turn must be a positive integer")
 
-    location = _resolve_worktree_path(worktree)
+    location = _resolve_worktree_reference(worktree)
     if not location.is_dir() and location.suffix != ".zip":
         raise ValueError(f"unsupported worktree location: {location}")
 
