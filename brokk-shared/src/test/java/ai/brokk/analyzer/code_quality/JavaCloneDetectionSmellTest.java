@@ -308,6 +308,10 @@ public class JavaCloneDetectionSmellTest extends AbstractCloneDetectionSmellTest
                         "com/example/Alpha.java->com/example/Beta.java",
                         "com/example/Alpha.java->com/example/Gamma.java",
                         "com/example/Beta.java->com/example/Gamma.java"),
-                findings.stream().map(f -> f.file() + "->" + f.peerFile()).toList());
+                findings.stream()
+                        .map(f -> f.file().toString().replace('\\', '/')
+                                + "->"
+                                + f.peerFile().toString().replace('\\', '/'))
+                        .toList());
     }
 }
