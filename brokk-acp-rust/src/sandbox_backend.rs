@@ -790,12 +790,6 @@ impl WasmSandbox {
         req: &SandboxRequest,
         preopen: Option<(&std::path::Path, &str)>,
     ) -> Result<SandboxResponse<Resp>> {
-        use wasmtime::{StoreLimits, StoreLimitsBuilder};
-        use wasmtime_wasi::pipe::{MemoryInputPipe, MemoryOutputPipe};
-        use wasmtime_wasi::{
-            DirPerms, FilePerms, ResourceTable, WasiCtx, WasiCtxBuilder, WasiView,
-        };
-
         // Serialize one JSON-RPC line and feed it as the entire stdin
         // of the wasm process. Newline-terminate so the guest's
         // `BufRead::lines()` returns immediately on EOF after the
@@ -803,103 +797,170 @@ impl WasmSandbox {
         let mut req_bytes = serde_json::to_vec(req).context("serializing sandbox request")?;
         req_bytes.push(b'\n');
 
-        let stdin = MemoryInputPipe::new(req_bytes);
-        let stdout = MemoryOutputPipe::new(MEMORY_LIMIT_BYTES);
-        let stderr = MemoryOutputPipe::new(64 * 1024);
+        // wasmtime-wasi 27's sync API calls `tokio::Handle::block_on` for
+        // its async I/O (file open, preopen materialization, etc.). Most
+        // of our callers run inside the ACP agent's tokio runtime, where
+        // that panics with "Cannot start a runtime from within a runtime"
+        // because tokio refuses reentrant `block_on` on a task thread.
+        //
+        // Running the wasmtime call inside `std::thread::scope` puts it
+        // on a thread that has no current `Handle`, so wasmtime-wasi
+        // spins up its own fallback runtime cleanly. The parent thread
+        // blocks on `join` -- on a multi-thread tokio runtime, other
+        // workers continue serving tasks.
+        //
+        // Why not `tokio::task::spawn_blocking`? It would also escape
+        // the current task's runtime context, but it requires this
+        // function (and every transitive caller -- `read_file_bounded`,
+        // `agents_md::discover`, `Session::new`, ...) to become `async`.
+        // That refactor is large and propagates `async` into call sites
+        // that have no other reason to be async. The scoped-thread shim
+        // keeps the sync API intact and confines the workaround to a
+        // dozen lines here.
+        //
+        // Why not `tokio::task::block_in_place`? It looks superficially
+        // similar but does NOT help: it tells the runtime "this worker
+        // is about to block", but it does not clear `Handle::current()`
+        // for the calling thread. wasmtime-wasi would still take the
+        // `Ok(h) => h.block_on(f)` branch at runtime.rs:108 and panic
+        // for the same reason.
+        //
+        // TODO: migrate to wasmtime-wasi's async API (`add_to_linker_async`
+        // + non-`sync::` `Command` bindings) so the sandbox participates
+        // in the tokio runtime naturally; this lets us drop the scoped
+        // thread + its per-call setup cost.
+        let response_line = std::thread::scope(|s| -> Result<String> {
+            let handle =
+                s.spawn(|| run_wasm_round_trip(&self.engine, &self.component, req_bytes, preopen));
+            handle.join().map_err(|payload| {
+                // Surface the panic message instead of swallowing it.
+                // `panic!("...")` payloads land here as `String` (formatted
+                // panics) or `&'static str` (literal panics); anything
+                // else is exotic enough that a placeholder is fine.
+                let msg = payload
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| {
+                        payload
+                            .downcast_ref::<&'static str>()
+                            .map(|s| (*s).to_string())
+                    })
+                    .unwrap_or_else(|| "<non-string panic payload>".to_string());
+                anyhow!("[sandbox] wasm worker thread panicked: {msg}")
+            })?
+        })?;
 
-        let mut wasi_builder = WasiCtxBuilder::new();
-        wasi_builder
-            .stdin(stdin)
-            .stdout(stdout.clone())
-            .stderr(stderr.clone());
-        // Optional per-call preopen. The host hands us a host path and the
-        // guest mount point; the guest then reads files using just the
-        // basename relative to that mount point, so it never sees the host
-        // absolute path. Read-only by design: the sandbox only consumes
-        // bytes for parsing, it never writes.
-        if let Some((host_dir, guest_mount)) = preopen {
-            wasi_builder
-                .preopened_dir(host_dir, guest_mount, DirPerms::READ, FilePerms::READ)
-                .with_context(|| {
-                    format!(
-                        "preopening sandbox dir '{}' as '{guest_mount}'",
-                        host_dir.display()
-                    )
-                })?;
-        }
-        let wasi_ctx = wasi_builder.build();
-
-        // The store holds the wasi ctx + a resource table + a memory
-        // limiter. `StoreLimits` caps the wasm linear memory so a
-        // pathological input (huge file, expansion bomb) traps the
-        // guest instead of growing the host's address space.
-        struct Host {
-            ctx: WasiCtx,
-            table: ResourceTable,
-            limits: StoreLimits,
-        }
-        impl WasiView for Host {
-            fn ctx(&mut self) -> &mut WasiCtx {
-                &mut self.ctx
-            }
-            fn table(&mut self) -> &mut ResourceTable {
-                &mut self.table
-            }
-        }
-
-        let limits = StoreLimitsBuilder::new()
-            .memory_size(MEMORY_LIMIT_BYTES)
-            .build();
-        let mut store = wasmtime::Store::new(
-            &self.engine,
-            Host {
-                ctx: wasi_ctx,
-                table: ResourceTable::new(),
-                limits,
-            },
-        );
-        store.limiter(|h| &mut h.limits);
-        store
-            .set_fuel(FUEL_PER_REQUEST)
-            .context("setting sandbox fuel")?;
-
-        let mut linker = wasmtime::component::Linker::<Host>::new(&self.engine);
-        wasmtime_wasi::add_to_linker_sync(&mut linker)
-            .context("wiring wasi imports into sandbox linker")?;
-
-        // Instantiate as a CLI command component (the binary's
-        // `_start` is the entry point we want to run end-to-end).
-        let command = wasmtime_wasi::bindings::sync::Command::instantiate(
-            &mut store,
-            &self.component,
-            &linker,
-        )
-        .context("instantiating sandbox component")?;
-
-        let run_result = command
-            .wasi_cli_run()
-            .call_run(&mut store)
-            .context("invoking wasi:cli/run on sandbox component")?;
-        if run_result.is_err() {
-            let stderr_bytes = stderr.contents();
-            let stderr_text = String::from_utf8_lossy(&stderr_bytes);
-            return Err(anyhow!(
-                "[sandbox] guest exited non-zero. stderr: {stderr_text}"
-            ));
-        }
-
-        let out = stdout.contents();
-        let mut reader = BufReader::new(out.as_ref());
-        let mut line = String::new();
-        reader
-            .read_line(&mut line)
-            .context("reading first response line from sandbox stdout")?;
-        if line.trim().is_empty() {
-            return Err(anyhow!("[sandbox] empty response from guest"));
-        }
-        serde_json::from_str::<SandboxResponse<Resp>>(line.trim_end())
-            .with_context(|| format!("decoding sandbox response: {line}"))
+        serde_json::from_str::<SandboxResponse<Resp>>(response_line.trim_end())
+            .with_context(|| format!("decoding sandbox response: {response_line}"))
     }
+}
+
+/// Execute a single wasmtime round-trip on the current thread, returning
+/// the raw response line. Must be called from a thread that has no
+/// current tokio `Handle` (see `round_trip`'s caller for the scoped
+/// thread that establishes this invariant).
+fn run_wasm_round_trip(
+    engine: &wasmtime::Engine,
+    component: &wasmtime::component::Component,
+    req_bytes: Vec<u8>,
+    preopen: Option<(&std::path::Path, &str)>,
+) -> Result<String> {
+    use wasmtime::{StoreLimits, StoreLimitsBuilder};
+    use wasmtime_wasi::pipe::{MemoryInputPipe, MemoryOutputPipe};
+    use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
+
+    let stdin = MemoryInputPipe::new(req_bytes);
+    let stdout = MemoryOutputPipe::new(MEMORY_LIMIT_BYTES);
+    let stderr = MemoryOutputPipe::new(64 * 1024);
+
+    let mut wasi_builder = WasiCtxBuilder::new();
+    wasi_builder
+        .stdin(stdin)
+        .stdout(stdout.clone())
+        .stderr(stderr.clone());
+    // Optional per-call preopen. The host hands us a host path and the
+    // guest mount point; the guest then reads files using just the
+    // basename relative to that mount point, so it never sees the host
+    // absolute path. Read-only by design: the sandbox only consumes
+    // bytes for parsing, it never writes.
+    if let Some((host_dir, guest_mount)) = preopen {
+        wasi_builder
+            .preopened_dir(host_dir, guest_mount, DirPerms::READ, FilePerms::READ)
+            .with_context(|| {
+                format!(
+                    "preopening sandbox dir '{}' as '{guest_mount}'",
+                    host_dir.display()
+                )
+            })?;
+    }
+    let wasi_ctx = wasi_builder.build();
+
+    // The store holds the wasi ctx + a resource table + a memory
+    // limiter. `StoreLimits` caps the wasm linear memory so a
+    // pathological input (huge file, expansion bomb) traps the
+    // guest instead of growing the host's address space.
+    struct Host {
+        ctx: WasiCtx,
+        table: ResourceTable,
+        limits: StoreLimits,
+    }
+    impl WasiView for Host {
+        fn ctx(&mut self) -> &mut WasiCtx {
+            &mut self.ctx
+        }
+        fn table(&mut self) -> &mut ResourceTable {
+            &mut self.table
+        }
+    }
+
+    let limits = StoreLimitsBuilder::new()
+        .memory_size(MEMORY_LIMIT_BYTES)
+        .build();
+    let mut store = wasmtime::Store::new(
+        engine,
+        Host {
+            ctx: wasi_ctx,
+            table: ResourceTable::new(),
+            limits,
+        },
+    );
+    store.limiter(|h| &mut h.limits);
+    store
+        .set_fuel(FUEL_PER_REQUEST)
+        .context("setting sandbox fuel")?;
+
+    let mut linker = wasmtime::component::Linker::<Host>::new(engine);
+    wasmtime_wasi::add_to_linker_sync(&mut linker)
+        .context("wiring wasi imports into sandbox linker")?;
+
+    // Instantiate as a CLI command component (the binary's
+    // `_start` is the entry point we want to run end-to-end).
+    let command =
+        wasmtime_wasi::bindings::sync::Command::instantiate(&mut store, component, &linker)
+            .context("instantiating sandbox component")?;
+
+    let run_result = command
+        .wasi_cli_run()
+        .call_run(&mut store)
+        .context("invoking wasi:cli/run on sandbox component")?;
+    if run_result.is_err() {
+        let stderr_bytes = stderr.contents();
+        let stderr_text = String::from_utf8_lossy(&stderr_bytes);
+        return Err(anyhow!(
+            "[sandbox] guest exited non-zero. stderr: {stderr_text}"
+        ));
+    }
+
+    let out = stdout.contents();
+    let mut reader = BufReader::new(out.as_ref());
+    let mut line = String::new();
+    reader
+        .read_line(&mut line)
+        .context("reading first response line from sandbox stdout")?;
+    if line.trim().is_empty() {
+        return Err(anyhow!("[sandbox] empty response from guest"));
+    }
+    Ok(line)
 }
 
 // ---------------------------------------------------------------------------
@@ -1296,6 +1357,52 @@ mod tests {
             err.kind(),
             std::io::ErrorKind::FileTooLarge,
             "expected FileTooLarge, got: {err}"
+        );
+    }
+
+    /// Regression: wasmtime-wasi 27 sync API calls `Handle::block_on`
+    /// for its I/O, which panics with "Cannot start a runtime from
+    /// within a runtime" if invoked from inside a tokio task. The ACP
+    /// agent runs every request handler under `#[tokio::main]`, so
+    /// any sandbox call has to tolerate that ambient runtime. We
+    /// isolate the wasmtime work on a scoped non-tokio thread; this
+    /// test pins that invariant so the fix does not regress.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn wasm_round_trip_survives_ambient_tokio_runtime() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("hello.txt");
+        std::fs::write(&path, "from-tokio\n").unwrap();
+
+        let wasm = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let backend = SandboxBackend::Wasm(Arc::new(wasm));
+        let content = backend
+            .read_file_bounded(&path, 1024)
+            .expect("read should succeed even with ambient tokio runtime")
+            .expect("file should be present");
+        assert_eq!(content, "from-tokio\n");
+    }
+
+    /// The scoped-thread shim must not swallow ordinary business
+    /// errors that the guest reports (e.g. `FileTooLarge` when the
+    /// payload exceeds the host-supplied cap). Verifying this through
+    /// a tokio runtime ensures both the runtime escape and the error
+    /// propagation paths agree end-to-end.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn wasm_round_trip_propagates_guest_errors_under_tokio() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("big.txt");
+        let body = "x".repeat(8 * 1024);
+        std::fs::write(&path, &body).unwrap();
+
+        let wasm = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let backend = SandboxBackend::Wasm(Arc::new(wasm));
+        let err = backend
+            .read_file_bounded(&path, 1024)
+            .expect_err("oversize file must surface as an error, not be silently dropped");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::FileTooLarge,
+            "expected FileTooLarge across the scoped-thread boundary, got: {err}"
         );
     }
 }
