@@ -428,6 +428,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     public record FileMetadata(String packageName, String fileName, String extensionlessName, String pathString) {
 
+        // Derived-only cache entry. This is intentionally recomputed from top-level declarations and is not
+        // persisted in TreeSitterStateIO, so adding fields here does not require an analyzer snapshot schema bump.
         private static FileMetadata from(SequencedSet<CodeUnit> topLevelCodeUnits) {
             String packageName = topLevelCodeUnits.stream()
                     .filter(cu -> cu.isClass() || cu.isModule())
