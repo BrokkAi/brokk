@@ -802,20 +802,53 @@ impl WasmSandbox {
         // of our callers run inside the ACP agent's tokio runtime, where
         // that panics with "Cannot start a runtime from within a runtime"
         // because tokio refuses reentrant `block_on` on a task thread.
+        //
         // Running the wasmtime call inside `std::thread::scope` puts it
         // on a thread that has no current `Handle`, so wasmtime-wasi
         // spins up its own fallback runtime cleanly. The parent thread
         // blocks on `join` -- on a multi-thread tokio runtime, other
         // workers continue serving tasks.
-        let response_line: Result<String> = std::thread::scope(|s| {
-            let handle = s.spawn(|| -> Result<String> {
-                run_wasm_round_trip(&self.engine, &self.component, req_bytes, preopen)
-            });
-            handle
-                .join()
-                .map_err(|_| anyhow!("[sandbox] wasm worker thread panicked"))?
-        });
-        let response_line = response_line?;
+        //
+        // Why not `tokio::task::spawn_blocking`? It would also escape
+        // the current task's runtime context, but it requires this
+        // function (and every transitive caller -- `read_file_bounded`,
+        // `agents_md::discover`, `Session::new`, ...) to become `async`.
+        // That refactor is large and propagates `async` into call sites
+        // that have no other reason to be async. The scoped-thread shim
+        // keeps the sync API intact and confines the workaround to a
+        // dozen lines here.
+        //
+        // Why not `tokio::task::block_in_place`? It looks superficially
+        // similar but does NOT help: it tells the runtime "this worker
+        // is about to block", but it does not clear `Handle::current()`
+        // for the calling thread. wasmtime-wasi would still take the
+        // `Ok(h) => h.block_on(f)` branch at runtime.rs:108 and panic
+        // for the same reason.
+        //
+        // TODO: migrate to wasmtime-wasi's async API (`add_to_linker_async`
+        // + non-`sync::` `Command` bindings) so the sandbox participates
+        // in the tokio runtime naturally; this lets us drop the scoped
+        // thread + its per-call setup cost.
+        let response_line = std::thread::scope(|s| -> Result<String> {
+            let handle =
+                s.spawn(|| run_wasm_round_trip(&self.engine, &self.component, req_bytes, preopen));
+            handle.join().map_err(|payload| {
+                // Surface the panic message instead of swallowing it.
+                // `panic!("...")` payloads land here as `String` (formatted
+                // panics) or `&'static str` (literal panics); anything
+                // else is exotic enough that a placeholder is fine.
+                let msg = payload
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| {
+                        payload
+                            .downcast_ref::<&'static str>()
+                            .map(|s| (*s).to_string())
+                    })
+                    .unwrap_or_else(|| "<non-string panic payload>".to_string());
+                anyhow!("[sandbox] wasm worker thread panicked: {msg}")
+            })?
+        })?;
 
         serde_json::from_str::<SandboxResponse<Resp>>(response_line.trim_end())
             .with_context(|| format!("decoding sandbox response: {response_line}"))
@@ -1347,5 +1380,29 @@ mod tests {
             .expect("read should succeed even with ambient tokio runtime")
             .expect("file should be present");
         assert_eq!(content, "from-tokio\n");
+    }
+
+    /// The scoped-thread shim must not swallow ordinary business
+    /// errors that the guest reports (e.g. `FileTooLarge` when the
+    /// payload exceeds the host-supplied cap). Verifying this through
+    /// a tokio runtime ensures both the runtime escape and the error
+    /// propagation paths agree end-to-end.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn wasm_round_trip_propagates_guest_errors_under_tokio() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("big.txt");
+        let body = "x".repeat(8 * 1024);
+        std::fs::write(&path, &body).unwrap();
+
+        let wasm = WasmSandbox::new().expect("wasm sandbox should initialize");
+        let backend = SandboxBackend::Wasm(Arc::new(wasm));
+        let err = backend
+            .read_file_bounded(&path, 1024)
+            .expect_err("oversize file must surface as an error, not be silently dropped");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::FileTooLarge,
+            "expected FileTooLarge across the scoped-thread boundary, got: {err}"
+        );
     }
 }
