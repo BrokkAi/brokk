@@ -2203,9 +2203,7 @@ async fn handle_pr_create(
     {
         Ok(o) => o,
         Err(e) => {
-            return format!(
-                "{e}\n\nIs `gh` installed and authenticated (`gh auth login`)?"
-            );
+            return format!("{e}\n\nIs `gh` installed and authenticated (`gh auth login`)?");
         }
     };
     let base_branch = base.trim();
@@ -2520,10 +2518,7 @@ mod tests {
         // The standard `'\''` escape: close, escaped quote, reopen.
         assert_eq!(shell_single_quote("it's"), "'it'\\''s'");
         // Backticks/$/" are harmless inside single quotes -- preserved as-is.
-        assert_eq!(
-            shell_single_quote("$x `y` \"z\""),
-            "'$x `y` \"z\"'"
-        );
+        assert_eq!(shell_single_quote("$x `y` \"z\""), "'$x `y` \"z\"'");
     }
 
     #[test]
