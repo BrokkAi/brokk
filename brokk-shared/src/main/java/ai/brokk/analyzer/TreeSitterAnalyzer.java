@@ -4874,8 +4874,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 .filter(cu -> isRelevantFile(cu.source()))
                 .map(cu -> buildCloneCandidateData(cu, resolved))
                 .flatMap(Optional::stream)
-                .map(candidate -> new CloneCandidateProfile(
-                        candidate, hashedShingleArray(candidate.normalizedTokens(), resolved.shingleSize())))
+                .map(candidate -> CloneCandidateProfile.create(candidate, resolved))
                 .toList();
         if (allCandidates.isEmpty()) {
             return List.of();
@@ -4896,6 +4895,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     continue;
                 }
                 if (requestedFiles.contains(rightData.unit().source()) && compareCloneUnits(leftData, rightData) > 0) {
+                    continue;
+                }
+                if (!canReachCloneSimilarity(left, right, resolved)) {
                     continue;
                 }
                 int tokenSimilarity = computeCloneTokenSimilarity(left.shingles(), right.shingles(), resolved);
@@ -4978,13 +4980,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     static int computeCloneTokenSimilarity(
             LongShingles leftShingles, LongShingles rightShingles, CloneSmellWeights weights) {
-        if (leftShingles.size() < weights.minSharedShingles() || rightShingles.size() < weights.minSharedShingles()) {
-            return 0;
-        }
-        int smallerSize = Math.min(leftShingles.size(), rightShingles.size());
-        int largerSize = Math.max(leftShingles.size(), rightShingles.size());
-        int maxPossibleSimilarity = (int) Math.round((smallerSize * 100.0) / largerSize);
-        if (maxPossibleSimilarity < weights.minSimilarityPercent()) {
+        if (!canReachCloneSimilarity(leftShingles.size(), rightShingles.size(), weights)) {
             return 0;
         }
         int intersectionSize = intersectionSize(leftShingles, rightShingles);
@@ -5005,6 +5001,29 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return fileComparison;
         }
         return left.unit().fqName().compareTo(right.unit().fqName());
+    }
+
+    private static boolean canReachCloneSimilarity(
+            CloneCandidateProfile left, CloneCandidateProfile right, CloneSmellWeights weights) {
+        if (!canReachCloneSimilarity(left.shingleCount(), right.shingleCount(), weights)) {
+            return false;
+        }
+        return canReachRoundedSimilarity(left.normalizedTokenCount(), right.normalizedTokenCount(), weights);
+    }
+
+    static boolean canReachCloneSimilarity(int leftShingleCount, int rightShingleCount, CloneSmellWeights weights) {
+        if (leftShingleCount < weights.minSharedShingles() || rightShingleCount < weights.minSharedShingles()) {
+            return false;
+        }
+        return canReachRoundedSimilarity(leftShingleCount, rightShingleCount, weights);
+    }
+
+    private static boolean canReachRoundedSimilarity(int leftCount, int rightCount, CloneSmellWeights weights) {
+        int smallerCount = Math.min(leftCount, rightCount);
+        int largerCount = Math.max(leftCount, rightCount);
+        assert largerCount > 0;
+        int maxPossibleSimilarity = (int) Math.round((smallerCount * 100.0) / largerCount);
+        return maxPossibleSimilarity >= weights.minSimilarityPercent();
     }
 
     private static int intersectionSize(LongShingles left, LongShingles right) {
@@ -5276,7 +5295,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
     }
 
-    private record CloneCandidateProfile(CloneCandidateData data, LongShingles shingles) {}
+    private record CloneCandidateProfile(
+            CloneCandidateData data, LongShingles shingles, int normalizedTokenCount, int shingleCount) {
+
+        private static CloneCandidateProfile create(CloneCandidateData data, CloneSmellWeights weights) {
+            LongShingles shingles = hashedShingleArray(data.normalizedTokens(), weights.shingleSize());
+            return new CloneCandidateProfile(
+                    data, shingles, data.normalizedTokens().size(), shingles.size());
+        }
+    }
 
     /**
      * Extracts potential type identifiers from source code.

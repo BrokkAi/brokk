@@ -1,6 +1,8 @@
 package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -68,6 +70,27 @@ class TreeSitterCloneSimilarityTest {
         var weights = new IAnalyzer.CloneSmellWeights(1, 70, 1, 1, 70);
 
         assertEquals(70, TreeSitterAnalyzer.computeCloneTokenSimilarity(left, right, weights));
+    }
+
+    @Test
+    void candidatePrefilterRejectsPairsBelowMinSharedShingles() {
+        var weights = new IAnalyzer.CloneSmellWeights(1, 50, 1, 3, 70);
+
+        assertFalse(TreeSitterAnalyzer.canReachCloneSimilarity(2, 5, weights));
+    }
+
+    @Test
+    void candidatePrefilterRejectsPairsWhoseRoundedUpperBoundMissesThreshold() {
+        var weights = new IAnalyzer.CloneSmellWeights(1, 71, 1, 1, 70);
+
+        assertFalse(TreeSitterAnalyzer.canReachCloneSimilarity(699, 1000, weights));
+    }
+
+    @Test
+    void candidatePrefilterKeepsPairsAtRoundedUpperBoundThreshold() {
+        var weights = new IAnalyzer.CloneSmellWeights(1, 70, 1, 1, 70);
+
+        assertTrue(TreeSitterAnalyzer.canReachCloneSimilarity(699, 1000, weights));
     }
 
     @Test
