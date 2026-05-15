@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.NullMarked;
 
@@ -87,11 +88,7 @@ public final class StaticAnalysisLeadExpansionService {
                 if (!sourceFile.exists()) {
                     continue;
                 }
-                var symbols = facts.declarations(sourceFile).stream()
-                        .filter(cu -> !cu.fqName().isBlank())
-                        .sorted(Comparator.comparing(CodeUnit::fqName))
-                        .limit(MAX_SYMBOLS_PER_FILE)
-                        .toList();
+                var symbols = firstAlphabeticalSymbols(facts.declarations(sourceFile), MAX_SYMBOLS_PER_FILE);
                 var symbolCount = 0;
                 for (var symbol : symbols) {
                     if (timedOut(deadline)) {
@@ -135,12 +132,7 @@ public final class StaticAnalysisLeadExpansionService {
 
             var ranked = new ArrayList<StaticAnalysisSeedDtos.SeedRecord>();
             var rank = 1;
-            for (var candidate : candidates.values().stream()
-                    .sorted(Comparator.comparingDouble(Candidate::score)
-                            .reversed()
-                            .thenComparing(candidate -> pathCache.externalPath(candidate.file)))
-                    .limit(request.maxResults())
-                    .toList()) {
+            for (var candidate : topCandidates(candidates.values(), request.maxResults(), pathCache)) {
                 ranked.add(candidate.toRecord(analyzer, rank++, pathCache.externalPath(candidate.file)));
             }
 
@@ -251,6 +243,52 @@ public final class StaticAnalysisLeadExpansionService {
             count++;
             fromIndex = index + needle.length();
         }
+    }
+
+    private static List<CodeUnit> firstAlphabeticalSymbols(List<CodeUnit> declarations, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        var selected = new TreeSet<CodeUnit>(Comparator.comparing(CodeUnit::fqName)
+                .thenComparing(cu -> cu.source().toString())
+                .thenComparing(cu -> cu.signature() == null ? "" : cu.signature())
+                .thenComparing(cu -> cu.kind().name()));
+        for (var declaration : declarations) {
+            if (declaration.fqName().isBlank()) {
+                continue;
+            }
+            selected.add(declaration);
+            if (selected.size() > limit) {
+                selected.pollLast();
+            }
+        }
+        return List.copyOf(selected);
+    }
+
+    private static List<Candidate> topCandidates(Iterable<Candidate> candidates, int limit, PathCache pathCache) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        record RankedCandidate(Candidate candidate, double score, String filePath) {}
+        var byRank = Comparator.comparingDouble(RankedCandidate::score)
+                .thenComparing(RankedCandidate::filePath, Comparator.reverseOrder());
+        var selected = new PriorityQueue<RankedCandidate>(byRank);
+        for (var candidate : candidates) {
+            var rankedCandidate =
+                    new RankedCandidate(candidate, candidate.score(), pathCache.externalPath(candidate.file));
+            if (selected.size() < limit) {
+                selected.add(rankedCandidate);
+            } else if (byRank.compare(rankedCandidate, selected.peek()) > 0) {
+                selected.poll();
+                selected.add(rankedCandidate);
+            }
+        }
+        return selected.stream()
+                .sorted(Comparator.comparingDouble(RankedCandidate::score)
+                        .reversed()
+                        .thenComparing(RankedCandidate::filePath))
+                .map(RankedCandidate::candidate)
+                .toList();
     }
 
     private List<ProjectFile> limitedSourceFiles(IAnalyzer analyzer, long limit, PathCache pathCache) {

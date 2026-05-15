@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 public class JavaCloneDetectionSmellTest extends AbstractCloneDetectionSmellTest {
@@ -249,5 +250,64 @@ public class JavaCloneDetectionSmellTest extends AbstractCloneDetectionSmellTest
                 .count();
 
         assertEquals(1, forwardCount + reverseCount);
+    }
+
+    @Test
+    void ordersCloneFindingsDeterministicallyAcrossFilesAndPeers() {
+        String alpha =
+                """
+                package com.example;
+                class Alpha {
+                    int same(int input) {
+                        int total = input + 1;
+                        if (total > 10) {
+                            return total * 2;
+                        }
+                        return total - 3;
+                    }
+                }
+                """;
+        String beta =
+                """
+                package com.example;
+                class Beta {
+                    int same(int seed) {
+                        int amount = seed + 1;
+                        if (amount > 10) {
+                            return amount * 2;
+                        }
+                        return amount - 3;
+                    }
+                }
+                """;
+        String gamma =
+                """
+                package com.example;
+                class Gamma {
+                    int same(int seed) {
+                        int value = seed + 1;
+                        if (value > 10) {
+                            return value * 2;
+                        }
+                        return value - 3;
+                    }
+                }
+                """;
+
+        var findings = analyzeThreeRequested(
+                "com/example/Gamma.java",
+                gamma,
+                "com/example/Beta.java",
+                beta,
+                "com/example/Alpha.java",
+                alpha,
+                IAnalyzer.CloneSmellWeights.defaults());
+
+        assertEquals(
+                List.of(
+                        "com/example/Alpha.java->com/example/Beta.java",
+                        "com/example/Alpha.java->com/example/Gamma.java",
+                        "com/example/Beta.java->com/example/Gamma.java"),
+                findings.stream().map(f -> f.file() + "->" + f.peerFile()).toList());
     }
 }
