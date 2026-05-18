@@ -29,27 +29,76 @@ use crate::discovery::{
 };
 use crate::llm_client::{ChatMessage, LlmBackend, LlmResponse, ModelMetadata, ToolDefinition};
 
+/// Dynamic Ollama endpoint stored on `MultiBackend`. Defaults to
+/// `discovery::OLLAMA_DEFAULT_URL`; `/configure ollama.endpoint <url>`
+/// swaps it at runtime, after which the next discovery refresh hits
+/// the new URL and the rebuilt chat backend talks to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OllamaConfig {
+    pub url: String,
+}
+
+impl Default for OllamaConfig {
+    fn default() -> Self {
+        Self {
+            url: OLLAMA_DEFAULT_URL.to_string(),
+        }
+    }
+}
+
+/// Per-process OpenRouter attribution headers. These pin the
+/// openrouter.ai leaderboard identity; values are baked into the
+/// `reqwest::Client` defaults at `OpenAiClient` construction, so any
+/// change requires rebuilding the backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenRouterAttribution {
+    pub http_referer: String,
+    pub x_title: String,
+}
+
+impl OpenRouterAttribution {
+    /// Brokk's well-known attribution defaults. Kept here so the
+    /// startup path and `/configure` clears converge on one source.
+    pub const DEFAULT_HTTP_REFERER: &'static str = "https://github.com/BrokkAi/brokk";
+    pub const DEFAULT_X_TITLE: &'static str = "brokk-acp-rust";
+}
+
+impl Default for OpenRouterAttribution {
+    fn default() -> Self {
+        Self {
+            http_referer: Self::DEFAULT_HTTP_REFERER.to_string(),
+            x_title: Self::DEFAULT_X_TITLE.to_string(),
+        }
+    }
+}
+
 /// LLM backend that routes by `<source>::<id>` prefix. Any inner backend
 /// may be absent (e.g. no `auth.json`, no `OPENROUTER_API_KEY`, or no
 /// Ollama on the default port); calls for a source whose backend isn't
 /// configured return a clear error rather than silently falling through.
 ///
-/// The Codex and OpenRouter slots are held behind `RwLock`s so a
-/// successful `/codex-login` or `/openrouter-login` mid-session can
-/// install a backend without a server restart. The lock is only ever
-/// held for the duration of a synchronous `Option<Arc<...>>` clone --
-/// we never hold it across an `.await`.
+/// All three slots (Codex, OpenRouter, Ollama) are held behind `RwLock`s
+/// so a successful `/codex-login`, `/openrouter-login`, or `/configure
+/// ollama.endpoint` mid-session can install a backend without a server
+/// restart. The lock is only ever held for the duration of a synchronous
+/// `Option<Arc<...>>` clone -- we never hold it across an `.await`.
 ///
-/// Ollama stays a plain `Option<Arc<...>>`: there's no login flow for
-/// it (the daemon either listens on the default port or it doesn't),
-/// so the slot is set once at construction and never mutated.
+/// The `ollama_config` and `openrouter_attribution` cells hold the
+/// dynamic values (Ollama URL, OpenRouter leaderboard attribution)
+/// `/configure` mutates. They are read on every discovery pass / backend
+/// rebuild, so a change takes effect on the next request.
 pub struct MultiBackend {
     codex: RwLock<Option<Arc<dyn LlmBackend>>>,
     openrouter: RwLock<Option<Arc<dyn LlmBackend>>>,
-    ollama: Option<Arc<dyn LlmBackend>>,
+    ollama: RwLock<Option<Arc<dyn LlmBackend>>>,
+    ollama_config: RwLock<OllamaConfig>,
+    openrouter_attribution: RwLock<OpenRouterAttribution>,
 }
 
 impl MultiBackend {
+    /// Construct with default Ollama URL and OpenRouter attribution.
+    /// `/configure ollama.endpoint` and `/configure openrouter.*` mutate
+    /// the cells in place at runtime via the `set_*` helpers.
     pub fn new(
         codex: Option<Arc<dyn LlmBackend>>,
         openrouter: Option<Arc<dyn LlmBackend>>,
@@ -58,7 +107,9 @@ impl MultiBackend {
         Self {
             codex: RwLock::new(codex),
             openrouter: RwLock::new(openrouter),
-            ollama,
+            ollama: RwLock::new(ollama),
+            ollama_config: RwLock::new(OllamaConfig::default()),
+            openrouter_attribution: RwLock::new(OpenRouterAttribution::default()),
         }
     }
 
@@ -107,6 +158,14 @@ impl MultiBackend {
         *self.openrouter.write().unwrap() = None;
     }
 
+    /// Install (or replace) the Ollama backend at runtime. Called from
+    /// `/configure ollama.endpoint <url>` after the new URL probe builds
+    /// a fresh `OpenAiClient`. Mirrors the Codex/OpenRouter shape so an
+    /// endpoint swap doesn't take the daemon away from in-flight chats.
+    pub fn install_ollama(&self, backend: Arc<dyn LlmBackend>) {
+        *self.ollama.write().unwrap() = Some(backend);
+    }
+
     /// Snapshot the current Codex backend, if any. Cloning the inner Arc
     /// lets callers release the read lock immediately; they can then
     /// `.await` the backend without holding a guard.
@@ -120,11 +179,45 @@ impl MultiBackend {
         self.openrouter.read().unwrap().clone()
     }
 
+    /// Snapshot the current Ollama backend, if any. Same lock-then-clone
+    /// shape as the other two slots; the guard is dropped before any
+    /// awaits.
+    fn ollama_snapshot(&self) -> Option<Arc<dyn LlmBackend>> {
+        self.ollama.read().unwrap().clone()
+    }
+
+    /// Snapshot the current Ollama config (URL). Used by `list_model_metadata`
+    /// to point discovery at the configured endpoint, and by `/configure`
+    /// dump paths.
+    pub fn ollama_config_snapshot(&self) -> OllamaConfig {
+        self.ollama_config.read().unwrap().clone()
+    }
+
+    /// Replace the Ollama config cell. Subsequent discovery and backend
+    /// rebuilds read the new value.
+    pub fn set_ollama_config(&self, config: OllamaConfig) {
+        *self.ollama_config.write().unwrap() = config;
+    }
+
+    /// Snapshot the OpenRouter attribution. Used when rebuilding the
+    /// OpenRouter backend so the new client carries the current headers.
+    pub fn openrouter_attribution_snapshot(&self) -> OpenRouterAttribution {
+        self.openrouter_attribution.read().unwrap().clone()
+    }
+
+    /// Replace the OpenRouter attribution cell. Note that an existing
+    /// installed backend keeps the previous headers (they're baked into
+    /// the client's defaults); callers must rebuild and reinstall to
+    /// apply the change.
+    pub fn set_openrouter_attribution(&self, attribution: OpenRouterAttribution) {
+        *self.openrouter_attribution.write().unwrap() = attribution;
+    }
+
     fn pick(&self, source: ModelSource) -> Option<Arc<dyn LlmBackend>> {
         match source {
             ModelSource::Codex => self.codex_snapshot(),
             ModelSource::OpenRouter => self.openrouter_snapshot(),
-            ModelSource::Ollama => self.ollama.clone(),
+            ModelSource::Ollama => self.ollama_snapshot(),
         }
     }
 
@@ -146,7 +239,7 @@ impl MultiBackend {
         if openrouter_present {
             return Some(ModelSource::OpenRouter);
         }
-        if self.ollama.is_some() {
+        if self.ollama.read().unwrap().is_some() {
             return Some(ModelSource::Ollama);
         }
         None
@@ -228,8 +321,12 @@ impl LlmBackend for MultiBackend {
             };
 
             let http = discovery_http_client();
+            // Read the configured URL once per pass; in-flight requests
+            // already hold their own backend snapshots so a concurrent
+            // `set_ollama_config` doesn't perturb them.
+            let ollama_url = self.ollama_config_snapshot().url;
             let discovered: Vec<DiscoveredModel> =
-                discover_all(&http, OLLAMA_DEFAULT_URL, codex_lookup, openrouter_lookup).await;
+                discover_all(&http, &ollama_url, codex_lookup, openrouter_lookup).await;
             Ok(discovered
                 .into_iter()
                 .map(|m| {

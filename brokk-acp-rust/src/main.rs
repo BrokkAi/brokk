@@ -21,7 +21,7 @@ mod tool_loop;
 mod tools;
 
 use crate::llm_client::LlmBackend;
-use crate::multi_backend::MultiBackend;
+use crate::multi_backend::{MultiBackend, OpenRouterAttribution};
 
 /// Brokk ACP Server -- Rust-based Agent Client Protocol server with
 /// zero-config auto-discovery: at startup we read `~/.codex/auth.json`
@@ -199,50 +199,81 @@ async fn build_codex_backend() -> Option<Arc<dyn LlmBackend>> {
     backend
 }
 
-/// Build the Ollama chat backend. Always pointed at the default
-/// `http://localhost:11434`; chat requests go through Ollama's
-/// OpenAI-compatible `/v1/chat/completions` shim, while discovery
-/// (handled by `discovery.rs`) hits the OpenAI-compatible `/v1/models`.
-/// Ollama doesn't require an API key for local use.
-fn build_ollama_backend() -> Arc<dyn LlmBackend> {
-    let chat_url = format!("{}/v1", discovery::OLLAMA_DEFAULT_URL);
+/// Build the Ollama chat backend pointed at `base_url`. Chat requests go
+/// through Ollama's OpenAI-compatible `/v1/chat/completions` shim, while
+/// discovery (handled by `discovery.rs`) hits the OpenAI-compatible
+/// `/v1/models`. Ollama doesn't require an API key for local use.
+///
+/// Shared by the startup path (which always passes
+/// `discovery::OLLAMA_DEFAULT_URL`) and `/configure ollama.endpoint`,
+/// which swaps the URL at runtime and reinstalls the backend.
+pub fn build_ollama_backend(base_url: &str) -> Arc<dyn LlmBackend> {
+    let chat_url = format!("{base_url}/v1");
     tracing::info!(
-        "Ollama backend wired at {chat_url} (chat) and {}/v1/models (discovery); \
-         models become available if/when the daemon responds",
-        discovery::OLLAMA_DEFAULT_URL
+        "Ollama backend wired at {chat_url} (chat) and {base_url}/v1/models (discovery); \
+         models become available if/when the daemon responds"
     );
     Arc::new(llm_client::OpenAiClient::new(chat_url, None))
 }
 
 /// Build an OpenRouter chat backend from a raw API key. OpenRouter speaks
 /// the OpenAI Chat Completions wire format verbatim, so we reuse
-/// `OpenAiClient` with the OpenRouter base URL and attach the optional
+/// `OpenAiClient` with the OpenRouter base URL and attach the
 /// `HTTP-Referer` / `X-Title` attribution headers (these drive the
 /// openrouter.ai leaderboard rankings; both are documented as optional
 /// but we always set them so the app shows up consistently).
 ///
+/// The attribution values come from the caller so `/configure
+/// openrouter.http_referer` and `/configure openrouter.x_title` can
+/// override the defaults at runtime: header values are baked into the
+/// `reqwest::Client` defaults at construction, so a change requires
+/// rebuilding the backend.
+///
 /// Whitespace is trimmed so accidental shell quoting
 /// (`export OPENROUTER_API_KEY=" sk-..."`) doesn't 401 every request.
-/// Returns `None` for an empty key so callers can distinguish "not
-/// configured" from "configured but broken".
-pub fn openrouter_backend_from_key(raw: &str) -> Option<Arc<dyn LlmBackend>> {
+/// Returns `None` for an empty key, or for an attribution value that
+/// can't be encoded as an HTTP header (so a `/configure` typo doesn't
+/// take the backend down silently).
+pub fn openrouter_backend_from_key(
+    raw: &str,
+    attribution: &OpenRouterAttribution,
+) -> Option<Arc<dyn LlmBackend>> {
     let key = raw.trim();
     if key.is_empty() {
         return None;
     }
 
     let mut headers = reqwest::header::HeaderMap::new();
-    // Both header values are well-known ASCII strings the API expects;
-    // `from_static` panics only on invalid header bytes, which these
-    // literals are not. Doing this once at startup means we don't pay
-    // header-construction overhead per request.
+    // Header names are well-known ASCII -- `from_static` for the names
+    // is fine. Values come from `OpenRouterAttribution`, which is
+    // mutable at runtime via `/configure`, so build them with
+    // `from_str` and surface a `None` (skip install) on an invalid
+    // value rather than panicking.
+    let referer_value = match reqwest::header::HeaderValue::from_str(&attribution.http_referer) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                "OpenRouter http_referer is not a valid header value ({e}); skipping backend build"
+            );
+            return None;
+        }
+    };
+    let title_value = match reqwest::header::HeaderValue::from_str(&attribution.x_title) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                "OpenRouter x_title is not a valid header value ({e}); skipping backend build"
+            );
+            return None;
+        }
+    };
     headers.insert(
         reqwest::header::HeaderName::from_static("http-referer"),
-        reqwest::header::HeaderValue::from_static("https://github.com/BrokkAi/brokk"),
+        referer_value,
     );
     headers.insert(
         reqwest::header::HeaderName::from_static("x-title"),
-        reqwest::header::HeaderValue::from_static("brokk-acp-rust"),
+        title_value,
     );
 
     Some(Arc::new(llm_client::OpenAiClient::with_default_headers(
@@ -263,50 +294,35 @@ pub fn openrouter_backend_from_key(raw: &str) -> Option<Arc<dyn LlmBackend>> {
 /// to `/openrouter-login` first. The on-disk file (written by
 /// `/openrouter-login <key>` mid-session) is the persistent fallback for
 /// the common case of starting the server without env vars.
-fn build_openrouter_backend() -> Option<Arc<dyn LlmBackend>> {
-    if let Ok(raw) = std::env::var(discovery::OPENROUTER_API_KEY_ENV) {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            tracing::info!(
-                "{} is set but empty; falling back to {}",
-                discovery::OPENROUTER_API_KEY_ENV,
-                openrouter_auth::auth_path()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|_| "on-disk credential file".to_string())
-            );
-        } else {
-            tracing::info!(
-                "OpenRouter backend wired from {} at {} (chat + discovery); key length={}",
-                discovery::OPENROUTER_API_KEY_ENV,
-                discovery::OPENROUTER_BASE_URL,
-                trimmed.len()
-            );
-            return openrouter_backend_from_key(trimmed);
-        }
+fn build_openrouter_backend(attribution: &OpenRouterAttribution) -> Option<Arc<dyn LlmBackend>> {
+    // Delegate the env > file precedence to the canonical resolver so
+    // `/configure openrouter.http_referer` (which reads the same key to
+    // rebuild the backend on attribution change) can never drift from
+    // the startup probe. The resolver returns None when both env and
+    // on-disk file are empty or unreadable.
+    let key = agent::current_openrouter_key()?;
+    // Re-probe the env var just for logging so the line tells the
+    // operator where the key came from. The resolver already trimmed
+    // and validated it.
+    let env_present = std::env::var(discovery::OPENROUTER_API_KEY_ENV)
+        .ok()
+        .map(|raw| !raw.trim().is_empty())
+        .unwrap_or(false);
+    if env_present {
+        tracing::info!(
+            "OpenRouter backend wired from {} at {} (chat + discovery); key length={}",
+            discovery::OPENROUTER_API_KEY_ENV,
+            discovery::OPENROUTER_BASE_URL,
+            key.len()
+        );
+    } else {
+        tracing::info!(
+            "OpenRouter backend wired from on-disk credentials at {} (chat + discovery); key length={}",
+            discovery::OPENROUTER_BASE_URL,
+            key.len()
+        );
     }
-
-    match openrouter_auth::read() {
-        Ok(Some(auth)) => {
-            let trimmed = auth.api_key.trim();
-            if trimmed.is_empty() {
-                tracing::info!(
-                    "OpenRouter credential file exists but contains an empty key; backend skipped"
-                );
-                return None;
-            }
-            tracing::info!(
-                "OpenRouter backend wired from on-disk credentials at {} (chat + discovery); key length={}",
-                discovery::OPENROUTER_BASE_URL,
-                trimmed.len()
-            );
-            openrouter_backend_from_key(trimmed)
-        }
-        Ok(None) => None,
-        Err(e) => {
-            tracing::warn!("failed to read OpenRouter credential file: {e:#}");
-            None
-        }
-    }
+    openrouter_backend_from_key(&key, attribution)
 }
 
 #[tokio::main]
@@ -356,9 +372,13 @@ async fn main() -> Result<()> {
         );
     }
 
+    // Build the OpenRouter backend with the same default attribution
+    // `MultiBackend` will hold in its cell, so `/configure
+    // openrouter.http_referer` / `x_title` rebuilds the client against
+    // the same baseline the startup probe used.
     let codex_backend = build_codex_backend().await;
-    let openrouter_backend = build_openrouter_backend();
-    let ollama_backend = Some(build_ollama_backend());
+    let openrouter_backend = build_openrouter_backend(&OpenRouterAttribution::default());
+    let ollama_backend = Some(build_ollama_backend(discovery::OLLAMA_DEFAULT_URL));
 
     if codex_backend.is_none() {
         tracing::info!(

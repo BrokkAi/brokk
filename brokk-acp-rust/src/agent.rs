@@ -217,15 +217,100 @@ fn all_config_options(
     opts
 }
 
+// Backend-credential / endpoint keys handled by `apply_config_option`.
+// These mutate global server state (not per-session) but are surfaced
+// through `/configure` so users on minimal clients have a single
+// text-driven surface for every knob.
+const OPENROUTER_API_KEY_CONFIG_ID: &str = "openrouter.api_key";
+const OPENROUTER_HTTP_REFERER_CONFIG_ID: &str = "openrouter.http_referer";
+const OPENROUTER_X_TITLE_CONFIG_ID: &str = "openrouter.x_title";
+const CODEX_AUTH_CONFIG_ID: &str = "codex.auth";
+const OLLAMA_ENDPOINT_CONFIG_ID: &str = "ollama.endpoint";
+/// Per-session LLM SSE idle timeout. Folds the standalone `/idle-timeout`
+/// slash into `/configure` so future operational knobs have one home.
+const IDLE_TIMEOUT_CONFIG_ID: &str = "idle_timeout";
+
+/// Sentinel values that clear a string-valued configuration. Accepted
+/// for `openrouter.*` / `codex.auth` / `ollama.endpoint` so the wire
+/// shape stays uniform with the per-session dropdown knobs.
+const CONFIG_CLEAR_VALUES: &[&str] = &["", "default", "clear"];
+
 /// Wire ids accepted by `apply_config_option`. Kept in a single slice so
 /// every caller (the `setSessionConfigOption` request handler and the
 /// `/configure` slash command) reports identical "supported keys" lists.
+///
+/// The first four are also advertised structurally via `all_config_options`
+/// (they fit the ACP `SessionConfigOption::select(...)` shape).
+///
+/// The remaining six (added by #3610) are **text-only on the `/configure`
+/// surface**. The ACP `SessionConfigOption` schema in agent-client-protocol
+/// 0.12 only stably supports `Select`; there is no free-form text or
+/// numeric input variant (the upstream comment in the crate explicitly
+/// says "a future freeform text option would get its own variant" — i.e.
+/// it doesn't exist yet). A client that knows the wire id can still drive
+/// them through the `setSessionConfigOption` RPC (the apply path accepts
+/// them), but they will not appear in the `ConfigOptionUpdate` notification
+/// the apply path emits — only the four `Select`-shaped knobs do.
 const CONFIGURE_KNOWN_KEYS: &[&str] = &[
     BEHAVIOR_CONFIG_ID,
     PERMISSION_CONFIG_ID,
     MODEL_CONFIG_ID,
     REASONING_EFFORT_CONFIG_ID,
+    OPENROUTER_API_KEY_CONFIG_ID,
+    OPENROUTER_HTTP_REFERER_CONFIG_ID,
+    OPENROUTER_X_TITLE_CONFIG_ID,
+    CODEX_AUTH_CONFIG_ID,
+    OLLAMA_ENDPOINT_CONFIG_ID,
+    IDLE_TIMEOUT_CONFIG_ID,
 ];
+
+/// Returns true when `value` (already trimmed by the caller) is a
+/// sentinel that clears a string-valued configuration key.
+fn is_config_clear(value: &str) -> bool {
+    let lowered = value.to_ascii_lowercase();
+    CONFIG_CLEAR_VALUES.iter().any(|v| *v == lowered)
+}
+
+/// Read the active OpenRouter key with the canonical env > file
+/// precedence. Returns `None` when no usable key is available.
+///
+/// Single source of truth for "where does the key come from": shared by
+/// `/configure openrouter.http_referer` / `openrouter.x_title` (which
+/// rebuild the backend so an attribution change takes effect without a
+/// restart), the `render_configure_dump` length probe, and the startup
+/// `build_openrouter_backend` in `main.rs` so all three converge on the
+/// same env-empty / file-empty / file-missing handling.
+pub(crate) fn current_openrouter_key() -> Option<String> {
+    if let Ok(raw) = std::env::var(crate::discovery::OPENROUTER_API_KEY_ENV) {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    crate::openrouter_auth::read()
+        .ok()
+        .flatten()
+        .map(|a| a.api_key.trim().to_string())
+        .filter(|k| !k.is_empty())
+}
+
+/// Redact secret-valued keys for `/configure` echo and `tracing::info!`
+/// lines. Mirrors the `key length={}` shape used by the startup logger
+/// in `main.rs` so logs are consistent regardless of how the key got
+/// set. Non-secret keys are passed through verbatim.
+fn redact_config_value(key: &str, value: &str) -> String {
+    match key {
+        OPENROUTER_API_KEY_CONFIG_ID | CODEX_AUTH_CONFIG_ID => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                "(cleared)".to_string()
+            } else {
+                format!("(length={})", trimmed.len())
+            }
+        }
+        _ => format!("`{value}`"),
+    }
+}
 
 /// Outcome of a successful `apply_config_option` call. Carries the full
 /// re-derived option list so the caller can re-emit a `ConfigOptionUpdate`
@@ -282,8 +367,15 @@ impl ConfigApplyError {
 /// command: validates the value, mutates session state, and returns the
 /// full re-derived options list so the caller can emit a
 /// `ConfigOptionUpdate` notification with the spec-required complete state.
+///
+/// `llm` and `refresh_lock` are threaded through so backend-credential
+/// keys (`openrouter.*`, `codex.auth`, `ollama.endpoint`) can install /
+/// uninstall the in-memory backend and re-trigger discovery, mirroring
+/// the `/codex-login` and `/openrouter-login` post-install path.
 async fn apply_config_option(
     sessions: &SessionStore,
+    llm: &Arc<MultiBackend>,
+    refresh_lock: &Arc<tokio::sync::Mutex<()>>,
     session_id: &str,
     config_id: &str,
     value: &str,
@@ -409,6 +501,181 @@ async fn apply_config_option(
                 return Err(ConfigApplyError::UnknownSession);
             }
         }
+        OPENROUTER_API_KEY_CONFIG_ID => {
+            // Env owns the credential lifecycle when OPENROUTER_API_KEY is
+            // set: refuse to mutate, mirroring `/openrouter-login` so the
+            // two surfaces stay in agreement (and a mid-session set can't
+            // pretend to override what `main.rs` baked in at startup).
+            if crate::openrouter_auth::CredentialState::snapshot().env_owns() {
+                return Err(ConfigApplyError::InvalidValue {
+                    reason: openrouter_env_owned_explanation(),
+                    supported: Vec::new(),
+                });
+            }
+            let trimmed = value.trim();
+            if is_config_clear(trimmed) {
+                if let Err(e) = crate::openrouter_auth::logout() {
+                    return Err(ConfigApplyError::PersistFailed {
+                        details: format!("{e:#}"),
+                    });
+                }
+                llm.uninstall_openrouter();
+                tracing::info!(
+                    session_id = %session_id,
+                    "OpenRouter credentials cleared via /configure; backend uninstalled"
+                );
+                spawn_throttled_refresh(refresh_lock.clone(), llm.clone(), sessions.clone());
+            } else {
+                if let Err(e) =
+                    crate::openrouter_auth::write(&crate::openrouter_auth::OpenRouterAuth {
+                        api_key: trimmed.to_string(),
+                    })
+                {
+                    return Err(ConfigApplyError::PersistFailed {
+                        details: format!("{e:#}"),
+                    });
+                }
+                let attribution = llm.openrouter_attribution_snapshot();
+                match crate::openrouter_backend_from_key(trimmed, &attribution) {
+                    Some(backend) => {
+                        llm.install_openrouter(backend);
+                        tracing::info!(
+                            session_id = %session_id,
+                            key_length = trimmed.len(),
+                            "OpenRouter backend installed via /configure"
+                        );
+                        spawn_throttled_refresh(
+                            refresh_lock.clone(),
+                            llm.clone(),
+                            sessions.clone(),
+                        );
+                    }
+                    None => {
+                        // `openrouter_backend_from_key` only returns None
+                        // for an empty key (filtered above) or an invalid
+                        // header value (attribution was validated when set).
+                        // Hitting this arm means a defensive guardrail
+                        // tripped; back out the on-disk write to keep state
+                        // consistent and surface a clear error. If the
+                        // rollback itself fails (rare: perm changed under
+                        // us, filesystem race), say so explicitly so the
+                        // user knows to clean up manually.
+                        let rollback_msg = match crate::openrouter_auth::logout() {
+                            Ok(()) => String::new(),
+                            Err(e) => format!(
+                                " Additionally, the on-disk credential could not \
+                                 be rolled back: {e:#}. You may need to manually \
+                                 remove the OpenRouter credential file."
+                            ),
+                        };
+                        return Err(ConfigApplyError::InvalidValue {
+                            reason: format!(
+                                "OpenRouter backend rejected the supplied key \
+                                 (empty after trim or invalid attribution header).{rollback_msg}"
+                            ),
+                            supported: Vec::new(),
+                        });
+                    }
+                }
+            }
+        }
+        OPENROUTER_HTTP_REFERER_CONFIG_ID => {
+            apply_openrouter_attribution_change(
+                llm,
+                refresh_lock,
+                sessions,
+                AttributionField::HttpReferer,
+                value,
+            )?;
+        }
+        OPENROUTER_X_TITLE_CONFIG_ID => {
+            apply_openrouter_attribution_change(
+                llm,
+                refresh_lock,
+                sessions,
+                AttributionField::XTitle,
+                value,
+            )?;
+        }
+        CODEX_AUTH_CONFIG_ID => {
+            // The sign-in flow still lives in `/codex-login` (it owns the
+            // OAuth callback server and PKCE state); `/configure codex.auth`
+            // is the clear/invalidate side of that contract.
+            if !is_config_clear(value.trim()) {
+                return Err(ConfigApplyError::InvalidValue {
+                    reason: format!(
+                        "unsupported `codex.auth` value `{value}`; pass `clear` (or empty / `default`) \
+                         to invalidate ~/.codex/auth.json, then run `/codex-login` to sign back in"
+                    ),
+                    supported: CONFIG_CLEAR_VALUES
+                        .iter()
+                        .map(|s| (*s).to_string())
+                        .collect(),
+                });
+            }
+            if let Err(e) = crate::codex_auth::logout() {
+                return Err(ConfigApplyError::PersistFailed {
+                    details: format!("{e:#}"),
+                });
+            }
+            llm.uninstall_codex();
+            tracing::info!(
+                session_id = %session_id,
+                "Codex credentials cleared via /configure; backend uninstalled"
+            );
+            spawn_throttled_refresh(refresh_lock.clone(), llm.clone(), sessions.clone());
+        }
+        OLLAMA_ENDPOINT_CONFIG_ID => {
+            let trimmed = value.trim();
+            // Empty / "default" resets to the discovery probe URL, which
+            // is the same as the server-startup behaviour. Any other
+            // value must look like an http(s) URL -- we don't fully parse
+            // it (the discovery client will error loudly on a bad URL on
+            // the next probe), but the prefix check catches obvious typos
+            // before they take the picker offline. We also reject control
+            // characters so a user-supplied URL can't smuggle CRLF into
+            // the structured log line below.
+            let new_url = if is_config_clear(trimmed) {
+                crate::discovery::OLLAMA_DEFAULT_URL.to_string()
+            } else if trimmed.contains(|c: char| c.is_control()) {
+                return Err(ConfigApplyError::InvalidValue {
+                    reason: "Ollama endpoint URL must not contain control characters \
+                             (newline, tab, etc.)"
+                        .to_string(),
+                    supported: Vec::new(),
+                });
+            } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+                trimmed.trim_end_matches('/').to_string()
+            } else {
+                return Err(ConfigApplyError::InvalidValue {
+                    reason: format!(
+                        "`{trimmed}` is not a valid Ollama endpoint (expected an http:// or https:// URL)"
+                    ),
+                    supported: Vec::new(),
+                });
+            };
+            llm.set_ollama_config(crate::multi_backend::OllamaConfig {
+                url: new_url.clone(),
+            });
+            llm.install_ollama(crate::build_ollama_backend(&new_url));
+            tracing::info!(
+                session_id = %session_id,
+                url = %new_url,
+                "Ollama endpoint set via /configure"
+            );
+            spawn_throttled_refresh(refresh_lock.clone(), llm.clone(), sessions.clone());
+        }
+        IDLE_TIMEOUT_CONFIG_ID => {
+            let secs = parse_idle_timeout_config_value(value).map_err(|reason| {
+                ConfigApplyError::InvalidValue {
+                    reason,
+                    supported: Vec::new(),
+                }
+            })?;
+            if !sessions.set_idle_timeout_secs(session_id, secs).await {
+                return Err(ConfigApplyError::UnknownSession);
+            }
+        }
         _ => return Err(ConfigApplyError::UnknownConfigId),
     }
 
@@ -432,6 +699,125 @@ async fn apply_config_option(
         updated_options,
         cleared_reasoning,
     })
+}
+
+/// Which side of the OpenRouter attribution pair a `/configure` call is
+/// touching. Kept private since the only caller is
+/// `apply_openrouter_attribution_change`.
+#[derive(Debug, Clone, Copy)]
+enum AttributionField {
+    HttpReferer,
+    XTitle,
+}
+
+/// Mutate one side of the OpenRouter attribution pair and rebuild the
+/// installed backend so the new header takes effect on the next request.
+///
+/// The attribution values are baked into the `reqwest::Client` defaults
+/// at `OpenAiClient` construction, so we cannot just update the cell and
+/// hope -- the live backend would keep sending the old headers until a
+/// restart. We pre-validate the new value as a header to keep a typo
+/// from quietly taking the backend down, mutate the cell, and (when a
+/// key is available) build a fresh backend and `install_openrouter` it.
+fn apply_openrouter_attribution_change(
+    llm: &Arc<MultiBackend>,
+    refresh_lock: &Arc<tokio::sync::Mutex<()>>,
+    sessions: &SessionStore,
+    field: AttributionField,
+    value: &str,
+) -> Result<(), ConfigApplyError> {
+    let mut attribution = llm.openrouter_attribution_snapshot();
+    let trimmed = value.trim();
+    let new_value = if is_config_clear(trimmed) {
+        match field {
+            AttributionField::HttpReferer => {
+                crate::multi_backend::OpenRouterAttribution::DEFAULT_HTTP_REFERER.to_string()
+            }
+            AttributionField::XTitle => {
+                crate::multi_backend::OpenRouterAttribution::DEFAULT_X_TITLE.to_string()
+            }
+        }
+    } else {
+        trimmed.to_string()
+    };
+    if reqwest::header::HeaderValue::from_str(&new_value).is_err() {
+        return Err(ConfigApplyError::InvalidValue {
+            reason: format!("`{new_value}` is not a valid HTTP header value"),
+            supported: Vec::new(),
+        });
+    }
+    let field_name = match field {
+        AttributionField::HttpReferer => {
+            attribution.http_referer = new_value.clone();
+            "http_referer"
+        }
+        AttributionField::XTitle => {
+            attribution.x_title = new_value.clone();
+            "x_title"
+        }
+    };
+    llm.set_openrouter_attribution(attribution.clone());
+    tracing::info!(
+        field = field_name,
+        new_value = %new_value,
+        "OpenRouter attribution updated via /configure"
+    );
+    // Rebuild and reinstall if a key is currently available, so the new
+    // header takes effect without a restart. When no key is configured
+    // the next install (via /openrouter-login or /configure openrouter.api_key)
+    // will pick up the updated attribution naturally.
+    if let Some(key) = current_openrouter_key() {
+        if let Some(backend) = crate::openrouter_backend_from_key(&key, &attribution) {
+            llm.install_openrouter(backend);
+            spawn_throttled_refresh(refresh_lock.clone(), llm.clone(), sessions.clone());
+        } else {
+            tracing::debug!(
+                "OpenRouter backend rebuild skipped after attribution update: \
+                 key resolved but `openrouter_backend_from_key` returned None"
+            );
+        }
+    } else {
+        tracing::debug!(
+            "OpenRouter backend rebuild skipped after attribution update: no key configured"
+        );
+    }
+    Ok(())
+}
+
+/// Validate a numeric idle-timeout candidate against the shared bounds.
+/// Single source of truth for the bounds + "out of range" error
+/// wording, shared by `/configure idle_timeout` and the legacy
+/// `/idle-timeout` slash command so the two surfaces don't drift.
+///
+/// Caller is responsible for handling clear sentinels and dispatching on
+/// the parse result -- the helper only deals with the numeric core.
+fn validate_idle_timeout_secs(token: &str) -> Result<u64, String> {
+    let min = crate::llm_client::MIN_IDLE_CHUNK_TIMEOUT_SECS;
+    let max = crate::llm_client::MAX_IDLE_CHUNK_TIMEOUT_SECS;
+    match token.parse::<u64>() {
+        Ok(secs) if (min..=max).contains(&secs) => Ok(secs),
+        Ok(out_of_range) => Err(format!(
+            "Value `{out_of_range}` is out of range. Pick a value between \
+             {min}s and {max}s, or use `default` to clear the override."
+        )),
+        Err(_) => Err(format!(
+            "Unknown value `{token}`. Pick a number between {min}s and {max}s, \
+             or use `default` to clear the override."
+        )),
+    }
+}
+
+/// Parse the value side of `/configure idle_timeout <value>`. Returns
+/// `Ok(None)` for clear sentinels (empty / "default" / "clear") and
+/// `Ok(Some(secs))` for a valid in-range numeric. Bounds and error
+/// wording come from `validate_idle_timeout_secs` so the new surface
+/// matches `/idle-timeout` even after that slash is removed.
+fn parse_idle_timeout_config_value(value: &str) -> Result<Option<u64>, String> {
+    let trimmed = value.trim();
+    if is_config_clear(trimmed) {
+        return Ok(None);
+    }
+    validate_idle_timeout_secs(trimmed).map(Some)
 }
 
 /// Slash commands advertised to clients via `available_commands_update`.
@@ -466,7 +852,7 @@ fn builtin_commands() -> Vec<AvailableCommand> {
     }
     commands.push(AvailableCommand::new(
         "idle-timeout",
-        "Show or set the LLM SSE idle timeout for this session (e.g. `/idle-timeout 600`)",
+        "DEPRECATED: use `/configure idle_timeout <secs>` instead",
     ));
     commands.push(AvailableCommand::new(
         "configure",
@@ -678,6 +1064,12 @@ pub async fn run_agent(
     let sessions_cancel = sessions.clone();
     let sessions_mode = sessions.clone();
     let sessions_perm = sessions.clone();
+    // `setSessionConfigOption` now mutates backend slots on `MultiBackend`
+    // (openrouter.api_key, codex.auth, ollama.endpoint, openrouter.http_referer,
+    // openrouter.x_title) and triggers discovery refresh, so it needs
+    // dedicated clones of the backend handle and the refresh throttle.
+    let llm_cfg = llm.clone();
+    let refresh_lock_cfg = refresh_lock.clone();
 
     Agent
         .builder()
@@ -987,8 +1379,17 @@ pub async fn run_agent(
                 }
 
                 if is_slash_command(&prompt_text, "configure") {
-                    let report =
-                        handle_configure(&cx, &prompt_text, &session_id, &sessions_prompt).await;
+                    let report = handle_configure(
+                        &cx,
+                        &prompt_text,
+                        &session_id,
+                        &sessions_prompt,
+                        &llm_login,
+                        &refresh_lock_login,
+                        snap.idle_timeout_secs,
+                        default_idle_timeout_secs,
+                    )
+                    .await;
                     send_message(&cx, &session_id, &report);
                     return responder.respond(PromptResponse::new(StopReason::EndTurn));
                 }
@@ -1259,12 +1660,21 @@ pub async fn run_agent(
                 let session_id = req.session_id.to_string();
                 let config_id = req.config_id.to_string();
                 let value = req.value.to_string();
+                // Route the value through the redactor so a setConfigOption
+                // RPC carrying `openrouter.api_key` or `codex.auth` does not
+                // dump the secret into stderr / journald / log aggregators.
+                // The redactor is a no-op for non-secret keys, so the log
+                // line is unchanged for behavior_mode / permission_mode /
+                // model_selection / reasoning_effort / idle_timeout / etc.
                 tracing::info!(
-                    "ACP set_config_option session={session_id} config={config_id} value={value}"
+                    "ACP set_config_option session={session_id} config={config_id} value={}",
+                    redact_config_value(&config_id, &value)
                 );
 
                 let outcome = match apply_config_option(
                     &sessions_perm,
+                    &llm_cfg,
+                    &refresh_lock_cfg,
                     &session_id,
                     &config_id,
                     &value,
@@ -1902,7 +2312,10 @@ async fn handle_openrouter_login(
             match crate::openrouter_auth::write(&crate::openrouter_auth::OpenRouterAuth {
                 api_key: key.clone(),
             }) {
-                Ok(()) => match crate::openrouter_backend_from_key(&key) {
+                Ok(()) => match crate::openrouter_backend_from_key(
+                    &key,
+                    &llm.openrouter_attribution_snapshot(),
+                ) {
                     Some(backend) => {
                         llm.install_openrouter(backend);
                         spawn_throttled_refresh(
@@ -1966,23 +2379,24 @@ fn parse_idle_timeout_arg(prompt_text: &str) -> Result<IdleTimeoutAction, String
         .unwrap_or("")
         .to_ascii_lowercase();
 
-    let min = crate::llm_client::MIN_IDLE_CHUNK_TIMEOUT_SECS;
-    let max = crate::llm_client::MAX_IDLE_CHUNK_TIMEOUT_SECS;
-
     match arg.as_str() {
         "" => Ok(IdleTimeoutAction::Show),
         "default" => Ok(IdleTimeoutAction::Clear),
-        other => match other.parse::<u64>() {
-            Ok(secs) if (min..=max).contains(&secs) => Ok(IdleTimeoutAction::Set(secs)),
-            Ok(out_of_range) => Err(format!(
-                "Value `{out_of_range}` is out of range. Pick a value between \
-                 {min}s and {max}s, or use `default` to clear the override."
-            )),
-            Err(_) => Err(format!(
-                "Unknown subcommand `{other}`. Try: /idle-timeout | \
-                 /idle-timeout <secs> | /idle-timeout default"
-            )),
-        },
+        other => {
+            // Numeric token: route through the shared bounds helper so
+            // `/idle-timeout 999999` and `/configure idle_timeout 999999`
+            // emit the identical out-of-range message. Non-numeric junk
+            // keeps the historical "Unknown subcommand" wording (the
+            // /configure surface treats it as a value, not a subcommand).
+            if other.parse::<u64>().is_ok() {
+                validate_idle_timeout_secs(other).map(IdleTimeoutAction::Set)
+            } else {
+                Err(format!(
+                    "Unknown subcommand `{other}`. Try: /idle-timeout | \
+                     /idle-timeout <secs> | /idle-timeout default"
+                ))
+            }
+        }
     }
 }
 
@@ -2001,20 +2415,35 @@ async fn handle_idle_timeout(
     current_session_override: Option<u64>,
     default_secs: u64,
 ) -> String {
+    // Emit a server-side warn so operators can measure how many sessions
+    // still hit the deprecated slash before flipping the removal switch.
+    // Cheap (one log per invocation) and lets us avoid guessing about
+    // adoption when the time comes.
+    tracing::warn!(
+        session_id = %session_id,
+        "deprecated /idle-timeout invoked; use /configure idle_timeout instead"
+    );
     let action = match parse_idle_timeout_arg(prompt_text) {
         Ok(action) => action,
         Err(msg) => return msg,
     };
+    // Deprecation notice prepended to every successful path so users
+    // pivot to `/configure idle_timeout` while the slash still works.
+    // Removal is scheduled for the next release; the apply path is now
+    // also reachable through `apply_config_option` so the two surfaces
+    // can be flipped without changing session-store wiring.
+    let deprecation =
+        "Note: `/idle-timeout` is deprecated; use `/configure idle_timeout <secs>` instead.\n\n";
     match action {
         IdleTimeoutAction::Show => match current_session_override {
             Some(secs) => format!(
-                "LLM idle timeout: {secs}s (session override).\n\
-                 Server default is {default_secs}s. Use `/idle-timeout default` to clear, \
-                 or `/idle-timeout <secs>` to change."
+                "{deprecation}LLM idle timeout: {secs}s (session override).\n\
+                 Server default is {default_secs}s. Use `/configure idle_timeout default` \
+                 to clear, or `/configure idle_timeout <secs>` to change."
             ),
             None => format!(
-                "LLM idle timeout: {default_secs}s (server default).\n\
-                 Use `/idle-timeout <secs>` to override for this session only, \
+                "{deprecation}LLM idle timeout: {default_secs}s (server default).\n\
+                 Use `/configure idle_timeout <secs>` to override for this session only, \
                  or restart with `--llm-idle-timeout-secs` / `BROKK_ACP_LLM_IDLE_TIMEOUT_SECS` \
                  to change the default."
             ),
@@ -2022,22 +2451,22 @@ async fn handle_idle_timeout(
         IdleTimeoutAction::Clear => {
             if sessions.set_idle_timeout_secs(session_id, None).await {
                 format!(
-                    "Cleared session override. LLM idle timeout is back to the server \
-                     default ({default_secs}s)."
+                    "{deprecation}Cleared session override. LLM idle timeout is back to the \
+                     server default ({default_secs}s)."
                 )
             } else {
-                "Error: unknown session.".to_string()
+                format!("{deprecation}Error: unknown session.")
             }
         }
         IdleTimeoutAction::Set(secs) => {
             if sessions.set_idle_timeout_secs(session_id, Some(secs)).await {
                 format!(
-                    "LLM idle timeout set to {secs}s for this session. \
+                    "{deprecation}LLM idle timeout set to {secs}s for this session. \
                      In-memory only -- reload or restart resets to the server \
                      default ({default_secs}s)."
                 )
             } else {
-                "Error: unknown session.".to_string()
+                format!("{deprecation}Error: unknown session.")
             }
         }
     }
@@ -2057,11 +2486,24 @@ async fn handle_idle_timeout(
 ///   `/configure <key> <value>`   -> set <key> to <value>, re-emit
 ///                                   `ConfigOptionUpdate` so dropdown UIs
 ///                                   stay in sync.
+// `handle_configure` is the orchestration point for the `/configure`
+// slash command and unavoidably stitches together every collaborator
+// the apply / render paths touch: the ACP connection, the session store
+// (for per-session knobs), the backend handle and refresh lock (for the
+// backend-credential keys added in #3610), plus current/default idle
+// timeout values that drive the `idle_timeout` row in the dump. Bundling
+// them into a context record would just push the boilerplate one layer
+// away without making the call sites clearer.
+#[allow(clippy::too_many_arguments)]
 async fn handle_configure(
     cx: &ConnectionTo<Client>,
     prompt_text: &str,
     session_id: &str,
     sessions: &SessionStore,
+    llm: &Arc<MultiBackend>,
+    refresh_lock: &Arc<tokio::sync::Mutex<()>>,
+    current_idle_timeout_secs: Option<u64>,
+    default_idle_timeout_secs: u64,
 ) -> String {
     let trimmed = slash_command_args(prompt_text);
 
@@ -2072,16 +2514,27 @@ async fn handle_configure(
             return "Error: unknown session.".to_string();
         };
         if trimmed.is_empty() {
-            return render_configure_dump(&session);
+            return render_configure_dump(
+                &session,
+                llm,
+                current_idle_timeout_secs,
+                default_idle_timeout_secs,
+            );
         }
-        return render_configure_single(&trimmed, &session);
+        return render_configure_single(
+            &trimmed,
+            &session,
+            llm,
+            current_idle_timeout_secs,
+            default_idle_timeout_secs,
+        );
     }
 
     let mut parts = trimmed.splitn(2, char::is_whitespace);
     let key = parts.next().unwrap_or("");
     let value = parts.next().unwrap_or("").trim();
 
-    match apply_config_option(sessions, session_id, key, value).await {
+    match apply_config_option(sessions, llm, refresh_lock, session_id, key, value).await {
         Ok(outcome) => {
             let notification = SessionNotification::new(
                 session_id.to_string(),
@@ -2090,7 +2543,7 @@ async fn handle_configure(
             if let Err(e) = cx.send_notification(notification) {
                 tracing::warn!("failed to send config_option_update from /configure: {e}");
             }
-            let mut msg = format!("Set `{key}` to `{value}`.");
+            let mut msg = format!("Set `{key}` to {}.", redact_config_value(key, value));
             if let Some(prev) = outcome.cleared_reasoning {
                 msg.push_str(&format!(
                     "\nReasoning effort reset: `{prev}` is not supported by the new model. \
@@ -2302,77 +2755,162 @@ async fn handle_pr_create(
     }
 }
 
-/// Render the `/configure` dump of all four session knobs as a single
-/// readable block. Mirrors `all_config_options` field-for-field so the
-/// text view never drifts from the structured view.
-///
-/// The OpenRouter credential block at the bottom is **read-only** -- it
-/// reports where the active key comes from (env / file / none) and
-/// whether `/openrouter-login` is available, so users can see the
-/// credential state even when the env owns the lifecycle and the slash
-/// is hidden from autocomplete. Setting credentials is intentionally
-/// not routed through `/configure`: a global secret has a different
-/// lifecycle than per-session knobs, and the dedicated
-/// `/openrouter-login` keeps that distinction sharp.
-fn render_configure_dump(session: &Session) -> String {
-    let effort = session
-        .selected_reasoning_effort
-        .clone()
-        .unwrap_or_else(|| REASONING_EFFORT_DEFAULT_VALUE.to_string());
-    let or_state = crate::openrouter_auth::CredentialState::snapshot();
-    let login_available = !or_state.env_owns();
-    format!(
-        "**Configuration**\n\n\
-         - `{BEHAVIOR_CONFIG_ID}`: `{behavior}`\n\
-         - `{PERMISSION_CONFIG_ID}`: `{permission}`\n\
-         - `{MODEL_CONFIG_ID}`: `{model}`\n\
-         - `{REASONING_EFFORT_CONFIG_ID}`: `{effort}`\n\n\
-         Set a value with `/configure <key> <value>`. \
-         Supported keys: {keys}.\n\n\
-         **OpenRouter credentials** (read-only)\n\n\
-         - `active_source`: `{active_source}`\n\
-         - `env_set`: `{env_set}`\n\
-         - `file_present`: `{file_present}`\n\
-         - `login_command_available`: `{login_available}`\n\n\
-         {login_hint}",
-        behavior = session.mode.as_str(),
-        permission = session.permission_mode.as_str(),
-        model = session.model,
-        keys = CONFIGURE_KNOWN_KEYS.join(", "),
-        active_source = or_state.active_source(),
-        env_set = or_state.env_set,
-        file_present = or_state.file_present,
-        login_available = login_available,
-        login_hint = if login_available {
-            "Manage the key with `/openrouter-login <key>` | `status` | `disconnect`."
-        } else {
-            "`/openrouter-login` is disabled because `OPENROUTER_API_KEY` owns \
-             the credential lifecycle. Unset the env var and restart the server \
-             to manage the key from a session."
-        },
-    )
+/// Resolve the active OpenRouter key length without ever moving the
+/// raw secret out of this function. Used by the `/configure` dump and
+/// per-key render to print `length=N` / `(none)` without exposing the
+/// key itself -- mirrors the redaction shape used by the startup
+/// logger in `main.rs`.
+fn openrouter_active_key_length() -> Option<usize> {
+    current_openrouter_key().map(|k| k.trim().len())
 }
 
-/// Render a single key's current value. Unknown keys return the same
-/// error string `apply_config_option` would produce so the user gets
-/// consistent feedback whether they're reading or writing.
-fn render_configure_single(key: &str, session: &Session) -> String {
-    match key {
-        BEHAVIOR_CONFIG_ID => format!("`{key}`: `{}`", session.mode.as_str()),
-        PERMISSION_CONFIG_ID => format!("`{key}`: `{}`", session.permission_mode.as_str()),
-        MODEL_CONFIG_ID => format!("`{key}`: `{}`", session.model),
+/// Brief, non-secret summary of the on-disk Codex auth state. Mirrors
+/// `/codex-login status` at a coarser granularity so the dump stays
+/// scannable -- the full status surface lives on its own slash command.
+fn codex_auth_state_summary() -> String {
+    match crate::codex_auth::read_auth_dot_json() {
+        Ok(Some(auth)) => {
+            let mode = auth.auth_mode.as_deref().unwrap_or("(unset)");
+            let has_key = auth.openai_api_key.is_some();
+            let acct = auth
+                .tokens
+                .as_ref()
+                .map(|t| t.account_id.as_str())
+                .unwrap_or("(none)");
+            format!("present (auth_mode={mode}, api_key={has_key}, account_id={acct})")
+        }
+        Ok(None) => "absent".to_string(),
+        Err(e) => format!("error reading ~/.codex/auth.json: {e:#}"),
+    }
+}
+
+/// Format the current value for a single config key as a markdown line.
+/// Returns `None` for unknown keys (the per-key path turns that into
+/// the same error message `apply_config_option` would produce).
+fn format_config_value_line(
+    key: &str,
+    session: &Session,
+    llm: &Arc<MultiBackend>,
+    current_idle_timeout_secs: Option<u64>,
+    default_idle_timeout_secs: u64,
+) -> Option<String> {
+    let attribution = llm.openrouter_attribution_snapshot();
+    let ollama_cfg = llm.ollama_config_snapshot();
+    let or_state = crate::openrouter_auth::CredentialState::snapshot();
+    let line = match key {
+        BEHAVIOR_CONFIG_ID => format!("- `{key}`: `{}`", session.mode.as_str()),
+        PERMISSION_CONFIG_ID => format!("- `{key}`: `{}`", session.permission_mode.as_str()),
+        MODEL_CONFIG_ID => format!("- `{key}`: `{}`", session.model),
         REASONING_EFFORT_CONFIG_ID => format!(
-            "`{key}`: `{}`",
+            "- `{key}`: `{}`",
             session
                 .selected_reasoning_effort
                 .clone()
                 .unwrap_or_else(|| REASONING_EFFORT_DEFAULT_VALUE.to_string())
         ),
-        other => format!(
-            "Error: unknown config key '{other}'. Supported: {}",
-            CONFIGURE_KNOWN_KEYS.join(", ")
-        ),
+        OPENROUTER_API_KEY_CONFIG_ID => {
+            let owner = if or_state.env_owns() {
+                " (env-owned: set via OPENROUTER_API_KEY)"
+            } else {
+                ""
+            };
+            let length = openrouter_active_key_length()
+                .map(|n| format!("length={n}"))
+                .unwrap_or_else(|| "absent".to_string());
+            format!(
+                "- `{key}`: {length} (source={}){owner}",
+                or_state.active_source()
+            )
+        }
+        OPENROUTER_HTTP_REFERER_CONFIG_ID => {
+            format!("- `{key}`: `{}`", attribution.http_referer)
+        }
+        OPENROUTER_X_TITLE_CONFIG_ID => {
+            format!("- `{key}`: `{}`", attribution.x_title)
+        }
+        CODEX_AUTH_CONFIG_ID => format!("- `{key}`: {}", codex_auth_state_summary()),
+        OLLAMA_ENDPOINT_CONFIG_ID => format!("- `{key}`: `{}`", ollama_cfg.url),
+        IDLE_TIMEOUT_CONFIG_ID => match current_idle_timeout_secs {
+            Some(secs) => format!(
+                "- `{key}`: `{secs}s` (session override; server default {default_idle_timeout_secs}s)"
+            ),
+            None => format!(
+                "- `{key}`: `{default_idle_timeout_secs}s` (server default; no session override)"
+            ),
+        },
+        _ => return None,
+    };
+    Some(line)
+}
+
+/// Render the `/configure` dump of every known knob. Mirrors
+/// `CONFIGURE_KNOWN_KEYS` exactly so the text view never drifts from
+/// the structured view.
+///
+/// Secret keys (`openrouter.api_key`, `codex.auth`) are summarised with
+/// state + key-length / auth_mode, never the raw value -- matches the
+/// redaction in `tracing::info!` and `handle_configure`'s success reply
+/// so a `/configure` dump in a shared transcript stays safe.
+fn render_configure_dump(
+    session: &Session,
+    llm: &Arc<MultiBackend>,
+    current_idle_timeout_secs: Option<u64>,
+    default_idle_timeout_secs: u64,
+) -> String {
+    let mut out = String::from("**Configuration**\n\n");
+    for key in CONFIGURE_KNOWN_KEYS {
+        if let Some(line) = format_config_value_line(
+            key,
+            session,
+            llm,
+            current_idle_timeout_secs,
+            default_idle_timeout_secs,
+        ) {
+            out.push_str(&line);
+            out.push('\n');
+        }
     }
+    let or_state = crate::openrouter_auth::CredentialState::snapshot();
+    let login_hint = if or_state.env_owns() {
+        "`/openrouter-login` and `/configure openrouter.api_key` are both \
+         disabled because `OPENROUTER_API_KEY` owns the credential lifecycle. \
+         Unset the env var and restart the server to manage credentials from \
+         a session."
+    } else {
+        "Manage credentials with `/configure openrouter.api_key <key>` | `clear`, \
+         or with `/openrouter-login` for parity with older flows."
+    };
+    out.push('\n');
+    out.push_str(&format!(
+        "Set a value with `/configure <key> <value>`. Supported keys: {}.\n\n{login_hint}",
+        CONFIGURE_KNOWN_KEYS.join(", ")
+    ));
+    out
+}
+
+/// Render a single key's current value. Unknown keys return the same
+/// error string `apply_config_option` would produce so the user gets
+/// consistent feedback whether they're reading or writing.
+fn render_configure_single(
+    key: &str,
+    session: &Session,
+    llm: &Arc<MultiBackend>,
+    current_idle_timeout_secs: Option<u64>,
+    default_idle_timeout_secs: u64,
+) -> String {
+    format_config_value_line(
+        key,
+        session,
+        llm,
+        current_idle_timeout_secs,
+        default_idle_timeout_secs,
+    )
+    .unwrap_or_else(|| {
+        format!(
+            "Error: unknown config key '{key}'. Supported: {}",
+            CONFIGURE_KNOWN_KEYS.join(", ")
+        )
+    })
 }
 
 /// Render the `/context` snapshot. Mirrors the Java executor's report at a
@@ -3104,8 +3642,10 @@ mod tests {
 
     /// The `/configure` dump surfaces OpenRouter credential state as a
     /// read-only block so it stays discoverable even when
-    /// `/openrouter-login` is hidden. Env-owned case: env_set=true,
-    /// login_command_available=false, hint mentions the env var.
+    /// Env-owned case: `OPENROUTER_API_KEY` set. Dump's openrouter.api_key
+    /// row reports `source=env`, surfaces an `env-owned` marker so users
+    /// know `/configure openrouter.api_key` will refuse, and the hint
+    /// mentions the env var as the credential lifecycle owner.
     #[tokio::test]
     async fn render_configure_dump_reports_env_owned_credentials() {
         use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
@@ -3119,17 +3659,16 @@ mod tests {
             .get_session(&id, &std::env::temp_dir())
             .await
             .expect("session present");
-        let dump = render_configure_dump(&session);
+        let (llm, _lock) = test_llm_and_refresh_lock();
+        let dump = render_configure_dump(&session, &llm, None, 600);
 
         assert!(
-            dump.contains("`active_source`: `env`"),
+            dump.contains("source=env"),
             "dump must report env as active source; got:\n{dump}"
         );
-        assert!(dump.contains("`env_set`: `true`"), "dump:\n{dump}");
-        assert!(dump.contains("`file_present`: `false`"), "dump:\n{dump}");
         assert!(
-            dump.contains("`login_command_available`: `false`"),
-            "dump:\n{dump}"
+            dump.contains("env-owned"),
+            "dump must mark env-owned credentials so users know /configure refuses; got:\n{dump}"
         );
         assert!(
             dump.contains("OPENROUTER_API_KEY"),
@@ -3137,8 +3676,9 @@ mod tests {
         );
     }
 
-    /// File-owned case: env unset, file has a key. active_source=file,
-    /// login_command_available=true, hint points at `/openrouter-login`.
+    /// File-owned case: env unset, file has a key. The dump reports
+    /// `source=file` with the key length and an `/configure` hint that
+    /// doesn't surface the env-ownership warning.
     #[tokio::test]
     async fn render_configure_dump_reports_file_owned_credentials() {
         use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
@@ -3156,27 +3696,26 @@ mod tests {
             .get_session(&id, &std::env::temp_dir())
             .await
             .expect("session present");
-        let dump = render_configure_dump(&session);
+        let (llm, _lock) = test_llm_and_refresh_lock();
+        let dump = render_configure_dump(&session, &llm, None, 600);
 
         assert!(
-            dump.contains("`active_source`: `file`"),
+            dump.contains("source=file"),
             "dump must report file as active source; got:\n{dump}"
         );
-        assert!(dump.contains("`env_set`: `false`"), "dump:\n{dump}");
-        assert!(dump.contains("`file_present`: `true`"), "dump:\n{dump}");
         assert!(
-            dump.contains("`login_command_available`: `true`"),
-            "dump:\n{dump}"
+            !dump.contains("env-owned"),
+            "dump must not mark file-owned credentials as env-owned: {dump}"
         );
         assert!(
-            dump.contains("/openrouter-login"),
-            "hint must mention the slash when login is available: {dump}"
+            dump.contains("/configure openrouter.api_key"),
+            "hint must mention the /configure surface when env doesn't own: {dump}"
         );
     }
 
     /// No credentials at all: dump still renders, reports
-    /// active_source=none, login is still available (so the user knows
-    /// they CAN add a key via the slash).
+    /// `source=none`, and the hint still points at `/configure` so the
+    /// user knows how to add a key.
     #[tokio::test]
     async fn render_configure_dump_reports_no_credentials() {
         use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
@@ -3190,15 +3729,17 @@ mod tests {
             .get_session(&id, &std::env::temp_dir())
             .await
             .expect("session present");
-        let dump = render_configure_dump(&session);
+        let (llm, _lock) = test_llm_and_refresh_lock();
+        let dump = render_configure_dump(&session, &llm, None, 600);
 
-        assert!(dump.contains("`active_source`: `none`"), "dump:\n{dump}");
-        assert!(dump.contains("`env_set`: `false`"), "dump:\n{dump}");
-        assert!(dump.contains("`file_present`: `false`"), "dump:\n{dump}");
-        // Login is still possible, just no key registered yet.
+        assert!(dump.contains("source=none"), "dump:\n{dump}");
         assert!(
-            dump.contains("`login_command_available`: `true`"),
-            "dump:\n{dump}"
+            dump.contains("absent"),
+            "openrouter.api_key row must mark length absent: {dump}"
+        );
+        assert!(
+            !dump.contains("env-owned"),
+            "dump must not mark missing credentials as env-owned: {dump}"
         );
     }
 
@@ -3306,12 +3847,34 @@ mod tests {
         (store, session.id)
     }
 
+    /// Build the backend handle + refresh lock `apply_config_option` now
+    /// requires. Tests that exercise only the per-session knobs
+    /// (behavior, permission, model, reasoning_effort) don't touch the
+    /// backend cells, so an empty `MultiBackend` is sufficient.
+    fn test_llm_and_refresh_lock() -> (
+        std::sync::Arc<MultiBackend>,
+        std::sync::Arc<tokio::sync::Mutex<()>>,
+    ) {
+        (
+            std::sync::Arc::new(MultiBackend::new(None, None, None)),
+            std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        )
+    }
+
     #[tokio::test]
     async fn apply_config_option_sets_permission_mode() {
         let (store, id) = make_store_with_session("m").await;
-        let outcome = apply_config_option(&store, &id, PERMISSION_CONFIG_ID, "acceptEdits")
-            .await
-            .expect("permission mode update");
+        let (llm, lock) = test_llm_and_refresh_lock();
+        let outcome = apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            PERMISSION_CONFIG_ID,
+            "acceptEdits",
+        )
+        .await
+        .expect("permission mode update");
         assert!(outcome.cleared_reasoning.is_none());
         let pm = store.permission_mode(&id).await.expect("session present");
         assert_eq!(pm, PermissionMode::AcceptEdits);
@@ -3322,7 +3885,8 @@ mod tests {
     #[tokio::test]
     async fn apply_config_option_sets_behavior_mode() {
         let (store, id) = make_store_with_session("m").await;
-        apply_config_option(&store, &id, BEHAVIOR_CONFIG_ID, "PLAN")
+        let (llm, lock) = test_llm_and_refresh_lock();
+        apply_config_option(&store, &llm, &lock, &id, BEHAVIOR_CONFIG_ID, "PLAN")
             .await
             .expect("behavior mode update");
         let snap = store
@@ -3335,9 +3899,10 @@ mod tests {
     #[tokio::test]
     async fn apply_config_option_sets_model_when_catalog_empty() {
         let (store, id) = make_store_with_session("initial").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
         // Empty catalog must accept any id so a manually-configured
         // backend still works.
-        apply_config_option(&store, &id, MODEL_CONFIG_ID, "custom/model")
+        apply_config_option(&store, &llm, &lock, &id, MODEL_CONFIG_ID, "custom/model")
             .await
             .expect("model update");
         let snap = store
@@ -3350,13 +3915,14 @@ mod tests {
     #[tokio::test]
     async fn apply_config_option_rejects_unknown_model_when_catalog_known() {
         let (store, id) = make_store_with_session("initial").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
         store
             .set_available_models(vec![
                 ModelMetadata::id_only("known-1"),
                 ModelMetadata::id_only("known-2"),
             ])
             .await;
-        let err = apply_config_option(&store, &id, MODEL_CONFIG_ID, "ghost")
+        let err = apply_config_option(&store, &llm, &lock, &id, MODEL_CONFIG_ID, "ghost")
             .await
             .expect_err("ghost model is not in the catalog");
         match err {
@@ -3374,6 +3940,7 @@ mod tests {
     async fn apply_config_option_clears_reasoning_when_model_drops_it() {
         use crate::llm_client::ReasoningLevelPreset;
         let (store, id) = make_store_with_session("model-a").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
         // model-a publishes a "high" preset; model-b publishes nothing,
         // so swapping to it forces the store to drop the user's pick.
         store
@@ -3389,10 +3956,10 @@ mod tests {
                 ModelMetadata::id_only("model-b"),
             ])
             .await;
-        apply_config_option(&store, &id, REASONING_EFFORT_CONFIG_ID, "high")
+        apply_config_option(&store, &llm, &lock, &id, REASONING_EFFORT_CONFIG_ID, "high")
             .await
             .expect("set reasoning effort");
-        let outcome = apply_config_option(&store, &id, MODEL_CONFIG_ID, "model-b")
+        let outcome = apply_config_option(&store, &llm, &lock, &id, MODEL_CONFIG_ID, "model-b")
             .await
             .expect("swap model");
         assert_eq!(outcome.cleared_reasoning.as_deref(), Some("high"));
@@ -3401,11 +3968,12 @@ mod tests {
     #[tokio::test]
     async fn apply_config_option_rejects_reasoning_effort_for_model_without_presets() {
         let (store, id) = make_store_with_session("plain-model").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
         store
             .set_available_models(vec![ModelMetadata::id_only("plain-model")])
             .await;
 
-        let err = apply_config_option(&store, &id, REASONING_EFFORT_CONFIG_ID, "high")
+        let err = apply_config_option(&store, &llm, &lock, &id, REASONING_EFFORT_CONFIG_ID, "high")
             .await
             .expect_err("known model without presets cannot accept reasoning effort");
 
@@ -3421,7 +3989,8 @@ mod tests {
     #[tokio::test]
     async fn apply_config_option_rejects_invalid_permission_mode() {
         let (store, id) = make_store_with_session("m").await;
-        let err = apply_config_option(&store, &id, PERMISSION_CONFIG_ID, "bogus")
+        let (llm, lock) = test_llm_and_refresh_lock();
+        let err = apply_config_option(&store, &llm, &lock, &id, PERMISSION_CONFIG_ID, "bogus")
             .await
             .expect_err("bogus is not a permission mode");
         match err {
@@ -3436,7 +4005,8 @@ mod tests {
     #[tokio::test]
     async fn apply_config_option_rejects_unknown_key() {
         let (store, id) = make_store_with_session("m").await;
-        let err = apply_config_option(&store, &id, "no_such_knob", "value")
+        let (llm, lock) = test_llm_and_refresh_lock();
+        let err = apply_config_option(&store, &llm, &lock, &id, "no_such_knob", "value")
             .await
             .expect_err("unknown key");
         assert!(matches!(err, ConfigApplyError::UnknownConfigId));
@@ -3445,39 +4015,514 @@ mod tests {
     #[tokio::test]
     async fn apply_config_option_reports_unknown_session() {
         let store = SessionStore::new("m".into());
-        let err = apply_config_option(&store, "no-session", PERMISSION_CONFIG_ID, "default")
-            .await
-            .expect_err("session does not exist");
+        let (llm, lock) = test_llm_and_refresh_lock();
+        let err = apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            "no-session",
+            PERMISSION_CONFIG_ID,
+            "default",
+        )
+        .await
+        .expect_err("session does not exist");
         assert!(matches!(err, ConfigApplyError::UnknownSession));
     }
 
-    #[test]
-    fn render_configure_dump_contains_all_keys() {
+    #[tokio::test]
+    async fn render_configure_dump_contains_all_keys() {
+        // env-owned ownership doesn't matter for this test; we only need
+        // a stable, env-independent dump. Lock the guard so we don't race
+        // against env mutations elsewhere.
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
+
         let session = Session::new(
             "id".into(),
             std::path::PathBuf::from("/tmp"),
             "model-x".into(),
             "name".into(),
         );
-        let dump = render_configure_dump(&session);
+        let (llm, _lock) = test_llm_and_refresh_lock();
+        let dump = render_configure_dump(&session, &llm, None, 600);
         for key in CONFIGURE_KNOWN_KEYS {
             assert!(dump.contains(key), "dump missing key `{key}`: {dump}");
         }
         assert!(dump.contains("model-x"));
     }
 
-    #[test]
-    fn render_configure_single_unknown_key_lists_supported() {
+    #[tokio::test]
+    async fn render_configure_single_unknown_key_lists_supported() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
+
         let session = Session::new(
             "id".into(),
             std::path::PathBuf::from("/tmp"),
             "model-x".into(),
             "name".into(),
         );
-        let out = render_configure_single("bogus", &session);
+        let (llm, _lock) = test_llm_and_refresh_lock();
+        let out = render_configure_single("bogus", &session, &llm, None, 600);
         assert!(out.starts_with("Error:"));
         for key in CONFIGURE_KNOWN_KEYS {
             assert!(out.contains(key), "missing key `{key}` in error: {out}");
         }
+    }
+
+    // ----- #3610: backend-credential / endpoint keys ----------------
+
+    /// Secret keys never echo their value into either the success
+    /// message or `tracing::info!` -- assert the helper used by both
+    /// strips the value and only reveals length.
+    #[test]
+    fn redact_config_value_hides_secrets_but_reports_length() {
+        let or = redact_config_value(OPENROUTER_API_KEY_CONFIG_ID, "sk-or-abc123");
+        assert!(!or.contains("sk-or-abc123"), "must not leak the key: {or}");
+        assert!(or.contains("length=12"), "must report length: {or}");
+
+        let cleared = redact_config_value(OPENROUTER_API_KEY_CONFIG_ID, "");
+        assert!(cleared.contains("cleared"), "{cleared}");
+
+        // Non-secret keys pass through verbatim so dumps stay readable.
+        let plain = redact_config_value(BEHAVIOR_CONFIG_ID, "PLAN");
+        assert_eq!(plain, "`PLAN`");
+    }
+
+    #[test]
+    fn parse_idle_timeout_config_value_handles_clear_and_range() {
+        // Clear sentinels.
+        assert_eq!(parse_idle_timeout_config_value("").unwrap(), None);
+        assert_eq!(parse_idle_timeout_config_value("default").unwrap(), None);
+        assert_eq!(parse_idle_timeout_config_value("CLEAR").unwrap(), None);
+
+        // In-range numeric.
+        assert_eq!(parse_idle_timeout_config_value("600").unwrap(), Some(600));
+
+        // Out of range still references the helpful `default` keyword
+        // so the UX matches `/idle-timeout`'s historical error wording.
+        let err = parse_idle_timeout_config_value("0").unwrap_err();
+        assert!(err.contains("out of range"), "{err}");
+        assert!(err.contains("default"), "{err}");
+
+        let err = parse_idle_timeout_config_value("banana").unwrap_err();
+        assert!(err.contains("Unknown value"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_idle_timeout_sets_session_override() {
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        apply_config_option(&store, &llm, &lock, &id, IDLE_TIMEOUT_CONFIG_ID, "600")
+            .await
+            .expect("set");
+        let snap = store
+            .snapshot(&id, &std::env::temp_dir())
+            .await
+            .expect("session present");
+        assert_eq!(snap.idle_timeout_secs, Some(600));
+
+        // Clearing routes through the same arm and drops the override.
+        apply_config_option(&store, &llm, &lock, &id, IDLE_TIMEOUT_CONFIG_ID, "default")
+            .await
+            .expect("clear");
+        let snap = store
+            .snapshot(&id, &std::env::temp_dir())
+            .await
+            .expect("session present");
+        assert_eq!(snap.idle_timeout_secs, None);
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_idle_timeout_rejects_out_of_range() {
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        let err = apply_config_option(&store, &llm, &lock, &id, IDLE_TIMEOUT_CONFIG_ID, "0")
+            .await
+            .expect_err("zero is out of range");
+        assert!(matches!(err, ConfigApplyError::InvalidValue { .. }));
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_ollama_endpoint_updates_config_cell() {
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            OLLAMA_ENDPOINT_CONFIG_ID,
+            "http://10.0.0.5:11434/",
+        )
+        .await
+        .expect("set custom endpoint");
+        // Trailing slash is normalised out -- discovery expects an exact
+        // base so `format!("{base}/api/tags")` doesn't double-slash.
+        assert_eq!(llm.ollama_config_snapshot().url, "http://10.0.0.5:11434");
+
+        // Clearing falls back to the canonical default.
+        apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            OLLAMA_ENDPOINT_CONFIG_ID,
+            "default",
+        )
+        .await
+        .expect("clear endpoint");
+        assert_eq!(
+            llm.ollama_config_snapshot().url,
+            crate::discovery::OLLAMA_DEFAULT_URL
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_ollama_endpoint_rejects_non_url() {
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        let err = apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            OLLAMA_ENDPOINT_CONFIG_ID,
+            "not-a-url",
+        )
+        .await
+        .expect_err("garbage value must reject");
+        match err {
+            ConfigApplyError::InvalidValue { reason, .. } => {
+                assert!(reason.contains("not-a-url"), "{reason}");
+            }
+            other => panic!("expected InvalidValue, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_openrouter_attribution_updates_cell_and_rebuilds() {
+        // No key configured: setting attribution must still update the
+        // cell so a future install picks up the new headers.
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock_env = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
+
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            OPENROUTER_HTTP_REFERER_CONFIG_ID,
+            "https://example.com/app",
+        )
+        .await
+        .expect("set referer");
+        assert_eq!(
+            llm.openrouter_attribution_snapshot().http_referer,
+            "https://example.com/app"
+        );
+
+        // Clearing reverts to the brokk default, not to an empty string.
+        apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            OPENROUTER_HTTP_REFERER_CONFIG_ID,
+            "default",
+        )
+        .await
+        .expect("clear referer");
+        assert_eq!(
+            llm.openrouter_attribution_snapshot().http_referer,
+            crate::multi_backend::OpenRouterAttribution::DEFAULT_HTTP_REFERER
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_openrouter_attribution_rejects_invalid_header() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock_env = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
+
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        // Control characters / newlines are not valid HTTP header values.
+        let err = apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            OPENROUTER_X_TITLE_CONFIG_ID,
+            "bad\nvalue",
+        )
+        .await
+        .expect_err("newline-bearing value must reject");
+        assert!(matches!(err, ConfigApplyError::InvalidValue { .. }));
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_openrouter_api_key_refuses_when_env_owned() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock_env = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::set("OPENROUTER_API_KEY", "sk-or-from-env");
+
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        let err = apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            OPENROUTER_API_KEY_CONFIG_ID,
+            "sk-or-replacement",
+        )
+        .await
+        .expect_err("env-owned must refuse mutation");
+        match err {
+            ConfigApplyError::InvalidValue { reason, .. } => {
+                assert!(
+                    reason.contains("OPENROUTER_API_KEY"),
+                    "reason must explain env ownership: {reason}"
+                );
+            }
+            other => panic!("expected InvalidValue, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_openrouter_api_key_writes_and_installs() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock_env = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::remove("OPENROUTER_API_KEY");
+
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            OPENROUTER_API_KEY_CONFIG_ID,
+            "sk-or-from-config",
+        )
+        .await
+        .expect("write + install");
+
+        // Persisted to the disk redirect set above.
+        let on_disk = crate::openrouter_auth::read()
+            .unwrap()
+            .expect("key written")
+            .api_key;
+        assert_eq!(on_disk, "sk-or-from-config");
+
+        // Now clear it -- the file goes away and the backend disappears.
+        apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            OPENROUTER_API_KEY_CONFIG_ID,
+            "clear",
+        )
+        .await
+        .expect("clear");
+        assert!(crate::openrouter_auth::read().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_codex_auth_rejects_non_clear() {
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        let err = apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            CODEX_AUTH_CONFIG_ID,
+            "sign-in-please",
+        )
+        .await
+        .expect_err("codex.auth only supports clear");
+        match err {
+            ConfigApplyError::InvalidValue { reason, .. } => {
+                assert!(
+                    reason.contains("codex-login"),
+                    "must redirect to /codex-login for sign-in: {reason}"
+                );
+            }
+            other => panic!("expected InvalidValue, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_config_option_codex_auth_clear_is_idempotent_when_absent() {
+        // Redirect CODEX_HOME to a temp dir so we never touch the
+        // developer's real ~/.codex/auth.json. The logout path is
+        // idempotent for a missing file, so this exercises the
+        // happy-path uninstall without needing a real auth.json fixture.
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock_env = ENV_GUARD.lock().await;
+        let tmp_home = tempfile::tempdir().unwrap();
+        let _codex = EnvScope::set("CODEX_HOME", tmp_home.path());
+
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        apply_config_option(&store, &llm, &lock, &id, CODEX_AUTH_CONFIG_ID, "clear")
+            .await
+            .expect("clear on absent auth.json succeeds");
+    }
+
+    #[test]
+    fn current_openrouter_key_prefers_env_over_file() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock = ENV_GUARD.blocking_lock();
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::set("OPENROUTER_API_KEY", "sk-or-env-wins");
+        crate::openrouter_auth::write(&crate::openrouter_auth::OpenRouterAuth {
+            api_key: "sk-or-file-loses".into(),
+        })
+        .unwrap();
+        assert_eq!(current_openrouter_key().as_deref(), Some("sk-or-env-wins"));
+    }
+
+    /// Bounds helper is the single source of truth for the out-of-range
+    /// message that both `/idle-timeout` and `/configure idle_timeout`
+    /// surface. Verify the bounds match the constants and the message
+    /// shape stays stable.
+    #[test]
+    fn validate_idle_timeout_secs_enforces_shared_bounds() {
+        let min = crate::llm_client::MIN_IDLE_CHUNK_TIMEOUT_SECS;
+        let max = crate::llm_client::MAX_IDLE_CHUNK_TIMEOUT_SECS;
+        assert_eq!(validate_idle_timeout_secs(&min.to_string()), Ok(min));
+        assert_eq!(validate_idle_timeout_secs(&max.to_string()), Ok(max));
+        let err =
+            validate_idle_timeout_secs(&(max + 1).to_string()).expect_err("above max must reject");
+        assert!(err.contains("out of range"), "{err}");
+    }
+
+    /// Ollama endpoint must reject control characters so the user-supplied
+    /// URL can't smuggle CRLF into the structured tracing line. Covers the
+    /// SSRF-adjacent log-injection vector flagged in DevOps review.
+    #[tokio::test]
+    async fn apply_config_option_ollama_endpoint_rejects_control_chars() {
+        let (store, id) = make_store_with_session("m").await;
+        let (llm, lock) = test_llm_and_refresh_lock();
+        let err = apply_config_option(
+            &store,
+            &llm,
+            &lock,
+            &id,
+            OLLAMA_ENDPOINT_CONFIG_ID,
+            "http://example.com\r\nX-Injected: yes",
+        )
+        .await
+        .expect_err("control chars must reject");
+        match err {
+            ConfigApplyError::InvalidValue { reason, .. } => {
+                assert!(
+                    reason.contains("control characters"),
+                    "reason must explain why: {reason}"
+                );
+            }
+            other => panic!("expected InvalidValue, got {other:?}"),
+        }
+    }
+
+    /// Every `/idle-timeout` success path now prepends a deprecation
+    /// notice pointing users at `/configure idle_timeout`. Asserting on
+    /// all three branches (Show / Set / Clear) protects the migration
+    /// against a future change silently dropping the prefix on one path.
+    #[tokio::test]
+    async fn handle_idle_timeout_prepends_deprecation_notice_on_every_path() {
+        let (store, id) = make_store_with_session("m").await;
+
+        // Show
+        let show = handle_idle_timeout("/idle-timeout", &id, &store, None, 600).await;
+        assert!(
+            show.contains("deprecated"),
+            "Show path missing deprecation: {show}"
+        );
+        assert!(show.contains("/configure idle_timeout"), "{show}");
+
+        // Set
+        let set = handle_idle_timeout("/idle-timeout 120", &id, &store, None, 600).await;
+        assert!(
+            set.contains("deprecated"),
+            "Set path missing deprecation: {set}"
+        );
+        assert!(set.contains("/configure idle_timeout"), "{set}");
+
+        // Clear
+        let clear = handle_idle_timeout("/idle-timeout default", &id, &store, Some(120), 600).await;
+        assert!(
+            clear.contains("deprecated"),
+            "Clear path missing deprecation: {clear}"
+        );
+        assert!(clear.contains("/configure idle_timeout"), "{clear}");
+    }
+
+    /// Regression for the security-review HIGH finding: the
+    /// `setSessionConfigOption` RPC handler used to log the raw `value`
+    /// field at `info`, which would dump `openrouter.api_key` secrets
+    /// into stderr / journald. The fix routes that log through
+    /// `redact_config_value`, so re-asserting at the helper level here
+    /// keeps the redaction contract pinned even if the call site moves.
+    #[test]
+    fn redact_config_value_handles_all_secret_keys() {
+        for secret_key in [OPENROUTER_API_KEY_CONFIG_ID, CODEX_AUTH_CONFIG_ID] {
+            let out = redact_config_value(secret_key, "very-sensitive-value");
+            assert!(
+                !out.contains("very-sensitive-value"),
+                "{secret_key} leaked value: {out}"
+            );
+        }
+    }
+
+    /// The dump-hint must not promise behaviour the apply path doesn't
+    /// deliver. When env owns the credential, `/configure
+    /// openrouter.api_key clear` returns InvalidValue, so the hint must
+    /// NOT mention "(no-op while env-owned)".
+    #[tokio::test]
+    async fn render_configure_dump_hint_does_not_promise_clear_no_op_when_env_owned() {
+        use crate::openrouter_auth::test_support::{ENV_GUARD, EnvScope};
+        let _lock = ENV_GUARD.lock().await;
+        let tmp_cfg = tempfile::tempdir().unwrap();
+        let _brokk = EnvScope::set("BROKK_CONFIG_HOME", tmp_cfg.path());
+        let _env = EnvScope::set("OPENROUTER_API_KEY", "sk-or-from-env");
+
+        let (store, id) = make_store_with_session("m").await;
+        let session = store
+            .get_session(&id, &std::env::temp_dir())
+            .await
+            .expect("session present");
+        let (llm, _lock) = test_llm_and_refresh_lock();
+        let dump = render_configure_dump(&session, &llm, None, 600);
+        assert!(
+            !dump.contains("no-op while env-owned"),
+            "hint must not claim clear is a no-op (the apply path returns InvalidValue): {dump}"
+        );
+        assert!(
+            dump.contains("are both disabled"),
+            "hint must explain both surfaces are gated: {dump}"
+        );
     }
 }
