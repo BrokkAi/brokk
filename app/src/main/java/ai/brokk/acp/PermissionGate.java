@@ -6,7 +6,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Pure permission-gate logic. Given a session's {@link PermissionMode} and the kind/name of the
  * tool being invoked, decides whether to auto-allow, auto-reject, or escalate to a per-call prompt.
- * Mirrors {@code brokk-acp-rust/src/tool_loop.rs:pure_gate_decision}.
+ * Mirrors {@code BrokkAi/anvil:src/tool_loop.rs:pure_gate_decision}.
  *
  * <p>The decision is intentionally separate from {@link AcpRequestContext#askPermission} so it can
  * be unit-tested without spinning up a transport.

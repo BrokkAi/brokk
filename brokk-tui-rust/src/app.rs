@@ -177,7 +177,7 @@ impl AppState {
     /// and falls back to substring match if no prefix hits, so a typo
     /// like `/plan` still surfaces `/create_plan`. The original ordering
     /// of `available_commands` is preserved (the agent's emit order is
-    /// usually significant -- e.g. brokk-acp groups by category).
+    /// usually significant -- e.g. anvil groups by category).
     pub fn update_autocomplete(&mut self) {
         let trigger_active = self.input.starts_with('/')
             && self.pending_permission.is_none()

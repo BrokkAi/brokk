@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Brokk installer: bifrost (auth proxy) + brokk-acp (Rust ACP server).
+# Brokk installer: bifrost (auth proxy) + anvil (Rust ACP server).
 #
 # Quick start:
 #   curl -fsSL https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.sh | bash
@@ -8,7 +8,7 @@
 # Or with options:
 #   curl -fsSL https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.sh | bash -s -- --install-dir ~/bin
 #
-# Supported platforms (intersection of bifrost and brokk-acp builds):
+# Supported platforms (intersection of bifrost and anvil builds):
 #   - Linux x86_64
 #   - macOS aarch64 (Apple Silicon)
 #
@@ -18,8 +18,7 @@ set -euo pipefail
 
 INSTALLER_VERSION="0.1.0"
 BIFROST_REPO="BrokkAi/bifrost"
-BROKK_REPO="BrokkAi/brokk"
-ACP_TAG_PREFIX="brokk-acp-rust-"
+ANVIL_REPO="BrokkAi/anvil"
 
 DEFAULT_INSTALL_DIR="${HOME}/.local/bin"
 
@@ -33,7 +32,7 @@ usage() {
     cat <<EOF
 Brokk installer ${INSTALLER_VERSION}
 
-Installs bifrost (auth proxy) and brokk-acp (Rust ACP server) to a local
+Installs bifrost (auth proxy) and anvil (Rust ACP server) to a local
 directory and ensures it is on PATH.
 
 Usage:
@@ -42,7 +41,7 @@ Usage:
 Options:
   --install-dir DIR        Install location (default: \$HOME/.local/bin)
   --bifrost-version VER    Pin bifrost version (e.g. v0.2.0). Default: latest.
-  --acp-version VER        Pin brokk-acp version (e.g. 0.1.0). Default: latest.
+  --anvil-version VER      Pin anvil version (e.g. v0.4.4). Default: latest.
   --skip-path              Do not modify shell rc files.
   --no-verify              Skip running --version on installed binaries.
   -h, --help               Show this help.
@@ -51,7 +50,7 @@ Options:
 Environment variables (override defaults):
   BROKK_INSTALL_DIR        Same as --install-dir.
   BIFROST_VERSION          Same as --bifrost-version.
-  BROKK_ACP_VERSION        Same as --acp-version.
+  ANVIL_VERSION            Same as --anvil-version.
 EOF
 }
 
@@ -77,9 +76,9 @@ detect_platform() {
     case "${os}-${arch}" in
         linux-x86_64|macos-aarch64) ;;
         macos-x86_64)
-            err "Intel Macs are not supported: brokk-acp ships only Apple Silicon (aarch64) builds for macOS." ;;
+            err "Intel Macs are not supported: anvil ships only Apple Silicon (aarch64) builds for macOS." ;;
         linux-aarch64)
-            err "Linux ARM64 is not supported: brokk-acp does not yet publish aarch64 Linux builds." ;;
+            err "Linux ARM64 is not supported: anvil does not yet publish aarch64 Linux builds." ;;
         *) err "Unsupported platform combination: ${os}-${arch}" ;;
     esac
 
@@ -94,11 +93,11 @@ bifrost_target() {
     esac
 }
 
-acp_asset_name() {
+anvil_asset_name() {
     case "$1-$2" in
-        linux-x86_64)  echo "brokk-acp-linux-x86_64" ;;
-        macos-aarch64) echo "brokk-acp-macos-aarch64" ;;
-        *) err "internal: no brokk-acp asset for $1-$2" ;;
+        linux-x86_64)  echo "anvil-linux-x86_64" ;;
+        macos-aarch64) echo "anvil-macos-aarch64" ;;
+        *) err "internal: no anvil asset for $1-$2" ;;
     esac
 }
 
@@ -130,23 +129,6 @@ get_latest_tag() {
     tag="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tmp" | head -n1)"
     rm -f "$tmp"
     [ -n "$tag" ] || err "Could not parse tag_name from ${repo} latest release."
-    printf '%s\n' "$tag"
-}
-
-# Newest release whose tag starts with PREFIX (used for brokk-acp-rust-* tags
-# in the brokk monorepo, where /releases/latest may point at a different
-# component's release).
-get_latest_prefixed_tag() {
-    local repo="$1" prefix="$2" tmp tag
-    tmp="$(mktemp)"
-    if ! download "https://api.github.com/repos/${repo}/releases?per_page=100" "$tmp"; then
-        rm -f "$tmp"
-        err "Could not fetch releases for ${repo}."
-    fi
-    tag="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tmp" \
-           | grep "^${prefix}" | head -n1 || true)"
-    rm -f "$tmp"
-    [ -n "$tag" ] || err "No release found for ${repo} with tag prefix ${prefix}. Pin a version with --acp-version or BROKK_ACP_VERSION."
     printf '%s\n' "$tag"
 }
 
@@ -242,18 +224,18 @@ install_bifrost() {
     log "    installed: ${install_dir}/bifrost"
 }
 
-# ---- brokk-acp install --------------------------------------------------
+# ---- anvil install ------------------------------------------------------
 
-install_brokk_acp() {
+install_anvil() {
     local os="$1" arch="$2" install_dir="$3" version="$4"
     local asset release_json url tmp
 
-    asset="$(acp_asset_name "$os" "$arch")"
+    asset="$(anvil_asset_name "$os" "$arch")"
     release_json="$(mktemp)"
-    download_release_by_tag "$BROKK_REPO" "${ACP_TAG_PREFIX}${version}" "$release_json"
+    download_release_by_tag "$ANVIL_REPO" "$version" "$release_json"
     url="$(get_asset_url "$release_json" "$asset")"
 
-    log "==> Downloading brokk-acp ${version} (${os}-${arch})"
+    log "==> Downloading anvil ${version} (${os}-${arch})"
     tmp="$(mktemp -d)"
     if ! download "$url" "${tmp}/${asset}"; then
         rm -f "$release_json"
@@ -262,9 +244,9 @@ install_brokk_acp() {
     fi
     rm -f "$release_json"
 
-    install_file "${tmp}/${asset}" "${install_dir}/brokk-acp"
+    install_file "${tmp}/${asset}" "${install_dir}/anvil"
     rm -rf "$tmp"
-    log "    installed: ${install_dir}/brokk-acp"
+    log "    installed: ${install_dir}/anvil"
 }
 
 # ---- PATH helper --------------------------------------------------------
@@ -313,7 +295,7 @@ ensure_on_path() {
 main() {
     local install_dir="${BROKK_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
     local bifrost_version="${BIFROST_VERSION:-}"
-    local acp_version="${BROKK_ACP_VERSION:-}"
+    local anvil_version="${ANVIL_VERSION:-}"
     local skip_path="false"
     local skip_verify="false"
 
@@ -323,8 +305,8 @@ main() {
             --install-dir=*)      install_dir="${1#*=}"; shift ;;
             --bifrost-version)    bifrost_version="${2:?--bifrost-version requires a value}"; shift 2 ;;
             --bifrost-version=*)  bifrost_version="${1#*=}"; shift ;;
-            --acp-version)        acp_version="${2:?--acp-version requires a value}"; shift 2 ;;
-            --acp-version=*)      acp_version="${1#*=}"; shift ;;
+            --anvil-version)      anvil_version="${2:?--anvil-version requires a value}"; shift 2 ;;
+            --anvil-version=*)    anvil_version="${1#*=}"; shift ;;
             --skip-path)          skip_path="true"; shift ;;
             --no-verify)          skip_verify="true"; shift ;;
             -h|--help)            usage; exit 0 ;;
@@ -340,22 +322,17 @@ main() {
     log "Detected platform:  ${os} ${arch}"
 
     [ -n "$bifrost_version" ] || bifrost_version="$(get_latest_tag "$BIFROST_REPO")"
-
-    if [ -z "$acp_version" ]; then
-        local acp_tag
-        acp_tag="$(get_latest_prefixed_tag "$BROKK_REPO" "$ACP_TAG_PREFIX")"
-        acp_version="${acp_tag#"${ACP_TAG_PREFIX}"}"
-    fi
+    [ -n "$anvil_version" ]   || anvil_version="$(get_latest_tag "$ANVIL_REPO")"
 
     log "bifrost version:    ${bifrost_version}"
-    log "brokk-acp version:  ${acp_version}"
+    log "anvil version:      ${anvil_version}"
     log "Install directory:  ${install_dir}"
     log
 
     mkdir -p "$install_dir"
 
-    install_bifrost   "$os" "$arch" "$install_dir" "$bifrost_version"
-    install_brokk_acp "$os" "$arch" "$install_dir" "$acp_version"
+    install_bifrost "$os" "$arch" "$install_dir" "$bifrost_version"
+    install_anvil   "$os" "$arch" "$install_dir" "$anvil_version"
 
     if [ "$skip_path" = "false" ]; then
         ensure_on_path "$install_dir"
@@ -367,8 +344,8 @@ main() {
         if ! "${install_dir}/bifrost" --version; then
             warn "bifrost --version failed"
         fi
-        if ! "${install_dir}/brokk-acp" --version; then
-            warn "brokk-acp --version failed"
+        if ! "${install_dir}/anvil" --version; then
+            warn "anvil --version failed"
         fi
     fi
 

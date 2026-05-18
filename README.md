@@ -46,7 +46,7 @@ The app installer is the normal way to run Brokk. It includes the Java desktop a
 The scripts under `installer/` do **not** install the Brokk desktop app. They install only the standalone agent support components:
 
 - `bifrost`: the auth proxy
-- `brokk-acp`: the Rust ACP server
+- `anvil`: the Rust ACP server (see https://github.com/BrokkAi/anvil)
 
 Use this only when you need those command-line components for ACP/Codex-style integrations:
 
@@ -187,7 +187,7 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
        ```
      - All platforms and installers: https://www.jdeploy.com/gh/BrokkAi/brokk
      - Requires Java 21+. On Windows, use the Releases installers or the jDeploy page.
-   - Optional ACP support components: use the `bifrost` + `brokk-acp` installer above only if you need those standalone command-line services.
+   - Optional ACP support components: use the `bifrost` + `anvil` installer above only if you need those standalone command-line services.
 
 3. Launch and sign in
    - Start Brokk and paste your API key when prompted.
@@ -202,7 +202,7 @@ These are optional companion projects, not the main desktop app install path:
 
 - [Claude Code plugin](claude-plugin/README.md): adds Brokk-powered semantic code intelligence to Claude Code.
 - [Terminal UI](brokk-code/README.md): a Python/Textual client that launches a local Java executor subprocess.
-- [ACP support components](installer/README.md): installs only `bifrost` and `brokk-acp` for ACP/Codex-style integrations.
+- [ACP support components](installer/README.md): installs only `bifrost` and `anvil` for ACP/Codex-style integrations.
 
 ## Staging Environment
 

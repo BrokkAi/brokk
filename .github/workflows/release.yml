@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   build-and-release:
-    if: "!startsWith(github.ref_name, 'brokk-code-') && !startsWith(github.ref_name, 'brokk-acp-rust-')"
+    if: "!startsWith(github.ref_name, 'brokk-code-')"
     runs-on: ubuntu-latest
 
     permissions:

@@ -1,9 +1,9 @@
-"""Resolve paths to the Rust ACP server (`brokk-acp`) and `bifrost`.
+"""Resolve paths to the Rust ACP server (`anvil`) and `bifrost`.
 
 For the editor-config path (`resolve_rust_paths`), brokk-code does not install
 or locate either binary; it writes the literal names into the config and relies
 on the editor inheriting a PATH that finds them at agent-launch time. Pass
-`--brokk-acp-binary PATH` to override `brokk-acp`.
+`--anvil-binary PATH` to override `anvil`.
 
 For the `brokk bifrost` MCP subcommand, `resolve_bifrost_binary` prefers (in
 order): explicit override, an entry on `$PATH` whose `--version` output matches
@@ -56,26 +56,26 @@ class BifrostInstallError(Exception):
 
 @dataclass
 class RustAcpPaths:
-    brokk_acp: Path
+    anvil: Path
     bifrost: Path
     model: str
     endpoint_url: str | None = None
     api_key: str | None = None
 
 
-def resolve_rust_paths(*, brokk_acp_override: Path | None) -> tuple[Path, Path]:
+def resolve_rust_paths(*, anvil_override: Path | None) -> tuple[Path, Path]:
     """Return the paths (or literal binary names) to write into the editor config.
 
-    bifrost is always the literal `bifrost`; brokk-acp is the override if given,
-    otherwise the literal `brokk-acp`. Override path is validated to exist.
+    bifrost is always the literal `bifrost`; anvil is the override if given,
+    otherwise the literal `anvil`. Override path is validated to exist.
     """
-    brokk_acp = (
-        _validate_existing_file(brokk_acp_override, "brokk-acp")
-        if brokk_acp_override is not None
-        else Path("brokk-acp")
+    anvil = (
+        _validate_existing_file(anvil_override, "anvil")
+        if anvil_override is not None
+        else Path("anvil")
     )
     bifrost = Path("bifrost")
-    return brokk_acp, bifrost
+    return anvil, bifrost
 
 
 def _validate_existing_file(path: Path, name: str) -> Path:

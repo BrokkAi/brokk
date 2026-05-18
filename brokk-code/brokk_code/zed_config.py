@@ -223,7 +223,7 @@ def _brokk_code_agent_server_config(
                 "model": [rust_paths.model],
             },
             "type": "custom",
-            "command": rust_paths.brokk_acp.as_posix(),
+            "command": rust_paths.anvil.as_posix(),
             "args": args,
             "env": {},
         }

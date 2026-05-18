@@ -2,7 +2,7 @@
 
 One-line installers for the standalone ACP support components:
 [bifrost](https://github.com/BrokkAi/bifrost) (the auth proxy) and
-`brokk-acp` (the Rust ACP server).
+[anvil](https://github.com/BrokkAi/anvil) (the Rust ACP server).
 
 These scripts do **not** install the Brokk desktop app. To install the app,
 download a platform installer from https://github.com/BrokkAi/brokk/releases.
@@ -24,7 +24,7 @@ irm https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.ps1
 ## Supported platforms
 
 The installers cover the intersection of platforms that **both** bifrost and
-brokk-acp publish releases for:
+anvil publish releases for:
 
 | OS      | Architecture | install.sh | install.ps1 |
 |---------|-------------|------------|-------------|
@@ -42,7 +42,7 @@ will be extended.
 2. Looks up the latest release of each component on GitHub (`/releases`).
 3. Downloads the matching asset over HTTPS.
 4. For bifrost, verifies the `.sha256` sidecar published alongside the archive.
-5. Extracts (bifrost is shipped as a tarball/zip; brokk-acp ships a single
+5. Extracts (bifrost is shipped as a tarball/zip; anvil ships a single
    binary) and installs both binaries to:
    - **Unix:** `~/.local/bin` (override with `--install-dir`)
    - **Windows:** `%LOCALAPPDATA%\brokk\bin` (override with `-InstallDir`)
@@ -59,7 +59,7 @@ newest release.
 ```text
 --install-dir DIR        Install location (default: $HOME/.local/bin)
 --bifrost-version VER    Pin bifrost version (e.g. v0.2.0). Default: latest.
---acp-version VER        Pin brokk-acp version (e.g. 0.1.0). Default: latest.
+--anvil-version VER      Pin anvil version (e.g. v0.4.4). Default: latest.
 --skip-path              Do not modify shell rc files.
 --no-verify              Skip running --version on installed binaries.
 -h, --help               Show help.
@@ -67,7 +67,7 @@ newest release.
 ```
 
 Equivalent environment variables: `BROKK_INSTALL_DIR`, `BIFROST_VERSION`,
-`BROKK_ACP_VERSION`.
+`ANVIL_VERSION`.
 
 To pass arguments through `curl | bash`, use the `bash -s --` form:
 
@@ -80,14 +80,14 @@ curl -fsSL https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/inst
 ```text
 -InstallDir <path>       Install location (default: %LOCALAPPDATA%\brokk\bin)
 -BifrostVersion <ver>    Pin bifrost version (e.g. v0.2.0). Default: latest.
--AcpVersion <ver>        Pin brokk-acp version (e.g. 0.1.0). Default: latest.
+-AnvilVersion <ver>      Pin anvil version (e.g. v0.4.4). Default: latest.
 -SkipPath                Do not modify the user's PATH.
 -NoVerify                Skip running --version on installed binaries.
 -ShowVersion             Print installer version.
 ```
 
 Equivalent environment variables: `$env:BROKK_INSTALL_DIR`,
-`$env:BIFROST_VERSION`, `$env:BROKK_ACP_VERSION`.
+`$env:BIFROST_VERSION`, `$env:ANVIL_VERSION`.
 
 To pass arguments to the script you need to download it first, since
 `irm | iex` cannot forward arguments:
@@ -121,7 +121,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
   `--proto '=https' --tlsv1.2` on curl; `install.ps1` raises the .NET TLS
   protocol baseline to TLS 1.2.
 - Bifrost releases ship a `.sha256` sidecar that the installer verifies after
-  download. brokk-acp does not currently publish checksums, so for that
+  download. anvil does not currently publish checksums, so for that
   binary the installers rely on TLS for transport integrity.
 - The installers only modify the user's own files: a per-user install
   directory and the user-scoped shell rc file (Unix) or user PATH
@@ -133,5 +133,4 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 If you would rather not run a script, the asset URLs are stable:
 
 - bifrost: `https://github.com/BrokkAi/bifrost/releases/latest`
-- brokk-acp: `https://github.com/BrokkAi/brokk/releases` (filter for tags
-  prefixed with `brokk-acp-rust-`)
+- anvil: `https://github.com/BrokkAi/anvil/releases/latest`

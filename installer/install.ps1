@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Installer for bifrost (auth proxy) and brokk-acp (Rust ACP server) on Windows.
+    Installer for bifrost (auth proxy) and anvil (Rust ACP server) on Windows.
 
 .DESCRIPTION
     Downloads release binaries from GitHub for the BrokkAi/bifrost and
-    BrokkAi/brokk repositories, installs them under a per-user directory, and
+    BrokkAi/anvil repositories, installs them under a per-user directory, and
     ensures that directory is on the user's PATH. Idempotent: safe to re-run
     for upgrades.
 
@@ -16,9 +16,9 @@
     Pin bifrost version (e.g. v0.2.0). Default: latest.
     Also configurable via $env:BIFROST_VERSION.
 
-.PARAMETER AcpVersion
-    Pin brokk-acp version (e.g. 0.1.0). Default: latest.
-    Also configurable via $env:BROKK_ACP_VERSION.
+.PARAMETER AnvilVersion
+    Pin anvil version (e.g. v0.4.4). Default: latest.
+    Also configurable via $env:ANVIL_VERSION.
 
 .PARAMETER SkipPath
     Do not modify the user's PATH.
@@ -38,7 +38,7 @@
     .\install.ps1 -InstallDir C:\tools\brokk
 
 .NOTES
-    Supported platform: Windows x86_64 (AMD64). brokk-acp does not currently
+    Supported platform: Windows x86_64 (AMD64). anvil does not currently
     publish ARM64 Windows builds.
 #>
 
@@ -46,7 +46,7 @@
 param(
     [string]$InstallDir,
     [string]$BifrostVersion,
-    [string]$AcpVersion,
+    [string]$AnvilVersion,
     [switch]$SkipPath,
     [switch]$NoVerify,
     [switch]$ShowVersion
@@ -57,8 +57,7 @@ $ProgressPreference = 'SilentlyContinue'
 
 $InstallerVersion = '0.1.0'
 $BifrostRepo = 'BrokkAi/bifrost'
-$BrokkRepo = 'BrokkAi/brokk'
-$AcpTagPrefix = 'brokk-acp-rust-'
+$AnvilRepo = 'BrokkAi/anvil'
 
 if ($ShowVersion) {
     Write-Output $InstallerVersion
@@ -115,7 +114,7 @@ function Get-Architecture {
 
 function Test-SupportedPlatform($arch) {
     if ($arch -ne 'x86_64') {
-        Die "Unsupported Windows architecture: $arch. brokk-acp publishes only x86_64 (AMD64) Windows builds."
+        Die "Unsupported Windows architecture: $arch. anvil publishes only x86_64 (AMD64) Windows builds."
     }
 }
 
@@ -150,21 +149,6 @@ function Get-LatestTag($repo) {
         Die "Could not parse tag_name from $repo latest release."
     }
     return $rel.tag_name
-}
-
-function Get-LatestPrefixedTag($repo, $prefix) {
-    $url = "https://api.github.com/repos/$repo/releases?per_page=100"
-    try {
-        $releases = Invoke-DownloadJson $url
-    } catch {
-        Die "Could not fetch releases for ${repo}: $_"
-    }
-    foreach ($rel in $releases) {
-        if ($rel.tag_name -and $rel.tag_name.StartsWith($prefix)) {
-            return $rel.tag_name
-        }
-    }
-    Die "No release found for $repo with tag prefix '$prefix'. Pin a version with -AcpVersion or `$env:BROKK_ACP_VERSION."
 }
 
 function Get-ReleaseByTag($repo, $tag) {
@@ -273,28 +257,28 @@ function Install-Bifrost {
     }
 }
 
-# ---- brokk-acp install --------------------------------------------------
+# ---- anvil install ------------------------------------------------------
 
-function Install-BrokkAcp {
+function Install-Anvil {
     param(
         [Parameter(Mandatory)] [string] $Arch,
         [Parameter(Mandatory)] [string] $InstallDir,
         [Parameter(Mandatory)] [string] $Version
     )
     if ($Arch -ne 'x86_64') {
-        Die "Internal: no brokk-acp asset for Windows $Arch"
+        Die "Internal: no anvil asset for Windows $Arch"
     }
-    $assetName = 'brokk-acp-windows-x86_64.exe'
-    $release = Get-ReleaseByTag $BrokkRepo "$AcpTagPrefix$Version"
+    $assetName = 'anvil-windows-x86_64.exe'
+    $release = Get-ReleaseByTag $AnvilRepo $Version
     $url = Find-AssetUrl -Release $release -AssetName $assetName
 
-    Write-Step "Downloading brokk-acp $Version (windows-x86_64)"
+    Write-Step "Downloading anvil $Version (windows-x86_64)"
     $tmp = New-Item -ItemType Directory -Path (Join-Path ([System.IO.Path]::GetTempPath()) ("brokk-installer-" + [guid]::NewGuid())) -Force
     try {
         $downloaded = Join-Path $tmp.FullName $assetName
         Invoke-Download -Url $url -Destination $downloaded
-        Install-File -Source $downloaded -Destination (Join-Path $InstallDir 'brokk-acp.exe')
-        Write-Info "    installed: $(Join-Path $InstallDir 'brokk-acp.exe')"
+        Install-File -Source $downloaded -Destination (Join-Path $InstallDir 'anvil.exe')
+        Write-Info "    installed: $(Join-Path $InstallDir 'anvil.exe')"
     } finally {
         Remove-Item -Path $tmp.FullName -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -338,7 +322,7 @@ if (-not $InstallDir) {
     }
 }
 if (-not $BifrostVersion -and $env:BIFROST_VERSION) { $BifrostVersion = $env:BIFROST_VERSION }
-if (-not $AcpVersion -and $env:BROKK_ACP_VERSION)   { $AcpVersion = $env:BROKK_ACP_VERSION }
+if (-not $AnvilVersion   -and $env:ANVIL_VERSION)   { $AnvilVersion   = $env:ANVIL_VERSION }
 
 $arch = Get-Architecture
 Test-SupportedPlatform $arch
@@ -347,13 +331,12 @@ Write-Info "Detected platform:  windows $arch"
 if (-not $BifrostVersion) {
     $BifrostVersion = Get-LatestTag $BifrostRepo
 }
-if (-not $AcpVersion) {
-    $tag = Get-LatestPrefixedTag $BrokkRepo $AcpTagPrefix
-    $AcpVersion = $tag.Substring($AcpTagPrefix.Length)
+if (-not $AnvilVersion) {
+    $AnvilVersion = Get-LatestTag $AnvilRepo
 }
 
 Write-Info "bifrost version:    $BifrostVersion"
-Write-Info "brokk-acp version:  $AcpVersion"
+Write-Info "anvil version:      $AnvilVersion"
 Write-Info "Install directory:  $InstallDir"
 Write-Info ""
 
@@ -361,8 +344,8 @@ if (-not (Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
 
-Install-Bifrost  -Arch $arch -InstallDir $InstallDir -Version $BifrostVersion
-Install-BrokkAcp -Arch $arch -InstallDir $InstallDir -Version $AcpVersion
+Install-Bifrost -Arch $arch -InstallDir $InstallDir -Version $BifrostVersion
+Install-Anvil   -Arch $arch -InstallDir $InstallDir -Version $AnvilVersion
 
 if (-not $SkipPath) {
     Add-ToUserPath -Directory $InstallDir
@@ -381,10 +364,10 @@ if (-not $NoVerify) {
         Write-Warn2 "bifrost --version failed: $_"
     }
     try {
-        & (Join-Path $InstallDir 'brokk-acp.exe') --version
-        if ($LASTEXITCODE -ne 0) { Write-Warn2 "brokk-acp --version exited with code $LASTEXITCODE" }
+        & (Join-Path $InstallDir 'anvil.exe') --version
+        if ($LASTEXITCODE -ne 0) { Write-Warn2 "anvil --version exited with code $LASTEXITCODE" }
     } catch {
-        Write-Warn2 "brokk-acp --version failed: $_"
+        Write-Warn2 "anvil --version failed: $_"
     }
 }
 

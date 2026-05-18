@@ -18,8 +18,8 @@ use tokio::sync::mpsc;
 #[command(name = "brokk-tui", version, about = "Interactive ACP chat TUI")]
 struct Cli {
     /// Command to spawn the ACP agent. Parsed with shell-words so quoted
-    /// arguments are honored. Defaults to `brokk-acp` on PATH.
-    #[arg(short, long, default_value = "brokk-acp")]
+    /// arguments are honored. Defaults to `anvil` on PATH.
+    #[arg(short, long, default_value = "anvil")]
     command: String,
 
     /// Working directory used when opening a new session. Defaults to

@@ -4,7 +4,7 @@ import java.util.Optional;
 
 /**
  * Per-session permission policy. Mirrors {@code claude-agent-acp}'s four reference modes and
- * Brokk's Rust ACP server (see {@code brokk-acp-rust/src/session.rs:54-83}); the Java agent
+ * Brokk's Rust ACP server (see {@code BrokkAi/anvil:src/session.rs:54-83}); the Java agent
  * surfaces it to clients as a {@code SessionConfigOption} dropdown independent of {@code SessionMode}.
  *
  * <p>{@link #READ_ONLY} is renamed from the reference's "plan" to avoid colliding with Brokk's PLAN

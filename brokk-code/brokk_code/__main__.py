@@ -965,21 +965,21 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "Wire the editor at the Rust ACP server (brokk-acp) instead of the Python or "
-            "Java implementations. Writes the literal commands `brokk-acp` and `bifrost` "
+            "Wire the editor at the Rust ACP server (anvil) instead of the Python or "
+            "Java implementations. Writes the literal commands `anvil` and `bifrost` "
             "into the editor's agent_servers config; both must be on the PATH the editor "
-            "inherits at agent-launch time (use --brokk-acp-binary to write an explicit "
+            "inherits at agent-launch time (use --anvil-binary to write an explicit "
             "path instead). Requires --provider-model. Mutually exclusive with --native. "
             "zed/intellij only."
         ),
     )
     install_parser.add_argument(
-        "--brokk-acp-binary",
+        "--anvil-binary",
         type=Path,
         default=None,
         help=(
-            "Write this brokk-acp path verbatim into the editor's agent_servers args "
-            "instead of the literal `brokk-acp`. Path must exist. Dev use only."
+            "Write this anvil path verbatim into the editor's agent_servers args "
+            "instead of the literal `anvil`. Path must exist. Dev use only."
         ),
     )
     install_parser.add_argument(
@@ -2019,13 +2019,13 @@ def _main_dispatch(
             sys.exit(1)
         if args.rust and not args.provider_model:
             print(
-                "Error: --rust requires --provider-model (passed to brokk-acp as --default-model).",
+                "Error: --rust requires --provider-model (passed to anvil as --default-model).",
                 file=sys.stderr,
             )
             sys.exit(1)
-        if args.brokk_acp_binary and not args.rust:
+        if args.anvil_binary and not args.rust:
             print(
-                "Error: --brokk-acp-binary requires --rust.",
+                "Error: --anvil-binary requires --rust.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -2050,7 +2050,7 @@ def _main_dispatch(
         # Rust ACP path: self-contained. Skips the Brokk API key, GitHub token,
         # jbang/uv prefetch -- the Rust binary connects directly to the user's
         # chosen LLM endpoint and never talks to Brokk's service.
-        # brokk-code does NOT build or fetch brokk-acp/bifrost; the user is
+        # brokk-code does NOT build or fetch anvil/bifrost; the user is
         # responsible for installing them. We just resolve their paths.
         if args.rust:
             from brokk_code.rust_acp_install import (
@@ -2060,14 +2060,14 @@ def _main_dispatch(
             )
 
             try:
-                brokk_acp_path, bifrost_path = resolve_rust_paths(
-                    brokk_acp_override=args.brokk_acp_binary,
+                anvil_path, bifrost_path = resolve_rust_paths(
+                    anvil_override=args.anvil_binary,
                 )
             except RustAcpInstallError as exc:
                 print(f"Error: {exc}", file=sys.stderr)
                 sys.exit(1)
             rust_paths = RustAcpPaths(
-                brokk_acp=brokk_acp_path,
+                anvil=anvil_path,
                 bifrost=bifrost_path,
                 model=args.provider_model,
                 endpoint_url=args.provider_url,
@@ -2087,7 +2087,7 @@ def _main_dispatch(
             except (ExistingBrokkCodeEntryError, ValueError) as exc:
                 print(f"Error: {exc}", file=sys.stderr)
                 sys.exit(1)
-            print(f"Wired editor at brokk-acp=`{brokk_acp_path}` bifrost=`{bifrost_path}`")
+            print(f"Wired editor at anvil=`{anvil_path}` bifrost=`{bifrost_path}`")
             print(f"Configured {integration} ACP integration in {settings_path}")
             return
 

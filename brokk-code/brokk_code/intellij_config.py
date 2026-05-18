@@ -58,7 +58,7 @@ def configure_intellij_acp_settings(
         if rust_paths.api_key:
             rust_args += ["--api-key", rust_paths.api_key]
         agent_servers[entry_name] = {
-            "command": rust_paths.brokk_acp.as_posix(),
+            "command": rust_paths.anvil.as_posix(),
             "args": rust_args,
             "env": {},
         }
