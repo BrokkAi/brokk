@@ -247,13 +247,14 @@ struct ChatCompletionRequest {
 }
 
 #[derive(Debug, Deserialize)]
-struct ModelEntry {
-    id: String,
+pub(crate) struct ModelEntry {
+    pub(crate) id: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct ModelsResponse {
-    data: Vec<ModelEntry>,
+pub(crate) struct ModelsResponse {
+    #[serde(default)]
+    pub(crate) data: Vec<ModelEntry>,
 }
 
 // SSE chunk types for streaming (extended for tool calls)

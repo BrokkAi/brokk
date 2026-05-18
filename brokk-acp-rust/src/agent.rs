@@ -654,7 +654,7 @@ pub async fn run_agent(
     let sessions_new = sessions.clone();
     // Throttle background discovery refreshes so a burst of session/new
     // calls (e.g. an editor reconnecting and re-creating sessions) doesn't
-    // pile up redundant probes against /api/tags and /codex/models. We
+    // pile up redundant probes against /v1/models and /codex/models. We
     // hold this owned Mutex via try_lock_owned: when a refresh is already
     // in flight, the next try_lock returns None and we skip the spawn.
     //

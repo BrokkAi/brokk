@@ -25,7 +25,7 @@ use crate::multi_backend::MultiBackend;
 
 /// Brokk ACP Server -- Rust-based Agent Client Protocol server with
 /// zero-config auto-discovery: at startup we read `~/.codex/auth.json`
-/// for Codex credentials and probe `http://localhost:11434/api/tags`
+/// for Codex credentials and probe `http://localhost:11434/v1/models`
 /// for Ollama, and the model picker shows whatever is reachable. No
 /// flags are required (or even available) to point at a different
 /// Ollama URL or restrict the picker -- if Ollama isn't on the default
@@ -202,12 +202,12 @@ async fn build_codex_backend() -> Option<Arc<dyn LlmBackend>> {
 /// Build the Ollama chat backend. Always pointed at the default
 /// `http://localhost:11434`; chat requests go through Ollama's
 /// OpenAI-compatible `/v1/chat/completions` shim, while discovery
-/// (handled by `discovery.rs`) hits the native `/api/tags`. Ollama
-/// doesn't require an API key for local use.
+/// (handled by `discovery.rs`) hits the OpenAI-compatible `/v1/models`.
+/// Ollama doesn't require an API key for local use.
 fn build_ollama_backend() -> Arc<dyn LlmBackend> {
     let chat_url = format!("{}/v1", discovery::OLLAMA_DEFAULT_URL);
     tracing::info!(
-        "Ollama backend wired at {chat_url} (chat) and {}/api/tags (discovery); \
+        "Ollama backend wired at {chat_url} (chat) and {}/v1/models (discovery); \
          models become available if/when the daemon responds",
         discovery::OLLAMA_DEFAULT_URL
     );

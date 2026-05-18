@@ -1,5 +1,5 @@
 //! Auto-discover available LLM models from Codex (`~/.codex/auth.json`),
-//! a local Ollama daemon (`http://localhost:11434/api/tags`), and
+//! a local Ollama daemon (`http://localhost:11434/v1/models`), and
 //! OpenRouter (`https://openrouter.ai/api/v1/models`, gated on the
 //! `OPENROUTER_API_KEY` env var).
 //!
@@ -27,7 +27,6 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
 
 /// Where a discovered model came from. The variant is encoded into the
 /// wire id so the routing backend doesn't need a per-request map lookup.
@@ -97,19 +96,8 @@ pub const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 pub const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
 
 // ---------------------------------------------------------------------------
-// Ollama discovery (native /api/tags)
+// Ollama discovery (OpenAI-compatible /v1/models)
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Deserialize)]
-struct OllamaTagsResponse {
-    #[serde(default)]
-    models: Vec<OllamaTagEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OllamaTagEntry {
-    name: String,
-}
 
 /// Build a short-timeout HTTP client tuned for discovery. Ollama is local;
 /// if it's not running we want to fail fast, not block startup for 30s.
@@ -121,16 +109,17 @@ pub fn discovery_http_client() -> reqwest::Client {
         .expect("failed to build discovery HTTP client")
 }
 
-/// Query Ollama's native `/api/tags` endpoint. Native API, not the
-/// OpenAI-compatible `/v1/models` -- `/api/tags` is the canonical list of
-/// downloaded models and includes tag suffixes (`llama3:latest`) that
-/// `/v1/models` strips.
+/// Query Ollama's OpenAI-compatible `/v1/models` endpoint. Recent Ollama
+/// versions preserve tag suffixes (`llama3:latest`) in the OpenAI shim,
+/// so we use it directly instead of the native `/api/tags`. This also
+/// keeps the parsing identical to any other OpenAI-compatible local
+/// server a user might run on the same port.
 pub async fn discover_ollama(
     http: &reqwest::Client,
     base_url: &str,
 ) -> Result<Vec<DiscoveredModel>> {
     let base = base_url.trim_end_matches('/');
-    let url = format!("{base}/api/tags");
+    let url = format!("{base}/v1/models");
     let resp = http
         .get(&url)
         .send()
@@ -138,14 +127,15 @@ pub async fn discover_ollama(
         .with_context(|| format!("GET {url}"))?;
     let status = resp.status();
     if !status.is_success() {
-        anyhow::bail!("ollama /api/tags returned HTTP {status}");
+        anyhow::bail!("ollama /v1/models returned HTTP {status}");
     }
-    let parsed: OllamaTagsResponse = resp.json().await.context("parsing /api/tags JSON")?;
+    let parsed: crate::llm_client::ModelsResponse =
+        resp.json().await.context("parsing /v1/models JSON")?;
     Ok(parsed
-        .models
+        .data
         .into_iter()
         .map(|m| DiscoveredModel {
-            id: m.name,
+            id: m.id,
             source: ModelSource::Ollama,
         })
         .collect())
@@ -242,6 +232,37 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// `discover_ollama` parses the OpenAI-shape `/v1/models` body and
+    /// preserves tag suffixes (`llama3:latest`) verbatim through to
+    /// `DiscoveredModel.id`. Without this test, the existing
+    /// `discover_all_*` cases only hit the connect-refused error path
+    /// via `TEST_DEAD_OLLAMA_URL`, so the JSON parsing path was never
+    /// exercised.
+    #[tokio::test]
+    async fn discover_ollama_parses_v1_models_shape() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": "list",
+                "data": [
+                    {"id": "llama3:latest", "object": "model"},
+                    {"id": "qwen3.6:35b-a3b-coding-mxfp8", "object": "model"}
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let http = discovery_http_client();
+        let models = discover_ollama(&http, &server.uri()).await.expect("ok");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "llama3:latest");
+        assert_eq!(models[0].source, ModelSource::Ollama);
+        assert_eq!(models[1].id, "qwen3.6:35b-a3b-coding-mxfp8");
+    }
 
     /// `wire_id` round-trips through `split_wire_id` for every source,
     /// preserves Ollama tag suffixes (the inner colon in `llama3:latest`),

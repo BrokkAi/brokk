@@ -80,3 +80,8 @@ sha2 = "0.10"
 # marker + AGENTS.md/CLAUDE.md fixtures) without polluting the working
 # directory.
 tempfile = "3"
+# Used by `discovery::tests` to mock the Ollama `/v1/models` HTTP
+# response shape and validate that `discover_ollama` parses it
+# correctly. Without a mock, the existing tests only exercise the
+# connection-refused error path.
+wiremock = "0.6"
