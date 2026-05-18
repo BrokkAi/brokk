@@ -41,7 +41,7 @@ Usage:
 Options:
   --install-dir DIR        Install location (default: \$HOME/.local/bin)
   --bifrost-version VER    Pin bifrost version (e.g. v0.2.0). Default: latest.
-  --anvil-version VER      Pin anvil version (e.g. v0.4.4). Default: latest.
+  --anvil-version VER      Pin anvil version (e.g. v0.5.0). Default: latest.
   --skip-path              Do not modify shell rc files.
   --no-verify              Skip running --version on installed binaries.
   -h, --help               Show this help.

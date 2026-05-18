@@ -17,7 +17,7 @@
     Also configurable via $env:BIFROST_VERSION.
 
 .PARAMETER AnvilVersion
-    Pin anvil version (e.g. v0.4.4). Default: latest.
+    Pin anvil version (e.g. v0.5.0). Default: latest.
     Also configurable via $env:ANVIL_VERSION.
 
 .PARAMETER SkipPath
