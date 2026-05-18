@@ -24,7 +24,7 @@ The server is composed of several specialized modules:
 
 ## Configuration / CLI Options
 
-The server binary is named `brokk-acp`. It is **zero-config by design**: at startup it reads `~/.codex/auth.json` for Codex credentials and probes `http://localhost:11434/api/tags` for Ollama, presenting whatever responds as a single combined picker. Models are tagged on the wire as `codex::<id>` and `ollama::<id>` so identical names from different sources stay distinct.
+The server binary is named `brokk-acp`. It is **zero-config by design**: at startup it reads `~/.codex/auth.json` for Codex credentials and probes `http://localhost:11434/v1/models` for Ollama, presenting whatever responds as a single combined picker. Models are tagged on the wire as `codex::<id>` and `ollama::<id>` so identical names from different sources stay distinct.
 
 There are no flags to point at a different Ollama URL or restrict the picker. If your daemon listens elsewhere, run `ollama serve` on the default port.
 
