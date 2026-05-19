@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -36,10 +38,17 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler {
     private static final Logger logger = LogManager.getLogger(SettingsRouter.class);
+    private static final long INFER_BUILD_DETAILS_HTTP_TIMEOUT_SECONDS = 30;
     private final ContextManager contextManager;
+    private final long inferBuildDetailsHttpTimeoutSeconds;
 
     public SettingsRouter(ContextManager contextManager) {
+        this(contextManager, INFER_BUILD_DETAILS_HTTP_TIMEOUT_SECONDS);
+    }
+
+    SettingsRouter(ContextManager contextManager, long inferBuildDetailsHttpTimeoutSeconds) {
         this.contextManager = contextManager;
+        this.inferBuildDetailsHttpTimeoutSeconds = inferBuildDetailsHttpTimeoutSeconds;
     }
 
     @Override
@@ -77,7 +86,7 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             var response = new HashMap<String, Object>();
 
             // Build details
-            var buildDetails = project.awaitBuildDetails();
+            var buildDetails = contextManager.awaitBuildDetailsForSettings();
             response.put("buildDetails", buildBuildDetailsMap(buildDetails));
 
             // Project settings
@@ -245,10 +254,12 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
         var request =
                 RouterUtil.parseJsonOr400(exchange, InferBuildDetailsRequest.class, "/v1/settings/infer-build-details");
         if (request == null) return;
+        var project = contextManager.getProject();
 
         try {
-            var result =
-                    contextManager.inferBuildDetails(request.forceEnabled()).get();
+            var result = contextManager
+                    .inferBuildDetails(request.forceEnabled())
+                    .get(inferBuildDetailsHttpTimeoutSeconds, TimeUnit.SECONDS);
             var diagnostics = result.diagnostics();
             SimpleHttpServer.sendJsonResponse(
                     exchange,
@@ -261,6 +272,15 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             logger.error("Interrupted while handling POST /v1/settings/infer-build-details", e);
             SimpleHttpServer.sendJsonResponse(
                     exchange, 500, ErrorPayload.internalError("Interrupted while inferring build details", e));
+        } catch (TimeoutException e) {
+            logger.warn("Timed out handling POST /v1/settings/infer-build-details", e);
+            var currentDetails = project.hasBuildDetails() ? project.awaitBuildDetails() : BuildDetails.EMPTY;
+            SimpleHttpServer.sendJsonResponse(
+                    exchange,
+                    new InferBuildDetailsResponse(
+                            "failed",
+                            buildBuildDetailsMap(currentDetails),
+                            "Timed out waiting for build-details inference"));
         } catch (Exception e) {
             logger.error("Error handling POST /v1/settings/infer-build-details", e);
             SimpleHttpServer.sendJsonResponse(

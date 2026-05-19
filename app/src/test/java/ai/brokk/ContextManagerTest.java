@@ -338,7 +338,7 @@ class ContextManagerTest {
             assertEquals("failed", result.status());
             assertTrue(result.diagnostics().contains("boom"));
             assertFalse(project.hasBuildDetails(), "Failed inference should not persist build details");
-            assertTrue(project.getBuildDetailsFuture().isCompletedExceptionally());
+            assertFalse(project.getBuildDetailsFuture().isCompletedExceptionally());
         }
     }
 

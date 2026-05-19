@@ -1024,15 +1024,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public void completeBuildDetailsExceptionally(Throwable throwable) {
-        if (detailsFuture.isDone()) {
-            detailsFuture = CompletableFuture.failedFuture(throwable);
-        } else {
-            detailsFuture.completeExceptionally(throwable);
-        }
-    }
-
-    @Override
     public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
         return detailsFuture;
     }

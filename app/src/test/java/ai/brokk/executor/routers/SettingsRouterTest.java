@@ -1,6 +1,7 @@
 package ai.brokk.executor.routers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,6 +14,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -339,6 +342,159 @@ class SettingsRouterTest {
                 var buildDetails = (Map<String, Object>) response.get("buildDetails");
                 assertEquals("gradlew build", buildDetails.get("buildLintCommand"));
             }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handlePostInferBuildDetails_returnsEmptyOnRepeatedNonForcedCallsAfterEmptyInference() throws Exception {
+        try (var emptyProject = new MainProject(project.getRoot());
+                var emptyContextManager = new ContextManager(emptyProject) {
+                    @Override
+                    protected BuildDetails runBuildDetailsInference() {
+                        return BuildDetails.EMPTY;
+                    }
+                }) {
+            var emptyRouter = new SettingsRouter(emptyContextManager);
+
+            var firstExchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/infer-build-details", Map.of());
+            emptyRouter.handle(firstExchange);
+            Map<String, Object> first = MAPPER.readValue(firstExchange.responseBodyBytes(), new TypeReference<>() {});
+            assertEquals("empty", first.get("status"));
+
+            var secondExchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/infer-build-details", Map.of());
+            emptyRouter.handle(secondExchange);
+            Map<String, Object> second = MAPPER.readValue(secondExchange.responseBodyBytes(), new TypeReference<>() {});
+            assertEquals("empty", second.get("status"));
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handleGetSettings_waitsForInFlightInference() throws Exception {
+        var waitingRoot = java.nio.file.Files.createTempDirectory("settings-router-waits-for-inference");
+        try (var waitingProject = new MainProject(waitingRoot)) {
+            var started = new CountDownLatch(1);
+            var release = new CountDownLatch(1);
+            try (var waitingContextManager = new ContextManager(waitingProject) {
+                @Override
+                protected BuildDetails runBuildDetailsInference() throws Exception {
+                    started.countDown();
+                    assertTrue(release.await(5, TimeUnit.SECONDS));
+                    return INFERRED_DETAILS;
+                }
+            }) {
+                var waitingRouter = new SettingsRouter(waitingContextManager);
+                waitingContextManager.createHeadless(true, new ai.brokk.testutil.NoOpConsoleIO());
+                assertTrue(started.await(5, TimeUnit.SECONDS));
+
+                var getFuture = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                    try {
+                        var exchange = TestHttpExchange.request("GET", "/v1/settings");
+                        waitingRouter.handle(exchange);
+                        return exchange;
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+
+                Thread.sleep(200);
+                assertFalse(getFuture.isDone(), "GET /v1/settings should wait for in-flight inference");
+
+                release.countDown();
+                var exchange = getFuture.get(5, TimeUnit.SECONDS);
+                Map<String, Object> response = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+                var buildDetails = (Map<String, Object>) response.get("buildDetails");
+                assertEquals("gradlew build", buildDetails.get("buildLintCommand"));
+            }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handleGetSettings_afterFailedInferenceRetriesAndReturnsEmpty() throws Exception {
+        var failedRoot = java.nio.file.Files.createTempDirectory("settings-router-retries-after-failure");
+        try (var failedProject = new MainProject(failedRoot)) {
+            var calls = new AtomicInteger();
+            try (var failedContextManager = new ContextManager(failedProject) {
+                @Override
+                protected BuildDetails runBuildDetailsInference() {
+                    if (calls.getAndIncrement() == 0) {
+                        throw new RuntimeException("boom");
+                    }
+                    return BuildDetails.EMPTY;
+                }
+            }) {
+                var failedRouter = new SettingsRouter(failedContextManager);
+
+                var postExchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/infer-build-details", Map.of());
+                failedRouter.handle(postExchange);
+                Map<String, Object> post = MAPPER.readValue(postExchange.responseBodyBytes(), new TypeReference<>() {});
+                assertEquals("failed", post.get("status"));
+
+                var getExchange = TestHttpExchange.request("GET", "/v1/settings");
+                failedRouter.handle(getExchange);
+                Map<String, Object> get = MAPPER.readValue(getExchange.responseBodyBytes(), new TypeReference<>() {});
+                var buildDetails = (Map<String, Object>) get.get("buildDetails");
+                assertEquals(List.of(), buildDetails.get("exclusionPatterns"));
+                assertEquals(2, calls.get(), "GET /v1/settings should retry inference after failure");
+            }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handlePostInferBuildDetails_forceIsThrottledWhenRepeated() throws Exception {
+        try (var throttledProject = new MainProject(project.getRoot())) {
+            throttledProject.saveBuildDetails(INFERRED_DETAILS);
+            var calls = new AtomicInteger();
+            try (var throttledContextManager = new ContextManager(throttledProject) {
+                @Override
+                protected BuildDetails runBuildDetailsInference() {
+                    calls.incrementAndGet();
+                    return INFERRED_DETAILS;
+                }
+            }) {
+                var throttledRouter = new SettingsRouter(throttledContextManager);
+
+                var firstExchange =
+                        TestHttpExchange.jsonRequest("POST", "/v1/settings/infer-build-details", Map.of("force", true));
+                throttledRouter.handle(firstExchange);
+                Map<String, Object> first =
+                        MAPPER.readValue(firstExchange.responseBodyBytes(), new TypeReference<>() {});
+                assertEquals("inferred", first.get("status"));
+
+                var secondExchange =
+                        TestHttpExchange.jsonRequest("POST", "/v1/settings/infer-build-details", Map.of("force", true));
+                throttledRouter.handle(secondExchange);
+                Map<String, Object> second =
+                        MAPPER.readValue(secondExchange.responseBodyBytes(), new TypeReference<>() {});
+                assertEquals("failed", second.get("status"));
+                assertEquals(1, calls.get());
+            }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handlePostInferBuildDetails_timesOutBoundedly() throws Exception {
+        try (var timeoutProject = new MainProject(project.getRoot());
+                var timeoutContextManager = new ContextManager(timeoutProject) {
+                    @Override
+                    public java.util.concurrent.CompletableFuture<ContextManager.BuildDetailsInferenceResult>
+                            inferBuildDetails(boolean force) {
+                        return new java.util.concurrent.CompletableFuture<>();
+                    }
+                }) {
+            var timeoutRouter = new SettingsRouter(timeoutContextManager, 1);
+
+            var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/infer-build-details", Map.of());
+            timeoutRouter.handle(exchange);
+
+            assertEquals(200, exchange.responseCode());
+            Map<String, Object> response = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+            assertEquals("failed", response.get("status"));
+            assertEquals("Timed out waiting for build-details inference", response.get("diagnostics"));
         }
     }
 

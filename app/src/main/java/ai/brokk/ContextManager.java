@@ -170,6 +170,9 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     private final AtomicReference<BuildDetailsInferenceState> buildDetailsInferenceState =
             new AtomicReference<>(BuildDetailsInferenceState.NOT_STARTED);
     private final AtomicReference<@Nullable String> buildDetailsInferenceDiagnostics = new AtomicReference<>();
+    private volatile @Nullable BuildDetailsInferenceResult lastBuildDetailsInferenceResult;
+    private volatile @Nullable Instant lastForcedBuildDetailsInferenceAt;
+    private static final Duration FORCE_BUILD_DETAILS_REINFERENCE_COOLDOWN = Duration.ofMinutes(1);
 
     // Style guide generation completion tracking
     private volatile CompletableFuture<String> styleGuideFuture = CompletableFuture.completedFuture("");
@@ -2063,6 +2066,13 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
                 return buildDetailsInferenceFuture;
             }
 
+            if (force) {
+                var throttled = throttledForcedInferenceResult();
+                if (throttled != null) {
+                    return CompletableFuture.completedFuture(throttled);
+                }
+            }
+
             if (!force) {
                 var completed = completedBuildDetailsResultIfAvailable();
                 if (completed != null) {
@@ -2072,6 +2082,9 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
             buildDetailsInferenceState.set(BuildDetailsInferenceState.RUNNING);
             buildDetailsInferenceDiagnostics.set(null);
+            if (force) {
+                lastForcedBuildDetailsInferenceAt = Instant.now();
+            }
             buildDetailsInferenceFuture =
                     submitBackgroundTask("Inferring build details", () -> runBuildDetailsInferenceTask(force));
             return buildDetailsInferenceFuture;
@@ -2080,9 +2093,16 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
     private @Nullable BuildDetailsInferenceResult completedBuildDetailsResultIfAvailable() {
         if (project.hasBuildDetails()) {
+            var details = project.awaitBuildDetails();
+            if (BuildDetails.EMPTY.equals(details)) {
+                buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_EMPTY);
+                var diagnostics = emptyBuildDetailsDiagnostics();
+                return new BuildDetailsInferenceResult("empty", details, diagnostics);
+            }
+
             buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_EXISTING);
             buildDetailsInferenceDiagnostics.set(null);
-            return new BuildDetailsInferenceResult("existing", project.awaitBuildDetails(), null);
+            return new BuildDetailsInferenceResult("existing", details, null);
         }
 
         var detailsFuture = project.getBuildDetailsFuture();
@@ -2094,8 +2114,7 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
             var details = detailsFuture.join();
             if (BuildDetails.EMPTY.equals(details)) {
                 buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_EMPTY);
-                var diagnostics = Objects.requireNonNullElse(
-                        buildDetailsInferenceDiagnostics.get(), "No build details have been inferred yet");
+                var diagnostics = emptyBuildDetailsDiagnostics();
                 return new BuildDetailsInferenceResult("empty", details, diagnostics);
             }
 
@@ -2103,10 +2122,8 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
             buildDetailsInferenceDiagnostics.set(null);
             return new BuildDetailsInferenceResult("inferred", details, null);
         } catch (CompletionException e) {
-            return failedBuildDetailsResult(
-                    Objects.requireNonNullElse(
-                            buildDetailsInferenceDiagnostics.get(), "Build details inference failed"),
-                    e.getCause());
+            logger.debug("Ignoring stale exceptional build-details future while checking completed result", e);
+            return null;
         }
     }
 
@@ -2124,11 +2141,6 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
                 throw new InterruptedException("Build details inference cancelled before execution");
             }
 
-            if (!project.getBuildDetailsFuture().isDone()) {
-                // Keep build-details-dependent file enumeration paths from blocking while inference runs.
-                project.setBuildDetails(BuildDetails.EMPTY);
-            }
-
             var inferredDetails = runBuildDetailsInference();
             if (Thread.currentThread().isInterrupted()) {
                 throw new InterruptedException("Build details inference cancelled after execution");
@@ -2142,24 +2154,28 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO,
                         "Could not determine build configuration - project structure may be unsupported or incomplete");
-                return new BuildDetailsInferenceResult("empty", inferredDetails, diagnostics);
+                var result = new BuildDetailsInferenceResult("empty", inferredDetails, diagnostics);
+                lastBuildDetailsInferenceResult = result;
+                return result;
             }
 
             buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_INFERRED);
             buildDetailsInferenceDiagnostics.set(null);
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
-            return new BuildDetailsInferenceResult("inferred", inferredDetails, null);
+            var result = new BuildDetailsInferenceResult("inferred", inferredDetails, null);
+            lastBuildDetailsInferenceResult = result;
+            return result;
         } catch (InterruptedException e) {
             logger.debug("Build details inference interrupted");
             Thread.currentThread().interrupt();
-            return failedBuildDetailsResult("Build details inference interrupted", e);
+            return failedBuildDetailsResult("Build details inference interrupted");
         } catch (Exception e) {
             var msg =
                     "Build Information Agent did not complete successfully (aborted or errored). Build details not saved. Error: "
                             + e.getMessage();
             logger.error(msg, e);
             io.toolError(msg, "Build Information Agent failed");
-            return failedBuildDetailsResult(msg, e);
+            return failedBuildDetailsResult(msg);
         }
     }
 
@@ -2172,11 +2188,62 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
         return agent.execute();
     }
 
-    private BuildDetailsInferenceResult failedBuildDetailsResult(String diagnostics, @Nullable Throwable throwable) {
+    private BuildDetailsInferenceResult failedBuildDetailsResult(String diagnostics) {
         buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_FAILED);
         buildDetailsInferenceDiagnostics.set(diagnostics);
-        project.completeBuildDetailsExceptionally(throwable != null ? throwable : new RuntimeException(diagnostics));
-        return new BuildDetailsInferenceResult("failed", BuildDetails.EMPTY, diagnostics);
+        var result = new BuildDetailsInferenceResult("failed", BuildDetails.EMPTY, diagnostics);
+        lastBuildDetailsInferenceResult = result;
+        return result;
+    }
+
+    @Blocking
+    public BuildDetails awaitBuildDetailsForSettings() {
+        var inFlight = buildDetailsInferenceFuture;
+        if (inFlight != null && !inFlight.isDone()) {
+            try {
+                return inFlight.get().buildDetails();
+            } catch (ExecutionException e) {
+                logger.error("ExecutionException while awaiting build details inference for settings", e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
+        }
+
+        if (!project.hasBuildDetails()) {
+            var result = inferBuildDetails(false).join();
+            return result.buildDetails();
+        }
+
+        return project.awaitBuildDetails();
+    }
+
+    private @Nullable BuildDetailsInferenceResult throttledForcedInferenceResult() {
+        if (!project.hasBuildDetails()) {
+            return null;
+        }
+        var lastForced = lastForcedBuildDetailsInferenceAt;
+        if (lastForced == null) {
+            return null;
+        }
+        if (lastForced.plus(FORCE_BUILD_DETAILS_REINFERENCE_COOLDOWN).isBefore(Instant.now())) {
+            return null;
+        }
+        var diagnostics = "Forced build-details reinference is temporarily throttled";
+        return new BuildDetailsInferenceResult("failed", project.awaitBuildDetails(), diagnostics);
+    }
+
+    private String emptyBuildDetailsDiagnostics() {
+        if (project.hasBuildDetails()) {
+            return Objects.requireNonNullElse(
+                    buildDetailsInferenceDiagnostics.get(), "Could not determine build configuration");
+        }
+        if (lastBuildDetailsInferenceResult != null && "empty".equals(lastBuildDetailsInferenceResult.status())) {
+            return Objects.requireNonNullElse(
+                    lastBuildDetailsInferenceResult.diagnostics(), "Could not determine build configuration");
+        }
+        return Objects.requireNonNullElse(
+                buildDetailsInferenceDiagnostics.get(), "No build details have been inferred yet");
     }
 
     public void reloadService() {
