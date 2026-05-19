@@ -1357,7 +1357,8 @@ class BuildAgentTest {
 
         var cm = new TestContextManager(project);
         var llm = cm.getLlm(new TestScriptedLanguageModel("No tool call"), "test", ai.brokk.TaskResult.Type.NONE);
-        var registry = new ToolRegistry().builder().register(new SearchTools(cm)).build();
+        var registry =
+                new ToolRegistry().builder().register(new SearchTools(cm)).build();
         var agent = new BuildAgent(project, llm, registry, new TestConsoleIO());
 
         assertEquals(BuildAgent.BuildDetails.EMPTY, agent.execute());
