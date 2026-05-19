@@ -88,6 +88,16 @@ public class TestProject implements IProject {
     }
 
     @Override
+    public void completeBuildDetailsExceptionally(Throwable throwable) {
+        this.buildDetailsExplicitlySet = false;
+        if (!detailsFuture.isDone()) {
+            detailsFuture.completeExceptionally(throwable);
+            return;
+        }
+        detailsFuture = CompletableFuture.failedFuture(throwable);
+    }
+
+    @Override
     public boolean hasBuildDetails() {
         return buildDetailsExplicitlySet;
     }

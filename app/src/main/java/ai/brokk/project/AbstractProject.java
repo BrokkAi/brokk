@@ -137,8 +137,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         var bdOpt = loadBuildDetails();
         if (bdOpt.isPresent()) {
             this.detailsFuture.complete(bdOpt.get());
-        } else {
-            this.detailsFuture.complete(BuildAgent.BuildDetails.EMPTY);
         }
     }
 
@@ -895,7 +893,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public boolean hasBuildDetails() {
-        return detailsFuture.isDone();
+        return projectProps.containsKey(BUILD_DETAILS_KEY);
     }
 
     @Override
@@ -1022,6 +1020,15 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             detailsFuture = CompletableFuture.completedFuture(details);
         } else {
             detailsFuture.complete(details);
+        }
+    }
+
+    @Override
+    public void completeBuildDetailsExceptionally(Throwable throwable) {
+        if (detailsFuture.isDone()) {
+            detailsFuture = CompletableFuture.failedFuture(throwable);
+        } else {
+            detailsFuture.completeExceptionally(throwable);
         }
     }
 

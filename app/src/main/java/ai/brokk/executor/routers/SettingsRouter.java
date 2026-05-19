@@ -59,6 +59,15 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             return;
         }
 
+        if (normalizedPath.equals("/v1/settings/infer-build-details")) {
+            if ("POST".equals(method)) {
+                handlePostInferBuildDetails(exchange);
+            } else {
+                RouterUtil.sendMethodNotAllowed(exchange);
+            }
+            return;
+        }
+
         SimpleHttpServer.sendJsonResponse(exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
     }
 
@@ -229,6 +238,33 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             logger.error("Error handling POST /v1/settings", e);
             SimpleHttpServer.sendJsonResponse(
                     exchange, 500, ErrorPayload.internalError("Failed to update settings", e));
+        }
+    }
+
+    private void handlePostInferBuildDetails(HttpExchange exchange) throws IOException {
+        var request =
+                RouterUtil.parseJsonOr400(exchange, InferBuildDetailsRequest.class, "/v1/settings/infer-build-details");
+        if (request == null) return;
+
+        try {
+            var result =
+                    contextManager.inferBuildDetails(request.forceEnabled()).get();
+            var diagnostics = result.diagnostics();
+            SimpleHttpServer.sendJsonResponse(
+                    exchange,
+                    new InferBuildDetailsResponse(
+                            result.status(),
+                            buildBuildDetailsMap(result.buildDetails()),
+                            diagnostics != null && !diagnostics.isBlank() ? diagnostics : null));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("Interrupted while handling POST /v1/settings/infer-build-details", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Interrupted while inferring build details", e));
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/settings/infer-build-details", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to infer build details", e));
         }
     }
 
@@ -418,6 +454,15 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             @Nullable JsonNode issueProvider,
             @Nullable String dataRetentionPolicy,
             @Nullable UpdateLanguagesRequest analyzerLanguages) {}
+
+    private record InferBuildDetailsRequest(@Nullable Boolean force) {
+        boolean forceEnabled() {
+            return Boolean.TRUE.equals(force);
+        }
+    }
+
+    private record InferBuildDetailsResponse(
+            String status, Map<String, Object> buildDetails, @Nullable String diagnostics) {}
 
     private record UpdateBuildRequest(
             @Nullable String buildLintCommand,

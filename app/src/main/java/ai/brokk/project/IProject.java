@@ -211,6 +211,10 @@ public interface IProject extends ICoreProject {
         throw new UnsupportedOperationException();
     }
 
+    default void completeBuildDetailsExceptionally(Throwable throwable) {
+        throw new UnsupportedOperationException();
+    }
+
     default void setRepo(IGitRepo repo) {
         throw new UnsupportedOperationException();
     }

@@ -1,13 +1,17 @@
 package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextOutputFragments;
 import ai.brokk.project.MainProject;
+import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -16,6 +20,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -294,6 +302,99 @@ class ContextManagerTest {
                     "History copy should preserve fragment-provided order");
         } finally {
             project.close();
+        }
+    }
+
+    @Test
+    void inferBuildDetails_returnsEmptyForEmptyInference() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-infer-empty");
+        try (var project = new MainProject(tempDir);
+                var cm = new ContextManager(project) {
+                    @Override
+                    protected BuildAgent.BuildDetails runBuildDetailsInference() {
+                        return BuildAgent.BuildDetails.EMPTY;
+                    }
+                }) {
+            var result = cm.inferBuildDetails(false).get(5, TimeUnit.SECONDS);
+
+            assertEquals("empty", result.status());
+            assertEquals(BuildAgent.BuildDetails.EMPTY, result.buildDetails());
+            assertTrue(project.hasBuildDetails(), "Empty inference should still persist build details");
+        }
+    }
+
+    @Test
+    void inferBuildDetails_returnsFailedWithDiagnostics() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-infer-failed");
+        try (var project = new MainProject(tempDir);
+                var cm = new ContextManager(project) {
+                    @Override
+                    protected BuildAgent.BuildDetails runBuildDetailsInference() {
+                        throw new RuntimeException("boom");
+                    }
+                }) {
+            var result = cm.inferBuildDetails(false).get(5, TimeUnit.SECONDS);
+
+            assertEquals("failed", result.status());
+            assertTrue(result.diagnostics().contains("boom"));
+            assertFalse(project.hasBuildDetails(), "Failed inference should not persist build details");
+            assertTrue(project.getBuildDetailsFuture().isCompletedExceptionally());
+        }
+    }
+
+    @Test
+    void inferBuildDetails_usesSingleFlightForConcurrentCallers() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-infer-single-flight");
+        var started = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var calls = new AtomicInteger();
+
+        try (var project = new MainProject(tempDir);
+                var cm = new ContextManager(project) {
+                    @Override
+                    protected BuildAgent.BuildDetails runBuildDetailsInference() throws Exception {
+                        calls.incrementAndGet();
+                        started.countDown();
+                        assertTrue(release.await(5, TimeUnit.SECONDS));
+                        return BuildAgent.BuildDetails.EMPTY;
+                    }
+                }) {
+            CompletableFuture<ContextManager.BuildDetailsInferenceResult> first = cm.inferBuildDetails(false);
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            CompletableFuture<ContextManager.BuildDetailsInferenceResult> second = cm.inferBuildDetails(false);
+
+            assertSame(first, second);
+            release.countDown();
+            assertEquals("empty", first.get(5, TimeUnit.SECONDS).status());
+            assertEquals(1, calls.get());
+        }
+    }
+
+    @Test
+    void createHeadlessAndEndpointShareSameInFlightInference() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-headless-share-inflight");
+        var started = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var calls = new AtomicInteger();
+
+        try (var project = new MainProject(tempDir);
+                var cm = new ContextManager(project) {
+                    @Override
+                    protected BuildAgent.BuildDetails runBuildDetailsInference() throws Exception {
+                        calls.incrementAndGet();
+                        started.countDown();
+                        assertTrue(release.await(5, TimeUnit.SECONDS));
+                        return BuildAgent.BuildDetails.EMPTY;
+                    }
+                }) {
+            cm.createHeadless(true, new NoOpConsoleIO());
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+
+            var explicit = cm.inferBuildDetails(false);
+            release.countDown();
+
+            assertEquals("empty", explicit.get(5, TimeUnit.SECONDS).status());
+            assertEquals(1, calls.get());
         }
     }
 }

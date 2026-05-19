@@ -165,8 +165,11 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     private boolean lowBalanceNotified = false;
     private boolean freeTierNotified = false;
 
-    // BuildAgent task tracking for cancellation
-    private volatile @Nullable CompletableFuture<BuildDetails> buildAgentFuture;
+    // Build details inference tracking for cancellation and single-flight behavior
+    private volatile @Nullable CompletableFuture<BuildDetailsInferenceResult> buildDetailsInferenceFuture;
+    private final AtomicReference<BuildDetailsInferenceState> buildDetailsInferenceState =
+            new AtomicReference<>(BuildDetailsInferenceState.NOT_STARTED);
+    private final AtomicReference<@Nullable String> buildDetailsInferenceDiagnostics = new AtomicReference<>();
 
     // Style guide generation completion tracking
     private volatile CompletableFuture<String> styleGuideFuture = CompletableFuture.completedFuture("");
@@ -186,6 +189,17 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
 
     @SuppressWarnings("NullAway.Init")
     private AbstractWatchService watchService;
+
+    public enum BuildDetailsInferenceState {
+        NOT_STARTED,
+        RUNNING,
+        COMPLETED_EXISTING,
+        COMPLETED_INFERRED,
+        COMPLETED_EMPTY,
+        COMPLETED_FAILED
+    }
+
+    public record BuildDetailsInferenceResult(String status, BuildDetails buildDetails, @Nullable String diagnostics) {}
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -1447,10 +1461,10 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
     }
 
     public CompletableFuture<Void> closeAsync(long awaitMillis) {
-        // Cancel BuildAgent task if still running
-        if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
-            logger.debug("Cancelling BuildAgent task due to ContextManager shutdown");
-            buildAgentFuture.cancel(true);
+        // Cancel build details inference if still running
+        if (buildDetailsInferenceFuture != null && !buildDetailsInferenceFuture.isDone()) {
+            logger.debug("Cancelling build details inference due to ContextManager shutdown");
+            buildDetailsInferenceFuture.cancel(true);
         }
 
         // Close watchers before shutting down executors that may be used by them
@@ -2039,75 +2053,130 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
      * background.
      */
     private synchronized void ensureBuildDetailsAsync() {
+        inferBuildDetails(false);
+    }
+
+    public CompletableFuture<BuildDetailsInferenceResult> inferBuildDetails(boolean force) {
+        synchronized (this) {
+            if (buildDetailsInferenceFuture != null && !buildDetailsInferenceFuture.isDone()) {
+                logger.debug("Build details inference already in progress, joining existing task");
+                return buildDetailsInferenceFuture;
+            }
+
+            if (!force) {
+                var completed = completedBuildDetailsResultIfAvailable();
+                if (completed != null) {
+                    return CompletableFuture.completedFuture(completed);
+                }
+            }
+
+            buildDetailsInferenceState.set(BuildDetailsInferenceState.RUNNING);
+            buildDetailsInferenceDiagnostics.set(null);
+            buildDetailsInferenceFuture =
+                    submitBackgroundTask("Inferring build details", () -> runBuildDetailsInferenceTask(force));
+            return buildDetailsInferenceFuture;
+        }
+    }
+
+    private @Nullable BuildDetailsInferenceResult completedBuildDetailsResultIfAvailable() {
         if (project.hasBuildDetails()) {
-            logger.debug("Using existing build details");
-            return;
+            buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_EXISTING);
+            buildDetailsInferenceDiagnostics.set(null);
+            return new BuildDetailsInferenceResult("existing", project.awaitBuildDetails(), null);
         }
 
-        if (project.isEmptyProject()) {
-            logger.debug("Project has no analyzable source files, skipping build details inference");
-            if (!project.hasBuildDetails()) {
-                project.saveBuildDetails(BuildDetails.EMPTY);
+        var detailsFuture = project.getBuildDetailsFuture();
+        if (!detailsFuture.isDone()) {
+            return null;
+        }
+
+        try {
+            var details = detailsFuture.join();
+            if (BuildDetails.EMPTY.equals(details)) {
+                buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_EMPTY);
+                var diagnostics = Objects.requireNonNullElse(
+                        buildDetailsInferenceDiagnostics.get(), "No build details have been inferred yet");
+                return new BuildDetailsInferenceResult("empty", details, diagnostics);
             }
-            return;
+
+            buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_INFERRED);
+            buildDetailsInferenceDiagnostics.set(null);
+            return new BuildDetailsInferenceResult("inferred", details, null);
+        } catch (CompletionException e) {
+            return failedBuildDetailsResult(
+                    Objects.requireNonNullElse(
+                            buildDetailsInferenceDiagnostics.get(), "Build details inference failed"),
+                    e.getCause());
+        }
+    }
+
+    private BuildDetailsInferenceResult runBuildDetailsInferenceTask(boolean force) {
+        if (!force) {
+            var completed = completedBuildDetailsResultIfAvailable();
+            if (completed != null) {
+                return completed;
+            }
         }
 
-        // Check if a BuildAgent task is already in progress
-        if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
-            logger.debug("BuildAgent task already in progress, skipping");
-            return;
-        }
-
-        // No details found, run the BuildAgent asynchronously
-        buildAgentFuture = submitBackgroundTask("Inferring build details", () -> {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Inferring project build details");
-
-            // Check if task was cancelled before starting
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Inferring project build details");
+        try {
             if (Thread.currentThread().isInterrupted()) {
-                logger.debug("BuildAgent task cancelled before execution");
-                return BuildDetails.EMPTY;
+                throw new InterruptedException("Build details inference cancelled before execution");
             }
 
-            BuildAgent agent = new BuildAgent(
-                    project,
-                    getLlm(serviceProvider.get().getScanModel(), "Infer build details", TaskResult.Type.NONE),
-                    toolRegistry.builder().register(new SearchTools(this)).build(),
-                    io);
-            BuildDetails inferredDetails;
-            try {
-                inferredDetails = agent.execute();
-            } catch (InterruptedException e) {
-                logger.debug("BuildAgent execution interrupted");
-                Thread.currentThread().interrupt();
-                return BuildDetails.EMPTY;
-            } catch (Exception e) {
-                var msg =
-                        "Build Information Agent did not complete successfully (aborted or errored). Build details not saved. Error: "
-                                + e.getMessage();
-                logger.error(msg, e);
-                io.toolError(msg, "Build Information Agent failed");
-                inferredDetails = BuildDetails.EMPTY;
+            if (!project.getBuildDetailsFuture().isDone()) {
+                // Keep build-details-dependent file enumeration paths from blocking while inference runs.
+                project.setBuildDetails(BuildDetails.EMPTY);
             }
 
-            // Check if task was cancelled after execution
+            var inferredDetails = runBuildDetailsInference();
             if (Thread.currentThread().isInterrupted()) {
-                logger.debug("BuildAgent task cancelled after execution, not saving results");
-                return BuildDetails.EMPTY;
+                throw new InterruptedException("Build details inference cancelled after execution");
             }
 
             project.saveBuildDetails(inferredDetails);
-
-            // Show appropriate notification based on whether build details were found
             if (BuildDetails.EMPTY.equals(inferredDetails)) {
+                var diagnostics = "Could not determine build configuration";
+                buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_EMPTY);
+                buildDetailsInferenceDiagnostics.set(diagnostics);
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO,
                         "Could not determine build configuration - project structure may be unsupported or incomplete");
-            } else {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
+                return new BuildDetailsInferenceResult("empty", inferredDetails, diagnostics);
             }
 
-            return inferredDetails;
-        });
+            buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_INFERRED);
+            buildDetailsInferenceDiagnostics.set(null);
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
+            return new BuildDetailsInferenceResult("inferred", inferredDetails, null);
+        } catch (InterruptedException e) {
+            logger.debug("Build details inference interrupted");
+            Thread.currentThread().interrupt();
+            return failedBuildDetailsResult("Build details inference interrupted", e);
+        } catch (Exception e) {
+            var msg =
+                    "Build Information Agent did not complete successfully (aborted or errored). Build details not saved. Error: "
+                            + e.getMessage();
+            logger.error(msg, e);
+            io.toolError(msg, "Build Information Agent failed");
+            return failedBuildDetailsResult(msg, e);
+        }
+    }
+
+    protected BuildDetails runBuildDetailsInference() throws Exception {
+        var agent = new BuildAgent(
+                project,
+                getLlm(serviceProvider.get().getScanModel(), "Infer build details", TaskResult.Type.NONE),
+                toolRegistry.builder().register(new SearchTools(this)).build(),
+                io);
+        return agent.execute();
+    }
+
+    private BuildDetailsInferenceResult failedBuildDetailsResult(String diagnostics, @Nullable Throwable throwable) {
+        buildDetailsInferenceState.set(BuildDetailsInferenceState.COMPLETED_FAILED);
+        buildDetailsInferenceDiagnostics.set(diagnostics);
+        project.completeBuildDetailsExceptionally(throwable != null ? throwable : new RuntimeException(diagnostics));
+        return new BuildDetailsInferenceResult("failed", BuildDetails.EMPTY, diagnostics);
     }
 
     public void reloadService() {

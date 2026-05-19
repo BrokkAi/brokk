@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,19 @@ class SettingsRouterTest {
     private SettingsRouter settingsRouter;
     private ContextManager contextManager;
     private MainProject project;
+
+    private static final BuildDetails INFERRED_DETAILS = new BuildDetails(
+            "gradlew build",
+            true,
+            "gradlew test",
+            true,
+            "gradlew test --tests {{items}}",
+            true,
+            Set.of("build"),
+            Map.of(),
+            null,
+            "",
+            List.of());
 
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws Exception {
@@ -256,6 +270,76 @@ class SettingsRouterTest {
         assertEquals("/bin/zsh", shellConfig.get("executable"));
 
         assertEquals("MINIMAL", response.get("dataRetentionPolicy"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handlePostInferBuildDetails_returnsExistingWhenSavedDetailsExist() throws Exception {
+        var existing = new BuildDetails(
+                "saved-build",
+                true,
+                "saved-test",
+                true,
+                "saved-test-some",
+                true,
+                Set.of("node_modules"),
+                Map.of(),
+                null,
+                "",
+                List.of());
+        project.saveBuildDetails(existing);
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/infer-build-details", Map.of());
+        settingsRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> response = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertEquals("existing", response.get("status"));
+
+        var buildDetails = (Map<String, Object>) response.get("buildDetails");
+        assertEquals("saved-build", buildDetails.get("buildLintCommand"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handlePostInferBuildDetails_forceBypassesExistingReuse() throws Exception {
+        try (var forceProject = new MainProject(project.getRoot())) {
+            forceProject.saveBuildDetails(new BuildDetails(
+                    "saved-build",
+                    true,
+                    "saved-test",
+                    true,
+                    "saved-test-some",
+                    true,
+                    Set.of("node_modules"),
+                    Map.of(),
+                    null,
+                    "",
+                    List.of()));
+
+            var calls = new AtomicInteger();
+            try (var forceContextManager = new ContextManager(forceProject) {
+                @Override
+                protected BuildDetails runBuildDetailsInference() {
+                    calls.incrementAndGet();
+                    return INFERRED_DETAILS;
+                }
+            }) {
+                var forceRouter = new SettingsRouter(forceContextManager);
+
+                var exchange =
+                        TestHttpExchange.jsonRequest("POST", "/v1/settings/infer-build-details", Map.of("force", true));
+                forceRouter.handle(exchange);
+
+                assertEquals(200, exchange.responseCode());
+                Map<String, Object> response = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+                assertEquals("inferred", response.get("status"));
+                assertEquals(1, calls.get());
+
+                var buildDetails = (Map<String, Object>) response.get("buildDetails");
+                assertEquals("gradlew build", buildDetails.get("buildLintCommand"));
+            }
+        }
     }
 
     @Test
