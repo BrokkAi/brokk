@@ -83,6 +83,17 @@ public interface IProject extends ICoreProject {
     }
 
     /**
+     * Returns the raw on-disk project files before build-details exclusions are applied.
+     *
+     * <p>This is for discovery flows like build-details inference that must not depend on already-resolved build
+     * details.
+     */
+    @Blocking
+    default Set<ProjectFile> getAllFilesUnfiltered() {
+        return getAllFiles();
+    }
+
+    /**
      * Finds a file in the project by its relative path.
      *
      * @param relPath the relative path to look up

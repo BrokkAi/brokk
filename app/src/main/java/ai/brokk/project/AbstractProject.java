@@ -787,6 +787,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     @Blocking
+    public final synchronized Set<ProjectFile> getAllFilesUnfiltered() {
+        return Set.copyOf(getAllFilesRaw());
+    }
+
+    @Override
+    @Blocking
     public final synchronized Optional<ProjectFile> getFileByRelPath(Path relPath) {
         if (filesByRelPathCache == null) {
             getAllFiles(); // Populate the cache (this uses a side effect, so linter won't see this)

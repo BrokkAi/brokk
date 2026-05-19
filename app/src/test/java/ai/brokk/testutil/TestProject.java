@@ -305,6 +305,11 @@ public class TestProject implements IProject {
 
     @Override
     public Set<ProjectFile> getAllFiles() {
+        return filterExcludedFiles(getAllFilesUnfiltered());
+    }
+
+    @Override
+    public Set<ProjectFile> getAllFilesUnfiltered() {
         if (allFilesSupplier != null) {
             return allFilesSupplier.get();
         }

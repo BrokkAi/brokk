@@ -155,7 +155,7 @@ public class BuildAgent {
         logger.trace("Initial directory listing added to history: {}", initialResult.resultText());
 
         // Discover nested build files to hint at submodules/services
-        var allFiles = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
+        var allFiles = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFilesUnfiltered();
 
         var nestedBuildFiles = allFiles.stream()
                 .filter(pf -> {
@@ -198,11 +198,12 @@ public class BuildAgent {
 
         // Determine build system and set initial excluded directories
         // Use tracked files directly (not filtered) to ensure build files are visible
-        var files = project.getRepo().getTrackedFiles().stream()
-                .parallel()
-                .filter(f -> f.getParent().equals(Path.of("")))
-                .map(ProjectFile::toString)
-                .toList();
+        var files = (project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFilesUnfiltered())
+                .stream()
+                        .parallel()
+                        .filter(f -> f.getParent().equals(Path.of("")))
+                        .map(ProjectFile::toString)
+                        .toList();
 
         // Early exit if project has no relevant files
         if (files.isEmpty()) {
@@ -623,7 +624,8 @@ public class BuildAgent {
 
         // Use tracked files (unfiltered) to ensure build files are visible during discovery
         // This is critical: getAllFiles() applies exclusion patterns which may hide build configs
-        return SearchTools.formatFilesInDirectory(project.getRepo().getTrackedFiles(), normalizedPath, directoryPath);
+        var files = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFilesUnfiltered();
+        return SearchTools.formatFilesInDirectory(files, normalizedPath, directoryPath);
     }
 
     @Tool("Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
@@ -787,9 +789,10 @@ public class BuildAgent {
                 continue;
             }
 
-            var testFiles = project.getRepo().getTrackedFiles().stream()
-                    .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
-                    .toList();
+            var testFiles = (project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFilesUnfiltered())
+                    .stream()
+                            .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
+                            .toList();
 
             if (testFiles.isEmpty()) {
                 continue;

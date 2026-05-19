@@ -16,6 +16,7 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.BuildTools;
@@ -1341,5 +1342,24 @@ class BuildAgentTest {
         } finally {
             Environment.shellCommandRunnerFactory = originalFactory;
         }
+    }
+
+    @Test
+    void execute_nonGitProjectUsesUnfilteredFilesForDiscovery(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("README.md"), "x");
+
+        var project = new TestProject(tempDir) {
+            @Override
+            public Set<ProjectFile> getAllFiles() {
+                throw new AssertionError("Build details inference should not use filtered getAllFiles()");
+            }
+        }.withoutRepo();
+
+        var cm = new TestContextManager(project);
+        var llm = cm.getLlm(new TestScriptedLanguageModel("No tool call"), "test", ai.brokk.TaskResult.Type.NONE);
+        var registry = new ToolRegistry().builder().register(new SearchTools(cm)).build();
+        var agent = new BuildAgent(project, llm, registry, new TestConsoleIO());
+
+        assertEquals(BuildAgent.BuildDetails.EMPTY, agent.execute());
     }
 }
