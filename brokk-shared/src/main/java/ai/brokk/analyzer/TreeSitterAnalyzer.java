@@ -66,6 +66,8 @@ import org.treesitter.*;
 public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider, TestDetectionProvider {
 
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
+    static final String ANALYZER_MAX_PARALLELISM_PROPERTY = "brokk.analyzer.maxParallelism";
+    static final int DEFAULT_ANALYZER_MAX_PARALLELISM = 4;
     private static final Set<String> COMMENT_NODE_TYPES =
             Set.of("comment", "line_comment", "block_comment", "doc_comment", "documentation_comment");
     private static final Set<String> WHITESPACE_NODE_TYPES = Set.of("whitespace", "newline");
@@ -296,6 +298,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     private final ThreadLocal<Map<QueryType, TSQuery>> threadLocalQueries =
             ThreadLocal.withInitial(() -> new EnumMap<>(QueryType.class));
+    private final ThreadLocal<Map<String, TSQuery>> threadLocalInlineQueries = ThreadLocal.withInitial(HashMap::new);
 
     /* Test-only hook to count query compilations. */
     private final AtomicInteger queryCompilationCount = new AtomicInteger(0);
@@ -366,6 +369,36 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
+     * Provides borrowed access to a cached compiled inline query for the duration of the provided function.
+     *
+     * <p>This is intended for analyzer-local helper queries that are hot enough to justify reuse but do not fit the
+     * fixed {@link QueryType} enum.
+     *
+     * @param cacheKey unique key for this helper query within the analyzer
+     * @param querySource Tree-sitter query source
+     * @param fn function to execute with the cached query
+     * @param defaultValue fallback value if compilation fails
+     * @param <T> return type
+     * @return function result or {@code defaultValue} if the query could not be compiled
+     */
+    protected final <T> T withCachedInlineQuery(
+            String cacheKey, String querySource, Function<TSQuery, T> fn, T defaultValue) {
+        Map<String, TSQuery> cache = threadLocalInlineQueries.get();
+        TSQuery query = cache.get(cacheKey);
+        if (query == null) {
+            try {
+                query = new TSQuery(getTSLanguage(), querySource);
+                queryCompilationCount.incrementAndGet();
+                cache.put(cacheKey, query);
+            } catch (TSQueryException e) {
+                log.error("Failed to compile cached inline query {}: {}", cacheKey, e.getMessage(), e);
+                return defaultValue;
+            }
+        }
+        return fn.apply(query);
+    }
+
+    /**
      * Creates a new query instance for the specified type.
      * The caller is responsible for closing the returned query.
      *
@@ -378,6 +411,28 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return null;
         }
         return new TSQuery(getTSLanguage(), source);
+    }
+
+    static int configuredAnalyzerMaxParallelism() {
+        String configured = System.getProperty(ANALYZER_MAX_PARALLELISM_PROPERTY);
+        if (configured == null || configured.isBlank()) {
+            return DEFAULT_ANALYZER_MAX_PARALLELISM;
+        }
+        try {
+            return Math.max(1, Integer.parseInt(configured));
+        } catch (NumberFormatException e) {
+            log.warn(
+                    "Invalid {} value '{}'; using default {}",
+                    ANALYZER_MAX_PARALLELISM_PROPERTY,
+                    configured,
+                    DEFAULT_ANALYZER_MAX_PARALLELISM);
+            return DEFAULT_ANALYZER_MAX_PARALLELISM;
+        }
+    }
+
+    static int computeAnalyzerParallelism(int availableProcessors, int configuredCap, int totalWork) {
+        int boundedWork = Math.max(1, totalWork);
+        return Math.max(1, Math.min(Math.min(availableProcessors, configuredCap), boundedWork));
     }
 
     /**
@@ -738,13 +793,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         List<CompletableFuture<?>> futures = new ArrayList<>();
         int totalFiles = filesToProcess.size();
         var progressReporter = new DebouncedProgressReporter(totalFiles, "Parsing " + language.name() + " files", 100);
+        int configuredParallelismCap = configuredAnalyzerMaxParallelism();
+        String configuredParallelismValue = System.getProperty(ANALYZER_MAX_PARALLELISM_PROPERTY);
+        int parseParallelism = computeAnalyzerParallelism(
+                Runtime.getRuntime().availableProcessors(), configuredParallelismCap, totalFiles);
+        int ingestParallelism = computeAnalyzerParallelism(
+                Runtime.getRuntime().availableProcessors(), configuredParallelismCap, totalFiles);
+        log.debug(
+                "[{}] Analyzer parallelism: availableProcessors={}, configuredCap={}, propertyValue={}, parse={}, ingest={}, files={}",
+                language.name(),
+                Runtime.getRuntime().availableProcessors(),
+                configuredParallelismCap,
+                configuredParallelismValue == null ? "<default>" : configuredParallelismValue,
+                parseParallelism,
+                ingestParallelism,
+                totalFiles);
 
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
         try (var ioExecutor = ExecutorsUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
-                var parseExecutor = ExecutorsUtil.newFixedThreadExecutor(
-                        "ts-parse-", Runtime.getRuntime().availableProcessors());
-                var ingestExecutor = ExecutorsUtil.newFixedThreadExecutor(
-                        "ts-ingest-", Runtime.getRuntime().availableProcessors())) {
+                var parseExecutor = ExecutorsUtil.newFixedThreadExecutor("ts-parse-", parseParallelism);
+                var ingestExecutor = ExecutorsUtil.newFixedThreadExecutor("ts-ingest-", ingestParallelism)) {
             for (var pf : filesToProcess) {
                 // we do our own exception handling so LoggingFuture is not appropriate here
                 CompletableFuture<Void> future = CompletableFuture.supplyAsync(
@@ -1017,9 +1085,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return codeUnitProperties(codeUnit).signaturesList();
     }
 
+    protected List<String> signaturesForSkeleton(CodeUnit codeUnit) {
+        return signaturesOf(codeUnit);
+    }
+
+    protected List<String> signaturesForDisplay(CodeUnit codeUnit) {
+        return signaturesOf(codeUnit);
+    }
+
     @Override
     public List<String> getDisplaySignatures(CodeUnit codeUnit) {
-        var displaySignatures = signaturesOf(codeUnit).stream()
+        var displaySignatures = signaturesForDisplay(codeUnit).stream()
                 .map(TreeSitterAnalyzer::normalizeDisplaySignature)
                 .filter(signature -> !signature.isBlank())
                 .distinct()
@@ -1683,7 +1759,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     private void reconstructSkeletonRecursive(CodeUnit cu, String indent, boolean headerOnly, StringBuilder sb) {
-        final List<String> sigList = signaturesOf(cu);
+        final List<String> sigList = signaturesForSkeleton(cu);
 
         if (sigList.isEmpty()) {
             // It's possible for some CUs (e.g., a namespace CU acting only as a parent) to not have direct textual
@@ -2754,7 +2830,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     sourceContent,
                                     primaryCaptureName,
                                     defInfo.modifierKeywords(),
-                                    file);
+                                    file,
+                                    false);
                             acc.setHasBody(
                                     cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
                             if (CaptureNames.TYPEALIAS_DEFINITION.equals(primaryCaptureName)) {
@@ -3317,7 +3394,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SourceContent sourceContent,
             String primaryCaptureName,
             List<String> capturedModifierKeywords,
-            ProjectFile file) {
+            ProjectFile file,
+            boolean includePresentationDetails) {
 
         var signatureLines = new ArrayList<String>();
         var profile = getLanguageSyntaxProfile();
@@ -3419,13 +3497,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             case FUNCTION_LIKE: {
                 // Extra comments derived from the function body if any.
                 TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
-                if (bodyNode != null) {
+                if (includePresentationDetails && bodyNode != null) {
                     for (String c : getExtraFunctionComments(bodyNode, sourceContent, null)) {
                         if (!c.isBlank()) signatureLines.add(c);
                     }
                 }
                 buildFunctionSkeleton(
-                        nodeForContent, Optional.of(simpleName), sourceContent, "", signatureLines, exportPrefix);
+                        nodeForContent,
+                        Optional.of(simpleName),
+                        sourceContent,
+                        "",
+                        signatureLines,
+                        exportPrefix,
+                        includePresentationDetails);
                 break;
             }
 
@@ -3516,7 +3600,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SourceContent sourceContent,
             String indent,
             List<String> lines,
-            String exportPrefix) {
+            String exportPrefix,
+            boolean includePresentationDetails) {
         var profile = getLanguageSyntaxProfile();
         String functionName;
         TSNode nameNode = funcNode.getChildByFieldName(profile.identifierFieldName());
@@ -3573,6 +3658,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         String paramsText = formatParameterList(paramsNode, sourceContent);
         String returnTypeText = formatReturnType(returnTypeNode, sourceContent);
+        if (includePresentationDetails) {
+            returnTypeText = enhanceFunctionReturnTypeForPresentation(
+                    funcNode, sourceContent, exportPrefix, functionName, returnTypeText);
+        }
 
         // Extract type parameters if available
         String typeParamsText = "";
@@ -3624,6 +3713,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (!functionLine.isBlank()) {
             lines.add(functionLine);
         }
+    }
+
+    protected String enhanceFunctionReturnTypeForPresentation(
+            TSNode funcNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String functionName,
+            String returnTypeText) {
+        return returnTypeText;
     }
 
     /**
@@ -4206,7 +4304,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var deletedCount = new AtomicInteger(0);
         var reanalyzeNanos = new AtomicLong(0L);
 
-        int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
+        int configuredParallelismCap = configuredAnalyzerMaxParallelism();
+        String configuredParallelismValue = System.getProperty(ANALYZER_MAX_PARALLELISM_PROPERTY);
+        int parallelism =
+                computeAnalyzerParallelism(Runtime.getRuntime().availableProcessors(), configuredParallelismCap, total);
+        log.debug(
+                "[{}] Update parallelism: availableProcessors={}, configuredCap={}, propertyValue={}, update={}, files={}",
+                language.name(),
+                Runtime.getRuntime().availableProcessors(),
+                configuredParallelismCap,
+                configuredParallelismValue == null ? "<default>" : configuredParallelismValue,
+                parallelism,
+                total);
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         var progressReporter = new DebouncedProgressReporter(total, "Updating " + language.name() + " files", 100);
 
@@ -4318,7 +4427,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         // new or modified files (parallelized)
-        int parallelism = Math.max(1, Runtime.getRuntime().availableProcessors());
+        int configuredParallelismCap = configuredAnalyzerMaxParallelism();
+        String configuredParallelismValue = System.getProperty(ANALYZER_MAX_PARALLELISM_PROPERTY);
+        int parallelism = computeAnalyzerParallelism(
+                Runtime.getRuntime().availableProcessors(), configuredParallelismCap, currentFiles.size());
+        log.debug(
+                "[{}] Detect parallelism: availableProcessors={}, configuredCap={}, propertyValue={}, detect={}, files={}",
+                language.name(),
+                Runtime.getRuntime().availableProcessors(),
+                configuredParallelismCap,
+                configuredParallelismValue == null ? "<default>" : configuredParallelismValue,
+                parallelism,
+                currentFiles.size());
         var concurrentChanged = ConcurrentHashMap.<ProjectFile>newKeySet();
 
         try (var detectExecutor = ExecutorsUtil.newFixedThreadExecutor("ts-detect-", parallelism)) {

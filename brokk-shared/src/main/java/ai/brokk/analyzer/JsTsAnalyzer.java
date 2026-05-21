@@ -260,6 +260,98 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         return computed;
     }
 
+    protected final ResolvedNodes resolveJsTsSignatureNodes(
+            TSNode definitionNode, String simpleName, SkeletonType refined, SourceContent sourceContent) {
+        TSNode nodeForSignature = definitionNode;
+        TSNode nodeForContent = definitionNode;
+
+        if (nodeType(TsxNodeType.EXPORT_STATEMENT).equals(definitionNode.getType())) {
+            TSNode declarationInExport = definitionNode.getChildByFieldName(FIELD_DECLARATION);
+            if (declarationInExport != null) {
+                nodeForSignature = declarationInExport;
+                nodeForContent = declarationInExport;
+            }
+        }
+
+        if (refined == SkeletonType.FIELD_LIKE || refined == SkeletonType.FUNCTION_LIKE) {
+            String nodeType = nodeForContent.getType();
+            if (nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(nodeType)
+                    || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(nodeType)) {
+                for (TSNode child : nodeForContent.getChildren()) {
+                    if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(child.getType())) {
+                        TSNode nameNode = child.getChildByFieldName(
+                                getLanguageSyntaxProfile().identifierFieldName());
+                        if (nameNode != null
+                                && sourceContent.substringFrom(nameNode).equals(simpleName)) {
+                            nodeForContent = child;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return new ResolvedNodes(nodeForSignature, nodeForContent);
+    }
+
+    protected final TSNode unwrapJsTsFunctionValueNode(TSNode node) {
+        if (!nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(node.getType())) {
+            return node;
+        }
+        TSNode valueNode = node.getChildByFieldName(FIELD_VALUE);
+        if (valueNode != null) {
+            return valueNode;
+        }
+        return node.getChildren().stream()
+                .filter(child ->
+                        getLanguageSyntaxProfile().functionLikeNodeTypes().contains(child.getType()))
+                .findFirst()
+                .orElse(node);
+    }
+
+    protected final @Nullable TSNode findJsTsFunctionDefinitionNode(
+            @Nullable TSNode startNode, SourceContent sourceContent, String identifier) {
+        for (TSNode current = startNode; current != null; current = current.getParent()) {
+            TSNode functionNode = resolveJsTsFunctionDefinitionNode(current, sourceContent, identifier);
+            if (functionNode != null) {
+                return functionNode;
+            }
+        }
+        return null;
+    }
+
+    private @Nullable TSNode resolveJsTsFunctionDefinitionNode(
+            TSNode node, SourceContent sourceContent, String identifier) {
+        Optional<String> extractedName = extractSimpleName(node, sourceContent);
+        if (extractedName.isPresent() && extractedName.get().equals(identifier)) {
+            return node;
+        }
+
+        String nodeType = node.getType();
+        if (nodeType(TsxNodeType.EXPORT_STATEMENT).equals(nodeType)) {
+            TSNode declaration = node.getChildByFieldName(FIELD_DECLARATION);
+            return declaration == null
+                    ? null
+                    : resolveJsTsFunctionDefinitionNode(declaration, sourceContent, identifier);
+        }
+        if (nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(nodeType)
+                || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(nodeType)) {
+            return node.getChildren().stream()
+                    .filter(child -> nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(child.getType()))
+                    .map(child -> resolveJsTsFunctionDefinitionNode(child, sourceContent, identifier))
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(nodeType)) {
+            TSNode nameNode = node.getChildByFieldName(FIELD_NAME);
+            if (nameNode != null && identifier.equals(sourceContent.substringFrom(nameNode))) {
+                return unwrapJsTsFunctionValueNode(node);
+            }
+        }
+        return null;
+    }
+
     public Map<String, Set<String>> heritageIndex() {
         Map<String, Set<String>> cached = cache().heritageIndex();
         if (cached != null) {

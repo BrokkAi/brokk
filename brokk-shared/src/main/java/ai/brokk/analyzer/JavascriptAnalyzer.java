@@ -4,7 +4,10 @@ import static ai.brokk.analyzer.javascript.Constants.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.ICoreProject;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -12,13 +15,29 @@ import org.treesitter.TSParser;
 import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
-import org.treesitter.TSQueryException;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJavascript;
 import org.treesitter.TsxNodeType;
 
 public class JavascriptAnalyzer extends JsTsAnalyzer {
+    private static final String JSX_RETURN_QUERY_CACHE_KEY = "javascript.jsxReturn";
+    private static final String JSX_RETURN_QUERY =
+            """
+    (return_statement (jsx_element) @jsx_return)
+    (return_statement (jsx_self_closing_element) @jsx_return)
+    (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
+    (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
+    """;
+    private static final String MUTATION_QUERY_CACHE_KEY = "javascript.mutations";
+    private static final String MUTATION_QUERY =
+            """
+    (assignment_expression left: (identifier) @mutated.id)
+    (assignment_expression left: (member_expression property: (property_identifier) @mutated.id))
+    (assignment_expression left: (subscript_expression index: _ @mutated.id))
+    (update_expression argument: (identifier) @mutated.id)
+    (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
+    """;
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(nodeType(TsxNodeType.CLASS_DECLARATION), CLASS_EXPRESSION, nodeType(TsxNodeType.CLASS_)),
             Set.of(
@@ -44,6 +63,9 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             ASYNC, // asyncKeywordNodeType
             Set.of() // modifierNodeTypes
             );
+    private final Cache<ProjectFile, Map<CodeUnit, List<String>>> enrichedFunctionSignaturesByFile =
+            Caffeine.newBuilder().maximumSize(1000).build();
+    private final AtomicInteger skeletonEnrichmentParseCount = new AtomicInteger(0);
 
     public JavascriptAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
@@ -147,39 +169,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     @Override
     protected ResolvedNodes resolveSignatureNodes(
             TSNode definitionNode, String simpleName, SkeletonType refined, SourceContent sourceContent) {
-        TSNode nodeForSignature = definitionNode;
-        TSNode nodeForContent = definitionNode;
-
-        // 1. Unwrap export statement
-        if (nodeType(TsxNodeType.EXPORT_STATEMENT).equals(definitionNode.getType())) {
-            TSNode declarationInExport = definitionNode.getChildByFieldName(FIELD_DECLARATION);
-            if (declarationInExport != null) {
-                nodeForSignature = declarationInExport;
-                nodeForContent = declarationInExport;
-            }
-        }
-
-        // 2. Unwrap variable declaration to specific declarator for content/body extraction
-        if (refined == SkeletonType.FIELD_LIKE || refined == SkeletonType.FUNCTION_LIKE) {
-            String nodeType = nodeForContent.getType();
-            if (nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(nodeType)
-                    || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(nodeType)) {
-                // Find the variable_declarator child that matches the simpleName
-                for (TSNode child : nodeForContent.getChildren()) {
-                    if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(child.getType())) {
-                        TSNode nameNode = child.getChildByFieldName(
-                                getLanguageSyntaxProfile().identifierFieldName());
-                        if (nameNode != null
-                                && sourceContent.substringFrom(nameNode).equals(simpleName)) {
-                            nodeForContent = child;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        return new ResolvedNodes(nodeForSignature, nodeForContent);
+        return resolveJsTsSignatureNodes(definitionNode, simpleName, refined, sourceContent);
     }
 
     @Override
@@ -198,24 +188,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             String paramsText,
             String returnTypeText,
             String indent) {
-        // The 'indent' parameter is now "" when called from buildSignatureString.
-        String inferredReturnType = returnTypeText;
-
-        // Infer JSX.Element return type if no explicit return type is present AND:
-        // 1. It's an exported function/component starting with an uppercase letter (common React convention).
-        // OR
-        // 2. It's a method named "render" (classic React class component method).
-        boolean isExported = exportPrefix.trim().startsWith("export");
-        boolean isComponentName = !functionName.isEmpty() && Character.isUpperCase(functionName.charAt(0));
-        boolean isRenderMethod = "render".equals(functionName);
-
-        if ((isRenderMethod || (isExported && isComponentName)) && returnTypeText.isEmpty()) {
-            if (returnsJsxElement(funcNode, sourceContent)) {
-                inferredReturnType = "JSX.Element";
-            }
-        }
-
-        String tsReturnTypeSuffix = !inferredReturnType.isEmpty() ? ": " + inferredReturnType : "";
+        String tsReturnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText : "";
         String signature;
         String bodySuffix = " " + bodyPlaceholder();
 
@@ -244,6 +217,65 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         return signature + bodySuffix; // Do not prepend indent here
     }
 
+    @Override
+    protected void buildFunctionSkeleton(
+            TSNode funcNode,
+            Optional<String> providedNameOpt,
+            SourceContent sourceContent,
+            String indent,
+            List<String> lines,
+            String exportPrefix,
+            boolean includePresentationDetails) {
+        TSNode valueNode = unwrapJsTsFunctionValueNode(funcNode);
+        if (nodeType(TsxNodeType.ARROW_FUNCTION).equals(valueNode.getType())) {
+            String functionName = providedNameOpt.orElseGet(
+                    () -> extractSimpleName(funcNode, sourceContent).orElse(""));
+            TSNode paramsNode = valueNode.getChildByFieldName(FIELD_PARAMETERS);
+            String paramsText = formatParameterList(paramsNode, sourceContent);
+            String asyncPrefix = hasAsyncModifier(valueNode, sourceContent) ? "async " : "";
+            String returnTypeText = includePresentationDetails
+                    ? enhanceFunctionReturnTypeForPresentation(valueNode, sourceContent, exportPrefix, functionName, "")
+                    : "";
+            String signature = renderFunctionDeclaration(
+                    valueNode,
+                    sourceContent,
+                    exportPrefix,
+                    asyncPrefix,
+                    functionName,
+                    "",
+                    paramsText,
+                    returnTypeText,
+                    indent);
+            if (!signature.isBlank()) {
+                lines.add(signature);
+            }
+            return;
+        }
+
+        super.buildFunctionSkeleton(
+                funcNode, providedNameOpt, sourceContent, indent, lines, exportPrefix, includePresentationDetails);
+    }
+
+    @Override
+    protected String enhanceFunctionReturnTypeForPresentation(
+            TSNode funcNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String functionName,
+            String returnTypeText) {
+        if (!returnTypeText.isEmpty()) {
+            return returnTypeText;
+        }
+
+        boolean isExported = exportPrefix.trim().startsWith("export");
+        boolean isComponentName = !functionName.isEmpty() && Character.isUpperCase(functionName.charAt(0));
+        boolean isRenderMethod = "render".equals(functionName);
+        if ((isRenderMethod || (isExported && isComponentName)) && returnsJsxElement(funcNode, sourceContent)) {
+            return "JSX.Element";
+        }
+        return returnTypeText;
+    }
+
     private boolean isJsxNode(@Nullable TSNode node) {
         if (node == null) return false;
         String type = node.getType();
@@ -266,40 +298,17 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             }
         }
 
-        // Case 2: Explicit return statement: return <div />; or return (<div />);
-        // We need a small query to run over the bodyNode.
-        // Create a specific, local query for this check.
-        // TSLanguage and TSQuery are not AutoCloseable.
-        TSLanguage jsLanguage = getTSLanguage(); // Use thread-local language instance
-        try {
-            // Query for return statements that directly return a JSX element, or one wrapped in parentheses.
-            // Each line is a separate pattern; the query matches if any of them are found.
-            // The @jsx_return capture is on the JSX node itself.
-            // Queries for return statements that directly return a JSX element or one wrapped in parentheses.
-            // Note: Removed jsx_fragment queries as they were causing TSQueryErrorField,
-            // potentially due to grammar version or query engine specifics.
-            // Standard jsx_element (e.g. <></> becoming <JsxElement name={null}>) might cover fragments.
-            String jsxReturnQueryStr =
-                    """
-    (return_statement (jsx_element) @jsx_return)
-    (return_statement (jsx_self_closing_element) @jsx_return)
-    (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
-    (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
-    """;
-
-            try (TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
-                    TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(returnJsxQuery, bodyNode, sourceContent.text());
-                TSQueryMatch match = new TSQueryMatch();
-                if (cursor.nextMatch(match)) {
-                    return true; // Found a JSX return
-                }
-            }
-        } catch (TSQueryException e) {
-            // Log specific query exceptions, which usually indicate a problem with the query string itself.
-            log.error("Invalid TSQuery for JSX return type inference: {}", e.getMessage(), e);
-        }
-        return false;
+        return withCachedInlineQuery(
+                JSX_RETURN_QUERY_CACHE_KEY,
+                JSX_RETURN_QUERY,
+                returnJsxQuery -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(returnJsxQuery, bodyNode, sourceContent.text());
+                        TSQueryMatch match = new TSQueryMatch();
+                        return cursor.nextMatch(match);
+                    }
+                },
+                false);
     }
 
     @Override
@@ -310,30 +319,27 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         }
 
         Set<String> mutatedIdentifiers = new HashSet<>();
-        String mutationQueryStr =
-                """
-    (assignment_expression left: (identifier) @mutated.id)
-    (assignment_expression left: (member_expression property: (property_identifier) @mutated.id))
-    (assignment_expression left: (subscript_expression index: _ @mutated.id))
-    (update_expression argument: (identifier) @mutated.id)
-    (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
-    """;
-
-        TSLanguage jsLanguage = getTSLanguage();
-        try (TSQuery mutationQuery = new TSQuery(jsLanguage, mutationQueryStr);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(mutationQuery, bodyNode, sourceContent.text());
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
-                    if ("mutated.id".equals(captureName)) {
-                        TSNode node = capture.getNode();
-                        mutatedIdentifiers.add(sourceContent.substringFrom(node));
+        withCachedInlineQuery(
+                MUTATION_QUERY_CACHE_KEY,
+                MUTATION_QUERY,
+                mutationQuery -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(mutationQuery, bodyNode, sourceContent.text());
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
+                                if ("mutated.id".equals(captureName)) {
+                                    TSNode node = capture.getNode();
+                                    mutatedIdentifiers.add(sourceContent.substringFrom(node));
+                                }
+                            }
+                            match = new TSQueryMatch();
+                        }
                     }
-                }
-            }
-        }
+                    return true;
+                },
+                false);
 
         if (!mutatedIdentifiers.isEmpty()) {
             List<String> sortedMutations = new ArrayList<>(mutatedIdentifiers);
@@ -342,6 +348,107 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         }
 
         return List.of();
+    }
+
+    @Override
+    protected List<String> signaturesForSkeleton(CodeUnit codeUnit) {
+        List<String> stored = super.signaturesForSkeleton(codeUnit);
+        if (!codeUnit.isFunction()) {
+            return stored;
+        }
+        return enrichedFunctionSignaturesOf(codeUnit.source()).getOrDefault(codeUnit, stored);
+    }
+
+    @Override
+    protected List<String> signaturesForDisplay(CodeUnit codeUnit) {
+        return codeUnit.isFunction() ? signaturesForSkeleton(codeUnit) : super.signaturesForDisplay(codeUnit);
+    }
+
+    protected int getSkeletonEnrichmentParseCount() {
+        return skeletonEnrichmentParseCount.get();
+    }
+
+    private Map<CodeUnit, List<String>> enrichedFunctionSignaturesOf(ProjectFile file) {
+        Map<CodeUnit, List<String>> cached = enrichedFunctionSignaturesByFile.getIfPresent(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        SourceContent sourceContent = cache().sources().get(file);
+        if (sourceContent == null) {
+            return Map.of();
+        }
+
+        Map<CodeUnit, List<String>> computed = buildEnrichedFunctionSignatures(file, sourceContent);
+        enrichedFunctionSignaturesByFile.put(file, computed);
+        return computed;
+    }
+
+    private Map<CodeUnit, List<String>> buildEnrichedFunctionSignatures(ProjectFile file, SourceContent sourceContent) {
+        skeletonEnrichmentParseCount.incrementAndGet();
+        try (TSTree tree = getTSParser().parseString(null, sourceContent.text())) {
+            if (tree == null) {
+                return Map.of();
+            }
+
+            Map<CodeUnit, List<String>> enriched = new HashMap<>();
+            for (CodeUnit codeUnit : getDeclarations(file)) {
+                if (!codeUnit.isFunction()) {
+                    continue;
+                }
+                TSNode functionNode = findJsTsFunctionDefinitionNode(
+                        primaryNodeForCodeUnit(tree, codeUnit), sourceContent, codeUnit.identifier());
+                if (functionNode == null) {
+                    continue;
+                }
+
+                ResolvedNodes resolved = resolveSignatureNodes(
+                        functionNode, codeUnit.identifier(), SkeletonType.FUNCTION_LIKE, sourceContent);
+                String exportPrefix = getVisibilityPrefix(resolved.signatureNode(), sourceContent)
+                        .strip();
+                if (!exportPrefix.isEmpty()) {
+                    exportPrefix += " ";
+                }
+
+                List<String> signatureLines = new ArrayList<>();
+                TSNode bodyNode = unwrapJsTsFunctionValueNode(resolved.contentNode())
+                        .getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
+                if (bodyNode != null) {
+                    signatureLines.addAll(getExtraFunctionComments(bodyNode, sourceContent, codeUnit));
+                }
+                buildFunctionSkeleton(
+                        resolved.contentNode(),
+                        Optional.of(codeUnit.identifier()),
+                        sourceContent,
+                        "",
+                        signatureLines,
+                        exportPrefix,
+                        true);
+                if (!signatureLines.isEmpty()) {
+                    enriched.put(
+                            codeUnit, List.of(String.join("\n", signatureLines).stripTrailing()));
+                }
+            }
+            return Map.copyOf(enriched);
+        } catch (Exception e) {
+            log.debug("Failed to enrich JS function signatures for {}: {}", file, e.getMessage());
+            return Map.of();
+        }
+    }
+
+    private boolean hasAsyncModifier(TSNode functionNode, SourceContent sourceContent) {
+        String raw = sourceContent.substringFrom(functionNode).stripLeading();
+        if (raw.startsWith("async ")) {
+            return true;
+        }
+        String asyncNodeType = getLanguageSyntaxProfile().asyncKeywordNodeType();
+        for (TSNode child : functionNode.getChildren()) {
+            if ((!asyncNodeType.isEmpty() && asyncNodeType.equals(child.getType()))
+                    || ASYNC.equals(sourceContent.substringFrom(child).strip())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
