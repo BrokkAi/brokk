@@ -528,39 +528,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     @Override
     protected ResolvedNodes resolveSignatureNodes(
             TSNode definitionNode, String simpleName, SkeletonType refined, SourceContent sourceContent) {
-        TSNode nodeForSignature = definitionNode;
-        TSNode nodeForContent = definitionNode;
-
-        // 1. Unwrap export statement
-        if (nodeType(TsxNodeType.EXPORT_STATEMENT).equals(definitionNode.getType())) {
-            TSNode declarationInExport = definitionNode.getChildByFieldName(FIELD_DECLARATION);
-            if (declarationInExport != null) {
-                nodeForSignature = declarationInExport;
-                nodeForContent = declarationInExport;
-            }
-        }
-
-        // 2. Unwrap variable declaration to specific declarator for content/body extraction
-        if (refined == SkeletonType.FIELD_LIKE || refined == SkeletonType.FUNCTION_LIKE) {
-            String nodeType = nodeForContent.getType();
-            if (nodeType(TsxNodeType.LEXICAL_DECLARATION).equals(nodeType)
-                    || nodeType(TsxNodeType.VARIABLE_DECLARATION).equals(nodeType)) {
-                // Find the variable_declarator child that matches the simpleName
-                for (TSNode child : nodeForContent.getChildren()) {
-                    if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(child.getType())) {
-                        TSNode nameNode = child.getChildByFieldName(
-                                getLanguageSyntaxProfile().identifierFieldName());
-                        if (nameNode != null
-                                && sourceContent.substringFrom(nameNode).equals(simpleName)) {
-                            nodeForContent = child;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        return new ResolvedNodes(nodeForSignature, nodeForContent);
+        return resolveJsTsSignatureNodes(definitionNode, simpleName, refined, sourceContent);
     }
 
     @Override
@@ -918,10 +886,11 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             SourceContent sourceContent,
             String indent,
             List<String> lines,
-            String exportPrefix) {
+            String exportPrefix,
+            boolean includePresentationDetails) {
         // Handle variable_declarator containing arrow function
         if (nodeType(TsxNodeType.VARIABLE_DECLARATOR).equals(funcNode.getType())) {
-            TSNode valueNode = funcNode.getChildByFieldName(FIELD_VALUE);
+            TSNode valueNode = unwrapJsTsFunctionValueNode(funcNode);
             if (valueNode != null && nodeType(TsxNodeType.ARROW_FUNCTION).equals(valueNode.getType())) {
                 // Build the const/let declaration with arrow function
                 String fullDeclaration = sourceContent.substringFrom(funcNode).strip();
@@ -979,7 +948,8 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         }
 
         // For all other cases, use the parent implementation
-        super.buildFunctionSkeleton(funcNode, providedNameOpt, sourceContent, indent, lines, exportPrefix);
+        super.buildFunctionSkeleton(
+                funcNode, providedNameOpt, sourceContent, indent, lines, exportPrefix, includePresentationDetails);
     }
 
     @Override

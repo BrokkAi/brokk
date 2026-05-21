@@ -7,6 +7,8 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.CoreTestProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestCodeProject;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -281,6 +283,145 @@ public final class JavascriptAnalyzerTest {
         assertTrue(mecSkeletonOpt.isPresent(), "getSkeleton should find MyExportedComponent by FQ name.");
         assertCodeEquals(
                 expectedMecSkeleton, mecSkeletonOpt.get(), "getSkeleton for MyExportedComponent FQ name mismatch.");
+    }
+
+    @Test
+    void testStoredFunctionSignaturesStayCheapWhileSkeletonsStayRich() {
+        ProjectFile featuresFile = new ProjectFile(jsTestProject.getRoot(), "FeaturesTest.jsx");
+        CodeUnit componentCu = CodeUnit.fn(featuresFile, "", "MyExportedComponent");
+
+        List<String> storedSignatures = jsAnalyzer.signaturesOf(componentCu);
+        assertEquals(1, storedSignatures.size(), "Expected a single stored signature for MyExportedComponent.");
+        assertFalse(
+                storedSignatures.getFirst().contains("// mutates:"), "Stored signature should skip mutation comments.");
+        assertFalse(storedSignatures.getFirst().contains("JSX.Element"), "Stored signature should skip JSX inference.");
+
+        String skeleton = jsAnalyzer.getSkeleton(componentCu).orElseThrow();
+        assertTrue(skeleton.contains("// mutates: counter, wasUpdated"));
+        assertTrue(skeleton.contains("export function MyExportedComponent(props): JSX.Element ..."));
+    }
+
+    @Test
+    void testDisplaySignaturesStayRichForJsFunctions() {
+        ProjectFile featuresFile = new ProjectFile(jsTestProject.getRoot(), "FeaturesTest.jsx");
+        CodeUnit componentCu = CodeUnit.fn(featuresFile, "", "MyExportedComponent");
+
+        List<String> displaySignatures = jsAnalyzer.getDisplaySignatures(componentCu);
+        assertEquals(1, displaySignatures.size());
+        assertEquals(
+                "// mutates: counter, wasUpdated export function MyExportedComponent(props): JSX.Element ...",
+                displaySignatures.getFirst());
+    }
+
+    @Test
+    void testFileScopedJsSkeletonEnrichmentParsesOncePerFile() {
+        try (var project = TestCodeProject.fromResourceDir("testcode-js", Languages.JAVASCRIPT)) {
+            var analyzer = new JavascriptAnalyzer(project);
+            ProjectFile featuresFile = new ProjectFile(project.getRoot(), "FeaturesTest.jsx");
+            CodeUnit componentCu = CodeUnit.fn(featuresFile, "", "MyExportedComponent");
+
+            int before = analyzer.getSkeletonEnrichmentParseCount();
+            var skeletons = analyzer.getSkeletons(featuresFile);
+            int afterSkeletons = analyzer.getSkeletonEnrichmentParseCount();
+            analyzer.getSkeleton(componentCu).orElseThrow();
+            analyzer.getDisplaySignatures(componentCu);
+            int afterReuse = analyzer.getSkeletonEnrichmentParseCount();
+
+            assertFalse(skeletons.isEmpty());
+            assertEquals(before + 1, afterSkeletons, "Expected a single parse to enrich the whole file.");
+            assertEquals(
+                    afterSkeletons,
+                    afterReuse,
+                    "Subsequent skeleton/display reads should reuse the file-scoped cache.");
+        }
+    }
+
+    @Test
+    void testRepeatedJsSkeletonRenderingReusesHelperQueries() {
+        String code =
+                """
+                export function Widget(props) {
+                    props.count += 1;
+                    return <div>{props.count}</div>;
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(code, "Widget.jsx").build()) {
+            var analyzer = new JavascriptAnalyzer(project);
+            var widgetCu = CodeUnit.fn(new ProjectFile(project.getRoot(), "Widget.jsx"), "", "Widget");
+
+            int before = analyzer.getQueryCompilationCount();
+            String firstSkeleton = analyzer.getSkeleton(widgetCu).orElseThrow();
+            int afterFirst = analyzer.getQueryCompilationCount();
+            String secondSkeleton = analyzer.getSkeleton(widgetCu).orElseThrow();
+            int afterSecond = analyzer.getQueryCompilationCount();
+            assertEquals(1, analyzer.getSkeletonEnrichmentParseCount());
+
+            assertTrue(afterFirst >= before + 2, "First rich skeleton render should compile the helper queries once.");
+            assertEquals(
+                    afterFirst, afterSecond, "Repeated rich skeleton rendering should reuse cached helper queries.");
+            assertCodeEquals(firstSkeleton, secondSkeleton);
+        }
+    }
+
+    @Test
+    void testAsyncArrowFunctionsRetainAsyncInRichSkeletons() {
+        String code =
+                """
+                export const AsyncWidget = async ({ id }) => {
+                    return <div>{id}</div>;
+                };
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(code, "AsyncWidget.jsx").build()) {
+            var analyzer = new JavascriptAnalyzer(project);
+            var widgetCu = CodeUnit.fn(new ProjectFile(project.getRoot(), "AsyncWidget.jsx"), "", "AsyncWidget");
+
+            assertCodeEquals(
+                    "export async AsyncWidget({ id }): JSX.Element => ...",
+                    analyzer.getSkeleton(widgetCu).orElseThrow());
+            assertEquals(
+                    "export async AsyncWidget({ id }): JSX.Element => ...",
+                    analyzer.getDisplaySignatures(widgetCu).getFirst());
+        }
+    }
+
+    @Test
+    void testLoadedJsAnalyzerFallsBackToStoredSignaturesWithoutReadingLiveDisk() throws Exception {
+        String original =
+                """
+                export function Widget(props) {
+                    props.count += 1;
+                    return <div>{props.count}</div>;
+                }
+                """;
+
+        try (var project = InlineTestProjectCreator.code(original, "Widget.jsx").build()) {
+            var analyzer = new JavascriptAnalyzer(project);
+            Path stateFile = Languages.JAVASCRIPT.getStoragePath(project);
+            TreeSitterStateIO.save(analyzer.snapshotState(), stateFile, Languages.JAVASCRIPT);
+            var loadedState = TreeSitterStateIO.load(stateFile);
+
+            Files.writeString(
+                    project.getRoot().resolve("Widget.jsx"),
+                    """
+                    export function Widget() {
+                        return null;
+                    }
+                    """);
+            project.invalidateAllFiles();
+
+            var loaded = JavascriptAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+            var widgetCu = CodeUnit.fn(new ProjectFile(project.getRoot(), "Widget.jsx"), "", "Widget");
+
+            assertCodeEquals(
+                    "export function Widget(props) ...",
+                    loaded.getSkeleton(widgetCu).orElseThrow());
+            assertEquals(
+                    "export function Widget(props) ...",
+                    loaded.getDisplaySignatures(widgetCu).getFirst());
+        }
     }
 
     @Test
