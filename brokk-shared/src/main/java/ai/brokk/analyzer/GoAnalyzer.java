@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
@@ -40,6 +41,7 @@ import org.treesitter.TreeSitterGo;
 
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
+    private volatile @Nullable Map<String, Set<CodeUnit>> codeUnitsByPackage;
 
     @Override
     public boolean isFileLevelModule(CodeUnit cu, boolean topLevel) {
@@ -1054,12 +1056,21 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     @Override
     public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return performImportedCodeUnitsOf(file);
+        return resolveImports(file, importStatementsOf(file));
     }
 
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return performReferencingFilesOf(file);
+        Set<ProjectFile> referencers = new LinkedHashSet<>();
+        withFileProperties(fileProperties -> {
+            fileProperties.forEach((sourceFile, properties) -> {
+                if (couldImportFile(sourceFile, properties.importStatements(), file)) {
+                    referencers.add(sourceFile);
+                }
+            });
+            return null;
+        });
+        return Collections.unmodifiableSet(referencers);
     }
 
     @Override
@@ -1314,14 +1325,40 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         // Instead, find all CodeUnits whose packageName matches the imported package.
         Set<CodeUnit> resolved = new LinkedHashSet<>();
         if (!importedPackageNames.isEmpty()) {
-            for (CodeUnit cu : snapshotState().codeUnitState().keySet()) {
-                if (!cu.isModule() && importedPackageNames.contains(cu.packageName())) {
-                    resolved.add(cu);
-                }
+            Map<String, Set<CodeUnit>> packageIndex = codeUnitsByPackage();
+            for (String packageName : importedPackageNames) {
+                resolved.addAll(packageIndex.getOrDefault(packageName, Set.of()));
             }
         }
 
         return Collections.unmodifiableSet(resolved);
+    }
+
+    private Map<String, Set<CodeUnit>> codeUnitsByPackage() {
+        var cached = codeUnitsByPackage;
+        if (cached != null) {
+            return cached;
+        }
+
+        synchronized (this) {
+            if (codeUnitsByPackage == null) {
+                var mutable = new HashMap<String, Set<CodeUnit>>();
+                snapshotState().codeUnitState().keySet().stream()
+                        .filter(cu -> !cu.isModule())
+                        .forEach(cu -> mutable.computeIfAbsent(cu.packageName(), ignored -> new LinkedHashSet<>())
+                                .add(cu));
+
+                var immutable = new HashMap<String, Set<CodeUnit>>();
+                mutable.forEach((packageName, codeUnits) -> immutable.put(packageName, Set.copyOf(codeUnits)));
+                codeUnitsByPackage = Map.copyOf(immutable);
+            }
+            return Objects.requireNonNull(codeUnitsByPackage);
+        }
+    }
+
+    @VisibleForTesting
+    boolean genericImportCacheIsEmptyForTesting() {
+        return getCache().imports().isEmpty();
     }
 
     private String resolveImportPathToPackageName(String importPath) {
@@ -1337,19 +1374,23 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 // We check if the file is inside a directory matching the import path.
                 // e.g., import "mymodule/pkg" matches "vendor/mymodule/pkg/file.go"
                 if (relPath.contains("/" + path + "/") || relPath.startsWith(path + "/")) {
+                    String cachedPackageName = cachedPackageNameOf(pf);
+                    if (!cachedPackageName.isEmpty()) {
+                        return cachedPackageName;
+                    }
 
                     // Read the file and determine its package name
-                    Optional<SourceContent> content = SourceContent.read(pf);
-                    if (content.isPresent()) {
-                        String pkgName = withTreeOf(
-                                pf,
-                                tree -> Optional.ofNullable(tree.getRootNode())
-                                        .map(rootNode -> determinePackageName(pf, rootNode, rootNode, content.get()))
-                                        .orElse(""),
-                                "");
-                        if (!pkgName.isEmpty()) {
-                            return pkgName;
-                        }
+                    String pkgName = withSource(
+                            pf,
+                            content -> withTreeOf(
+                                    pf,
+                                    tree -> Optional.ofNullable(tree.getRootNode())
+                                            .map(rootNode -> determinePackageName(pf, rootNode, rootNode, content))
+                                            .orElse(""),
+                                    ""),
+                            "");
+                    if (!pkgName.isEmpty()) {
+                        return pkgName;
                     }
                 }
             }
