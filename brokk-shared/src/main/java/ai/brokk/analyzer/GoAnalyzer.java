@@ -1062,14 +1062,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         Set<ProjectFile> referencers = new LinkedHashSet<>();
-        withFileProperties(fileProperties -> {
-            fileProperties.forEach((sourceFile, properties) -> {
-                if (couldImportFile(sourceFile, properties.importStatements(), file)) {
-                    referencers.add(sourceFile);
-                }
-            });
-            return null;
-        });
+        for (ProjectFile sourceFile : candidateFilesThatCouldImport(file)) {
+            boolean importsTarget = resolveImports(sourceFile, importStatementsOf(sourceFile)).stream()
+                    .map(CodeUnit::source)
+                    .anyMatch(file::equals);
+            if (importsTarget) {
+                referencers.add(sourceFile);
+            }
+        }
         return Collections.unmodifiableSet(referencers);
     }
 

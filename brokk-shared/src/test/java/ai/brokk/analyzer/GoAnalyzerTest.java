@@ -1575,4 +1575,68 @@ public class GoAnalyzerTest {
                 inlineAnalyzer.genericImportCacheIsEmptyForTesting(),
                 "Go referencing-file lookup should not force generic import cache population");
     }
+
+    @Test
+    void referencingFilesOfExcludesBlankImports() throws IOException {
+        var project = InlineCoreProject.code(
+                        """
+                        package png
+                        func Decode() {}
+                        """,
+                        "image/png/png.go")
+                .addFileContents(
+                        """
+                        package main
+                        import _ "image/png"
+                        func main() {}
+                        """,
+                        "main.go")
+                .build();
+        var inlineAnalyzer = new GoAnalyzer(project);
+        var targetFile = new ProjectFile(project.getRoot(), Path.of("image", "png", "png.go"));
+        var importer = new ProjectFile(project.getRoot(), "main.go");
+
+        var referencers = inlineAnalyzer.referencingFilesOf(targetFile);
+
+        assertFalse(referencers.contains(importer), "Blank imports should not be reverse import referencers");
+        assertTrue(
+                inlineAnalyzer.genericImportCacheIsEmptyForTesting(),
+                "Go referencing-file lookup should not force generic import cache population");
+    }
+
+    @Test
+    void referencingFilesOfExcludesUnresolvedRootPackageCandidates() throws IOException {
+        var project = InlineCoreProject.code(
+                        """
+                        package main
+                        func Root() {}
+                        """,
+                        "main.go")
+                .addFileContents(
+                        """
+                        package foo
+                        func F() {}
+                        """,
+                        "pkg/foo/foo.go")
+                .addFileContents(
+                        """
+                        package worker
+                        import "myproject/pkg/foo"
+                        func work() { foo.F() }
+                        """,
+                        "worker/worker.go")
+                .build();
+        var inlineAnalyzer = new GoAnalyzer(project);
+        var rootFile = new ProjectFile(project.getRoot(), "main.go");
+        var unrelatedImporter = new ProjectFile(project.getRoot(), Path.of("worker", "worker.go"));
+
+        var referencers = inlineAnalyzer.referencingFilesOf(rootFile);
+
+        assertFalse(
+                referencers.contains(unrelatedImporter),
+                "Slash-containing imports should not be final root-package referencers unless resolved imports target the root file");
+        assertTrue(
+                inlineAnalyzer.genericImportCacheIsEmptyForTesting(),
+                "Go referencing-file lookup should not force generic import cache population");
+    }
 }
