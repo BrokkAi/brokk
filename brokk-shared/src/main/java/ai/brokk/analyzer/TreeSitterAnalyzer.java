@@ -1314,19 +1314,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         // 2. Phase 1: Filter candidates using cheap text-based matching
-        List<ProjectFile> allFiles = List.copyOf(this.state.fileState().keySet());
-        int totalFiles = allFiles.size();
-        notifyProgressListener(0, totalFiles, "Filtering import candidates");
-
-        var filterReporter = new DebouncedProgressReporter(totalFiles, "Filtering import candidates", 100);
-        List<ProjectFile> candidates = allFiles.stream()
-                .filter(f -> {
-                    boolean matches = couldImportFile(f, fileProperties(f).importStatements(), file);
-                    filterReporter.increment();
-                    return matches;
-                })
-                .toList();
-        filterReporter.reportFinal();
+        List<ProjectFile> candidates = candidateFilesThatCouldImport(file);
 
         // 4. Phase 2: Resolve imports for candidates to populate reverse cache
         int totalCandidates = candidates.size();
@@ -1345,6 +1333,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return Set.of();
         }
         return Collections.unmodifiableSet(new HashSet<>(resolved));
+    }
+
+    protected List<ProjectFile> candidateFilesThatCouldImport(ProjectFile file) {
+        List<ProjectFile> allFiles = List.copyOf(this.state.fileState().keySet());
+        int totalFiles = allFiles.size();
+        notifyProgressListener(0, totalFiles, "Filtering import candidates");
+
+        var filterReporter = new DebouncedProgressReporter(totalFiles, "Filtering import candidates", 100);
+        List<ProjectFile> candidates = allFiles.stream()
+                .filter(f -> {
+                    boolean matches = couldImportFile(f, fileProperties(f).importStatements(), file);
+                    filterReporter.increment();
+                    return matches;
+                })
+                .toList();
+        filterReporter.reportFinal();
+        return candidates;
     }
 
     protected Set<String> typeIdentifiersOf(ProjectFile file) {

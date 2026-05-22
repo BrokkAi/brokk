@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.AnalyzerCreator;
 import ai.brokk.testutil.CoreTestProject;
+import ai.brokk.testutil.InlineCoreProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestCodeProject;
 import java.io.IOException;
@@ -1491,5 +1492,151 @@ public class GoAnalyzerTest {
         assertTrue(
                 aliases.contains(IAnalyzer.SourceLookupAlias.anySource("server.Server.Evaluate")),
                 "Expected type arguments to be stripped through tree-sitter. Found: " + aliases);
+    }
+
+    @Test
+    void importedCodeUnitsOfDoesNotPopulateGenericImportCache() throws IOException {
+        var project = InlineCoreProject.code(
+                        """
+                        package big
+                        func A() {}
+                        func B() {}
+                        func C() {}
+                        """,
+                        "big/a.go")
+                .addFileContents(
+                        """
+                        package main
+                        import "big"
+                        func main() { big.A() }
+                        """,
+                        "cmd/one.go")
+                .addFileContents(
+                        """
+                        package main
+                        import "big"
+                        func other() { big.B() }
+                        """,
+                        "cmd/two.go")
+                .build();
+        var inlineAnalyzer = new GoAnalyzer(project);
+        var firstImporter = new ProjectFile(project.getRoot(), Path.of("cmd", "one.go"));
+        var secondImporter = new ProjectFile(project.getRoot(), Path.of("cmd", "two.go"));
+
+        var firstImports = inlineAnalyzer.importedCodeUnitsOf(firstImporter);
+        var secondImports = inlineAnalyzer.importedCodeUnitsOf(secondImporter);
+
+        assertTrue(firstImports.stream().anyMatch(cu -> cu.fqName().equals("big.A")), "Expected big.A import");
+        assertTrue(secondImports.stream().anyMatch(cu -> cu.fqName().equals("big.B")), "Expected big.B import");
+        assertTrue(
+                inlineAnalyzer.genericImportCacheIsEmptyForTesting(),
+                "Go import resolution should not retain per-file CodeUnit sets in the generic import cache");
+    }
+
+    @Test
+    void referencingFilesOfUsesDirectImportMetadataWithoutGenericImportCache() throws IOException {
+        var project = InlineCoreProject.code(
+                        """
+                        package utils
+                        func A() {}
+                        """,
+                        "pkg/utils/a.go")
+                .addFileContents(
+                        """
+                        package utils
+                        func B() {}
+                        """,
+                        "pkg/utils/b.go")
+                .addFileContents(
+                        """
+                        package main
+                        import "myproject/pkg/utils"
+                        func main() { utils.A() }
+                        """,
+                        "cmd/main.go")
+                .addFileContents(
+                        """
+                        package worker
+                        import u "myproject/pkg/utils"
+                        func work() { u.B() }
+                        """,
+                        "internal/worker/worker.go")
+                .build();
+        var inlineAnalyzer = new GoAnalyzer(project);
+        var targetInSamePackage = new ProjectFile(project.getRoot(), Path.of("pkg", "utils", "b.go"));
+        var mainFile = new ProjectFile(project.getRoot(), Path.of("cmd", "main.go"));
+        var workerFile = new ProjectFile(project.getRoot(), Path.of("internal", "worker", "worker.go"));
+
+        var referencers = inlineAnalyzer.referencingFilesOf(targetInSamePackage);
+
+        assertTrue(referencers.contains(mainFile), "Expected direct importer of utils package");
+        assertTrue(referencers.contains(workerFile), "Expected aliased direct importer of utils package");
+        assertTrue(
+                inlineAnalyzer.genericImportCacheIsEmptyForTesting(),
+                "Go referencing-file lookup should not force generic import cache population");
+    }
+
+    @Test
+    void referencingFilesOfExcludesBlankImports() throws IOException {
+        var project = InlineCoreProject.code(
+                        """
+                        package png
+                        func Decode() {}
+                        """,
+                        "image/png/png.go")
+                .addFileContents(
+                        """
+                        package main
+                        import _ "image/png"
+                        func main() {}
+                        """,
+                        "main.go")
+                .build();
+        var inlineAnalyzer = new GoAnalyzer(project);
+        var targetFile = new ProjectFile(project.getRoot(), Path.of("image", "png", "png.go"));
+        var importer = new ProjectFile(project.getRoot(), "main.go");
+
+        var referencers = inlineAnalyzer.referencingFilesOf(targetFile);
+
+        assertFalse(referencers.contains(importer), "Blank imports should not be reverse import referencers");
+        assertTrue(
+                inlineAnalyzer.genericImportCacheIsEmptyForTesting(),
+                "Go referencing-file lookup should not force generic import cache population");
+    }
+
+    @Test
+    void referencingFilesOfExcludesUnresolvedRootPackageCandidates() throws IOException {
+        var project = InlineCoreProject.code(
+                        """
+                        package main
+                        func Root() {}
+                        """,
+                        "main.go")
+                .addFileContents(
+                        """
+                        package foo
+                        func F() {}
+                        """,
+                        "pkg/foo/foo.go")
+                .addFileContents(
+                        """
+                        package worker
+                        import "myproject/pkg/foo"
+                        func work() { foo.F() }
+                        """,
+                        "worker/worker.go")
+                .build();
+        var inlineAnalyzer = new GoAnalyzer(project);
+        var rootFile = new ProjectFile(project.getRoot(), "main.go");
+        var unrelatedImporter = new ProjectFile(project.getRoot(), Path.of("worker", "worker.go"));
+
+        var referencers = inlineAnalyzer.referencingFilesOf(rootFile);
+
+        assertFalse(
+                referencers.contains(unrelatedImporter),
+                "Slash-containing imports should not be final root-package referencers unless resolved imports target the root file");
+        assertTrue(
+                inlineAnalyzer.genericImportCacheIsEmptyForTesting(),
+                "Go referencing-file lookup should not force generic import cache population");
     }
 }
