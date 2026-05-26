@@ -31,6 +31,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -664,6 +665,7 @@ public final class JobRunner {
                                                             askPlannerModel,
                                                             "plannerModel required for REPORT_ONLY jobs"),
                                                     spec.taskInput(),
+                                                    responseFormatOrNull(spec),
                                                     finalStopReason);
                                         }
                                     }
@@ -795,6 +797,7 @@ public final class JobRunner {
                                                     context,
                                                     requireNonNull(askPlannerModel),
                                                     spec.taskInput(),
+                                                    responseFormatOrNull(spec),
                                                     finalStopReason);
                                         }
                                     }
@@ -830,6 +833,24 @@ public final class JobRunner {
                                             }
                                             var result = searchAgent.execute();
                                             scope.append(result);
+                                            if (spec.responseSchema() != null
+                                                    && result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                                                runDirectAnswer(
+                                                        jobId,
+                                                        "SEARCH",
+                                                        scope,
+                                                        result.context(),
+                                                        requireNonNull(
+                                                                scanModelToUse,
+                                                                "scan model unavailable for SEARCH jobs"),
+                                                        spec.taskInput(),
+                                                        responseFormatOrNull(spec),
+                                                        finalStopReason);
+                                            } else {
+                                                finalStopReason.set(result.stopDetails()
+                                                        .reason()
+                                                        .name());
+                                            }
                                         }
                                     }
                                     case REVIEW -> {
@@ -1636,7 +1657,13 @@ public final class JobRunner {
      * @param question the user's question / task text
      * @return a TaskResult suitable for appending to a TaskScope
      */
-    private TaskResult askUsingPlannerModel(Context ctx, StreamingChatModel model, String question) {
+    private TaskResult askUsingPlannerModel(
+            Context ctx, StreamingChatModel model, String question, @Nullable ResponseFormat responseFormat) {
+        if (responseFormat != null && !cm.getService().supportsJsonSchema(model)) {
+            throw new IllegalArgumentException(
+                    "MODEL_UNSUPPORTED_RESPONSE_SCHEMA: " + cm.getService().nameOf(model));
+        }
+
         var svc = cm.getService();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
@@ -1649,7 +1676,9 @@ public final class JobRunner {
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;
         try {
-            response = llm.sendRequest(messages);
+            response = responseFormat == null
+                    ? llm.sendRequest(messages)
+                    : llm.sendRequest(messages, llm.requestOptions().withResponseFormat(responseFormat));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
@@ -1673,9 +1702,14 @@ public final class JobRunner {
             Context context,
             StreamingChatModel model,
             String question,
+            @Nullable ResponseFormat responseFormat,
             AtomicReference<String> finalStopReason) {
+        if (responseFormat != null && !cm.getService().supportsJsonSchema(model)) {
+            throw new IllegalArgumentException(
+                    "MODEL_UNSUPPORTED_RESPONSE_SCHEMA: " + cm.getService().nameOf(model));
+        }
         try {
-            var result = askUsingPlannerModel(context, model, question);
+            var result = askUsingPlannerModel(context, model, question, responseFormat);
             finalStopReason.set(result.stopDetails().reason().name());
             scope.append(result);
         } catch (Throwable t) {
@@ -1705,6 +1739,10 @@ public final class JobRunner {
                 logger.warn("Failed to append {} failure result for job {}: {}", label, jobId, e2.getMessage(), e2);
             }
         }
+    }
+
+    private static @Nullable ResponseFormat responseFormatOrNull(JobSpec spec) {
+        return spec.responseSchema() == null ? null : JobResponseSchemaSupport.toResponseFormat(spec.responseSchema());
     }
 
     private JobStatus enrichStatusMetadata(

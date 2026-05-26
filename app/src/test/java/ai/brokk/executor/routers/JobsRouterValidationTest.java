@@ -38,6 +38,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -163,6 +164,74 @@ class JobsRouterValidationTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"REPORT_ONLY", "ASK", "SEARCH"})
+    void postJobs_responseSchemaAllowedForDirectAndSearchModes(String mode) throws Exception {
+        var body = new HashMap<String, Object>();
+        body.put("taskInput", "test task");
+        body.put("plannerModel", "gpt-4");
+        body.put("responseSchema", validResponseSchema());
+        if (mode.equals("REPORT_ONLY")) {
+            body.put("executionPolicy", Map.of("preset", "REPORT_ONLY"));
+        } else {
+            body.put("tags", Map.of("mode", mode));
+        }
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(201, exchange.responseCode());
+        var response = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+        var loaded = jobStore.loadSpec(response.get("jobId").toString());
+        assertNotNull(loaded.responseSchema());
+        assertEquals("StrictReport", loaded.responseSchema().name());
+    }
+
+    @Test
+    void postJobs_responseSchemaRejectedForArchitectMode() throws Exception {
+        Map<String, Object> body = Map.of(
+                "taskInput", "test task",
+                "plannerModel", "gpt-4",
+                "responseSchema", validResponseSchema());
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains("responseSchema is only supported"), payload.message());
+        assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed; job may have been created");
+    }
+
+    @Test
+    void postJobs_invalidResponseSchemaReturnsValidationError() throws Exception {
+        Map<String, Object> body = Map.of(
+                "taskInput",
+                "test task",
+                "plannerModel",
+                "gpt-4",
+                "executionPolicy",
+                Map.of("preset", "REPORT_ONLY"),
+                "responseSchema",
+                Map.of("name", "StrictReport", "schema", Map.of("type", "array", "items", Map.of("type", "string"))));
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains("root type must be object"), payload.message());
+        assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed; job may have been created");
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"TUI Session", "New Session", "Session"})
     void postJobs_withDefaultSessionName_triggersAutoRename(String defaultName) throws Exception {
         var sm = jobsRouter.contextManager.getProject().getSessionManager();
@@ -190,6 +259,22 @@ class JobsRouterValidationTest {
             Thread.sleep(20);
         }
         assertTrue(renamed, "Session '" + defaultName + "' should have been auto-renamed to '" + taskInput + "'");
+    }
+
+    private static Map<String, Object> validResponseSchema() {
+        return Map.of(
+                "name",
+                "StrictReport",
+                "schema",
+                Map.of(
+                        "type",
+                        "object",
+                        "properties",
+                        Map.of("summary", Map.of("type", "string")),
+                        "required",
+                        List.of("summary"),
+                        "additionalProperties",
+                        false));
     }
 
     @Test

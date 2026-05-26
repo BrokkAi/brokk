@@ -105,6 +105,48 @@ class JobSpecTest {
     }
 
     @Test
+    void responseSchemaPersistsThroughJson() throws Exception {
+        var schema = MAPPER.readTree(
+                """
+                {
+                  "type": "object",
+                  "properties": {
+                    "summary": { "type": "string" }
+                  },
+                  "required": ["summary"],
+                  "additionalProperties": false
+                }
+                """);
+        var spec = new JobSpec(
+                "write final report",
+                false,
+                true,
+                "planner",
+                null,
+                null,
+                false,
+                Map.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                new JobSpec.ExecutionPolicy(JobSpec.ExecutionPolicyPreset.REPORT_ONLY),
+                new JobSpec.ResponseSchema("SlopCopSniffTest", schema));
+
+        var json = MAPPER.writeValueAsString(spec);
+        var roundTrip = MAPPER.readValue(json, JobSpec.class);
+
+        assertEquals(
+                "SlopCopSniffTest", requireNonNull(roundTrip.responseSchema()).name());
+        assertEquals("object", roundTrip.responseSchema().schema().get("type").textValue());
+        assertTrue(json.contains("\"responseSchema\""));
+    }
+
+    @Test
     void executionPolicyRejectsMissingPreset() {
         assertThrows(Exception.class, () -> MAPPER.readValue("{\"executionPolicy\":{}}", JobSpec.class));
     }
