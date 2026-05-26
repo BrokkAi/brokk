@@ -714,14 +714,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var name = nameOf(model);
         var info = getModelInfo(name);
 
-        if (name.contains("gemini")) {
-            return false;
-        }
-
-        if (name.contains("gpt-5")) {
-            return false;
-        }
-
         if (info.isEmpty()) {
             logger.warn("Model info not found for name {}, assuming no JSON schema support.", name);
             return false;
