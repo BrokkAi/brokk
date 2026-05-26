@@ -179,14 +179,6 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (parsedResponseSchema.invalid()) return;
         var responseSchema = parsedResponseSchema.responseSchema();
 
-        if (responseSchema != null) {
-            var responseSchemaError = JobResponseSchemaSupport.validate(responseSchema);
-            if (responseSchemaError.isPresent()) {
-                RouterUtil.sendValidationError(exchange, responseSchemaError.get());
-                return;
-            }
-        }
-
         // If an agent is specified, validate it exists and route to SEARCH mode with an instruction
         String effectiveTaskInput = request.taskInput();
         if (request.agent() != null && !request.agent().isBlank()) {
@@ -205,6 +197,13 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             RouterUtil.sendValidationError(
                     exchange, "responseSchema is only supported for REPORT_ONLY, ASK, and SEARCH jobs");
             return;
+        }
+        if (responseSchema != null) {
+            var responseSchemaError = JobResponseSchemaSupport.validate(responseSchema);
+            if (responseSchemaError.isPresent()) {
+                RouterUtil.sendValidationError(exchange, responseSchemaError.get());
+                return;
+            }
         }
 
         var overrides = validateModelOverrides(exchange, request);

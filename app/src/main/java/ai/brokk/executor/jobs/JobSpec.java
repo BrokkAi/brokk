@@ -196,6 +196,32 @@ public record JobSpec(
         return Map.copyOf(result);
     }
 
+    public JobSpec withTags(Map<String, String> tags) {
+        return new JobSpec(
+                taskInput,
+                autoCommit,
+                autoCompress,
+                plannerModel,
+                scanModel,
+                codeModel,
+                preScan,
+                tags,
+                sourceBranch,
+                targetBranch,
+                reasoningLevel,
+                reasoningLevelCode,
+                temperature,
+                temperatureCode,
+                skipVerification,
+                maxIssueFixAttempts,
+                executionPolicy,
+                responseSchema);
+    }
+
+    public JobSpec withRedactedTags() {
+        return withTags(redactedTags());
+    }
+
     @JsonIgnore
     public boolean isReportOnly() {
         return executionPolicy != null && executionPolicy.preset() == ExecutionPolicyPreset.REPORT_ONLY;

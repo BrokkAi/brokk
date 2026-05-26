@@ -817,8 +817,20 @@ public final class JobRunner {
                                                             trimmedScanModel, spec.reasoningLevel(), spec.temperature())
                                                     : defaultScanModel(spec);
 
-                                            // SearchAgent now handles scanning internally via execute()
-                                            var scanConfig = LutzAgent.ScanConfig.withModel(scanModelToUse);
+                                            var responseFormat = responseFormatOrNull(spec);
+                                            var finalAnswerModel = responseFormat == null
+                                                    ? null
+                                                    : resolveModelOrThrow(
+                                                            spec.plannerModel(),
+                                                            spec.reasoningLevel(),
+                                                            spec.temperature());
+                                            if (responseFormat != null) {
+                                                ensureResponseSchemaSupported(requireNonNull(finalAnswerModel));
+                                            }
+
+                                            var scanConfig = responseFormat == null
+                                                    ? LutzAgent.ScanConfig.withModel(scanModelToUse)
+                                                    : new LutzAgent.ScanConfig(true, scanModelToUse, false, true);
                                             var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
@@ -831,25 +843,23 @@ public final class JobRunner {
                                             if (readOnly) {
                                                 searchAgent.setReadOnly(true);
                                             }
-                                            var result = searchAgent.execute();
-                                            scope.append(result);
-                                            if (spec.responseSchema() != null
-                                                    && result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                                            if (responseFormat == null) {
+                                                var result = searchAgent.execute();
+                                                scope.append(result);
+                                                finalStopReason.set(result.stopDetails()
+                                                        .reason()
+                                                        .name());
+                                            } else {
+                                                context = searchAgent.scanContext();
                                                 runDirectAnswer(
                                                         jobId,
                                                         "SEARCH",
                                                         scope,
-                                                        result.context(),
-                                                        requireNonNull(
-                                                                scanModelToUse,
-                                                                "scan model unavailable for SEARCH jobs"),
+                                                        context,
+                                                        requireNonNull(finalAnswerModel),
                                                         spec.taskInput(),
-                                                        responseFormatOrNull(spec),
+                                                        responseFormat,
                                                         finalStopReason);
-                                            } else {
-                                                finalStopReason.set(result.stopDetails()
-                                                        .reason()
-                                                        .name());
                                             }
                                         }
                                     }
@@ -1659,9 +1669,8 @@ public final class JobRunner {
      */
     private TaskResult askUsingPlannerModel(
             Context ctx, StreamingChatModel model, String question, @Nullable ResponseFormat responseFormat) {
-        if (responseFormat != null && !cm.getService().supportsJsonSchema(model)) {
-            throw new IllegalArgumentException(
-                    "MODEL_UNSUPPORTED_RESPONSE_SCHEMA: " + cm.getService().nameOf(model));
+        if (responseFormat != null) {
+            ensureResponseSchemaSupported(model);
         }
 
         var svc = cm.getService();
@@ -1678,7 +1687,11 @@ public final class JobRunner {
         try {
             response = responseFormat == null
                     ? llm.sendRequest(messages)
-                    : llm.sendRequest(messages, llm.requestOptions().withResponseFormat(responseFormat));
+                    : llm.sendRequest(
+                            messages,
+                            llm.requestOptions()
+                                    .withResponseFormat(responseFormat)
+                                    .withMaxAttempts(1));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
@@ -1686,12 +1699,15 @@ public final class JobRunner {
 
         // Determine stop details based on the response
         if (response != null) {
+            if (responseFormat != null && response.error() != null) {
+                throw new RuntimeException(response.error());
+            }
             stop = TaskResult.StopDetails.fromResponse(response);
         }
 
         requireNonNull(stop);
 
-        ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.ASK, model, question);
+        ctx = ctx.addHistoryEntry(llmRawMessagesOrEmpty(), TaskResult.Type.ASK, model, question);
         return new TaskResult(ctx, stop);
     }
 
@@ -1704,10 +1720,6 @@ public final class JobRunner {
             String question,
             @Nullable ResponseFormat responseFormat,
             AtomicReference<String> finalStopReason) {
-        if (responseFormat != null && !cm.getService().supportsJsonSchema(model)) {
-            throw new IllegalArgumentException(
-                    "MODEL_UNSUPPORTED_RESPONSE_SCHEMA: " + cm.getService().nameOf(model));
-        }
         try {
             var result = askUsingPlannerModel(context, model, question, responseFormat);
             finalStopReason.set(result.stopDetails().reason().name());
@@ -1722,6 +1734,15 @@ public final class JobRunner {
                                 label + " error");
             } catch (Throwable ignore) {
                 // best-effort only
+            }
+            if (responseFormat != null) {
+                if (t instanceof RuntimeException re) {
+                    throw re;
+                }
+                if (t instanceof Error error) {
+                    throw error;
+                }
+                throw new RuntimeException(t);
             }
 
             var stopDetails = new TaskResult.StopDetails(
@@ -1743,6 +1764,21 @@ public final class JobRunner {
 
     private static @Nullable ResponseFormat responseFormatOrNull(JobSpec spec) {
         return spec.responseSchema() == null ? null : JobResponseSchemaSupport.toResponseFormat(spec.responseSchema());
+    }
+
+    private void ensureResponseSchemaSupported(StreamingChatModel model) {
+        if (!cm.getService().supportsJsonSchema(model)) {
+            throw new IllegalArgumentException(
+                    "MODEL_UNSUPPORTED_RESPONSE_SCHEMA: " + cm.getService().nameOf(model));
+        }
+    }
+
+    private List<ChatMessage> llmRawMessagesOrEmpty() {
+        try {
+            return cm.getIo().getLlmRawMessages();
+        } catch (UnsupportedOperationException e) {
+            return List.of();
+        }
     }
 
     private JobStatus enrichStatusMetadata(

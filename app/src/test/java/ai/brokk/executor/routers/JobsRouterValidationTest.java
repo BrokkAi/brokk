@@ -14,6 +14,7 @@ import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStatus;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.executor.jobs.ResponseSchemaFixtures;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestService;
@@ -169,7 +170,7 @@ class JobsRouterValidationTest {
         var body = new HashMap<String, Object>();
         body.put("taskInput", "test task");
         body.put("plannerModel", "gpt-4");
-        body.put("responseSchema", validResponseSchema());
+        body.put("responseSchema", ResponseSchemaFixtures.validResponseSchemaMap());
         if (mode.equals("REPORT_ONLY")) {
             body.put("executionPolicy", Map.of("preset", "REPORT_ONLY"));
         } else {
@@ -193,7 +194,7 @@ class JobsRouterValidationTest {
         Map<String, Object> body = Map.of(
                 "taskInput", "test task",
                 "plannerModel", "gpt-4",
-                "responseSchema", validResponseSchema());
+                "responseSchema", ResponseSchemaFixtures.validResponseSchemaMap());
 
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
         exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
@@ -231,6 +232,71 @@ class JobsRouterValidationTest {
         assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed; job may have been created");
     }
 
+    @Test
+    void postJobs_responseSchemaRejectsOptionalProperties() throws Exception {
+        var schema = Map.of(
+                "name",
+                "StrictReport",
+                "schema",
+                Map.of(
+                        "type",
+                        "object",
+                        "properties",
+                        Map.of("summary", Map.of("type", "string"), "confidence", Map.of("type", "number")),
+                        "required",
+                        List.of("summary"),
+                        "additionalProperties",
+                        false));
+
+        assertResponseSchemaRejected(schema, "required must include every property");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"minLength", "pattern", "minimum", "oneOf"})
+    void postJobs_responseSchemaRejectsUnsupportedKeywords(String keyword) throws Exception {
+        var property = new HashMap<String, Object>();
+        property.put("type", keyword.equals("minimum") ? "number" : "string");
+        property.put(keyword, keyword.equals("oneOf") ? List.of(Map.of("type", "string")) : 1);
+        var schema = Map.of(
+                "name",
+                "StrictReport",
+                "schema",
+                Map.of(
+                        "type",
+                        "object",
+                        "properties",
+                        Map.of("summary", property),
+                        "required",
+                        List.of("summary"),
+                        "additionalProperties",
+                        false));
+
+        assertResponseSchemaRejected(schema, keyword + " is not supported");
+    }
+
+    @Test
+    void postJobs_responseSchemaRejectsExcessiveDepth() throws Exception {
+        Map<String, Object> nested = Map.of("type", "string");
+        for (int i = 0; i < 20; i++) {
+            nested = Map.of("type", "array", "items", nested);
+        }
+        var schema = Map.of(
+                "name",
+                "StrictReport",
+                "schema",
+                Map.of(
+                        "type",
+                        "object",
+                        "properties",
+                        Map.of("summary", nested),
+                        "required",
+                        List.of("summary"),
+                        "additionalProperties",
+                        false));
+
+        assertResponseSchemaRejected(schema, "exceeds maximum schema depth");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"TUI Session", "New Session", "Session"})
     void postJobs_withDefaultSessionName_triggersAutoRename(String defaultName) throws Exception {
@@ -261,20 +327,28 @@ class JobsRouterValidationTest {
         assertTrue(renamed, "Session '" + defaultName + "' should have been auto-renamed to '" + taskInput + "'");
     }
 
-    private static Map<String, Object> validResponseSchema() {
-        return Map.of(
-                "name",
-                "StrictReport",
-                "schema",
-                Map.of(
-                        "type",
-                        "object",
-                        "properties",
-                        Map.of("summary", Map.of("type", "string")),
-                        "required",
-                        List.of("summary"),
-                        "additionalProperties",
-                        false));
+    private void assertResponseSchemaRejected(Map<String, Object> responseSchema, String expectedMessage)
+            throws Exception {
+        Map<String, Object> body = Map.of(
+                "taskInput",
+                "test task",
+                "plannerModel",
+                "gpt-4",
+                "executionPolicy",
+                Map.of("preset", "REPORT_ONLY"),
+                "responseSchema",
+                responseSchema);
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains(expectedMessage), payload.message());
+        assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed; job may have been created");
     }
 
     @Test

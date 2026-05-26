@@ -91,25 +91,7 @@ public final class JobStore {
         // Write meta.json (immutable) - use redacted tags to avoid persisting secrets
         var metaFile = jobDir.resolve("meta.json");
         var tempMetaFile = jobDir.resolve(".meta.json.tmp");
-        var specForPersistence = new JobSpec(
-                spec.taskInput(),
-                spec.autoCommit(),
-                spec.autoCompress(),
-                spec.plannerModel(),
-                spec.scanModel(),
-                spec.codeModel(),
-                spec.preScan(),
-                spec.redactedTags(),
-                spec.sourceBranch(),
-                spec.targetBranch(),
-                spec.reasoningLevel(),
-                spec.reasoningLevelCode(),
-                spec.temperature(),
-                spec.temperatureCode(),
-                spec.skipVerification(),
-                spec.maxIssueFixAttempts(),
-                spec.executionPolicy(),
-                spec.responseSchema());
+        var specForPersistence = spec.withRedactedTags();
         objectMapper.writeValue(tempMetaFile.toFile(), specForPersistence);
         Files.move(tempMetaFile, metaFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
@@ -316,25 +298,7 @@ public final class JobStore {
 
         var tags = new HashMap<>(spec.tags());
         tags.put("session_id", desired);
-        var updated = new JobSpec(
-                spec.taskInput(),
-                spec.autoCommit(),
-                spec.autoCompress(),
-                spec.plannerModel(),
-                spec.scanModel(),
-                spec.codeModel(),
-                spec.preScan(),
-                tags,
-                spec.sourceBranch(),
-                spec.targetBranch(),
-                spec.reasoningLevel(),
-                spec.reasoningLevelCode(),
-                spec.temperature(),
-                spec.temperatureCode(),
-                spec.skipVerification(),
-                spec.maxIssueFixAttempts(),
-                spec.executionPolicy(),
-                spec.responseSchema());
+        var updated = spec.withTags(tags);
 
         var tempMetaFile = metaFile.resolveSibling(".meta.json.tmp");
         objectMapper.writeValue(tempMetaFile.toFile(), updated);

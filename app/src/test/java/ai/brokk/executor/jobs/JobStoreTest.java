@@ -71,18 +71,6 @@ class JobStoreTest {
     @Test
     void testCreateOrGetJob_PreservesResponseSchema(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
-        var schema = new com.fasterxml.jackson.databind.ObjectMapper()
-                .readTree(
-                        """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "summary": { "type": "string" }
-                          },
-                          "required": ["summary"],
-                          "additionalProperties": false
-                        }
-                        """);
         var spec = new JobSpec(
                 "test task",
                 true,
@@ -101,7 +89,7 @@ class JobStoreTest {
                 false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
                 new JobSpec.ExecutionPolicy(JobSpec.ExecutionPolicyPreset.REPORT_ONLY),
-                new JobSpec.ResponseSchema("StrictReport", schema));
+                ResponseSchemaFixtures.validResponseSchema());
 
         var result = store.createOrGetJob("idem-key-response-schema", spec);
         var loadedSpec = store.loadSpec(result.jobId());
@@ -109,6 +97,39 @@ class JobStoreTest {
         assertNotNull(loadedSpec);
         assertEquals("StrictReport", loadedSpec.responseSchema().name());
         assertEquals("object", loadedSpec.responseSchema().schema().get("type").textValue());
+    }
+
+    @Test
+    void testPersistSessionId_PreservesResponseSchema(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var spec = new JobSpec(
+                "test task",
+                true,
+                true,
+                DEFAULT_PLANNER_MODEL,
+                null,
+                null,
+                false,
+                Map.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                new JobSpec.ExecutionPolicy(JobSpec.ExecutionPolicyPreset.REPORT_ONLY),
+                ResponseSchemaFixtures.validResponseSchema());
+
+        var result = store.createOrGetJob("idem-key-response-schema-session", spec);
+        var sessionId = UUID.randomUUID();
+        store.persistSessionId(result.jobId(), sessionId);
+        var loadedSpec = store.loadSpec(result.jobId());
+
+        assertNotNull(loadedSpec);
+        assertEquals("StrictReport", loadedSpec.responseSchema().name());
+        assertEquals(sessionId.toString(), loadedSpec.tags().get("session_id"));
     }
 
     @Test
