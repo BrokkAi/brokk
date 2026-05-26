@@ -10,10 +10,14 @@ import ai.brokk.executor.agents.AgentDefinition;
 import ai.brokk.executor.agents.AgentStore;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.executor.jobs.JobResponseSchemaSupport;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.executor.jobs.PrReviewService;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -171,6 +175,10 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             return;
         }
 
+        var parsedResponseSchema = parseResponseSchema(exchange, request.responseSchema());
+        if (parsedResponseSchema.invalid()) return;
+        var responseSchema = parsedResponseSchema.responseSchema();
+
         // If an agent is specified, validate it exists and route to SEARCH mode with an instruction
         String effectiveTaskInput = request.taskInput();
         if (request.agent() != null && !request.agent().isBlank()) {
@@ -183,6 +191,19 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             tags.putIfAbsent("mode", "SEARCH");
             effectiveTaskInput = "Use the callCustomAgent tool to invoke the '%s' agent for the following task:\n\n%s"
                     .formatted(agentName, request.taskInput());
+        }
+
+        if (responseSchema != null && !allowsResponseSchema(executionPolicy, tags)) {
+            RouterUtil.sendValidationError(
+                    exchange, "responseSchema is only supported for REPORT_ONLY, ASK, and SEARCH jobs");
+            return;
+        }
+        if (responseSchema != null) {
+            var responseSchemaError = JobResponseSchemaSupport.validate(responseSchema);
+            if (responseSchemaError.isPresent()) {
+                RouterUtil.sendValidationError(exchange, responseSchemaError.get());
+                return;
+            }
         }
 
         var overrides = validateModelOverrides(exchange, request);
@@ -212,7 +233,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 overrides.temperatureCode(),
                 skipVerificationFlag,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
-                executionPolicy);
+                executionPolicy,
+                responseSchema);
 
         if (awaitHeadlessInitOrRespond(exchange, null)) return;
 
@@ -659,6 +681,31 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 .findFirst();
     }
 
+    private record ParsedResponseSchema(JobSpec.@Nullable ResponseSchema responseSchema, boolean invalid) {}
+
+    private static ParsedResponseSchema parseResponseSchema(HttpExchange exchange, @Nullable JsonNode rawResponseSchema)
+            throws IOException {
+        if (rawResponseSchema == null || rawResponseSchema.isNull()) {
+            return new ParsedResponseSchema(null, false);
+        }
+        try {
+            return new ParsedResponseSchema(
+                    OBJECT_MAPPER.treeToValue(rawResponseSchema, JobSpec.ResponseSchema.class), false);
+        } catch (JsonProcessingException | IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, "Invalid responseSchema");
+            return new ParsedResponseSchema(null, true);
+        }
+    }
+
+    private static boolean allowsResponseSchema(
+            JobSpec.@Nullable ExecutionPolicy executionPolicy, Map<String, String> tags) {
+        if (executionPolicy != null && executionPolicy.preset() == JobSpec.ExecutionPolicyPreset.REPORT_ONLY) {
+            return true;
+        }
+        var mode = tags.getOrDefault("mode", "").strip().toUpperCase(Locale.ROOT);
+        return mode.equals("ASK") || mode.equals("SEARCH");
+    }
+
     private JobSpec.@Nullable ModelOverrides validateModelOverrides(HttpExchange exchange, JobSpecRequest request)
             throws IOException {
         String rl = null;
@@ -749,7 +796,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             @Nullable Boolean skipVerification,
             JobSpec.@Nullable ExecutionPolicy executionPolicy,
             JobSpec.@Nullable ExecutionPolicy jobPolicy,
-            @Nullable String agent) {}
+            @Nullable String agent,
+            @JsonProperty("responseSchema") @Nullable JsonNode responseSchema) {}
 
     private record ContextPayload(@Nullable List<String> text) {}
 

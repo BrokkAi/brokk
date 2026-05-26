@@ -2,6 +2,7 @@ package ai.brokk.executor.jobs;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -32,7 +33,8 @@ public record JobSpec(
         @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
         @JsonProperty("skipVerification") boolean skipVerification,
         @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts,
-        @JsonProperty("executionPolicy") @Nullable ExecutionPolicy executionPolicy) {
+        @JsonProperty("executionPolicy") @Nullable ExecutionPolicy executionPolicy,
+        @JsonProperty("responseSchema") @Nullable ResponseSchema responseSchema) {
 
     public static final int DEFAULT_MAX_ISSUE_FIX_ATTEMPTS = 20;
 
@@ -43,6 +45,14 @@ public record JobSpec(
     public record ExecutionPolicy(@JsonProperty("preset") ExecutionPolicyPreset preset) {
         public ExecutionPolicy(@JsonProperty("preset") @Nullable ExecutionPolicyPreset preset) {
             this.preset = Objects.requireNonNull(preset, "preset");
+        }
+    }
+
+    public record ResponseSchema(@JsonProperty("name") String name, @JsonProperty("schema") JsonNode schema) {
+        public ResponseSchema(
+                @JsonProperty("name") @Nullable String name, @JsonProperty("schema") @Nullable JsonNode schema) {
+            this.name = Objects.requireNonNull(name, "name");
+            this.schema = Objects.requireNonNull(schema, "schema");
         }
     }
 
@@ -92,6 +102,7 @@ public record JobSpec(
                 temperatureCode,
                 skipVerification,
                 maxIssueFixAttempts,
+                null,
                 null);
     }
 
@@ -114,6 +125,47 @@ public record JobSpec(
             @JsonProperty("skipVerification") boolean skipVerification,
             @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts,
             @JsonProperty("executionPolicy") @Nullable ExecutionPolicy executionPolicy) {
+        this(
+                taskInput,
+                autoCommit,
+                autoCompress,
+                plannerModel,
+                scanModel,
+                codeModel,
+                preScan,
+                tags,
+                sourceBranch,
+                targetBranch,
+                reasoningLevel,
+                reasoningLevelCode,
+                temperature,
+                temperatureCode,
+                skipVerification,
+                maxIssueFixAttempts,
+                executionPolicy,
+                null);
+    }
+
+    /** Normalizes nullable collection fields during deserialization and direct construction. */
+    public JobSpec(
+            @JsonProperty("taskInput") String taskInput,
+            @JsonProperty("autoCommit") boolean autoCommit,
+            @JsonProperty("autoCompress") boolean autoCompress,
+            @JsonProperty("plannerModel") String plannerModel,
+            @JsonProperty("scanModel") @Nullable String scanModel,
+            @JsonProperty("codeModel") @Nullable String codeModel,
+            @JsonProperty("preScan") boolean preScan,
+            @JsonProperty("tags") @Nullable Map<String, String> tags,
+            @JsonProperty("sourceBranch") @Nullable String sourceBranch,
+            @JsonProperty("targetBranch") @Nullable String targetBranch,
+            @JsonProperty("reasoningLevel") @Nullable String reasoningLevel,
+            @JsonProperty("reasoningLevelCode") @Nullable String reasoningLevelCode,
+            @JsonProperty("temperature") @Nullable Double temperature,
+            @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
+            @JsonProperty("skipVerification") boolean skipVerification,
+            @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts,
+            @JsonProperty("executionPolicy") @Nullable ExecutionPolicy executionPolicy,
+            @JsonProperty("responseSchema") @Nullable ResponseSchema responseSchema) {
         this.taskInput = taskInput;
         this.autoCommit = autoCommit;
         this.autoCompress = autoCompress;
@@ -131,6 +183,7 @@ public record JobSpec(
         this.skipVerification = skipVerification;
         this.maxIssueFixAttempts = maxIssueFixAttempts;
         this.executionPolicy = executionPolicy;
+        this.responseSchema = responseSchema;
     }
 
     public Map<String, String> redactedTags() {
@@ -141,6 +194,32 @@ public record JobSpec(
             }
         }
         return Map.copyOf(result);
+    }
+
+    public JobSpec withTags(Map<String, String> tags) {
+        return new JobSpec(
+                taskInput,
+                autoCommit,
+                autoCompress,
+                plannerModel,
+                scanModel,
+                codeModel,
+                preScan,
+                tags,
+                sourceBranch,
+                targetBranch,
+                reasoningLevel,
+                reasoningLevelCode,
+                temperature,
+                temperatureCode,
+                skipVerification,
+                maxIssueFixAttempts,
+                executionPolicy,
+                responseSchema);
+    }
+
+    public JobSpec withRedactedTags() {
+        return withTags(redactedTags());
     }
 
     @JsonIgnore

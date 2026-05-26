@@ -105,6 +105,67 @@ class JobSpecTest {
     }
 
     @Test
+    void responseSchemaPersistsThroughJson() throws Exception {
+        var spec = new JobSpec(
+                "write final report",
+                false,
+                true,
+                "planner",
+                null,
+                null,
+                false,
+                Map.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                new JobSpec.ExecutionPolicy(JobSpec.ExecutionPolicyPreset.REPORT_ONLY),
+                ResponseSchemaFixtures.validResponseSchema());
+
+        var json = MAPPER.writeValueAsString(spec);
+        var roundTrip = MAPPER.readValue(json, JobSpec.class);
+
+        assertEquals("StrictReport", requireNonNull(roundTrip.responseSchema()).name());
+        assertEquals("object", roundTrip.responseSchema().schema().get("type").textValue());
+        assertTrue(json.contains("\"responseSchema\""));
+    }
+
+    @Test
+    void copyHelpersPreserveResponseSchema() {
+        var spec = new JobSpec(
+                "write final report",
+                false,
+                true,
+                "planner",
+                null,
+                null,
+                false,
+                Map.of("github_token", "secret"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                new JobSpec.ExecutionPolicy(JobSpec.ExecutionPolicyPreset.REPORT_ONLY),
+                ResponseSchemaFixtures.validResponseSchema());
+
+        var retagged = spec.withTags(Map.of("mode", "ASK"));
+        var redacted = spec.withRedactedTags();
+
+        assertEquals("StrictReport", requireNonNull(retagged.responseSchema()).name());
+        assertEquals("ASK", retagged.tags().get("mode"));
+        assertEquals("StrictReport", requireNonNull(redacted.responseSchema()).name());
+        assertEquals("[REDACTED]", redacted.tags().get("github_token"));
+    }
+
+    @Test
     void executionPolicyRejectsMissingPreset() {
         assertThrows(Exception.class, () -> MAPPER.readValue("{\"executionPolicy\":{}}", JobSpec.class));
     }

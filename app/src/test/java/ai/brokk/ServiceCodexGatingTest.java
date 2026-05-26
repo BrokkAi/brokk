@@ -7,6 +7,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.TestConfigHelper;
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -109,6 +110,27 @@ class ServiceCodexGatingTest {
         assertFalse(available.containsKey("gpt-5.2-codex"));
     }
 
+    @Test
+    void supportsJsonSchemaUsesModelMetadataWithoutNameVeto(@TempDir Path tempDir) {
+        var projectRoot = tempDir.resolve("dummy-project");
+        projectRoot.toFile().mkdirs();
+        var service = new GatingTestService(new MainProject(projectRoot));
+        service.addSchemaModel("gpt-5.4", true);
+        service.addSchemaModel("gemini-3-pro", true);
+        service.addSchemaModel("legacy-model", false);
+
+        assertTrue(service.supportsJsonSchema(model("gpt-5.4")));
+        assertTrue(service.supportsJsonSchema(model("gemini-3-pro")));
+        assertFalse(service.supportsJsonSchema(model("legacy-model")));
+    }
+
+    private static OpenAiStreamingChatModel model(String name) {
+        return OpenAiStreamingChatModel.builder()
+                .apiKey("test-key")
+                .modelName(name)
+                .build();
+    }
+
     /**
      * Subclass of AbstractService to allow populating protected model maps.
      */
@@ -127,6 +149,11 @@ class ServiceCodexGatingTest {
                 info.put("is_codex", true);
             }
             modelInfoMap.put(name, info);
+        }
+
+        void addSchemaModel(String name, boolean supportsResponseSchema) {
+            modelLocations.put(name, name);
+            modelInfoMap.put(name, Map.of("supports_response_schema", supportsResponseSchema));
         }
 
         @Override

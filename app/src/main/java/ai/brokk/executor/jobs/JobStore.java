@@ -91,24 +91,7 @@ public final class JobStore {
         // Write meta.json (immutable) - use redacted tags to avoid persisting secrets
         var metaFile = jobDir.resolve("meta.json");
         var tempMetaFile = jobDir.resolve(".meta.json.tmp");
-        var specForPersistence = new JobSpec(
-                spec.taskInput(),
-                spec.autoCommit(),
-                spec.autoCompress(),
-                spec.plannerModel(),
-                spec.scanModel(),
-                spec.codeModel(),
-                spec.preScan(),
-                spec.redactedTags(),
-                spec.sourceBranch(),
-                spec.targetBranch(),
-                spec.reasoningLevel(),
-                spec.reasoningLevelCode(),
-                spec.temperature(),
-                spec.temperatureCode(),
-                spec.skipVerification(),
-                spec.maxIssueFixAttempts(),
-                spec.executionPolicy());
+        var specForPersistence = spec.withRedactedTags();
         objectMapper.writeValue(tempMetaFile.toFile(), specForPersistence);
         Files.move(tempMetaFile, metaFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
@@ -182,7 +165,7 @@ public final class JobStore {
      * @param status The new status
      * @throws IOException If I/O fails
      */
-    public void updateStatus(String jobId, JobStatus status) throws IOException {
+    public synchronized void updateStatus(String jobId, JobStatus status) throws IOException {
         var jobDir = jobsDir.resolve(jobId);
         var statusFile = jobDir.resolve("status.json");
         var tempStatusFile = jobDir.resolve(".status.json.tmp");
@@ -201,7 +184,7 @@ public final class JobStore {
      * @return The job status, or null if the job does not exist
      * @throws IOException If I/O fails
      */
-    public @Nullable JobStatus loadStatus(String jobId) throws IOException {
+    public synchronized @Nullable JobStatus loadStatus(String jobId) throws IOException {
         var statusFile = jobsDir.resolve(jobId).resolve("status.json");
         if (!Files.exists(statusFile)) {
             return null;
@@ -315,24 +298,7 @@ public final class JobStore {
 
         var tags = new HashMap<>(spec.tags());
         tags.put("session_id", desired);
-        var updated = new JobSpec(
-                spec.taskInput(),
-                spec.autoCommit(),
-                spec.autoCompress(),
-                spec.plannerModel(),
-                spec.scanModel(),
-                spec.codeModel(),
-                spec.preScan(),
-                tags,
-                spec.sourceBranch(),
-                spec.targetBranch(),
-                spec.reasoningLevel(),
-                spec.reasoningLevelCode(),
-                spec.temperature(),
-                spec.temperatureCode(),
-                spec.skipVerification(),
-                spec.maxIssueFixAttempts(),
-                spec.executionPolicy());
+        var updated = spec.withTags(tags);
 
         var tempMetaFile = metaFile.resolveSibling(".meta.json.tmp");
         objectMapper.writeValue(tempMetaFile.toFile(), updated);
