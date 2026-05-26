@@ -165,7 +165,7 @@ public final class JobStore {
      * @param status The new status
      * @throws IOException If I/O fails
      */
-    public void updateStatus(String jobId, JobStatus status) throws IOException {
+    public synchronized void updateStatus(String jobId, JobStatus status) throws IOException {
         var jobDir = jobsDir.resolve(jobId);
         var statusFile = jobDir.resolve("status.json");
         var tempStatusFile = jobDir.resolve(".status.json.tmp");
@@ -184,7 +184,7 @@ public final class JobStore {
      * @return The job status, or null if the job does not exist
      * @throws IOException If I/O fails
      */
-    public @Nullable JobStatus loadStatus(String jobId) throws IOException {
+    public synchronized @Nullable JobStatus loadStatus(String jobId) throws IOException {
         var statusFile = jobsDir.resolve(jobId).resolve("status.json");
         if (!Files.exists(statusFile)) {
             return null;
