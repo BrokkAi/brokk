@@ -88,3 +88,6 @@ swe_bench_repos/
 .claude
 .codex
 .worktrees
+
+# Mjolnir linked worktrees
+.mjolnir/worktrees/
