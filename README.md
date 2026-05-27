@@ -41,27 +41,6 @@ Most users should install the Brokk desktop app from GitHub Releases:
 
 The app installer is the normal way to run Brokk. It includes the Java desktop application and handles platform-specific packaging.
 
-### ACP support components
-
-The scripts under `installer/` do **not** install the Brokk desktop app. They install only the standalone agent support components:
-
-- `bifrost`: the auth proxy
-- `brokk-acp`: the Rust ACP server
-
-Use this only when you need those command-line components for ACP/Codex-style integrations:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.sh | bash
-```
-
-On Windows, run this in PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/BrokkAi/brokk/master/installer/install.ps1 | iex
-```
-
-The component installer downloads the latest GitHub release assets for your platform, installs them to a per-user bin directory, and adds that directory to `PATH`. See [installer/README.md](installer/README.md) for options, pinned versions, supported platforms, and security notes.
-
 ## Why Brokk is different
 
 - **Fragment-level context, not file blobs**
@@ -187,7 +166,6 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
        ```
      - All platforms and installers: https://www.jdeploy.com/gh/BrokkAi/brokk
      - Requires Java 21+. On Windows, use the Releases installers or the jDeploy page.
-   - Optional ACP support components: use the `bifrost` + `brokk-acp` installer above only if you need those standalone command-line services.
 
 3. Launch and sign in
    - Start Brokk and paste your API key when prompted.
@@ -201,7 +179,6 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 These are optional companion projects, not the main desktop app install path:
 
 - [Claude Code plugin](claude-plugin/README.md): adds Brokk-powered semantic code intelligence to Claude Code.
-- [ACP support components](installer/README.md): installs only `bifrost` and `brokk-acp` for ACP/Codex-style integrations.
 
 ## Staging Environment
 

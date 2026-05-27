@@ -3,14 +3,8 @@ name: Java CI
 on:
   push:
     branches: [ 'master', 'ci/**' ]
-    paths-ignore:
-      - 'brokk-acp-rust/**'
-      - '.github/workflows/rust-acp.yml'
   pull_request:
     branches: [ 'master' ]
-    paths-ignore:
-      - 'brokk-acp-rust/**'
-      - '.github/workflows/rust-acp.yml'
 
 jobs:
   test:
