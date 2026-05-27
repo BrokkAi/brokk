@@ -99,6 +99,17 @@ class ParallelCustomAgentTest {
                 .build();
     }
 
+    private static ToolExecutionRequest emptySchemaReferenceRequest(String id, String agentName) {
+        return ToolExecutionRequest.builder()
+                .id(id)
+                .name("callCustomAgentWithSchema")
+                .arguments(Json.toJson(Map.of(
+                        "agentName", agentName,
+                        "task", "Return a strict report.",
+                        "responseSchema", Map.of())))
+                .build();
+    }
+
     private static String schemaSource() {
         return "Use this response schema for child reports:\n"
                 + Json.toJson(ResponseSchemaFixtures.validResponseSchemaMap());
@@ -221,6 +232,27 @@ class ParallelCustomAgentTest {
                     .build();
 
             var result = parallelCustomAgent.execute(List.of(emptySchemaObjectRequest("call-1", "schema-agent")), tr);
+
+            assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+            assertEquals(
+                    "{\"summary\":\"structured\"}",
+                    result.toolExecutionMessages().getFirst().text());
+        }
+    }
+
+    @Test
+    void parallelSchemaBackedAgentResolvesEmptySchemaReferenceWhenParentTaskHasOneSchema() throws Exception {
+        try (var harness = Harness.create(tempDir, true)) {
+            harness.cm().getAgentStore().save(agentDef(), "project");
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
+            var tr = harness.cm()
+                    .getToolRegistry()
+                    .builder()
+                    .register(parallelCustomAgent)
+                    .build();
+
+            var result =
+                    parallelCustomAgent.execute(List.of(emptySchemaReferenceRequest("call-1", "schema-agent")), tr);
 
             assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
             assertEquals(

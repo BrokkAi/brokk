@@ -18,12 +18,16 @@ final class CustomAgentResponseSchemaResolver {
             return validate(new JobSpec.ResponseSchema(argument.name(), argument.schema()));
         }
 
+        var schemas = schemasByName(schemaSource);
         var name = argument.name().strip();
         if (name.isBlank()) {
+            if (schemas.size() == 1) {
+                return schemas.values().iterator().next();
+            }
             throw new ToolRegistry.ToolValidationException("responseSchema.name is required");
         }
 
-        var resolved = schemasByName(schemaSource).get(name);
+        var resolved = schemas.get(name);
         if (resolved == null) {
             throw new ToolRegistry.ToolValidationException(
                     "responseSchema.schema is missing or empty for '%s'; provide a complete responseSchema or reference a schema name present in the parent task"
@@ -46,6 +50,9 @@ final class CustomAgentResponseSchemaResolver {
         }
         if (!node.isObject()) {
             throw new ToolRegistry.ToolValidationException("responseSchema must be a schema name or object");
+        }
+        if (isEmptyObject(node)) {
+            return new SchemaArgument("", null);
         }
 
         var nameNode = node.get("name");
