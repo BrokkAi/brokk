@@ -12,54 +12,18 @@ import org.jetbrains.annotations.Nullable;
 final class CustomAgentResponseSchemaResolver {
     private CustomAgentResponseSchemaResolver() {}
 
-    static JobSpec.ResponseSchema resolve(Object rawSchemaArgument, @Nullable String schemaSource) {
-        var argument = parseArgument(rawSchemaArgument);
-        if (argument.schema() != null && !isEmptyObject(argument.schema())) {
-            return validate(new JobSpec.ResponseSchema(argument.name(), argument.schema()));
-        }
-
-        var schemas = schemasByName(schemaSource);
-        var name = argument.name().strip();
+    static JobSpec.ResponseSchema resolve(String responseSchemaName, @Nullable String schemaSource) {
+        var name = responseSchemaName.strip();
         if (name.isBlank()) {
-            if (schemas.size() == 1) {
-                return schemas.values().iterator().next();
-            }
-            throw new ToolRegistry.ToolValidationException("responseSchema.name is required");
+            throw new ToolRegistry.ToolValidationException("responseSchemaName is required");
         }
 
-        var resolved = schemas.get(name);
+        var resolved = schemasByName(schemaSource).get(name);
         if (resolved == null) {
             throw new ToolRegistry.ToolValidationException(
-                    "responseSchema.schema is missing or empty for '%s'; provide a complete responseSchema or reference a schema name present in the parent task"
-                            .formatted(name));
+                    "responseSchemaName '%s' was not found in the parent task schemas".formatted(name));
         }
         return resolved;
-    }
-
-    private static SchemaArgument parseArgument(Object rawSchemaArgument) {
-        if (rawSchemaArgument instanceof JobSpec.ResponseSchema responseSchema) {
-            return new SchemaArgument(responseSchema.name(), responseSchema.schema());
-        }
-        if (rawSchemaArgument instanceof String name) {
-            return new SchemaArgument(name, null);
-        }
-
-        JsonNode node = Json.getMapper().valueToTree(rawSchemaArgument);
-        if (node.isTextual()) {
-            return new SchemaArgument(node.asText(), null);
-        }
-        if (!node.isObject()) {
-            throw new ToolRegistry.ToolValidationException("responseSchema must be a schema name or object");
-        }
-        if (isEmptyObject(node)) {
-            return new SchemaArgument("", null);
-        }
-
-        var nameNode = node.get("name");
-        if (nameNode == null || !nameNode.isTextual()) {
-            throw new ToolRegistry.ToolValidationException("responseSchema.name is required");
-        }
-        return new SchemaArgument(nameNode.asText(), node.get("schema"));
     }
 
     private static Map<String, JobSpec.ResponseSchema> schemasByName(@Nullable String schemaSource) {
@@ -136,18 +100,4 @@ final class CustomAgentResponseSchemaResolver {
         }
         return -1;
     }
-
-    private static boolean isEmptyObject(JsonNode node) {
-        return node.isObject() && !node.fieldNames().hasNext();
-    }
-
-    private static JobSpec.ResponseSchema validate(JobSpec.ResponseSchema responseSchema) {
-        var error = JobResponseSchemaSupport.validate(responseSchema);
-        if (error.isPresent()) {
-            throw new ToolRegistry.ToolValidationException(error.get());
-        }
-        return responseSchema;
-    }
-
-    private record SchemaArgument(String name, @Nullable JsonNode schema) {}
 }

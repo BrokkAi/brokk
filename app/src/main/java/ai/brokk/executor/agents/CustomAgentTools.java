@@ -61,17 +61,15 @@ public class CustomAgentTools {
     public String callCustomAgentWithSchema(
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
             @P("Complete task description for the agent") String task,
-            @P(
-                            "Response schema reference. Prefer a schema name string or {\"name\":\"...\"}; a full {\"name\":\"...\",\"schema\":{...}} object is also accepted.")
-                    Object responseSchema)
+            @P("Name of a response schema embedded in the parent task instructions") String responseSchemaName)
             throws InterruptedException {
         JobSpec.ResponseSchema resolvedSchema;
         try {
-            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchema, schemaSource);
+            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, schemaSource);
         } catch (ToolRegistry.ToolValidationException e) {
             throw new ToolRegistry.ToolCallException(
                     ToolExecutionResult.Status.REQUEST_ERROR,
-                    Objects.requireNonNullElse(e.getMessage(), "Invalid responseSchema"));
+                    Objects.requireNonNullElse(e.getMessage(), "Invalid responseSchemaName"));
         }
         var result = executeCustomAgent(agentName, task, resolvedSchema);
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {

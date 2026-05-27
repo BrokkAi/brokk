@@ -19,6 +19,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import java.nio.charset.StandardCharsets;
@@ -42,38 +43,6 @@ class ParallelCustomAgentTest {
                 .build();
     }
 
-    private static ToolExecutionRequest schemaRequest(String id, String agentName) {
-        return ToolExecutionRequest.builder()
-                .id(id)
-                .name("callCustomAgentWithSchema")
-                .arguments(Json.toJson(Map.of(
-                        "agentName",
-                        agentName,
-                        "task",
-                        "Return a strict report.",
-                        "responseSchema",
-                        ResponseSchemaFixtures.validResponseSchemaMap())))
-                .build();
-    }
-
-    private static ToolExecutionRequest invalidSchemaRequest(String id, String agentName) {
-        return ToolExecutionRequest.builder()
-                .id(id)
-                .name("callCustomAgentWithSchema")
-                .arguments(Json.toJson(Map.of(
-                        "agentName",
-                        agentName,
-                        "task",
-                        "Return a strict report.",
-                        "responseSchema",
-                        Map.of(
-                                "name",
-                                "BadSchema",
-                                "schema",
-                                Map.of("type", "array", "items", Map.of("type", "string"))))))
-                .build();
-    }
-
     private static ToolExecutionRequest schemaNameRequest(String id, String agentName) {
         return ToolExecutionRequest.builder()
                 .id(id)
@@ -81,30 +50,18 @@ class ParallelCustomAgentTest {
                 .arguments(Json.toJson(Map.of(
                         "agentName", agentName,
                         "task", "Return a strict report.",
-                        "responseSchema", "StrictReport")))
+                        "responseSchemaName", "StrictReport")))
                 .build();
     }
 
-    private static ToolExecutionRequest emptySchemaObjectRequest(String id, String agentName) {
+    private static ToolExecutionRequest blankSchemaNameRequest(String id, String agentName) {
         return ToolExecutionRequest.builder()
                 .id(id)
                 .name("callCustomAgentWithSchema")
                 .arguments(Json.toJson(Map.of(
-                        "agentName",
-                        agentName,
-                        "task",
-                        "Return a strict report.",
-                        "responseSchema",
-                        Map.of("name", "StrictReport", "schema", Map.of()))))
-                .build();
-    }
-
-    private static ToolExecutionRequest emptySchemaReferenceRequest(String id, String agentName) {
-        return ToolExecutionRequest.builder()
-                .id(id)
-                .name("callCustomAgentWithSchema")
-                .arguments(Json.toJson(
-                        Map.of("agentName", agentName, "task", "Return a strict report.", "responseSchema", Map.of())))
+                        "agentName", agentName,
+                        "task", "Return a strict report.",
+                        "responseSchemaName", " ")))
                 .build();
     }
 
@@ -157,18 +114,20 @@ class ParallelCustomAgentTest {
     }
 
     @Test
-    void callCustomAgentWithSchemaArgumentsAcceptFullSchemaObject() throws Exception {
+    void callCustomAgentWithSchemaArgumentsExposeSchemaNameString() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             var tr = ToolRegistry.empty()
                     .builder()
                     .register(new ParallelCustomAgent(harness.cm(), harness.model()))
                     .build();
 
-            var invocation = tr.validateTool(schemaRequest("call-1", "schema-agent"));
+            var invocation = tr.validateTool(schemaNameRequest("call-1", "schema-agent"));
+            var toolSpec = tr.getRegisteredTool("callCustomAgentWithSchema").orElseThrow();
 
             assertEquals("schema-agent", invocation.parameters().getFirst());
             assertEquals("Return a strict report.", invocation.parameters().get(1));
-            assertTrue(invocation.parameters().get(2) instanceof Map<?, ?>);
+            assertEquals("StrictReport", invocation.parameters().get(2));
+            assertTrue(toolSpec.parameters().properties().get("responseSchemaName") instanceof JsonStringSchema);
         }
     }
 
@@ -176,7 +135,7 @@ class ParallelCustomAgentTest {
     void parallelSchemaBackedAgentsReturnOneStructuredResultPerChild() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             harness.cm().getAgentStore().save(agentDef(), "project");
-            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model());
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
             var tr = harness.cm()
                     .getToolRegistry()
                     .builder()
@@ -184,7 +143,8 @@ class ParallelCustomAgentTest {
                     .build();
 
             var result = parallelCustomAgent.execute(
-                    List.of(schemaRequest("call-1", "schema-agent"), schemaRequest("call-2", "schema-agent")), tr);
+                    List.of(schemaNameRequest("call-1", "schema-agent"), schemaNameRequest("call-2", "schema-agent")),
+                    tr);
 
             assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
             assertEquals(2, result.toolExecutionMessages().size());
@@ -219,7 +179,7 @@ class ParallelCustomAgentTest {
     }
 
     @Test
-    void parallelSchemaBackedAgentResolvesEmptySchemaObjectFromParentTask() throws Exception {
+    void parallelSchemaBackedAgentRejectsBlankSchemaNameAsRequestError() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             harness.cm().getAgentStore().save(agentDef(), "project");
             var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
@@ -229,33 +189,10 @@ class ParallelCustomAgentTest {
                     .register(parallelCustomAgent)
                     .build();
 
-            var result = parallelCustomAgent.execute(List.of(emptySchemaObjectRequest("call-1", "schema-agent")), tr);
+            var result = parallelCustomAgent.execute(List.of(blankSchemaNameRequest("call-1", "schema-agent")), tr);
 
             assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
-            assertEquals(
-                    "{\"summary\":\"structured\"}",
-                    result.toolExecutionMessages().getFirst().text());
-        }
-    }
-
-    @Test
-    void parallelSchemaBackedAgentResolvesEmptySchemaReferenceWhenParentTaskHasOneSchema() throws Exception {
-        try (var harness = Harness.create(tempDir, true)) {
-            harness.cm().getAgentStore().save(agentDef(), "project");
-            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
-            var tr = harness.cm()
-                    .getToolRegistry()
-                    .builder()
-                    .register(parallelCustomAgent)
-                    .build();
-
-            var result =
-                    parallelCustomAgent.execute(List.of(emptySchemaReferenceRequest("call-1", "schema-agent")), tr);
-
-            assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
-            assertEquals(
-                    "{\"summary\":\"structured\"}",
-                    result.toolExecutionMessages().getFirst().text());
+            assertTrue(result.toolExecutionMessages().getFirst().text().contains("responseSchemaName is required"));
         }
     }
 
@@ -277,29 +214,7 @@ class ParallelCustomAgentTest {
             assertTrue(result.toolExecutionMessages()
                     .getFirst()
                     .text()
-                    .contains("responseSchema.schema is missing or empty for 'StrictReport'"));
-        }
-    }
-
-    @Test
-    void parallelSchemaBackedAgentRejectsInvalidSchemaAsRequestError() throws Exception {
-        try (var harness = Harness.create(tempDir, true)) {
-            harness.cm().getAgentStore().save(agentDef(), "project");
-            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model());
-            var tr = harness.cm()
-                    .getToolRegistry()
-                    .builder()
-                    .register(parallelCustomAgent)
-                    .build();
-
-            var result = parallelCustomAgent.execute(List.of(invalidSchemaRequest("call-1", "schema-agent")), tr);
-
-            assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
-            assertEquals(1, result.toolExecutionMessages().size());
-            assertTrue(result.toolExecutionMessages()
-                    .getFirst()
-                    .text()
-                    .contains("responseSchema.schema root type must be object"));
+                    .contains("responseSchemaName 'StrictReport' was not found in the parent task schemas"));
         }
     }
 
@@ -307,14 +222,14 @@ class ParallelCustomAgentTest {
     void parallelSchemaBackedAgentUnsupportedModelIsHardFailure() throws Exception {
         try (var harness = Harness.create(tempDir, false)) {
             harness.cm().getAgentStore().save(agentDef(), "project");
-            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model());
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
             var tr = harness.cm()
                     .getToolRegistry()
                     .builder()
                     .register(parallelCustomAgent)
                     .build();
 
-            var result = parallelCustomAgent.execute(List.of(schemaRequest("call-1", "schema-agent")), tr);
+            var result = parallelCustomAgent.execute(List.of(schemaNameRequest("call-1", "schema-agent")), tr);
 
             assertEquals(TaskResult.StopReason.LLM_ERROR, result.stopDetails().reason());
             assertTrue(result.stopDetails().explanation().contains("MODEL_UNSUPPORTED_RESPONSE_SCHEMA: stub-model"));
