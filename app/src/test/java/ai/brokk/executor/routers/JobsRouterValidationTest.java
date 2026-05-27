@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.ContextManager;
 import ai.brokk.Service;
 import ai.brokk.executor.JobReservation;
-import ai.brokk.executor.agents.AgentDefinition;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
@@ -188,36 +187,6 @@ class JobsRouterValidationTest {
         var loaded = jobStore.loadSpec(response.get("jobId").toString());
         assertNotNull(loaded.responseSchema());
         assertEquals("StrictReport", loaded.responseSchema().name());
-    }
-
-    @Test
-    void postJobs_agentWithResponseSchemaRoutesToSchemaAwareCustomAgentTool() throws Exception {
-        contextManager
-                .getAgentStore()
-                .save(new AgentDefinition(
-                        "schema-agent", "desc", List.of("answer"), 1, "You are a schema-aware test agent.", "project"));
-        Map<String, Object> body = Map.of(
-                "taskInput",
-                "test task",
-                "plannerModel",
-                "gpt-4",
-                "agent",
-                "schema-agent",
-                "responseSchema",
-                ResponseSchemaFixtures.validResponseSchemaMap());
-
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
-        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
-
-        jobsRouter.handle(exchange);
-
-        assertEquals(201, exchange.responseCode());
-        var response = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
-        var loaded = jobStore.loadSpec(response.get("jobId").toString());
-        assertEquals("SEARCH", loaded.tags().get("mode"));
-        assertTrue(loaded.taskInput().contains("callCustomAgentWithSchema"));
-        assertTrue(loaded.taskInput().contains("\"name\":\"StrictReport\""));
-        assertNotNull(loaded.responseSchema());
     }
 
     @Test

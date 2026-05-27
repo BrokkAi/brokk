@@ -3,6 +3,7 @@ package ai.brokk.executor.agents;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
@@ -54,6 +55,24 @@ class ParallelCustomAgentTest {
                         "Return a strict report.",
                         "responseSchema",
                         ResponseSchemaFixtures.validResponseSchemaMap())))
+                .build();
+    }
+
+    private static ToolExecutionRequest invalidSchemaRequest(String id, String agentName) {
+        return ToolExecutionRequest.builder()
+                .id(id)
+                .name("callCustomAgentWithSchema")
+                .arguments(Json.toJson(Map.of(
+                        "agentName",
+                        agentName,
+                        "task",
+                        "Return a strict report.",
+                        "responseSchema",
+                        Map.of(
+                                "name",
+                                "BadSchema",
+                                "schema",
+                                Map.of("type", "array", "items", Map.of("type", "string"))))))
                 .build();
     }
 
@@ -124,6 +143,51 @@ class ParallelCustomAgentTest {
                     result.toolExecutionMessages().stream()
                             .map(message -> message.text())
                             .toList());
+        }
+    }
+
+    @Test
+    void parallelSchemaBackedAgentRejectsInvalidSchemaAsRequestError() throws Exception {
+        try (var harness = Harness.create(tempDir, true)) {
+            harness.cm().getAgentStore().save(agentDef(), "project");
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model());
+            var tr = harness.cm()
+                    .getToolRegistry()
+                    .builder()
+                    .register(parallelCustomAgent)
+                    .build();
+
+            var result = parallelCustomAgent.execute(List.of(invalidSchemaRequest("call-1", "schema-agent")), tr);
+
+            assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+            assertEquals(1, result.toolExecutionMessages().size());
+            assertTrue(result.toolExecutionMessages()
+                    .getFirst()
+                    .text()
+                    .contains("responseSchema.schema root type must be object"));
+        }
+    }
+
+    @Test
+    void parallelSchemaBackedAgentUnsupportedModelIsHardFailure() throws Exception {
+        try (var harness = Harness.create(tempDir, false)) {
+            harness.cm().getAgentStore().save(agentDef(), "project");
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model());
+            var tr = harness.cm()
+                    .getToolRegistry()
+                    .builder()
+                    .register(parallelCustomAgent)
+                    .build();
+
+            var result = parallelCustomAgent.execute(List.of(schemaRequest("call-1", "schema-agent")), tr);
+
+            assertEquals(TaskResult.StopReason.LLM_ERROR, result.stopDetails().reason());
+            assertTrue(result.stopDetails().explanation().contains("MODEL_UNSUPPORTED_RESPONSE_SCHEMA: stub-model"));
+            assertEquals(1, result.toolExecutionMessages().size());
+            assertTrue(result.toolExecutionMessages()
+                    .getFirst()
+                    .text()
+                    .contains("MODEL_UNSUPPORTED_RESPONSE_SCHEMA: stub-model"));
         }
     }
 

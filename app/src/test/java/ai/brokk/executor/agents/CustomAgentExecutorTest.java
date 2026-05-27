@@ -2,6 +2,7 @@ package ai.brokk.executor.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AbstractService;
@@ -79,6 +80,9 @@ class CustomAgentExecutorTest {
 
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
         assertEquals("{\"summary\":\"structured\"}", result.stopDetails().explanation());
+        assertEquals(2, model.requests.size());
+        assertNull(model.requests.getFirst().parameters().responseFormat());
+        assertTrue(model.requests.get(1).parameters().responseFormat() != null);
         assertEquals(
                 1,
                 model.requests.stream()
@@ -112,6 +116,25 @@ class CustomAgentExecutorTest {
         assertTrue(result.stopDetails().explanation().contains("plain notes"));
         assertEquals(
                 0,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
+    }
+
+    @Test
+    void schemaBackedFinalAnswerFailureReturnsHardErrorWithoutMarkdownFallback() throws Exception {
+        setUpHarness(true);
+        model.throwOnResponseFormat = true;
+        var executor = new CustomAgentExecutor(
+                cm, agentDef(), model, new NoOpConsoleIO(), ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.LLM_ERROR, result.stopDetails().reason());
+        assertTrue(result.stopDetails().explanation().contains("provider rejected response schema"));
+        assertEquals(2, model.requests.size());
+        assertEquals(
+                1,
                 model.requests.stream()
                         .filter(request -> request.parameters().responseFormat() != null)
                         .count());
@@ -177,11 +200,15 @@ class CustomAgentExecutorTest {
 
     private static final class CapturingModel implements StreamingChatModel {
         private final CopyOnWriteArrayList<ChatRequest> requests = new CopyOnWriteArrayList<>();
+        private boolean throwOnResponseFormat;
 
         @Override
         public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
             requests.add(chatRequest);
             if (chatRequest.parameters().responseFormat() != null) {
+                if (throwOnResponseFormat) {
+                    throw new IllegalArgumentException("provider rejected response schema");
+                }
                 handler.onCompleteResponse(ChatResponse.builder()
                         .aiMessage(new AiMessage("{\"summary\":\"structured\"}"))
                         .build());
