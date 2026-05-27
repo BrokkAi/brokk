@@ -56,6 +56,7 @@ public class CustomAgentExecutor {
     private final IAppContextManager cm;
     private final AgentDefinition agentDef;
     private final StreamingChatModel model;
+    private final @Nullable JobSpec.ResponseSchema responseSchema;
     private final @Nullable ResponseFormat responseFormat;
     private final Llm llm;
     private final SearchTools searchTools;
@@ -82,6 +83,7 @@ public class CustomAgentExecutor {
         this.agentDef = agentDef;
         this.model = model;
         this.io = io;
+        this.responseSchema = responseSchema;
         this.responseFormat = responseSchema == null ? null : JobResponseSchemaSupport.toResponseFormat(responseSchema);
         this.context = cm.liveContext();
         this.llm = cm.getLlm(new Llm.Options(model, agentDef.name(), TaskResult.Type.SEARCH).withEcho());
@@ -275,6 +277,16 @@ public class CustomAgentExecutor {
         }
 
         var structuredText = response.text();
+        if (responseSchema != null) {
+            var validationError = JobResponseSchemaSupport.validateOutput(responseSchema, structuredText);
+            if (validationError.isPresent()) {
+                return new TaskResult(
+                        context,
+                        new TaskResult.StopDetails(
+                                TaskResult.StopReason.LLM_ERROR,
+                                "RESPONSE_SCHEMA_OUTPUT_INVALID: " + validationError.get()));
+            }
+        }
         io.llmOutput(structuredText, ChatMessageType.AI, LlmOutputMeta.newMessage());
         return new TaskResult(context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, structuredText));
     }

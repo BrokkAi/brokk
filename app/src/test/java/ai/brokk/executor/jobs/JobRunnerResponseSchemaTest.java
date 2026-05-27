@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
@@ -185,6 +186,26 @@ class JobRunnerResponseSchemaTest {
                 requireNonNull(store.loadStatus("ask-schema-rejected")).state());
     }
 
+    @Test
+    void schemaBackedDirectAnswerInvalidOutputFailsJob() throws Exception {
+        model.structuredResponse = "{\"summary\":null}";
+        var spec = spec(Map.of("mode", "ASK"), null, ResponseSchemaFixtures.validResponseSchema());
+
+        var thrown = assertThrows(ExecutionException.class, () -> runner.runAsync(
+                        "ask-schema-invalid-output", spec, new RawMessagesConsole())
+                .get(5, TimeUnit.SECONDS));
+
+        var cause = requireNonNull(thrown.getCause());
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        assertTrue(cause.getMessage().contains("RESPONSE_SCHEMA_OUTPUT_INVALID"), cause.getMessage());
+        assertTrue(cause.getMessage().contains("response.summary is required"), cause.getMessage());
+        assertEquals(
+                JobStatus.State.FAILED.name(),
+                requireNonNull(store.loadStatus("ask-schema-invalid-output")).state());
+    }
+
     private static JobSpec spec(
             Map<String, String> tags,
             @Nullable JobSpec.ExecutionPolicy executionPolicy,
@@ -241,6 +262,7 @@ class JobRunnerResponseSchemaTest {
     private static final class CapturingModel implements StreamingChatModel {
         private final CopyOnWriteArrayList<ChatRequest> requests = new CopyOnWriteArrayList<>();
         private boolean throwOnResponseFormat;
+        private String structuredResponse = "{\"summary\":\"ok\"}";
 
         @Override
         public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
@@ -249,7 +271,7 @@ class JobRunnerResponseSchemaTest {
                 throw new IllegalArgumentException("provider rejected response schema");
             }
             handler.onCompleteResponse(ChatResponse.builder()
-                    .aiMessage(new AiMessage("{\"summary\":\"ok\"}"))
+                    .aiMessage(new AiMessage(structuredResponse))
                     .build());
         }
     }

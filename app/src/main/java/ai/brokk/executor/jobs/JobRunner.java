@@ -31,7 +31,6 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -665,7 +664,7 @@ public final class JobRunner {
                                                             askPlannerModel,
                                                             "plannerModel required for REPORT_ONLY jobs"),
                                                     spec.taskInput(),
-                                                    responseFormatOrNull(spec),
+                                                    spec.responseSchema(),
                                                     finalStopReason);
                                         }
                                     }
@@ -797,7 +796,7 @@ public final class JobRunner {
                                                     context,
                                                     requireNonNull(askPlannerModel),
                                                     spec.taskInput(),
-                                                    responseFormatOrNull(spec),
+                                                    spec.responseSchema(),
                                                     finalStopReason);
                                         }
                                     }
@@ -817,18 +816,18 @@ public final class JobRunner {
                                                             trimmedScanModel, spec.reasoningLevel(), spec.temperature())
                                                     : defaultScanModel(spec);
 
-                                            var responseFormat = responseFormatOrNull(spec);
-                                            var finalAnswerModel = responseFormat == null
+                                            var responseSchema = spec.responseSchema();
+                                            var finalAnswerModel = responseSchema == null
                                                     ? null
                                                     : resolveModelOrThrow(
                                                             spec.plannerModel(),
                                                             spec.reasoningLevel(),
                                                             spec.temperature());
-                                            if (responseFormat != null) {
+                                            if (responseSchema != null) {
                                                 ensureResponseSchemaSupported(requireNonNull(finalAnswerModel));
                                             }
 
-                                            var scanConfig = responseFormat == null
+                                            var scanConfig = responseSchema == null
                                                     ? LutzAgent.ScanConfig.withModel(scanModelToUse)
                                                     : new LutzAgent.ScanConfig(true, scanModelToUse, false, true);
                                             var searchAgent = new LutzAgent(
@@ -843,7 +842,7 @@ public final class JobRunner {
                                             if (readOnly) {
                                                 searchAgent.setReadOnly(true);
                                             }
-                                            if (responseFormat == null) {
+                                            if (responseSchema == null) {
                                                 var result = searchAgent.execute();
                                                 scope.append(result);
                                                 finalStopReason.set(result.stopDetails()
@@ -858,7 +857,7 @@ public final class JobRunner {
                                                         context,
                                                         requireNonNull(finalAnswerModel),
                                                         spec.taskInput(),
-                                                        responseFormat,
+                                                        responseSchema,
                                                         finalStopReason);
                                             }
                                         }
@@ -1668,8 +1667,9 @@ public final class JobRunner {
      * @return a TaskResult suitable for appending to a TaskScope
      */
     private TaskResult askUsingPlannerModel(
-            Context ctx, StreamingChatModel model, String question, @Nullable ResponseFormat responseFormat) {
-        if (responseFormat != null) {
+            Context ctx, StreamingChatModel model, String question, @Nullable JobSpec.ResponseSchema responseSchema) {
+        var responseFormat = responseSchema == null ? null : JobResponseSchemaSupport.toResponseFormat(responseSchema);
+        if (responseSchema != null) {
             ensureResponseSchemaSupported(model);
         }
 
@@ -1702,6 +1702,12 @@ public final class JobRunner {
             if (responseFormat != null && response.error() != null) {
                 throw new RuntimeException(response.error());
             }
+            if (responseSchema != null) {
+                var validationError = JobResponseSchemaSupport.validateOutput(responseSchema, response.text());
+                if (validationError.isPresent()) {
+                    throw new IllegalArgumentException("RESPONSE_SCHEMA_OUTPUT_INVALID: " + validationError.get());
+                }
+            }
             stop = TaskResult.StopDetails.fromResponse(response);
         }
 
@@ -1718,10 +1724,11 @@ public final class JobRunner {
             Context context,
             StreamingChatModel model,
             String question,
-            @Nullable ResponseFormat responseFormat,
+            @Nullable JobSpec.ResponseSchema responseSchema,
             AtomicReference<String> finalStopReason) {
+        var responseFormat = responseSchema == null ? null : JobResponseSchemaSupport.toResponseFormat(responseSchema);
         try {
-            var result = askUsingPlannerModel(context, model, question, responseFormat);
+            var result = askUsingPlannerModel(context, model, question, responseSchema);
             finalStopReason.set(result.stopDetails().reason().name());
             scope.append(result);
         } catch (Throwable t) {
@@ -1760,10 +1767,6 @@ public final class JobRunner {
                 logger.warn("Failed to append {} failure result for job {}: {}", label, jobId, e2.getMessage(), e2);
             }
         }
-    }
-
-    private static @Nullable ResponseFormat responseFormatOrNull(JobSpec spec) {
-        return spec.responseSchema() == null ? null : JobResponseSchemaSupport.toResponseFormat(spec.responseSchema());
     }
 
     private void ensureResponseSchemaSupported(StreamingChatModel model) {

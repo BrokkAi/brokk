@@ -145,6 +145,22 @@ class CustomAgentExecutorTest {
                         .count());
     }
 
+    @Test
+    void schemaBackedInvalidFinalAnswerReturnsHardErrorWithoutMarkdownFallback() throws Exception {
+        setUpHarness(true);
+        model.structuredResponse = "{\"summary\":null}";
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.LLM_ERROR, result.stopDetails().reason());
+        assertTrue(result.stopDetails().explanation().contains("RESPONSE_SCHEMA_OUTPUT_INVALID"));
+        assertTrue(result.stopDetails().explanation().contains("response.summary is required"));
+        assertTrue(io.outputs.isEmpty());
+        assertEquals(2, model.requests.size());
+    }
+
     @AfterEach
     void tearDown() {
         if (cm != null) {
@@ -206,6 +222,7 @@ class CustomAgentExecutorTest {
     private static final class CapturingModel implements StreamingChatModel {
         private final CopyOnWriteArrayList<ChatRequest> requests = new CopyOnWriteArrayList<>();
         private boolean throwOnResponseFormat;
+        private String structuredResponse = "{\"summary\":\"structured\"}";
 
         @Override
         public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
@@ -215,7 +232,7 @@ class CustomAgentExecutorTest {
                     throw new IllegalArgumentException("provider rejected response schema");
                 }
                 handler.onCompleteResponse(ChatResponse.builder()
-                        .aiMessage(new AiMessage("{\"summary\":\"structured\"}"))
+                        .aiMessage(new AiMessage(structuredResponse))
                         .build());
                 return;
             }
