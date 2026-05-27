@@ -11,7 +11,6 @@ concurrency:
 
 jobs:
   build-and-release:
-    if: "!startsWith(github.ref_name, 'brokk-acp-rust-')"
     runs-on: ubuntu-latest
 
     permissions:

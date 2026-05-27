@@ -276,7 +276,7 @@ final class AcpRequestContext implements AcpPromptContext {
 
         // Session-level PermissionMode is consulted BEFORE the sticky cache so READ_ONLY can deny
         // even tools the user previously approved, and BYPASS_PERMISSIONS can short-circuit before
-        // any user-facing prompt fires. Mirrors brokk-acp-rust/src/tool_loop.rs:pure_gate_decision.
+        // any user-facing prompt fires.
         if (agent != null) {
             var mode = agent.permissionModeFor(sessionId);
             var kind = PermissionGate.classify(toolName);

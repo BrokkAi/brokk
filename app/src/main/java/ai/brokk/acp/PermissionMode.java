@@ -3,9 +3,8 @@ package ai.brokk.acp;
 import java.util.Optional;
 
 /**
- * Per-session permission policy. Mirrors {@code claude-agent-acp}'s four reference modes and
- * Brokk's Rust ACP server (see {@code brokk-acp-rust/src/session.rs:54-83}); the Java agent
- * surfaces it to clients as a {@code SessionConfigOption} dropdown independent of {@code SessionMode}.
+ * Per-session permission policy. Mirrors {@code claude-agent-acp}'s four reference modes; the Java
+ * agent surfaces it to clients as a {@code SessionConfigOption} dropdown independent of {@code SessionMode}.
  *
  * <p>{@link #READ_ONLY} is renamed from the reference's "plan" to avoid colliding with Brokk's PLAN
  * behavior mode (LUTZ/CODE/ASK/PLAN), which is a separate dropdown.
@@ -22,7 +21,7 @@ enum PermissionMode {
         this.wireId = wireId;
     }
 
-    /** Wire id, matching {@code session/set_config_option} value strings the Rust server uses. */
+    /** Wire id, matching {@code session/set_config_option} value strings used by ACP clients. */
     String asString() {
         return wireId;
     }
