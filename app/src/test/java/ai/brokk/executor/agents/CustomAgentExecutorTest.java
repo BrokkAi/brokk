@@ -17,6 +17,7 @@ import ai.brokk.testutil.NoOpConsoleIO;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -24,6 +25,7 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -146,7 +148,31 @@ class CustomAgentExecutorTest {
     }
 
     @Test
-    void schemaBackedInvalidFinalAnswerReturnsHardErrorWithoutMarkdownFallback() throws Exception {
+    void schemaBackedInvalidFinalAnswerRetriesWithSchemaFeedback() throws Exception {
+        setUpHarness(true);
+        model.structuredResponses.add("{\"summary\":null}");
+        model.structuredResponses.add("{\"summary\":\"repaired\"}");
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals("{\"summary\":\"repaired\"}", result.stopDetails().explanation());
+        assertEquals(List.of("{\"summary\":\"repaired\"}"), io.outputs);
+        assertEquals(3, model.requests.size());
+        assertEquals(
+                2,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
+        var retryRequestText = ((UserMessage) model.requests.get(2).messages().get(1)).singleText();
+        assertTrue(retryRequestText.contains("response.summary is required"));
+        assertTrue(retryRequestText.contains("<invalid_previous_response>"));
+    }
+
+    @Test
+    void schemaBackedInvalidFinalAnswerFailsAfterRepairAttemptWithoutMarkdownFallback() throws Exception {
         setUpHarness(true);
         model.structuredResponse = "{\"summary\":null}";
         var io = new RecordingConsoleIO();
@@ -158,7 +184,12 @@ class CustomAgentExecutorTest {
         assertTrue(result.stopDetails().explanation().contains("RESPONSE_SCHEMA_OUTPUT_INVALID"));
         assertTrue(result.stopDetails().explanation().contains("response.summary is required"));
         assertTrue(io.outputs.isEmpty());
-        assertEquals(2, model.requests.size());
+        assertEquals(3, model.requests.size());
+        assertEquals(
+                2,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
     }
 
     @AfterEach
@@ -221,6 +252,7 @@ class CustomAgentExecutorTest {
 
     private static final class CapturingModel implements StreamingChatModel {
         private final CopyOnWriteArrayList<ChatRequest> requests = new CopyOnWriteArrayList<>();
+        private final ArrayDeque<String> structuredResponses = new ArrayDeque<>();
         private boolean throwOnResponseFormat;
         private String structuredResponse = "{\"summary\":\"structured\"}";
 
@@ -231,8 +263,9 @@ class CustomAgentExecutorTest {
                 if (throwOnResponseFormat) {
                     throw new IllegalArgumentException("provider rejected response schema");
                 }
+                var responseText = structuredResponses.isEmpty() ? structuredResponse : structuredResponses.remove();
                 handler.onCompleteResponse(ChatResponse.builder()
-                        .aiMessage(new AiMessage(structuredResponse))
+                        .aiMessage(new AiMessage(responseText))
                         .build());
                 return;
             }

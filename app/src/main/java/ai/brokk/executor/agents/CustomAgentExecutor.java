@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -255,40 +256,51 @@ public class CustomAgentExecutor {
     }
 
     private TaskResult structuredFinalAnswer(String taskInput, String finalNotes) throws InterruptedException {
+        var schema = Objects.requireNonNull(responseSchema);
         var structuredLlm = cm.getLlm(
                 new Llm.Options(model, agentDef.name() + " structured answer", TaskResult.Type.SEARCH).withEcho());
         structuredLlm.setOutput(io);
 
+        var toc = WorkspacePrompts.formatToc(context).trim();
         var messages = List.<ChatMessage>of(
                 new SystemMessage(agentDef.systemPrompt()),
-                new UserMessage(formatStructuredFinalPrompt(
-                        taskInput,
-                        finalNotes,
-                        WorkspacePrompts.formatToc(context).trim())));
+                new UserMessage(formatStructuredFinalPrompt(taskInput, finalNotes, toc)));
 
-        var response = structuredLlm.sendRequest(
-                messages,
-                structuredLlm
-                        .requestOptions()
-                        .withResponseFormat(responseFormat)
-                        .withMaxAttempts(1));
-        if (response.error() != null) {
-            return new TaskResult(context, TaskResult.StopDetails.fromResponse(response));
-        }
+        String structuredText = "";
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            var response = structuredLlm.sendRequest(
+                    messages,
+                    structuredLlm
+                            .requestOptions()
+                            .withResponseFormat(responseFormat)
+                            .withMaxAttempts(1));
+            if (response.error() != null) {
+                return new TaskResult(context, TaskResult.StopDetails.fromResponse(response));
+            }
 
-        var structuredText = response.text();
-        if (responseSchema != null) {
-            var validationError = JobResponseSchemaSupport.validateOutput(responseSchema, structuredText);
-            if (validationError.isPresent()) {
+            structuredText = response.text();
+            var validationError = JobResponseSchemaSupport.validateOutput(schema, structuredText);
+            if (validationError.isEmpty()) {
+                io.llmOutput(structuredText, ChatMessageType.AI, LlmOutputMeta.newMessage());
+                return new TaskResult(
+                        context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, structuredText));
+            }
+
+            if (attempt == 2) {
                 return new TaskResult(
                         context,
                         new TaskResult.StopDetails(
                                 TaskResult.StopReason.LLM_ERROR,
                                 "RESPONSE_SCHEMA_OUTPUT_INVALID: " + validationError.get()));
             }
+
+            messages = List.of(
+                    new SystemMessage(agentDef.systemPrompt()),
+                    new UserMessage(formatStructuredFinalRetryPrompt(
+                            taskInput, finalNotes, toc, structuredText, validationError.get())));
         }
-        io.llmOutput(structuredText, ChatMessageType.AI, LlmOutputMeta.newMessage());
-        return new TaskResult(context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, structuredText));
+
+        throw new IllegalStateException("unreachable structured answer retry state");
     }
 
     static String formatStructuredFinalPrompt(String taskInput, String finalNotes, String toc) {
@@ -306,6 +318,32 @@ public class CustomAgentExecutor {
                 Produce the final custom-agent result according to the supplied response schema.
                 """
                 .formatted(taskInput, finalNotes, toc);
+    }
+
+    static String formatStructuredFinalRetryPrompt(
+            String taskInput, String finalNotes, String toc, String invalidOutput, String validationError) {
+        return """
+                <task>
+                %s
+                </task>
+
+                <custom_agent_final_notes>
+                %s
+                </custom_agent_final_notes>
+
+                %s
+
+                Your previous structured response did not satisfy the supplied response schema.
+                Validation error: %s
+
+                <invalid_previous_response>
+                %s
+                </invalid_previous_response>
+
+                Produce a corrected final custom-agent result according to the supplied response schema.
+                Do not change the evidence meaning. Convert incorrectly shaped fields to the schema shape.
+                """
+                .formatted(taskInput, finalNotes, toc, validationError, invalidOutput);
     }
 
     private static ToolRegistry registryForContext(ToolRegistry baseRegistry, Context context) {
