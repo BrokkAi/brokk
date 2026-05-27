@@ -261,7 +261,9 @@ public class ParallelCustomAgent {
             var explanation = responseSchema == null
                     ? extractExplanation(result.stopDetails().explanation())
                     : result.stopDetails().explanation();
-            var toolResult = toToolExecutionResult(request, result.stopDetails(), explanation);
+            var toolResult = responseSchema == null
+                    ? toToolExecutionResult(request, result.stopDetails(), explanation)
+                    : toSchemaToolExecutionResult(request, result.stopDetails(), explanation);
             taskIo.afterToolOutput(toolResult);
             return new CustomAgentTaskResult(toolResult, agentName);
         } catch (RuntimeException e) {
@@ -301,6 +303,16 @@ public class ParallelCustomAgent {
             case LLM_ERROR -> ToolExecutionResult.fatal(request, explanation);
             case INTERRUPTED -> throw new InterruptedException();
             default -> ToolExecutionResult.success(request, explanation);
+        };
+    }
+
+    static ToolExecutionResult toSchemaToolExecutionResult(
+            ToolExecutionRequest request, TaskResult.StopDetails stopDetails, String explanation)
+            throws InterruptedException {
+        return switch (stopDetails.reason()) {
+            case SUCCESS -> ToolExecutionResult.success(request, explanation);
+            case INTERRUPTED -> throw new InterruptedException();
+            default -> ToolExecutionResult.fatal(request, explanation);
         };
     }
 

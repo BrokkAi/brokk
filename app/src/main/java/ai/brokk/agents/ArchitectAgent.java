@@ -973,7 +973,9 @@ public class ArchitectAgent {
                     allowed.add("callCodeAgent");
                 }
                 allowed.add("callCustomAgent");
-                allowed.add("callCustomAgentWithSchema");
+                if (cm.getService().supportsJsonSchema(planningModel)) {
+                    allowed.add("callCustomAgentWithSchema");
+                }
 
                 if (buildToolsEnabled
                         && cm.getProject()

@@ -839,6 +839,10 @@ public class BrokkExternalMcpServer {
             toolNames.removeIf(name -> !registry.isRegistered(name));
             logger.info("MCP server is read-only; tool catalog filtered to {}", toolNames);
         }
+        var searchModel = cm.getService().getModel(ModelProperties.ModelType.SEARCH);
+        if (!cm.getService().supportsJsonSchema(searchModel)) {
+            toolNames.remove("callCustomAgentWithSchema");
+        }
 
         return registry.getTools(toolNames).stream()
                 .map(spec -> {

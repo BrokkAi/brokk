@@ -106,6 +106,20 @@ class ParallelCustomAgentTest {
     }
 
     @Test
+    void toSchemaToolExecutionResult_returnsFatalForAnyNonSuccessStopReason() throws InterruptedException {
+        var aborted = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, "Child aborted");
+        var toolError = new TaskResult.StopDetails(TaskResult.StopReason.TOOL_ERROR, "No terminal tool");
+
+        var abortedResult = ParallelCustomAgent.toSchemaToolExecutionResult(request(), aborted, "Child aborted");
+        var toolErrorResult = ParallelCustomAgent.toSchemaToolExecutionResult(request(), toolError, "No terminal tool");
+
+        assertEquals(ToolExecutionResult.Status.FATAL, abortedResult.status());
+        assertEquals("Child aborted", abortedResult.resultText());
+        assertEquals(ToolExecutionResult.Status.FATAL, toolErrorResult.status());
+        assertEquals("No terminal tool", toolErrorResult.resultText());
+    }
+
+    @Test
     void callCustomAgentWithSchemaArgumentsValidateToResponseSchema() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             var tr = ToolRegistry.empty()

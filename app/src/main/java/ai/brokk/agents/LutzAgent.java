@@ -345,7 +345,6 @@ public class LutzAgent {
 
         // Custom agents
         tools.add("callCustomAgent");
-        tools.add("callCustomAgentWithSchema");
 
         // Filter out analyzer-required tools at the very end
         return WorkspaceTools.filterByAnalyzerAvailability(tools, project);
@@ -677,6 +676,9 @@ public class LutzAgent {
 
         // Always include dropWorkspaceFragments to avoid toolset changes when droppability changes.
         names.add("dropWorkspaceFragments");
+        if (cm.getService().supportsJsonSchema(model)) {
+            names.add("callCustomAgentWithSchema");
+        }
 
         if (DependencyTools.isSupported(cm.getProject())) {
             names.add("importDependency");

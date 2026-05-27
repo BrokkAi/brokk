@@ -375,7 +375,9 @@ public class CustomAgentExecutor {
     public TerminalStopOutput answer(@P("Comprehensive final answer in Markdown.") String explanation) {
         var details = Json.toJson(Map.of("explanation", explanation));
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, details);
-        io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        if (responseFormat == null) {
+            io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        }
         return new TerminalStopOutput(details, stopDetails);
     }
 }

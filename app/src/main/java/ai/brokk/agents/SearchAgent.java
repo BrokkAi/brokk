@@ -10,7 +10,7 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.executor.agents.CustomAgentTools;
+import ai.brokk.executor.agents.ParallelCustomAgent;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
@@ -165,12 +165,12 @@ public class SearchAgent {
 
     private TaskResult executeSearch() throws InterruptedException {
         var workspaceTools = new WorkspaceTools(context);
-        var customAgentTools = new CustomAgentTools(cm, model);
+        var parallelCustomAgent = new ParallelCustomAgent(cm, model);
         var toolRegistry = cm.getToolRegistry()
                 .builder()
                 .register(searchTools)
                 .register(workspaceTools)
-                .register(customAgentTools)
+                .register(parallelCustomAgent)
                 .register(this)
                 .build();
         var allowedTools = allowedToolNames(cm.getProject());
@@ -226,9 +226,24 @@ public class SearchAgent {
                                     .formatted(terminalToolsForFinalTurn())));
                 }
 
+                var customAgentPartition =
+                        ToolRegistry.partitionByNames(ai.toolExecutionRequests(), ParallelCustomAgent.TOOL_NAMES);
+                var readOnlyCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
+                var orderedRequests = new ArrayList<>(customAgentPartition.otherRequests());
+                for (var req : customAgentPartition.matchingRequests()) {
+                    var agentName = ParallelCustomAgent.extractAgentName(req, toolRegistry);
+                    var agentDef = agentName != null
+                            ? cm.getAgentStore().get(agentName).orElse(null)
+                            : null;
+                    if (agentDef != null && agentDef.isReadOnly(cm.getProject())) {
+                        readOnlyCustomAgentReqs.add(req);
+                    } else {
+                        orderedRequests.add(req);
+                    }
+                }
+
                 var additionsThisTurn = new ArrayList<ContextFragment>();
-                var parallelPartition =
-                        ToolRegistry.partitionByNames(ai.toolExecutionRequests(), PARALLEL_SAFE_SEARCH_TOOL_NAMES);
+                var parallelPartition = ToolRegistry.partitionByNames(orderedRequests, PARALLEL_SAFE_SEARCH_TOOL_NAMES);
                 var parallelRequests = parallelPartition.matchingRequests();
                 Map<ToolExecutionRequest, CompletableFuture<ToolExecutionResult>> parallelFutures =
                         new LinkedHashMap<>();
@@ -248,7 +263,7 @@ public class SearchAgent {
                         .filter(f -> !f.isDone())
                         .forEach(f -> f.cancel(true));
 
-                for (var request : ai.toolExecutionRequests()) {
+                for (var request : orderedRequests) {
                     ToolExecutionResult toolResult;
                     if (parallelFutures.containsKey(request)) {
                         try {
@@ -291,6 +306,18 @@ public class SearchAgent {
                         cancelOutstandingParallelFutures.run();
                         return createResult(tso.stopDetails());
                     }
+                }
+
+                if (!readOnlyCustomAgentReqs.isEmpty()) {
+                    readOnlyCustomAgentReqs.forEach(req -> metrics.recordToolCall(req.name()));
+                    var customResult = parallelCustomAgent.execute(readOnlyCustomAgentReqs, toolRegistry);
+                    if (customResult.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
+                        cancelOutstandingParallelFutures.run();
+                        return errorResult(new TaskResult.StopDetails(
+                                TaskResult.StopReason.LLM_ERROR,
+                                customResult.stopDetails().explanation()));
+                    }
+                    messages.addAll(customResult.toolExecutionMessages());
                 }
 
                 previousTurnAdditions = List.copyOf(additionsThisTurn);
@@ -374,7 +401,7 @@ public class SearchAgent {
         };
     }
 
-    private List<String> allowedToolNames(IProject project) {
+    List<String> allowedToolNames(IProject project) {
         var names = new ArrayList<String>();
 
         names.add("searchSymbols");
@@ -417,7 +444,9 @@ public class SearchAgent {
 
         if (!cm.getAgentStore().list().isEmpty()) {
             names.add("callCustomAgent");
-            names.add("callCustomAgentWithSchema");
+            if (cm.getService().supportsJsonSchema(model)) {
+                names.add("callCustomAgentWithSchema");
+            }
         }
 
         return WorkspaceTools.filterByAnalyzerAvailability(names, project);

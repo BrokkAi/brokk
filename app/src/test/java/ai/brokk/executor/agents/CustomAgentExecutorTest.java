@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.executor.jobs.ResponseSchemaFixtures;
@@ -15,6 +16,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -73,13 +75,14 @@ class CustomAgentExecutorTest {
     @Test
     void schemaBackedExecutionAppliesResponseFormatToFinalRequest() throws Exception {
         setUpHarness(true);
-        var executor = new CustomAgentExecutor(
-                cm, agentDef(), model, new NoOpConsoleIO(), ResponseSchemaFixtures.validResponseSchema());
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
 
         var result = executor.executeInterruptibly("Return a strict report.");
 
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
         assertEquals("{\"summary\":\"structured\"}", result.stopDetails().explanation());
+        assertEquals(List.of("{\"summary\":\"structured\"}"), io.outputs);
         assertEquals(2, model.requests.size());
         assertNull(model.requests.getFirst().parameters().responseFormat());
         assertTrue(model.requests.get(1).parameters().responseFormat() != null);
@@ -108,12 +111,14 @@ class CustomAgentExecutorTest {
     @Test
     void noSchemaExecutionPreservesTerminalAnswerBehavior() throws Exception {
         setUpHarness(true);
-        var executor = new CustomAgentExecutor(cm, agentDef(), model, new NoOpConsoleIO());
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io);
 
         var result = executor.executeInterruptibly("Return Markdown.");
 
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
         assertTrue(result.stopDetails().explanation().contains("plain notes"));
+        assertEquals(List.of("# Answer\n\nplain notes"), io.outputs);
         assertEquals(
                 0,
                 model.requests.stream()
@@ -221,6 +226,15 @@ class CustomAgentExecutorTest {
                             .arguments(ai.brokk.util.Json.toJson(Map.of("explanation", "plain notes")))
                             .build()))
                     .build());
+        }
+    }
+
+    private static final class RecordingConsoleIO extends NoOpConsoleIO {
+        private final List<String> outputs = new CopyOnWriteArrayList<>();
+
+        @Override
+        public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
+            outputs.add(token);
         }
     }
 }
