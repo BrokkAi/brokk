@@ -417,6 +417,7 @@ public class SearchAgent {
 
         if (!cm.getAgentStore().list().isEmpty()) {
             names.add("callCustomAgent");
+            names.add("callCustomAgentWithSchema");
         }
 
         return WorkspaceTools.filterByAnalyzerAvailability(names, project);

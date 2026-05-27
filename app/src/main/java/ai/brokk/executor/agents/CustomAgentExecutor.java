@@ -8,6 +8,8 @@ import ai.brokk.TaskResult;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.executor.jobs.JobResponseSchemaSupport;
+import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.CodeQualityTools;
 import ai.brokk.tools.DependencyTools;
@@ -28,6 +30,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -37,6 +40,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Executes a custom agent defined by an {@link AgentDefinition}.
@@ -51,6 +55,8 @@ public class CustomAgentExecutor {
 
     private final IAppContextManager cm;
     private final AgentDefinition agentDef;
+    private final StreamingChatModel model;
+    private final @Nullable ResponseFormat responseFormat;
     private final Llm llm;
     private final SearchTools searchTools;
     private final IConsoleIO io;
@@ -58,14 +64,25 @@ public class CustomAgentExecutor {
     private Context context;
 
     public CustomAgentExecutor(IAppContextManager cm, AgentDefinition agentDef, StreamingChatModel model) {
-        this(cm, agentDef, model, cm.getIo());
+        this(cm, agentDef, model, cm.getIo(), null);
     }
 
     public CustomAgentExecutor(
             IAppContextManager cm, AgentDefinition agentDef, StreamingChatModel model, IConsoleIO io) {
+        this(cm, agentDef, model, io, null);
+    }
+
+    public CustomAgentExecutor(
+            IAppContextManager cm,
+            AgentDefinition agentDef,
+            StreamingChatModel model,
+            IConsoleIO io,
+            @Nullable JobSpec.ResponseSchema responseSchema) {
         this.cm = cm;
         this.agentDef = agentDef;
+        this.model = model;
         this.io = io;
+        this.responseFormat = responseSchema == null ? null : JobResponseSchemaSupport.toResponseFormat(responseSchema);
         this.context = cm.liveContext();
         this.llm = cm.getLlm(new Llm.Options(model, agentDef.name(), TaskResult.Type.SEARCH).withEcho());
         this.llm.setOutput(io);
@@ -88,6 +105,15 @@ public class CustomAgentExecutor {
     }
 
     private TaskResult executeLoop(String taskInput) throws InterruptedException {
+        if (responseFormat != null && !cm.getService().supportsJsonSchema(model)) {
+            return new TaskResult(
+                    context,
+                    new TaskResult.StopDetails(
+                            TaskResult.StopReason.LLM_ERROR,
+                            "MODEL_UNSUPPORTED_RESPONSE_SCHEMA: "
+                                    + cm.getService().nameOf(model)));
+        }
+
         var workspaceTools = new WorkspaceTools(context);
         var builder = cm.getToolRegistry()
                 .builder()
@@ -213,6 +239,9 @@ public class CustomAgentExecutor {
                 if (TERMINAL_TOOL_NAMES.contains(request.name())
                         && toolResult.result() instanceof TerminalStopOutput tso) {
                     cancelOutstandingParallelFutures.run();
+                    if (responseFormat != null && tso.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                        return structuredFinalAnswer(taskInput, tso.llmText());
+                    }
                     return new TaskResult(context, tso.stopDetails());
                 }
             }
@@ -221,6 +250,50 @@ public class CustomAgentExecutor {
         }
 
         return errorResult("Turn limit reached (%d turns).".formatted(maxTurns));
+    }
+
+    private TaskResult structuredFinalAnswer(String taskInput, String finalNotes) throws InterruptedException {
+        var structuredLlm = cm.getLlm(
+                new Llm.Options(model, agentDef.name() + " structured answer", TaskResult.Type.SEARCH).withEcho());
+        structuredLlm.setOutput(io);
+
+        var messages = List.<ChatMessage>of(
+                new SystemMessage(agentDef.systemPrompt()),
+                new UserMessage(formatStructuredFinalPrompt(
+                        taskInput,
+                        finalNotes,
+                        WorkspacePrompts.formatToc(context).trim())));
+
+        var response = structuredLlm.sendRequest(
+                messages,
+                structuredLlm
+                        .requestOptions()
+                        .withResponseFormat(responseFormat)
+                        .withMaxAttempts(1));
+        if (response.error() != null) {
+            return new TaskResult(context, TaskResult.StopDetails.fromResponse(response));
+        }
+
+        var structuredText = response.text();
+        io.llmOutput(structuredText, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        return new TaskResult(context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, structuredText));
+    }
+
+    static String formatStructuredFinalPrompt(String taskInput, String finalNotes, String toc) {
+        return """
+                <task>
+                %s
+                </task>
+
+                <custom_agent_final_notes>
+                %s
+                </custom_agent_final_notes>
+
+                %s
+
+                Produce the final custom-agent result according to the supplied response schema.
+                """
+                .formatted(taskInput, finalNotes, toc);
     }
 
     private static ToolRegistry registryForContext(ToolRegistry baseRegistry, Context context) {

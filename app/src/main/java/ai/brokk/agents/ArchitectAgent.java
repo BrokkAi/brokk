@@ -729,7 +729,7 @@ public class ArchitectAgent {
                     ToolRegistry.partitionByNames(terminalPartition.otherRequests(), Set.of("callSearchAgent"));
             var codePartition = ToolRegistry.partitionByNames(searchPartition.otherRequests(), Set.of("callCodeAgent"));
             var customAgentPartition =
-                    ToolRegistry.partitionByNames(codePartition.otherRequests(), Set.of("callCustomAgent"));
+                    ToolRegistry.partitionByNames(codePartition.otherRequests(), ParallelCustomAgent.TOOL_NAMES);
             var searchAgentReqs = new ArrayList<>(searchPartition.matchingRequests());
             var codeAgentReqs = new ArrayList<>(codePartition.matchingRequests());
 
@@ -973,6 +973,7 @@ public class ArchitectAgent {
                     allowed.add("callCodeAgent");
                 }
                 allowed.add("callCustomAgent");
+                allowed.add("callCustomAgentWithSchema");
 
                 if (buildToolsEnabled
                         && cm.getProject()

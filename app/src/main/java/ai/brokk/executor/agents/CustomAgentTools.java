@@ -1,12 +1,18 @@
 package ai.brokk.executor.agents;
 
 import ai.brokk.IAppContextManager;
+import ai.brokk.TaskResult;
+import ai.brokk.executor.jobs.JobResponseSchemaSupport;
+import ai.brokk.executor.jobs.JobSpec;
+import ai.brokk.tools.ToolExecutionResult;
+import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Tool provider that exposes custom agents as invocable tools.
@@ -37,6 +43,33 @@ public class CustomAgentTools {
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
             @P("Complete task description for the agent") String task)
             throws InterruptedException {
+        var result = executeCustomAgent(agentName, task, null);
+        return extractExplanation(result.stopDetails().explanation());
+    }
+
+    @Tool(
+            """
+            Invoke a custom agent by name and require its final answer to match a JSON response schema.
+            Use this when the caller needs a typed child-agent result instead of Markdown findings.
+            The agent still uses its normal tools to gather context, then produces one schema-constrained final result.""")
+    public String callCustomAgentWithSchema(
+            @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
+            @P("Complete task description for the agent") String task,
+            @P("Response schema object with 'name' and JSON Schema 'schema' fields")
+                    JobSpec.ResponseSchema responseSchema)
+            throws InterruptedException {
+        validateResponseSchema(responseSchema);
+        var result = executeCustomAgent(agentName, task, responseSchema);
+        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.FATAL, result.stopDetails().explanation());
+        }
+        return result.stopDetails().explanation();
+    }
+
+    private TaskResult executeCustomAgent(
+            String agentName, String task, JobSpec.@Nullable ResponseSchema responseSchema)
+            throws InterruptedException {
         var agentStore = cm.getAgentStore();
         var agentDef = agentStore
                 .get(agentName)
@@ -52,10 +85,15 @@ public class CustomAgentTools {
                 agentName,
                 cm.getService().nameOf(model));
 
-        var executor = new CustomAgentExecutor(cm, agentDef, model);
-        var result = executor.execute(task);
+        var executor = new CustomAgentExecutor(cm, agentDef, model, cm.getIo(), responseSchema);
+        return executor.execute(task);
+    }
 
-        return extractExplanation(result.stopDetails().explanation());
+    private static void validateResponseSchema(JobSpec.ResponseSchema responseSchema) {
+        var error = JobResponseSchemaSupport.validate(responseSchema);
+        if (error.isPresent()) {
+            throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.REQUEST_ERROR, error.get());
+        }
     }
 
     /**

@@ -189,8 +189,28 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 return;
             }
             tags.putIfAbsent("mode", "SEARCH");
-            effectiveTaskInput = "Use the callCustomAgent tool to invoke the '%s' agent for the following task:\n\n%s"
-                    .formatted(agentName, request.taskInput());
+            if (responseSchema == null) {
+                effectiveTaskInput =
+                        "Use the callCustomAgent tool to invoke the '%s' agent for the following task:\n\n%s"
+                                .formatted(agentName, request.taskInput());
+            } else {
+                effectiveTaskInput =
+                        """
+                        Use the callCustomAgentWithSchema tool to invoke the '%s' agent for the following task:
+
+                        %s
+
+                        Pass this responseSchema argument exactly:
+
+                        ```json
+                        %s
+                        ```
+                        """
+                                .formatted(
+                                        agentName,
+                                        request.taskInput(),
+                                        OBJECT_MAPPER.writeValueAsString(responseSchema));
+            }
         }
 
         if (responseSchema != null && !allowsResponseSchema(executionPolicy, tags)) {

@@ -96,6 +96,7 @@ public class BrokkExternalMcpServer {
             "callSearchAgent",
             "callCodeAgent",
             "callCustomAgent",
+            "callCustomAgentWithSchema",
             "scan",
             "searchSymbols",
             "scanUsages",

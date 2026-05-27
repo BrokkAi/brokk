@@ -7,6 +7,8 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.concurrent.LoggingFuture;
+import ai.brokk.executor.jobs.JobResponseSchemaSupport;
+import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
@@ -19,6 +21,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -34,6 +37,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class ParallelCustomAgent {
     private static final Logger logger = LogManager.getLogger(ParallelCustomAgent.class);
+    public static final Set<String> TOOL_NAMES = Set.of("callCustomAgent", "callCustomAgentWithSchema");
 
     private final IAppContextManager cm;
     private final StreamingChatModel model;
@@ -54,6 +58,33 @@ public class ParallelCustomAgent {
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
             @P("Complete task description for the agent") String task)
             throws InterruptedException {
+        var result = executeCustomAgent(agentName, task, null);
+        return extractExplanation(result.stopDetails().explanation());
+    }
+
+    @Tool(
+            """
+            Invoke a custom agent by name and require its final answer to match a JSON response schema.
+            Use this when the caller needs a typed child-agent result instead of Markdown findings.
+            The agent still uses its normal tools to gather context, then produces one schema-constrained final result.""")
+    public String callCustomAgentWithSchema(
+            @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
+            @P("Complete task description for the agent") String task,
+            @P("Response schema object with 'name' and JSON Schema 'schema' fields")
+                    JobSpec.ResponseSchema responseSchema)
+            throws InterruptedException {
+        validateResponseSchema(responseSchema);
+        var result = executeCustomAgent(agentName, task, responseSchema);
+        if (result.stopDetails().reason() != StopReason.SUCCESS) {
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.FATAL, result.stopDetails().explanation());
+        }
+        return result.stopDetails().explanation();
+    }
+
+    private TaskResult executeCustomAgent(
+            String agentName, String task, JobSpec.@Nullable ResponseSchema responseSchema)
+            throws InterruptedException {
         var agentStore = cm.getAgentStore();
         var agentDef = agentStore
                 .get(agentName)
@@ -69,9 +100,8 @@ public class ParallelCustomAgent {
                 agentName,
                 cm.getService().nameOf(model));
 
-        var executor = new CustomAgentExecutor(cm, agentDef, model);
-        var result = executor.executeInterruptibly(task);
-        return extractExplanation(result.stopDetails().explanation());
+        var executor = new CustomAgentExecutor(cm, agentDef, model, cm.getIo(), responseSchema);
+        return executor.executeInterruptibly(task);
     }
 
     /**
@@ -185,13 +215,21 @@ public class ParallelCustomAgent {
 
         String agentName;
         String task;
+        JobSpec.@Nullable ResponseSchema responseSchema = null;
         try {
             var validated = tr.validateTool(request);
             var parameters = validated.parameters();
             agentName = (String) parameters.getFirst();
             task = (String) parameters.get(1);
+            if ("callCustomAgentWithSchema".equals(request.name())) {
+                responseSchema = (JobSpec.ResponseSchema) parameters.get(2);
+                var error = JobResponseSchemaSupport.validate(responseSchema);
+                if (error.isPresent()) {
+                    throw new ToolRegistry.ToolValidationException(error.get());
+                }
+            }
         } catch (RuntimeException e) {
-            var errorMessage = "Failed to parse callCustomAgent arguments: " + e.getMessage();
+            var errorMessage = "Failed to parse custom agent arguments: " + e.getMessage();
             logger.debug(errorMessage, e);
             var failure = ToolExecutionResult.requestError(request, errorMessage);
             taskIo.afterToolOutput(failure);
@@ -218,9 +256,11 @@ public class ParallelCustomAgent {
                 cm.getService().nameOf(model));
 
         try {
-            var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo);
+            var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo, responseSchema);
             var result = executor.executeInterruptibly(task);
-            var explanation = extractExplanation(result.stopDetails().explanation());
+            var explanation = responseSchema == null
+                    ? extractExplanation(result.stopDetails().explanation())
+                    : result.stopDetails().explanation();
             var toolResult = toToolExecutionResult(request, result.stopDetails(), explanation);
             taskIo.afterToolOutput(toolResult);
             return new CustomAgentTaskResult(toolResult, agentName);
@@ -231,6 +271,13 @@ public class ParallelCustomAgent {
             var failure = ToolExecutionResult.requestError(request, errorMessage);
             taskIo.afterToolOutput(failure);
             return new CustomAgentTaskResult(failure, agentName);
+        }
+    }
+
+    private static void validateResponseSchema(JobSpec.ResponseSchema responseSchema) {
+        var error = JobResponseSchemaSupport.validate(responseSchema);
+        if (error.isPresent()) {
+            throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.REQUEST_ERROR, error.get());
         }
     }
 

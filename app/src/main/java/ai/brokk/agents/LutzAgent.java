@@ -345,6 +345,7 @@ public class LutzAgent {
 
         // Custom agents
         tools.add("callCustomAgent");
+        tools.add("callCustomAgentWithSchema");
 
         // Filter out analyzer-required tools at the very end
         return WorkspaceTools.filterByAnalyzerAvailability(tools, project);
@@ -1082,7 +1083,7 @@ public class LutzAgent {
             var searchPartition = ToolRegistry.partitionByNames(primaryCalls, Set.of("callSearchAgent"));
             var searchAgentReqs = searchPartition.matchingRequests();
             var customAgentPartition =
-                    ToolRegistry.partitionByNames(searchPartition.otherRequests(), Set.of("callCustomAgent"));
+                    ToolRegistry.partitionByNames(searchPartition.otherRequests(), ParallelCustomAgent.TOOL_NAMES);
 
             // Split custom agent requests into read-only (parallel-eligible) and mutating (sequential)
             var readOnlyCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
@@ -1155,7 +1156,10 @@ public class LutzAgent {
                 sessionMessages.addAll(customResult.toolExecutionMessages());
 
                 executedNonHygiene = true;
-                nonHygieneToolCalls.add("callCustomAgent");
+                nonHygieneToolCalls.addAll(readOnlyCustomAgentReqs.stream()
+                        .map(ToolExecutionRequest::name)
+                        .distinct()
+                        .toList());
             }
 
             boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
