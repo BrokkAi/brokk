@@ -103,10 +103,8 @@ class ParallelCustomAgentTest {
         return ToolExecutionRequest.builder()
                 .id(id)
                 .name("callCustomAgentWithSchema")
-                .arguments(Json.toJson(Map.of(
-                        "agentName", agentName,
-                        "task", "Return a strict report.",
-                        "responseSchema", Map.of())))
+                .arguments(Json.toJson(
+                        Map.of("agentName", agentName, "task", "Return a strict report.", "responseSchema", Map.of())))
                 .build();
     }
 
