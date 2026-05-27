@@ -50,7 +50,7 @@ public class MainProjectBuildModulesPersistenceTest {
 
     @Test
     void testModulePersistenceAndNormalization(@TempDir Path root) throws Exception {
-        // 1. Arrange: Define realistic modules (including brokk-code like Python TUI)
+        // 1. Arrange: Define realistic modules (including a Python module like the old TUI)
         var executorModule = new ModuleBuildEntry(
                 "executor",
                 "app",
@@ -59,15 +59,15 @@ public class MainProjectBuildModulesPersistenceTest {
                 "./gradlew :app:test {{#classes}}--tests {{value}}{{/classes}}",
                 "Java");
 
-        var brokkCodeModule = new ModuleBuildEntry(
-                "brokk-code",
-                "brokk-code",
+        var pythonModule = new ModuleBuildEntry(
+                "python-module",
+                "python-module",
                 "uv run ruff check .",
                 "uv run pytest",
                 "uv run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}",
                 "Python");
 
-        var originalModules = List.of(executorModule, brokkCodeModule);
+        var originalModules = List.of(executorModule, pythonModule);
         var originalDetails = new BuildAgent.BuildDetails(
                 "global-lint",
                 true,
@@ -90,9 +90,9 @@ public class MainProjectBuildModulesPersistenceTest {
 
         assertEquals(originalModules.size(), persisted.modules().size());
 
-        // ModuleBuildEntry normalizes "app" to "app/" and "brokk-code" to "brokk-code/"
+        // ModuleBuildEntry normalizes "app" to "app/" and "python-module" to "python-module/"
         assertEquals("app/", persisted.modules().get(0).relativePath());
-        assertEquals("brokk-code/", persisted.modules().get(1).relativePath());
+        assertEquals("python-module/", persisted.modules().get(1).relativePath());
 
         for (int i = 0; i < originalModules.size(); i++) {
             var orig = originalModules.get(i);
@@ -115,9 +115,9 @@ public class MainProjectBuildModulesPersistenceTest {
     @Test
     void testModulePathRoundTripStability(@TempDir Path root) throws Exception {
         // Arrange: Mixed path formats for modules
-        // 1. ./brokk-code
-        // 2. brokk-code/
-        // 3. brokk-code\
+        // 1. ./python-module
+        // 2. python-module/
+        // 3. python-module\
         // 4. absolute path under project
         String absPathUnder = root.resolve("abs-module").toString();
 
@@ -125,9 +125,9 @@ public class MainProjectBuildModulesPersistenceTest {
                 """
             {
               "modules": [
-                { "alias": "m1", "relativePath": "./brokk-code", "language": "Python" },
-                { "alias": "m2", "relativePath": "brokk-code/", "language": "Python" },
-                { "alias": "m3", "relativePath": "brokk-code\\\\", "language": "Python" },
+                { "alias": "m1", "relativePath": "./python-module", "language": "Python" },
+                { "alias": "m2", "relativePath": "python-module/", "language": "Python" },
+                { "alias": "m3", "relativePath": "python-module\\\\", "language": "Python" },
                 { "alias": "m4", "relativePath": "%s", "language": "Java" }
               ]
             }
@@ -145,9 +145,9 @@ public class MainProjectBuildModulesPersistenceTest {
         BuildAgent.BuildDetails loaded = project.loadBuildDetails().orElseThrow();
 
         // Assert: Basic normalization from JSON happens on load
-        assertEquals("brokk-code/", loaded.modules().get(0).relativePath());
-        assertEquals("brokk-code/", loaded.modules().get(1).relativePath());
-        assertEquals("brokk-code/", loaded.modules().get(2).relativePath());
+        assertEquals("python-module/", loaded.modules().get(0).relativePath());
+        assertEquals("python-module/", loaded.modules().get(1).relativePath());
+        assertEquals("python-module/", loaded.modules().get(2).relativePath());
 
         // Note: Relativization of absolute paths happens in MainProject.saveBuildDetails.
         // On initial load, it remains absolute because ModuleBuildEntry constructor

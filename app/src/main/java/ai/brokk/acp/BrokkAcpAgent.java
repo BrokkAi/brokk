@@ -134,7 +134,7 @@ public class BrokkAcpAgent {
      * One workspace's worth of state. ACP supports per-session {@code cwd}, so each distinct
      * project root gets its own bundle. Bundles are created lazily on the first session that
      * names that root and reused for later sessions on the same root, mirroring the swap-on-cwd
-     * logic in {@code brokk-code/brokk_code/acp_server.py:ensure_ready}.
+     * logic in the old Python ACP server's {@code ensure_ready}.
      */
     public record WorkspaceBundle(ContextManager cm, JobRunner jobRunner, JobStore jobStore, Path root) {}
 
@@ -758,7 +758,7 @@ public class BrokkAcpAgent {
 
         // Materialize @-mentioned files (resource_link / embedded resource blocks) into the
         // workspace so every mode -- especially ASK, which has no tool loop -- can see them.
-        // Mirrors brokk-code/brokk_code/acp_server.py:extract_resource_file_paths +
+        // Mirrors the old Python ACP server's extract_resource_file_paths +
         // executor.add_context_files. Failures are logged but never abort the prompt.
         attachPromptResources(request.prompt(), bundle);
 

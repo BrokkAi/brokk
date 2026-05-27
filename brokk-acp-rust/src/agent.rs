@@ -33,7 +33,7 @@ use crate::session::{
 const PERMISSION_CONFIG_ID: &str = "permission_mode";
 const BEHAVIOR_CONFIG_ID: &str = "behavior_mode";
 /// Mirrors the Java executor's wire id so cross-implementation clients
-/// (Zed, brokk-code) can drive model selection through one canonical name.
+/// (Zed, vscode) can drive model selection through one canonical name.
 const MODEL_CONFIG_ID: &str = "model_selection";
 /// Per-session reasoning-effort knob, scoped to the Codex/ChatGPT backend.
 /// Empty string in the wire payload clears the user's pick (back to the

@@ -73,8 +73,7 @@ libc = "0.2"
 tokio = { version = "1", features = ["test-util"] }
 # Used by the bifrost test fixture (`bifrost_client::tests`) to verify
 # the downloaded release archive against its `.sha256` sidecar before
-# extraction, mirroring what `brokk-code/brokk_code/rust_acp_install.py`
-# already does for the production install path.
+# extraction, mirroring the production bifrost install path.
 sha2 = "0.10"
 # Used by `agents_md` tests to build throwaway project trees (`.git`
 # marker + AGENTS.md/CLAUDE.md fixtures) without polluting the working
