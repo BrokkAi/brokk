@@ -1,7 +1,6 @@
 package ai.brokk.executor.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -9,7 +8,6 @@ import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.ResponseSchemaFixtures;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -76,6 +74,36 @@ class ParallelCustomAgentTest {
                 .build();
     }
 
+    private static ToolExecutionRequest schemaNameRequest(String id, String agentName) {
+        return ToolExecutionRequest.builder()
+                .id(id)
+                .name("callCustomAgentWithSchema")
+                .arguments(Json.toJson(Map.of(
+                        "agentName", agentName,
+                        "task", "Return a strict report.",
+                        "responseSchema", "StrictReport")))
+                .build();
+    }
+
+    private static ToolExecutionRequest emptySchemaObjectRequest(String id, String agentName) {
+        return ToolExecutionRequest.builder()
+                .id(id)
+                .name("callCustomAgentWithSchema")
+                .arguments(Json.toJson(Map.of(
+                        "agentName",
+                        agentName,
+                        "task",
+                        "Return a strict report.",
+                        "responseSchema",
+                        Map.of("name", "StrictReport", "schema", Map.of()))))
+                .build();
+    }
+
+    private static String schemaSource() {
+        return "Use this response schema for child reports:\n"
+                + Json.toJson(ResponseSchemaFixtures.validResponseSchemaMap());
+    }
+
     @Test
     void toToolExecutionResult_throwsOnInterruptedStopReason() {
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "Cancelled by user.");
@@ -120,7 +148,7 @@ class ParallelCustomAgentTest {
     }
 
     @Test
-    void callCustomAgentWithSchemaArgumentsValidateToResponseSchema() throws Exception {
+    void callCustomAgentWithSchemaArgumentsAcceptFullSchemaObject() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             var tr = ToolRegistry.empty()
                     .builder()
@@ -131,8 +159,7 @@ class ParallelCustomAgentTest {
 
             assertEquals("schema-agent", invocation.parameters().getFirst());
             assertEquals("Return a strict report.", invocation.parameters().get(1));
-            assertInstanceOf(
-                    JobSpec.ResponseSchema.class, invocation.parameters().get(2));
+            assertTrue(invocation.parameters().get(2) instanceof Map<?, ?>);
         }
     }
 
@@ -157,6 +184,70 @@ class ParallelCustomAgentTest {
                     result.toolExecutionMessages().stream()
                             .map(message -> message.text())
                             .toList());
+        }
+    }
+
+    @Test
+    void parallelSchemaBackedAgentResolvesSchemaNameFromParentTask() throws Exception {
+        try (var harness = Harness.create(tempDir, true)) {
+            harness.cm().getAgentStore().save(agentDef(), "project");
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
+            var tr = harness.cm()
+                    .getToolRegistry()
+                    .builder()
+                    .register(parallelCustomAgent)
+                    .build();
+
+            var result = parallelCustomAgent.execute(List.of(schemaNameRequest("call-1", "schema-agent")), tr);
+
+            assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+            assertEquals(
+                    List.of("{\"summary\":\"structured\"}"),
+                    result.toolExecutionMessages().stream()
+                            .map(message -> message.text())
+                            .toList());
+        }
+    }
+
+    @Test
+    void parallelSchemaBackedAgentResolvesEmptySchemaObjectFromParentTask() throws Exception {
+        try (var harness = Harness.create(tempDir, true)) {
+            harness.cm().getAgentStore().save(agentDef(), "project");
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
+            var tr = harness.cm()
+                    .getToolRegistry()
+                    .builder()
+                    .register(parallelCustomAgent)
+                    .build();
+
+            var result = parallelCustomAgent.execute(List.of(emptySchemaObjectRequest("call-1", "schema-agent")), tr);
+
+            assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+            assertEquals(
+                    "{\"summary\":\"structured\"}",
+                    result.toolExecutionMessages().getFirst().text());
+        }
+    }
+
+    @Test
+    void parallelSchemaBackedAgentRejectsUnresolvedSchemaReferenceAsRequestError() throws Exception {
+        try (var harness = Harness.create(tempDir, true)) {
+            harness.cm().getAgentStore().save(agentDef(), "project");
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model());
+            var tr = harness.cm()
+                    .getToolRegistry()
+                    .builder()
+                    .register(parallelCustomAgent)
+                    .build();
+
+            var result = parallelCustomAgent.execute(List.of(schemaNameRequest("call-1", "schema-agent")), tr);
+
+            assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+            assertEquals(1, result.toolExecutionMessages().size());
+            assertTrue(result.toolExecutionMessages()
+                    .getFirst()
+                    .text()
+                    .contains("responseSchema.schema is missing or empty for 'StrictReport'"));
         }
     }
 

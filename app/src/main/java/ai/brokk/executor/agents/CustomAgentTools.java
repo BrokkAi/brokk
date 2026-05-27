@@ -2,7 +2,6 @@ package ai.brokk.executor.agents;
 
 import ai.brokk.IAppContextManager;
 import ai.brokk.TaskResult;
-import ai.brokk.executor.jobs.JobResponseSchemaSupport;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -10,6 +9,7 @@ import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import java.util.Objects;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -26,10 +26,16 @@ public class CustomAgentTools {
 
     private final IAppContextManager cm;
     private final StreamingChatModel model;
+    private final @Nullable String schemaSource;
 
     public CustomAgentTools(IAppContextManager cm, StreamingChatModel model) {
+        this(cm, model, null);
+    }
+
+    public CustomAgentTools(IAppContextManager cm, StreamingChatModel model, @Nullable String schemaSource) {
         this.cm = cm;
         this.model = model;
+        this.schemaSource = schemaSource;
     }
 
     @Tool(
@@ -55,11 +61,19 @@ public class CustomAgentTools {
     public String callCustomAgentWithSchema(
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
             @P("Complete task description for the agent") String task,
-            @P("Response schema object with 'name' and JSON Schema 'schema' fields")
-                    JobSpec.ResponseSchema responseSchema)
+            @P(
+                            "Response schema reference. Prefer a schema name string or {\"name\":\"...\"}; a full {\"name\":\"...\",\"schema\":{...}} object is also accepted.")
+                    Object responseSchema)
             throws InterruptedException {
-        validateResponseSchema(responseSchema);
-        var result = executeCustomAgent(agentName, task, responseSchema);
+        JobSpec.ResponseSchema resolvedSchema;
+        try {
+            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchema, schemaSource);
+        } catch (ToolRegistry.ToolValidationException e) {
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.REQUEST_ERROR,
+                    Objects.requireNonNullElse(e.getMessage(), "Invalid responseSchema"));
+        }
+        var result = executeCustomAgent(agentName, task, resolvedSchema);
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
             throw new ToolRegistry.ToolCallException(
                     ToolExecutionResult.Status.FATAL, result.stopDetails().explanation());
@@ -87,13 +101,6 @@ public class CustomAgentTools {
 
         var executor = new CustomAgentExecutor(cm, agentDef, model, cm.getIo(), responseSchema);
         return executor.execute(task);
-    }
-
-    private static void validateResponseSchema(JobSpec.ResponseSchema responseSchema) {
-        var error = JobResponseSchemaSupport.validate(responseSchema);
-        if (error.isPresent()) {
-            throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.REQUEST_ERROR, error.get());
-        }
     }
 
     /**

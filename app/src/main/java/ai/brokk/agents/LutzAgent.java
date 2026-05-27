@@ -875,7 +875,7 @@ public class LutzAgent {
 
             this.parallelSearch =
                     new ParallelSearch(context.forSearchAgent(), agent.goal, agent.delegatedSearchModel());
-            this.parallelCustomAgent = new ParallelCustomAgent(agent.cm, agent.model);
+            this.parallelCustomAgent = new ParallelCustomAgent(agent.cm, agent.model, agent.goal);
             this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch, parallelCustomAgent);
         }
 

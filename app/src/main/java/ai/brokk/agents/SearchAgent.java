@@ -165,7 +165,7 @@ public class SearchAgent {
 
     private TaskResult executeSearch() throws InterruptedException {
         var workspaceTools = new WorkspaceTools(context);
-        var parallelCustomAgent = new ParallelCustomAgent(cm, model);
+        var parallelCustomAgent = new ParallelCustomAgent(cm, model, goal);
         var toolRegistry = cm.getToolRegistry()
                 .builder()
                 .register(searchTools)

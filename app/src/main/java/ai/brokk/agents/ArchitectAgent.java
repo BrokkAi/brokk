@@ -929,7 +929,7 @@ public class ArchitectAgent {
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
             ParallelSearch parallelSearch = new ParallelSearch(context.forSearchAgent(), goal, delegatedSearchModel());
-            ParallelCustomAgent parallelCustomAgent = new ParallelCustomAgent(cm, planningModel);
+            ParallelCustomAgent parallelCustomAgent = new ParallelCustomAgent(cm, planningModel, goal);
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))
