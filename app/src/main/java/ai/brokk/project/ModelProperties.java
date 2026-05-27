@@ -26,7 +26,7 @@ public final class ModelProperties {
     private static final String FLASH_3 = "gemini-3-flash-preview";
     private static final String GPT_54_NANO = "gpt-5.4-nano";
     private static final String GCF_1 = "grok-code-fast-1";
-    private static final String GEMINI_3_1_FLASH_LITE = "gemini-3.1-flash-lite-preview";
+    private static final String GEMINI_3_1_FLASH_LITE = "gemini-3.1-flash-lite";
     private static final String OPUS_4_6 = "claude-opus-4-6";
     private static final String SONNET_4_6 = "claude-sonnet-4-6";
     private static final String HAIKU_4_5 = "claude-haiku-4-5";
@@ -116,7 +116,7 @@ public final class ModelProperties {
         ARCHITECT("architectConfig", sonnet4_6, gcf1),
 
         // indirectly selectable via vendor preference
-        SUMMARIZE("quickConfig", flash31liteLow, gcf1),
+        SUMMARIZE("quickConfig", gpt5_4NanoLow, gcf1),
         // GCF1 is cheap enough for usages, but we don't get enough concurrent requests, so free tier gets Nano
         USAGES("usagesConfig", flash31liteHigh, gpt5_4NanoLow),
         QUICK_EDIT("quickEditConfig", flash3, gcf1),
