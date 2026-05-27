@@ -96,6 +96,7 @@ public class BrokkExternalMcpServer {
             "callSearchAgent",
             "callCodeAgent",
             "callCustomAgent",
+            "callCustomAgentWithSchema",
             "scan",
             "searchSymbols",
             "scanUsages",
@@ -837,6 +838,10 @@ public class BrokkExternalMcpServer {
             // throwing on missing names and to hide them from external MCP clients entirely.
             toolNames.removeIf(name -> !registry.isRegistered(name));
             logger.info("MCP server is read-only; tool catalog filtered to {}", toolNames);
+        }
+        var searchModel = cm.getService().getModel(ModelProperties.ModelType.SEARCH);
+        if (!cm.getService().supportsJsonSchema(searchModel)) {
+            toolNames.remove("callCustomAgentWithSchema");
         }
 
         return registry.getTools(toolNames).stream()

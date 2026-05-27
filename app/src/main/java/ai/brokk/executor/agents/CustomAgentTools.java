@@ -1,12 +1,18 @@
 package ai.brokk.executor.agents;
 
 import ai.brokk.IAppContextManager;
+import ai.brokk.TaskResult;
+import ai.brokk.executor.jobs.JobSpec;
+import ai.brokk.tools.ToolExecutionResult;
+import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import java.util.Objects;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Tool provider that exposes custom agents as invocable tools.
@@ -20,10 +26,16 @@ public class CustomAgentTools {
 
     private final IAppContextManager cm;
     private final StreamingChatModel model;
+    private final @Nullable String schemaSource;
 
     public CustomAgentTools(IAppContextManager cm, StreamingChatModel model) {
+        this(cm, model, null);
+    }
+
+    public CustomAgentTools(IAppContextManager cm, StreamingChatModel model, @Nullable String schemaSource) {
         this.cm = cm;
         this.model = model;
+        this.schemaSource = schemaSource;
     }
 
     @Tool(
@@ -36,6 +48,39 @@ public class CustomAgentTools {
     public String callCustomAgent(
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
             @P("Complete task description for the agent") String task)
+            throws InterruptedException {
+        var result = executeCustomAgent(agentName, task, null);
+        return extractExplanation(result.stopDetails().explanation());
+    }
+
+    @Tool(
+            """
+            Invoke a custom agent by name and require its final answer to match a JSON response schema.
+            Use this when the caller needs a typed child-agent result instead of Markdown findings.
+            The agent still uses its normal tools to gather context, then produces one schema-constrained final result.""")
+    public String callCustomAgentWithSchema(
+            @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
+            @P("Complete task description for the agent") String task,
+            @P("Name of a response schema embedded in the parent task instructions") String responseSchemaName)
+            throws InterruptedException {
+        JobSpec.ResponseSchema resolvedSchema;
+        try {
+            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, schemaSource);
+        } catch (ToolRegistry.ToolValidationException e) {
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.REQUEST_ERROR,
+                    Objects.requireNonNullElse(e.getMessage(), "Invalid responseSchemaName"));
+        }
+        var result = executeCustomAgent(agentName, task, resolvedSchema);
+        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.FATAL, result.stopDetails().explanation());
+        }
+        return result.stopDetails().explanation();
+    }
+
+    private TaskResult executeCustomAgent(
+            String agentName, String task, JobSpec.@Nullable ResponseSchema responseSchema)
             throws InterruptedException {
         var agentStore = cm.getAgentStore();
         var agentDef = agentStore
@@ -52,10 +97,8 @@ public class CustomAgentTools {
                 agentName,
                 cm.getService().nameOf(model));
 
-        var executor = new CustomAgentExecutor(cm, agentDef, model);
-        var result = executor.execute(task);
-
-        return extractExplanation(result.stopDetails().explanation());
+        var executor = new CustomAgentExecutor(cm, agentDef, model, cm.getIo(), responseSchema);
+        return executor.execute(task);
     }
 
     /**

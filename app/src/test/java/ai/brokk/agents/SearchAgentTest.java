@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.executor.agents.AgentDefinition;
+import ai.brokk.executor.agents.AgentStore;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -121,6 +123,29 @@ class SearchAgentTest {
         var directive = agent.buildTurnDirective(1, List.of());
 
         assertTrue(directive.contains("including the starting fragments and anything you have added so far"));
+    }
+
+    @Test
+    void allowedToolNames_exposesSchemaCustomAgentOnlyWhenModelSupportsIt() throws Exception {
+        var agentStore = new AgentStore(tempDir.resolve(".brokk/agents"), tempDir.resolve("user-agents"));
+        var cm = new TestContextManager(tempDir, new NoOpConsoleIO()) {
+            @Override
+            public AgentStore getAgentStore() {
+                return agentStore;
+            }
+        };
+        cm.getAgentStore()
+                .save(new AgentDefinition(
+                        "schema-agent", "desc", List.of("answer"), 1, "You are a custom test agent.", "project"));
+        Context context = new Context(cm);
+        var agent = new SearchAgent(context, "test goal", SearchPrompts.Objective.ANSWER_ONLY, new NoOpConsoleIO());
+
+        assertTrue(agent.allowedToolNames(cm.getProject()).contains("callCustomAgentWithSchema"));
+
+        cm.getService().setSupportsJsonSchema(false);
+
+        assertTrue(agent.allowedToolNames(cm.getProject()).contains("callCustomAgent"));
+        assertTrue(!agent.allowedToolNames(cm.getProject()).contains("callCustomAgentWithSchema"));
     }
 
     private ai.brokk.tools.ToolExecutionResult executeTool(String name, String arguments) throws InterruptedException {

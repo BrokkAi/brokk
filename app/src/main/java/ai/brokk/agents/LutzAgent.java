@@ -676,6 +676,9 @@ public class LutzAgent {
 
         // Always include dropWorkspaceFragments to avoid toolset changes when droppability changes.
         names.add("dropWorkspaceFragments");
+        if (cm.getService().supportsJsonSchema(model)) {
+            names.add("callCustomAgentWithSchema");
+        }
 
         if (DependencyTools.isSupported(cm.getProject())) {
             names.add("importDependency");
@@ -872,7 +875,7 @@ public class LutzAgent {
 
             this.parallelSearch =
                     new ParallelSearch(context.forSearchAgent(), agent.goal, agent.delegatedSearchModel());
-            this.parallelCustomAgent = new ParallelCustomAgent(agent.cm, agent.model);
+            this.parallelCustomAgent = new ParallelCustomAgent(agent.cm, agent.model, agent.goal);
             this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch, parallelCustomAgent);
         }
 
@@ -1082,7 +1085,7 @@ public class LutzAgent {
             var searchPartition = ToolRegistry.partitionByNames(primaryCalls, Set.of("callSearchAgent"));
             var searchAgentReqs = searchPartition.matchingRequests();
             var customAgentPartition =
-                    ToolRegistry.partitionByNames(searchPartition.otherRequests(), Set.of("callCustomAgent"));
+                    ToolRegistry.partitionByNames(searchPartition.otherRequests(), ParallelCustomAgent.TOOL_NAMES);
 
             // Split custom agent requests into read-only (parallel-eligible) and mutating (sequential)
             var readOnlyCustomAgentReqs = new ArrayList<ToolExecutionRequest>();
@@ -1155,7 +1158,10 @@ public class LutzAgent {
                 sessionMessages.addAll(customResult.toolExecutionMessages());
 
                 executedNonHygiene = true;
-                nonHygieneToolCalls.add("callCustomAgent");
+                nonHygieneToolCalls.addAll(readOnlyCustomAgentReqs.stream()
+                        .map(ToolExecutionRequest::name)
+                        .distinct()
+                        .toList());
             }
 
             boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;

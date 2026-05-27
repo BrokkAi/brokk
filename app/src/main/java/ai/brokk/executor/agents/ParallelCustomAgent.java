@@ -7,6 +7,7 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.concurrent.LoggingFuture;
+import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
@@ -19,6 +20,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -34,13 +36,20 @@ import org.jetbrains.annotations.Nullable;
  */
 public class ParallelCustomAgent {
     private static final Logger logger = LogManager.getLogger(ParallelCustomAgent.class);
+    public static final Set<String> TOOL_NAMES = Set.of("callCustomAgent", "callCustomAgentWithSchema");
 
     private final IAppContextManager cm;
     private final StreamingChatModel model;
+    private final @Nullable String schemaSource;
 
     public ParallelCustomAgent(IAppContextManager cm, StreamingChatModel model) {
+        this(cm, model, null);
+    }
+
+    public ParallelCustomAgent(IAppContextManager cm, StreamingChatModel model, @Nullable String schemaSource) {
         this.cm = cm;
         this.model = model;
+        this.schemaSource = schemaSource;
     }
 
     @Tool(
@@ -53,6 +62,39 @@ public class ParallelCustomAgent {
     public String callCustomAgent(
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
             @P("Complete task description for the agent") String task)
+            throws InterruptedException {
+        var result = executeCustomAgent(agentName, task, null);
+        return extractExplanation(result.stopDetails().explanation());
+    }
+
+    @Tool(
+            """
+            Invoke a custom agent by name and require its final answer to match a JSON response schema.
+            Use this when the caller needs a typed child-agent result instead of Markdown findings.
+            The agent still uses its normal tools to gather context, then produces one schema-constrained final result.""")
+    public String callCustomAgentWithSchema(
+            @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
+            @P("Complete task description for the agent") String task,
+            @P("Name of a response schema embedded in the parent task instructions") String responseSchemaName)
+            throws InterruptedException {
+        JobSpec.ResponseSchema resolvedSchema;
+        try {
+            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, schemaSource);
+        } catch (ToolRegistry.ToolValidationException e) {
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.REQUEST_ERROR,
+                    Objects.requireNonNullElse(e.getMessage(), "Invalid responseSchemaName"));
+        }
+        var result = executeCustomAgent(agentName, task, resolvedSchema);
+        if (result.stopDetails().reason() != StopReason.SUCCESS) {
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.FATAL, result.stopDetails().explanation());
+        }
+        return result.stopDetails().explanation();
+    }
+
+    private TaskResult executeCustomAgent(
+            String agentName, String task, JobSpec.@Nullable ResponseSchema responseSchema)
             throws InterruptedException {
         var agentStore = cm.getAgentStore();
         var agentDef = agentStore
@@ -69,9 +111,8 @@ public class ParallelCustomAgent {
                 agentName,
                 cm.getService().nameOf(model));
 
-        var executor = new CustomAgentExecutor(cm, agentDef, model);
-        var result = executor.executeInterruptibly(task);
-        return extractExplanation(result.stopDetails().explanation());
+        var executor = new CustomAgentExecutor(cm, agentDef, model, cm.getIo(), responseSchema);
+        return executor.executeInterruptibly(task);
     }
 
     /**
@@ -185,13 +226,17 @@ public class ParallelCustomAgent {
 
         String agentName;
         String task;
+        JobSpec.@Nullable ResponseSchema responseSchema = null;
         try {
             var validated = tr.validateTool(request);
             var parameters = validated.parameters();
             agentName = (String) parameters.getFirst();
             task = (String) parameters.get(1);
+            if ("callCustomAgentWithSchema".equals(request.name())) {
+                responseSchema = CustomAgentResponseSchemaResolver.resolve((String) parameters.get(2), schemaSource);
+            }
         } catch (RuntimeException e) {
-            var errorMessage = "Failed to parse callCustomAgent arguments: " + e.getMessage();
+            var errorMessage = "Failed to parse custom agent arguments: " + e.getMessage();
             logger.debug(errorMessage, e);
             var failure = ToolExecutionResult.requestError(request, errorMessage);
             taskIo.afterToolOutput(failure);
@@ -218,10 +263,14 @@ public class ParallelCustomAgent {
                 cm.getService().nameOf(model));
 
         try {
-            var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo);
+            var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo, responseSchema);
             var result = executor.executeInterruptibly(task);
-            var explanation = extractExplanation(result.stopDetails().explanation());
-            var toolResult = toToolExecutionResult(request, result.stopDetails(), explanation);
+            var explanation = responseSchema == null
+                    ? extractExplanation(result.stopDetails().explanation())
+                    : result.stopDetails().explanation();
+            var toolResult = responseSchema == null
+                    ? toToolExecutionResult(request, result.stopDetails(), explanation)
+                    : toSchemaToolExecutionResult(request, result.stopDetails(), explanation);
             taskIo.afterToolOutput(toolResult);
             return new CustomAgentTaskResult(toolResult, agentName);
         } catch (RuntimeException e) {
@@ -254,6 +303,16 @@ public class ParallelCustomAgent {
             case LLM_ERROR -> ToolExecutionResult.fatal(request, explanation);
             case INTERRUPTED -> throw new InterruptedException();
             default -> ToolExecutionResult.success(request, explanation);
+        };
+    }
+
+    static ToolExecutionResult toSchemaToolExecutionResult(
+            ToolExecutionRequest request, TaskResult.StopDetails stopDetails, String explanation)
+            throws InterruptedException {
+        return switch (stopDetails.reason()) {
+            case SUCCESS -> ToolExecutionResult.success(request, explanation);
+            case INTERRUPTED -> throw new InterruptedException();
+            default -> ToolExecutionResult.fatal(request, explanation);
         };
     }
 

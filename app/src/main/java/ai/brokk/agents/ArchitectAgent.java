@@ -729,7 +729,7 @@ public class ArchitectAgent {
                     ToolRegistry.partitionByNames(terminalPartition.otherRequests(), Set.of("callSearchAgent"));
             var codePartition = ToolRegistry.partitionByNames(searchPartition.otherRequests(), Set.of("callCodeAgent"));
             var customAgentPartition =
-                    ToolRegistry.partitionByNames(codePartition.otherRequests(), Set.of("callCustomAgent"));
+                    ToolRegistry.partitionByNames(codePartition.otherRequests(), ParallelCustomAgent.TOOL_NAMES);
             var searchAgentReqs = new ArrayList<>(searchPartition.matchingRequests());
             var codeAgentReqs = new ArrayList<>(codePartition.matchingRequests());
 
@@ -929,7 +929,7 @@ public class ArchitectAgent {
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
             ParallelSearch parallelSearch = new ParallelSearch(context.forSearchAgent(), goal, delegatedSearchModel());
-            ParallelCustomAgent parallelCustomAgent = new ParallelCustomAgent(cm, planningModel);
+            ParallelCustomAgent parallelCustomAgent = new ParallelCustomAgent(cm, planningModel, goal);
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))
@@ -973,6 +973,9 @@ public class ArchitectAgent {
                     allowed.add("callCodeAgent");
                 }
                 allowed.add("callCustomAgent");
+                if (cm.getService().supportsJsonSchema(planningModel)) {
+                    allowed.add("callCustomAgentWithSchema");
+                }
 
                 if (buildToolsEnabled
                         && cm.getProject()
