@@ -206,11 +206,11 @@ The Java agent advertises these during `initialize` via `_meta` in
 }
 ```
 
-brokk-code checks for these and enables the interactive context panel, @mention
+Clients check for these and enable the interactive context panel, @mention
 autocomplete, etc. Generic ACP clients (Zed, etc.) ignore unknown extensions and
 get the standard experience.
 
-This means the interactive context modal in brokk-code works identically -- the
+This means the interactive context modal works identically -- the
 `ContextPanel` widget calls `_brokk/context/get` over the ACP JSON-RPC connection
 instead of `GET /v1/context` over HTTP. Same data, same UI, different transport.
 
@@ -365,21 +365,9 @@ The SDK offers three API styles (annotation-based, sync builder, async/Reactor).
 Use annotation-based (`@AcpAgent`, `@Initialize`, `@Prompt`, etc.) as it has
 the least boilerplate and matches this codebase's style.
 
-### Phase 2a: brokk-code migrates to the Java ACP agent
+### Phase 2a: (Deleted) Python TUI migration
 
-Goal: brokk-code talks to the Java ACP server instead of the HTTP REST API.
-
-1. Update `ExecutorManager` to speak ACP JSON-RPC over stdio instead of HTTP
-   - Standard operations use the ACP client SDK (`session/prompt`, etc.)
-   - Context operations use `_brokk/context/*` extension methods
-   - Completions use `_brokk/completions`
-   - Costs use `_brokk/costs`
-2. Update `BrokkAcpBridge` -- this becomes much thinner since both sides speak ACP
-3. Update `ContextPanel` action handlers to call through the new transport
-4. Update `@mention` autocomplete to use `_brokk/completions`
-5. Verify the full interactive context modal works end-to-end
-6. Verify session management (create, load, list, switch, rename, delete)
-7. Verify model/mode/reasoning config option flow
+The Python TUI client has been removed. This phase is no longer applicable.
 
 ### Phase 2b: brokk-vscode migrates to the Java ACP agent
 
@@ -387,15 +375,15 @@ Goal: the VS Code extension talks to the Java ACP server instead of
 HeadlessExecutorMain over HTTP REST.
 
 `brokk-vscode/src/executor/lifecycle.ts` directly spawns `HeadlessExecutorMain`
-and communicates via HTTP REST. This is a separate client from brokk-code and
-must be migrated before Phase 3 can safely delete `HeadlessExecutorMain`.
+and communicates via HTTP REST. This must be migrated before Phase 3 can
+safely delete `HeadlessExecutorMain`.
 
 1. Update `lifecycle.ts` to spawn `AcpServerMain` instead of `HeadlessExecutorMain`
 2. Replace HTTP REST communication with ACP JSON-RPC over stdio
 3. Update VS Code extension's executor management to use ACP client SDK
 4. Port context operations, completions, and cost display to `_brokk/*` extensions
 5. Verify the full VS Code extension workflow end-to-end
-6. Phase 3 deletion is gated on both brokk-code AND brokk-vscode being migrated
+6. Phase 3 deletion is gated on brokk-vscode being migrated
 
 ### Phase 3: Remove the old infrastructure
 
@@ -420,7 +408,7 @@ Goal: adopt ACP capabilities that weren't available in the old architecture.
 3. Route build/test commands through `terminal/*` so editors can display output natively (terminal lifecycle: create -> output/wait_for_exit -> release)
 4. Use `session/update` content blocks for rich diff display (diff content type: path + oldText + newText)
 5. Adopt `session/load` history replay for conversation restoration
-6. Emit `_brokk/context/updated` notifications when the agent auto-modifies context, so brokk-code can auto-refresh the panel
+6. Emit `_brokk/context/updated` notifications when the agent auto-modifies context, so clients can auto-refresh the panel
 7. Map LUTZ/PLAN task lists to ACP's native `plan` session update (`TaskEntry` -> `PlanEntry` with content, priority: high/medium/low, status: pending/in_progress/completed)
 
 ## What stays the same
@@ -477,6 +465,4 @@ Net: significant reduction in codebase size and complexity.
 - ACP extensibility: https://agentclientprotocol.com/protocol/extensibility.md
 - ACP transport: https://agentclientprotocol.com/protocol/transports.md
 - Current HeadlessExecutor: `app/src/main/java/ai/brokk/executor/HeadlessExecutorMain.java`
-- Current Python ACP bridge: `brokk-code/brokk_code/acp_server.py`
-- Current executor manager: `brokk-code/brokk_code/executor.py`
 - IConsoleIO interface: `app/src/main/java/ai/brokk/IConsoleIO.java`

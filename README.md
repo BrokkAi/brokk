@@ -201,7 +201,6 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 These are optional companion projects, not the main desktop app install path:
 
 - [Claude Code plugin](claude-plugin/README.md): adds Brokk-powered semantic code intelligence to Claude Code.
-- [Terminal UI](brokk-code/README.md): a Python/Textual client that launches a local Java executor subprocess.
 - [ACP support components](installer/README.md): installs only `bifrost` and `brokk-acp` for ACP/Codex-style integrations.
 
 ## Staging Environment

@@ -1367,32 +1367,31 @@ public class SearchToolsTest {
     // not only files nested under at least one intermediate segment.
     @Test
     void testSearchFileContents_DirPrefixDoubleStarStar_MatchesTopLevel() throws Exception {
-        Path dir = projectRoot.resolve("brokk-code");
+        Path dir = projectRoot.resolve("test-dir");
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("top.txt"), "MATCH");
         Files.writeString(Files.createDirectories(dir.resolve("sub")).resolve("nested.txt"), "MATCH");
-        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/top.txt"));
-        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/sub/nested.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "test-dir/top.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "test-dir/sub/nested.txt"));
 
-        String result = searchTools.searchFileContents(List.of("MATCH"), "brokk-code/**/*", false, false, 0, 200);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "test-dir/**/*", false, false, 0, 200);
         assertTrue(
-                result.contains("brokk-code/top.txt"),
-                "dir/**/* must match top-level file (was empty before #3197 fix)");
-        assertTrue(result.contains("brokk-code/sub/nested.txt"), "dir/**/* must still match nested file");
+                result.contains("test-dir/top.txt"), "dir/**/* must match top-level file (was empty before #3197 fix)");
+        assertTrue(result.contains("test-dir/sub/nested.txt"), "dir/**/* must still match nested file");
     }
 
     @Test
     void testSearchFileContents_DirPrefixDoubleStar_MatchesAllDepths() throws Exception {
-        Path dir = projectRoot.resolve("brokk-code");
+        Path dir = projectRoot.resolve("test-dir");
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("top.txt"), "MATCH");
         Files.writeString(Files.createDirectories(dir.resolve("sub")).resolve("nested.txt"), "MATCH");
-        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/top.txt"));
-        mockProjectFiles.add(new ProjectFile(projectRoot, "brokk-code/sub/nested.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "test-dir/top.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "test-dir/sub/nested.txt"));
 
-        String result = searchTools.searchFileContents(List.of("MATCH"), "brokk-code/**", false, false, 0, 200);
-        assertTrue(result.contains("brokk-code/top.txt"));
-        assertTrue(result.contains("brokk-code/sub/nested.txt"));
+        String result = searchTools.searchFileContents(List.of("MATCH"), "test-dir/**", false, false, 0, 200);
+        assertTrue(result.contains("test-dir/top.txt"));
+        assertTrue(result.contains("test-dir/sub/nested.txt"));
     }
 
     @Test

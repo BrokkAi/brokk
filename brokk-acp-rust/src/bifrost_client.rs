@@ -296,8 +296,7 @@ mod tests {
 
     /// Bifrost release the handshake test pins. Bumping bifrost is a deliberate
     /// edit here, not whatever happens to be on a contributor's `$PATH`.
-    /// Must stay in sync with `BUNDLED_BIFROST_VERSION` in
-    /// `brokk-code/brokk_code/rust_acp_install.py`.
+    /// the production bifrost install path.
     const TEST_BIFROST_VERSION: &str = "0.3.0";
 
     const TEST_BIFROST_RELEASE_BASE: &str = "https://github.com/BrokkAi/bifrost/releases/download";
@@ -405,8 +404,7 @@ mod tests {
         // (the v0.1.3 binary still self-reports `0.1.2` due to an upstream
         // Cargo.toml miss); the sha256 is content-addressable so a
         // mislabeled or swapped binary is caught here. Mirrors the check
-        // already done by `brokk-code/brokk_code/rust_acp_install.py` on
-        // the production install path.
+        // already done by the production bifrost install path.
         eprintln!("verifying bifrost archive against {sha256_url}");
         let sidecar = reqwest::get(&sha256_url)
             .await

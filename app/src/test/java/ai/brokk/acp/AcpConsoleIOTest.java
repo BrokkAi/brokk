@@ -424,7 +424,7 @@ class AcpConsoleIOTest {
         var io = new AcpConsoleIO(ctx);
 
         var longCommand =
-                "cd brokk-code;uv run pytest -q brokk-code/tests/test_bifrost_launcher.py brokk-code/tests/test_cli_modes.py";
+                "cd test-dir;uv run pytest -q test-dir/tests/test_bifrost_launcher.py test-dir/tests/test_cli_modes.py";
         io.commandStart("Verification", longCommand);
 
         var call = ctx.updates.stream()
