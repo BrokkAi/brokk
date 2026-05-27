@@ -1376,8 +1376,7 @@ public class SearchToolsTest {
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "test-dir/**/*", false, false, 0, 200);
         assertTrue(
-                result.contains("test-dir/top.txt"),
-                "dir/**/* must match top-level file (was empty before #3197 fix)");
+                result.contains("test-dir/top.txt"), "dir/**/* must match top-level file (was empty before #3197 fix)");
         assertTrue(result.contains("test-dir/sub/nested.txt"), "dir/**/* must still match nested file");
     }
 
