@@ -11,6 +11,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.executor.agents.ParallelCustomAgent;
+import ai.brokk.executor.jobs.ChildAgentArtifactSink;
 import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.IProject;
@@ -82,6 +83,7 @@ public class SearchAgent {
     private final SearchTools searchTools;
     private final Context initialContext;
     private final ResponseSchemaRegistry responseSchemaRegistry;
+    private final ChildAgentArtifactSink childAgentArtifactSink;
 
     private final SearchMetrics metrics;
 
@@ -122,6 +124,17 @@ public class SearchAgent {
         this(initialContext, goal, model, objective, io, null, responseSchemaRegistry);
     }
 
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            IConsoleIO io,
+            ResponseSchemaRegistry responseSchemaRegistry,
+            ChildAgentArtifactSink childAgentArtifactSink) {
+        this(initialContext, goal, model, objective, io, null, responseSchemaRegistry, childAgentArtifactSink);
+    }
+
     SearchAgent(
             Context initialContext,
             String goal,
@@ -140,6 +153,26 @@ public class SearchAgent {
             IConsoleIO io,
             @Nullable SearchMetrics metrics,
             ResponseSchemaRegistry responseSchemaRegistry) {
+        this(
+                initialContext,
+                goal,
+                model,
+                objective,
+                io,
+                metrics,
+                responseSchemaRegistry,
+                ChildAgentArtifactSink.noop());
+    }
+
+    SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            IConsoleIO io,
+            @Nullable SearchMetrics metrics,
+            ResponseSchemaRegistry responseSchemaRegistry,
+            ChildAgentArtifactSink childAgentArtifactSink) {
         if (objective != Objective.ANSWER_ONLY && objective != Objective.WORKSPACE_ONLY) {
             throw new IllegalArgumentException("SearchAgent only supports ANSWER_ONLY and WORKSPACE_ONLY objectives");
         }
@@ -155,6 +188,7 @@ public class SearchAgent {
                         : SearchMetrics.noOp();
         this.initialContext = initialContext;
         this.responseSchemaRegistry = responseSchemaRegistry;
+        this.childAgentArtifactSink = childAgentArtifactSink;
         this.context = initialContext;
         this.llm = cm.getLlm(new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho());
         this.llm.setOutput(io);
@@ -189,7 +223,7 @@ public class SearchAgent {
 
     private TaskResult executeSearch() throws InterruptedException {
         var workspaceTools = new WorkspaceTools(context);
-        var parallelCustomAgent = new ParallelCustomAgent(cm, model, responseSchemaRegistry);
+        var parallelCustomAgent = new ParallelCustomAgent(cm, model, responseSchemaRegistry, childAgentArtifactSink);
         var toolRegistry = cm.getToolRegistry()
                 .builder()
                 .register(searchTools)

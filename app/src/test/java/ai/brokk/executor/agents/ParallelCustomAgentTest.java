@@ -1,6 +1,7 @@
 package ai.brokk.executor.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,6 +9,8 @@ import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.executor.jobs.ChildAgentArtifact;
+import ai.brokk.executor.jobs.ChildAgentArtifactSink;
 import ai.brokk.executor.jobs.ResponseSchemaFixtures;
 import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.project.IProject;
@@ -27,6 +30,8 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -202,6 +207,54 @@ class ParallelCustomAgentTest {
     }
 
     @Test
+    void parallelSchemaBackedAgentsEmitArtifactsForValidAndInvalidSiblings() throws Exception {
+        try (var harness = Harness.create(tempDir, true)) {
+            var badAgentPrompt = "You are the bad schema artifact agent.";
+            var goodAgentPrompt = "You are the good schema artifact agent.";
+            harness.cm().getAgentStore().save(agentDef("bad-schema-agent", badAgentPrompt), "project");
+            harness.cm().getAgentStore().save(agentDef("good-schema-agent", goodAgentPrompt), "project");
+            harness.model().structuredResponsesBySystemPrompt.put(badAgentPrompt, "{\"summary\":null}");
+            harness.model().structuredResponsesBySystemPrompt.put(goodAgentPrompt, "{\"summary\":\"structured\"}");
+            var sink = new CapturingArtifactSink("parent-job-1");
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaRegistry(), sink);
+            var tr = harness.cm()
+                    .getToolRegistry()
+                    .builder()
+                    .register(parallelCustomAgent)
+                    .build();
+
+            var result = parallelCustomAgent.execute(
+                    List.of(
+                            schemaNameRequest("call-1", "bad-schema-agent"),
+                            schemaNameRequest("call-2", "good-schema-agent")),
+                    tr);
+
+            assertEquals(TaskResult.StopReason.LLM_ERROR, result.stopDetails().reason());
+            assertEquals(2, sink.artifacts().size());
+            var artifacts = sink.artifacts().stream()
+                    .sorted(Comparator.comparing(ChildAgentArtifact::toolCallId))
+                    .toList();
+            var invalid = artifacts.get(0);
+            assertEquals("parent-job-1", invalid.parentJobId());
+            assertEquals("call-1", invalid.toolCallId());
+            assertEquals("bad-schema-agent", invalid.agentName());
+            assertEquals(ChildAgentArtifact.STATUS_SCHEMA_INVALID, invalid.status());
+            assertNotNull(invalid.validationError());
+            assertTrue(invalid.validationError().contains("response.summary"));
+            assertNotNull(invalid.invalidOutputExcerpt());
+            assertTrue(invalid.invalidOutputExcerpt().contains("\"summary\":null"));
+
+            var success = artifacts.get(1);
+            assertEquals("call-2", success.toolCallId());
+            assertEquals("good-schema-agent", success.agentName());
+            assertEquals(ChildAgentArtifact.STATUS_SUCCESS, success.status());
+            assertNotNull(success.validatedResponse());
+            assertEquals(
+                    "structured", success.validatedResponse().get("summary").asText());
+        }
+    }
+
+    @Test
     void parallelSchemaBackedAgentResolvesSchemaNameFromParentRegistry() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             harness.cm().getAgentStore().save(agentDef(), "project");
@@ -345,6 +398,29 @@ class ParallelCustomAgentTest {
         @Override
         public void close() {
             cm.close();
+        }
+    }
+
+    private static final class CapturingArtifactSink implements ChildAgentArtifactSink {
+        private final String parentJobId;
+        private final List<ChildAgentArtifact> artifacts = new ArrayList<>();
+
+        CapturingArtifactSink(String parentJobId) {
+            this.parentJobId = parentJobId;
+        }
+
+        @Override
+        public void record(ChildAgentArtifact artifact) {
+            artifacts.add(artifact);
+        }
+
+        @Override
+        public String parentJobId() {
+            return parentJobId;
+        }
+
+        List<ChildAgentArtifact> artifacts() {
+            return List.copyOf(artifacts);
         }
     }
 

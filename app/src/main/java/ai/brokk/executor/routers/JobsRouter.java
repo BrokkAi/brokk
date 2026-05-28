@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -113,6 +114,11 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
 
         if (path.equals("/v1/jobs/" + jobId) && method.equals("GET")) {
             handleGetJob(exchange, jobId);
+            return;
+        }
+
+        if (path.equals("/v1/jobs/" + jobId + "/result") && method.equals("GET")) {
+            handleGetJobResult(exchange, jobId);
             return;
         }
 
@@ -335,6 +341,21 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             SimpleHttpServer.sendJsonResponse(
                     exchange, 500, ErrorPayload.internalError("Failed to resolve session", e));
         }
+    }
+
+    private void handleGetJobResult(HttpExchange exchange, String jobId) throws IOException {
+        var status = jobStore.loadStatus(jobId);
+        if (status == null) {
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Job not found: " + jobId));
+            return;
+        }
+        var response = new LinkedHashMap<String, Object>();
+        response.put("jobId", jobId);
+        response.put("state", status.state());
+        response.put("terminal", status.terminal());
+        response.put("childAgentArtifacts", jobStore.readChildAgentArtifacts(jobId));
+        SimpleHttpServer.sendJsonResponse(exchange, 200, response);
     }
 
     private void handlePostIssueJob(HttpExchange exchange) throws IOException {

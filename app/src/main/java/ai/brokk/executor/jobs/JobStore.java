@@ -40,6 +40,7 @@ import org.jetbrains.annotations.Nullable;
 public final class JobStore {
     private static final Logger logger = LogManager.getLogger(JobStore.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final String CHILD_AGENT_ARTIFACTS_NAME = "child-agent-artifacts.jsonl";
 
     private final Path jobsDir;
     private final Path idempotencyDir;
@@ -338,6 +339,43 @@ public final class JobStore {
             return null;
         }
         return Files.readAllBytes(artifactFile);
+    }
+
+    public synchronized void appendChildAgentArtifact(String jobId, ChildAgentArtifact artifact) throws IOException {
+        var artifactFile = jobsDir.resolve(jobId).resolve("artifacts").resolve(CHILD_AGENT_ARTIFACTS_NAME);
+        Files.createDirectories(artifactFile.getParent());
+        var line = objectMapper.writeValueAsString(artifact) + "\n";
+        Files.writeString(artifactFile, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        logger.debug(
+                "Appended child agent artifact job={} childRunId={} agent={} status={}",
+                jobId,
+                artifact.childRunId(),
+                artifact.agentName(),
+                artifact.status());
+    }
+
+    public synchronized List<ChildAgentArtifact> readChildAgentArtifacts(String jobId) throws IOException {
+        var artifactFile = jobsDir.resolve(jobId).resolve("artifacts").resolve(CHILD_AGENT_ARTIFACTS_NAME);
+        if (!Files.exists(artifactFile)) {
+            return List.of();
+        }
+
+        var result = new ArrayList<ChildAgentArtifact>();
+        try (Stream<String> lines = Files.lines(artifactFile, StandardCharsets.UTF_8)) {
+            var iterator = lines.iterator();
+            while (iterator.hasNext()) {
+                var line = iterator.next();
+                if (line.isBlank()) {
+                    continue;
+                }
+                try {
+                    result.add(objectMapper.readValue(line, ChildAgentArtifact.class));
+                } catch (JsonProcessingException e) {
+                    logger.debug("Skipping malformed child agent artifact line: {}", e.getMessage());
+                }
+            }
+        }
+        return List.copyOf(result);
     }
 
     /**

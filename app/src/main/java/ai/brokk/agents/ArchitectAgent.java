@@ -19,6 +19,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.executor.agents.ParallelCustomAgent;
+import ai.brokk.executor.jobs.ChildAgentArtifactSink;
 import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -103,6 +104,7 @@ public class ArchitectAgent {
     // scope is explicit so we can use its changed-files-tracking feature w/ Code Agent's results
     private final ContextManager.TaskScope scope;
     private final ResponseSchemaRegistry responseSchemaRegistry;
+    private final ChildAgentArtifactSink childAgentArtifactSink;
     // Local working context snapshot for this agent
     private Context context;
     // History of this agent's interactions
@@ -259,6 +261,30 @@ public class ArchitectAgent {
             @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture,
             IConsoleIO io,
             ResponseSchemaRegistry responseSchemaRegistry) {
+        this(
+                contextManager,
+                planningModel,
+                codeModel,
+                goal,
+                scope,
+                initialContext,
+                compressedHistoryFuture,
+                io,
+                responseSchemaRegistry,
+                ChildAgentArtifactSink.noop());
+    }
+
+    public ArchitectAgent(
+            IAppContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture,
+            IConsoleIO io,
+            ResponseSchemaRegistry responseSchemaRegistry,
+            ChildAgentArtifactSink childAgentArtifactSink) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
@@ -266,6 +292,7 @@ public class ArchitectAgent {
         this.io = io;
         this.scope = scope;
         this.responseSchemaRegistry = responseSchemaRegistry;
+        this.childAgentArtifactSink = childAgentArtifactSink;
         this.context = initialContext;
         this.compressedHistoryFuture = compressedHistoryFuture;
         this.verifyCommand = null;
@@ -975,7 +1002,7 @@ public class ArchitectAgent {
             WorkspaceTools wst = new WorkspaceTools(this.context);
             ParallelSearch parallelSearch = new ParallelSearch(context.forSearchAgent(), goal, delegatedSearchModel());
             ParallelCustomAgent parallelCustomAgent =
-                    new ParallelCustomAgent(cm, planningModel, responseSchemaRegistry);
+                    new ParallelCustomAgent(cm, planningModel, responseSchemaRegistry, childAgentArtifactSink);
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))

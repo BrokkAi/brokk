@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.ContextManager;
 import ai.brokk.Service;
 import ai.brokk.executor.JobReservation;
+import ai.brokk.executor.jobs.ChildAgentArtifact;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
@@ -138,6 +139,47 @@ class JobsRouterValidationTest {
         assertEquals(201, exchange.responseCode());
         var response = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
         assertNotNull(response.get("jobId"));
+    }
+
+    @Test
+    void getJobResult_includesTerminalStateAndChildAgentArtifacts() throws Exception {
+        var create = jobStore.createOrGetJob("idem-key-result", JobSpec.of("test task", "gpt-4"));
+        var jobId = create.jobId();
+        jobStore.updateStatus(jobId, JobStatus.queued(jobId).completed(Map.of("answer", "done")));
+        var validatedResponse = MAPPER.readTree("{\"summary\":\"structured\"}");
+        jobStore.appendChildAgentArtifact(
+                jobId,
+                new ChildAgentArtifact(
+                        jobId,
+                        "child-1",
+                        "call-1",
+                        "schema-agent",
+                        "StrictReport",
+                        ChildAgentArtifact.STATUS_SUCCESS,
+                        validatedResponse,
+                        null,
+                        null,
+                        null,
+                        12L,
+                        "stub-model",
+                        null,
+                        null,
+                        null));
+
+        var exchange = TestHttpExchange.request("GET", "/v1/jobs/" + jobId + "/result");
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        var payload = MAPPER.readTree(exchange.responseBodyBytes());
+        assertEquals(jobId, payload.get("jobId").asText());
+        assertEquals("COMPLETED", payload.get("state").asText());
+        assertTrue(payload.get("terminal").asBoolean());
+        var artifact = payload.get("childAgentArtifacts").get(0);
+        assertEquals("schema-agent", artifact.get("agentName").asText());
+        assertEquals("success", artifact.get("status").asText());
+        assertEquals(
+                "structured", artifact.get("validatedResponse").get("summary").asText());
     }
 
     @Test
@@ -1012,6 +1054,13 @@ class JobsRouterValidationTest {
             ex.uri = URI.create(path);
             ex.requestHeaders.set("Content-Type", "application/json");
             ex.requestBodyBytes = MAPPER.writeValueAsBytes(body);
+            return ex;
+        }
+
+        static TestHttpExchange request(String method, String path) {
+            var ex = new TestHttpExchange();
+            ex.method = method;
+            ex.uri = URI.create(path);
             return ex;
         }
 

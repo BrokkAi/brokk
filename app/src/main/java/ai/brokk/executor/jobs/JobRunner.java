@@ -547,6 +547,7 @@ public final class JobRunner {
                         plannerModelNameForLog,
                         codeModelNameForLog);
                 var responseSchemaRegistry = responseSchemaRegistry(spec);
+                var childAgentArtifactSink = new JobChildAgentArtifactSink(store, jobId);
 
                 // Execute within submitLlmAction to honor cancellation semantics
                 cm.setAutoCommit(spec.autoCommit());
@@ -593,7 +594,8 @@ public final class JobRunner {
                                                     scope,
                                                     cm.getIo(),
                                                     LutzAgent.ScanConfig.defaults(),
-                                                    responseSchemaRegistry);
+                                                    responseSchemaRegistry,
+                                                    childAgentArtifactSink);
                                             if (readOnly) {
                                                 searchAgent.setReadOnly(true);
                                             }
@@ -638,7 +640,8 @@ public final class JobRunner {
                                                     context,
                                                     compressedHistory,
                                                     cm.getIo(),
-                                                    responseSchemaRegistry);
+                                                    responseSchemaRegistry,
+                                                    childAgentArtifactSink);
                                             architectAgent.setAlwaysDeferBuild(true);
                                             architectAgent.setBuildToolsEnabled(false);
                                             if (mode == Mode.LITE_PLAN) {
@@ -696,7 +699,8 @@ public final class JobRunner {
                                                         scope,
                                                         cm.getIo(),
                                                         LutzAgent.ScanConfig.defaults(),
-                                                        responseSchemaRegistry);
+                                                        responseSchemaRegistry,
+                                                        childAgentArtifactSink);
                                                 if (readOnly) {
                                                     searchAgent.setReadOnly(true);
                                                 }
@@ -849,7 +853,8 @@ public final class JobRunner {
                                                     scope,
                                                     cm.getIo(),
                                                     scanConfig,
-                                                    responseSchemaRegistry);
+                                                    responseSchemaRegistry,
+                                                    childAgentArtifactSink);
                                             if (readOnly) {
                                                 searchAgent.setReadOnly(true);
                                             }
