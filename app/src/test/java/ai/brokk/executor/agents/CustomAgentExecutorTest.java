@@ -22,6 +22,9 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.json.JsonArraySchema;
+import dev.langchain4j.model.chat.request.json.JsonEnumSchema;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.output.FinishReason;
@@ -78,24 +81,31 @@ class CustomAgentExecutorTest {
     }
 
     @Test
-    void structuredFinalPromptKeepsRepairInstructionsStrictAndMinimal() {
+    void structuredFinalPromptKeepsRepairInstructionsStrictAndMinimal() throws Exception {
         var prompt = CustomAgentExecutor.formatStructuredFinalPrompt(
                 "Return a lane summary.",
                 "{\"limits\":\"only one file reviewed\"}",
-                "<workspace_toc>app.js</workspace_toc>");
+                "<workspace_toc>app.js</workspace_toc>",
+                ResponseSchemaFixtures.validResponseSchema().schema(),
+                "response.limits expected array, got string");
 
         assertTrue(prompt.contains("Return only the JSON object"));
         assertTrue(prompt.contains("Do not include markdown, commentary, copied schema, or explanation"));
         assertTrue(prompt.contains("Preserve all evidence from the candidate"));
         assertTrue(prompt.contains("Only fix JSON shape/types to match the schema"));
+        assertTrue(prompt.contains("<response_schema>"));
+        assertTrue(prompt.contains("Validation error: response.limits expected array, got string"));
+        assertTrue(prompt.contains("Array fields must remain arrays"));
+        assertTrue(prompt.contains("Unknown properties are forbidden"));
     }
 
     @Test
-    void structuredFinalRetryPromptKeepsRepairInstructionsStrictAndMinimal() {
+    void structuredFinalRetryPromptKeepsRepairInstructionsStrictAndMinimal() throws Exception {
         var prompt = CustomAgentExecutor.formatStructuredFinalRetryPrompt(
                 "Return a lane summary.",
                 "{\"limits\":\"only one file reviewed\"}",
                 "<workspace_toc>app.js</workspace_toc>",
+                ResponseSchemaFixtures.validResponseSchema().schema(),
                 "{\"limits\":\"only one file reviewed\"}",
                 "response.limits expected array, got string");
 
@@ -103,6 +113,10 @@ class CustomAgentExecutorTest {
         assertTrue(prompt.contains("Do not include markdown, commentary, copied schema, or explanation"));
         assertTrue(prompt.contains("Preserve all evidence from the candidate"));
         assertTrue(prompt.contains("Only fix JSON shape/types to match the schema"));
+        assertTrue(prompt.contains("<response_schema>"));
+        assertTrue(prompt.contains("Validation error: response.limits expected array, got string"));
+        assertTrue(prompt.contains("Enum fields must use only declared enum values"));
+        assertTrue(prompt.contains("Do not invent prose"));
     }
 
     @Test
@@ -125,6 +139,30 @@ class CustomAgentExecutorTest {
                 model.requests.stream()
                         .filter(request -> request.parameters().responseFormat() != null)
                         .count());
+    }
+
+    @Test
+    void schemaBackedExecutionPreservesStrictArrayObjectSchemaInResponseFormat() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = "{\"role\":null}";
+        model.structuredResponse = validLaneJson();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, new RecordingConsoleIO(), specialistSchema());
+
+        var result = executor.executeInterruptibly("Return a strict lane summary.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        var responseFormat = model.requests.get(1).parameters().responseFormat();
+        assertTrue(responseFormat != null);
+        var root = (JsonObjectSchema) responseFormat.jsonSchema().rootElement();
+        assertEquals(
+                List.of("role", "tool_call_count", "completion_reason", "tried", "found", "looked", "limits"),
+                root.required());
+        assertEquals(Boolean.FALSE, root.additionalProperties());
+        var found = (JsonArraySchema) root.properties().get("found");
+        var foundItem = (JsonObjectSchema) found.items();
+        assertEquals(Boolean.FALSE, foundItem.additionalProperties());
+        assertTrue(foundItem.properties().get("confidence") instanceof JsonEnumSchema);
+        assertEquals(List.of("confidence", "metric_value", "path", "metric_source"), foundItem.required());
     }
 
     @Test
@@ -185,7 +223,9 @@ class CustomAgentExecutorTest {
                 """
                 {
                   "role": "code-quality-comment-intent",
+                  "tool_call_count": 9,
                   "completion_reason": "done",
+                  "tried": ["reportCommentDensityForFiles"],
                   "found": [{
                     "confidence": 1.0,
                     "metric_value": 0,
@@ -193,6 +233,7 @@ class CustomAgentExecutorTest {
                     "metric_source": "reportCommentDensityForFiles",
                     "extra": "drop me"
                   }],
+                  "looked": ["app.js"],
                   "limits": "only app.js reviewed"
                 }
                 """
@@ -228,13 +269,16 @@ class CustomAgentExecutorTest {
                 """
                 {
                   "role": "code-quality-comment-intent",
+                  "tool_call_count": 9,
                   "completion_reason": "done",
+                  "tried": ["reportCommentDensityForFiles"],
                   "found": {
                     "confidence": 1.0,
                     "metric_value": 0,
                     "path": "app.js",
                     "metric_source": "reportCommentDensityForFiles"
                   },
+                  "looked": ["app.js"],
                   "limits": ["only app.js reviewed"]
                 }
                 """
@@ -252,6 +296,178 @@ class CustomAgentExecutorTest {
         assertEquals("high", output.get("found").get(0).get("confidence").textValue());
         assertEquals("app.js", output.get("found").get(0).get("path").textValue());
         assertEquals(List.of(result.stopDetails().explanation()), io.outputs);
+    }
+
+    @Test
+    void schemaBackedExecutionRepairsArrayAliasFieldWithoutLlmRepair() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText =
+                """
+                {
+                  "role": "code-quality-comment-intent",
+                  "tool_call_count": 9,
+                  "completion_reason": "done",
+                  "tried": ["reportCommentDensityForFiles"],
+                  "found_items": [{
+                    "confidence": "high",
+                    "metric_value": 0,
+                    "path": "app.js",
+                    "metric_source": "reportCommentDensityForFiles"
+                  }],
+                  "looked": ["app.js"],
+                  "limits": ["only app.js reviewed"]
+                }
+                """
+                        .stripIndent();
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, specialistSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals(1, model.requests.size());
+        var output = Json.getMapper().readTree(result.stopDetails().explanation());
+        assertTrue(output.get("found").isArray());
+        assertFalse(output.has("found_items"));
+        assertEquals("0", output.get("found").get(0).get("metric_value").textValue());
+    }
+
+    @Test
+    void schemaBackedExecutionRepairsFlattenedArrayObjectFieldsWithoutLlmRepair() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText =
+                """
+                {
+                  "role": "code-quality-comment-intent",
+                  "tool_call_count": 9,
+                  "completion_reason": "done",
+                  "tried": ["reportCommentDensityForFiles"],
+                  "found_confidence": "high confidence",
+                  "found_metric_value": 0,
+                  "found_path": "app.js",
+                  "found_metric_source": "reportCommentDensityForFiles",
+                  "looked": ["app.js"],
+                  "limits": ["only app.js reviewed"]
+                }
+                """
+                        .stripIndent();
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, specialistSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals(1, model.requests.size());
+        var output = Json.getMapper().readTree(result.stopDetails().explanation());
+        assertEquals("high", output.get("found").get(0).get("confidence").textValue());
+        assertEquals("0", output.get("found").get(0).get("metric_value").textValue());
+        assertFalse(output.has("found_path"));
+    }
+
+    @Test
+    void schemaBackedExecutionSalvagesInvalidStringItemsAfterLlmRepairFails() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = laneJsonWithFound("[\"status\", \"confidence\"]");
+        model.structuredResponses.add(laneJsonWithFound("[\"status\", \"confidence\"]"));
+        model.structuredResponses.add(laneJsonWithFound("[\"status\", \"confidence\"]"));
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, specialistSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals(3, model.requests.size());
+        var output = Json.getMapper().readTree(result.stopDetails().explanation());
+        assertTrue(output.get("found").isArray());
+        assertEquals(0, output.get("found").size());
+    }
+
+    @Test
+    void schemaBackedExecutionNormalizesVerboseConfidenceOnlyUnderEnumSchema() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = laneJsonWithFound(
+                """
+                [{
+                  "confidence": "high confidence",
+                  "metric_value": 0,
+                  "path": "app.js",
+                  "metric_source": "reportCommentDensityForFiles"
+                }]
+                """
+                        .stripIndent());
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, specialistSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals(1, model.requests.size());
+        var output = Json.getMapper().readTree(result.stopDetails().explanation());
+        assertEquals("high", output.get("found").get(0).get("confidence").textValue());
+    }
+
+    @Test
+    void schemaBackedExecutionRejectsUnsupportedConfidenceWithRepairTrace() throws Exception {
+        setUpHarness(true);
+        var invalid = laneJsonWithFound(
+                """
+                [{
+                  "confidence": "certain",
+                  "metric_value": "0",
+                  "path": "app.js",
+                  "metric_source": "reportCommentDensityForFiles"
+                }]
+                """
+                        .stripIndent());
+        model.terminalAnswerText = invalid;
+        model.structuredResponses.add(invalid);
+        model.structuredResponses.add(invalid);
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, specialistSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.LLM_ERROR, result.stopDetails().reason());
+        assertTrue(result.stopDetails().explanation().contains("RESPONSE_SCHEMA_OUTPUT_INVALID"));
+        assertTrue(result.stopDetails().explanation().contains("originalValidation=response.found[0].confidence"));
+        assertTrue(result.stopDetails().explanation().contains("finalValidation=response.found[0].confidence"));
+        assertTrue(result.stopDetails().explanation().contains("llmRepairAttempted=true"));
+        assertTrue(result.stopDetails().explanation().contains("salvageAttempted=true"));
+        assertTrue(io.outputs.isEmpty());
+    }
+
+    @Test
+    void schemaBackedExecutionSalvagesFlattenedLlmRepairOutputInsteadOfAcceptingIt() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = "{\"role\":null}";
+        var flattened =
+                """
+                {
+                  "role": "code-quality-comment-intent",
+                  "tool_call_count": 9,
+                  "completion_reason": "done",
+                  "tried": ["reportCommentDensityForFiles"],
+                  "found_confidence": "high",
+                  "found_metric_value": 0,
+                  "found_path": "app.js",
+                  "found_metric_source": "reportCommentDensityForFiles",
+                  "looked": ["app.js"],
+                  "limits": ["only app.js reviewed"]
+                }
+                """
+                        .stripIndent();
+        model.structuredResponses.add(flattened);
+        model.structuredResponses.add(flattened);
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, specialistSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals(3, model.requests.size());
+        var output = Json.getMapper().readTree(result.stopDetails().explanation());
+        assertFalse(output.has("found_path"));
+        assertEquals("app.js", output.get("found").get(0).get("path").textValue());
     }
 
     @Test
@@ -466,6 +682,35 @@ class CustomAgentExecutorTest {
                 "schema-agent", "desc", List.of("answer"), 1, "You are a custom test agent.", "project");
     }
 
+    private static String validLaneJson() {
+        return laneJsonWithFound(
+                """
+                [{
+                  "confidence": "high",
+                  "metric_value": "0",
+                  "path": "app.js",
+                  "metric_source": "reportCommentDensityForFiles"
+                }]
+                """
+                        .stripIndent());
+    }
+
+    private static String laneJsonWithFound(String foundJson) {
+        return """
+                {
+                  "role": "code-quality-comment-intent",
+                  "tool_call_count": 9,
+                  "completion_reason": "done",
+                  "tried": ["reportCommentDensityForFiles"],
+                  "found": %s,
+                  "looked": ["app.js"],
+                  "limits": ["only app.js reviewed"]
+                }
+                """
+                .formatted(foundJson)
+                .stripIndent();
+    }
+
     private static JobSpec.ResponseSchema specialistSchema() throws Exception {
         return new JobSpec.ResponseSchema(
                 "SlopCopSpecialist",
@@ -476,7 +721,12 @@ class CustomAgentExecutorTest {
                                   "type": "object",
                                   "properties": {
                                     "role": { "type": "string" },
+                                    "tool_call_count": { "type": "integer" },
                                     "completion_reason": { "type": "string" },
+                                    "tried": {
+                                      "type": "array",
+                                      "items": { "type": "string" }
+                                    },
                                     "found": {
                                       "type": "array",
                                       "items": {
@@ -494,9 +744,13 @@ class CustomAgentExecutorTest {
                                     "limits": {
                                       "type": "array",
                                       "items": { "type": "string" }
+                                    },
+                                    "looked": {
+                                      "type": "array",
+                                      "items": { "type": "string" }
                                     }
                                   },
-                                  "required": ["role", "completion_reason", "found", "limits"],
+                                  "required": ["role", "tool_call_count", "completion_reason", "tried", "found", "looked", "limits"],
                                   "additionalProperties": false
                                 }
                                 """));

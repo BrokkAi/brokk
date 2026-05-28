@@ -24,6 +24,7 @@ import ai.brokk.issues.GitHubIssueService;
 import ai.brokk.issues.IssueHeader;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Json;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ReviewParser;
 import dev.langchain4j.data.message.ChatMessage;
@@ -1696,6 +1697,7 @@ public final class JobRunner {
         Llm.StreamingResult response = null;
         var activeMessages = messages;
         var maxAttempts = responseSchema == null ? 1 : 2;
+        JobLevelSchemaRepairTrace schemaRepairTrace = null;
         try {
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 response = responseFormat == null
@@ -1715,8 +1717,18 @@ public final class JobRunner {
                 if (validationError.isEmpty()) {
                     break;
                 }
+                if (schemaRepairTrace == null) {
+                    schemaRepairTrace = new JobLevelSchemaRepairTrace(
+                            responseSchema.name(), validationError.get(), response.text());
+                }
+                schemaRepairTrace.attempts = attempt;
+                schemaRepairTrace.finalValidationError = validationError.get();
+                schemaRepairTrace.invalidOutput = response.text();
+                schemaRepairTrace.finishReason = finishReason(response);
                 if (attempt == maxAttempts) {
-                    throw new IllegalArgumentException("RESPONSE_SCHEMA_OUTPUT_INVALID: " + validationError.get());
+                    var message = schemaRepairTrace.failureMessage();
+                    logger.warn("Job-level response schema repair failed: {}", message);
+                    throw new IllegalArgumentException(message);
                 }
                 activeMessages = directAnswerSchemaRepairMessages(
                         messages, responseSchema, question, response.text(), validationError.get());
@@ -1735,6 +1747,45 @@ public final class JobRunner {
 
         ctx = ctx.addHistoryEntry(llmRawMessagesOrEmpty(), TaskResult.Type.ASK, model, question);
         return new TaskResult(ctx, stop);
+    }
+
+    private static final class JobLevelSchemaRepairTrace {
+        private final String schemaName;
+        private final String originalValidationError;
+        private final String initialInvalidOutput;
+        private int attempts;
+        private String finalValidationError;
+        private String finishReason = "unknown";
+        private String invalidOutput;
+
+        private JobLevelSchemaRepairTrace(
+                String schemaName, String originalValidationError, String initialInvalidOutput) {
+            this.schemaName = schemaName;
+            this.originalValidationError = originalValidationError;
+            this.initialInvalidOutput = initialInvalidOutput;
+            this.finalValidationError = originalValidationError;
+            this.invalidOutput = initialInvalidOutput;
+        }
+
+        private String failureMessage() {
+            return "RESPONSE_SCHEMA_OUTPUT_INVALID: schema=%s validation=%s originalValidation=%s attempts=%d finishReason=%s initialInvalidOutputExcerpt=%s invalidOutputExcerpt=%s"
+                    .formatted(
+                            schemaName,
+                            finalValidationError,
+                            originalValidationError,
+                            attempts,
+                            finishReason,
+                            abbreviateInvalidSchemaOutput(initialInvalidOutput),
+                            abbreviateInvalidSchemaOutput(invalidOutput));
+        }
+    }
+
+    private static String finishReason(Llm.StreamingResult response) {
+        var originalResponse = response.originalResponse();
+        if (originalResponse == null || originalResponse.finishReason() == null) {
+            return "unknown";
+        }
+        return originalResponse.finishReason().name();
     }
 
     private static List<ChatMessage> directAnswerSchemaRepairMessages(
@@ -1757,8 +1808,13 @@ public final class JobRunner {
                 %s
                 </invalid_previous_response>
 
+                <response_schema>
+                %s
+                </response_schema>
+
                 Return only a complete JSON object matching the `%s` response schema.
-                Include every required top-level field and every required nested field.
+                Include every required top-level field and every required nested field from the schema.
+                If the schema requires `metadata`, the root object must include `metadata`.
                 If the schema expects an object, emit an object; if it expects an array, emit an array.
                 Use empty arrays for unavailable array evidence and concise strings for sparse required prose fields.
                 Do not return markdown, fenced JSON, explanations, or legacy component wrappers.
@@ -1768,6 +1824,7 @@ public final class JobRunner {
                                 validationError,
                                 question,
                                 abbreviateInvalidSchemaOutput(invalidOutput),
+                                abbreviateInvalidSchemaOutput(Json.toJson(responseSchema.schema())),
                                 responseSchema.name())));
         return messages;
     }

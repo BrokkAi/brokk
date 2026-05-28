@@ -13,6 +13,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestService;
+import ai.brokk.util.Json;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -214,7 +215,9 @@ class JobRunnerResponseSchemaTest {
                 .singleText();
         assertTrue(retryRequestText.contains("response.summary"));
         assertTrue(retryRequestText.contains("<invalid_previous_response>"));
+        assertTrue(retryRequestText.contains("<response_schema>"));
         assertTrue(retryRequestText.contains("Include every required top-level field"));
+        assertTrue(retryRequestText.contains("If the schema requires `metadata`"));
     }
 
     @Test
@@ -231,7 +234,12 @@ class JobRunnerResponseSchemaTest {
             cause = cause.getCause();
         }
         assertTrue(cause.getMessage().contains("RESPONSE_SCHEMA_OUTPUT_INVALID"), cause.getMessage());
+        assertTrue(cause.getMessage().contains("schema=StrictReport"), cause.getMessage());
         assertTrue(cause.getMessage().contains("response.summary is required"), cause.getMessage());
+        assertTrue(cause.getMessage().contains("attempts=2"), cause.getMessage());
+        assertTrue(cause.getMessage().contains("finishReason=unknown"), cause.getMessage());
+        assertTrue(cause.getMessage().contains("initialInvalidOutputExcerpt={\"summary\":null}"), cause.getMessage());
+        assertTrue(cause.getMessage().contains("invalidOutputExcerpt={\"summary\":null}"), cause.getMessage());
         assertEquals(
                 JobStatus.State.FAILED.name(),
                 requireNonNull(store.loadStatus("ask-schema-invalid-output-final"))
@@ -241,6 +249,44 @@ class JobRunnerResponseSchemaTest {
                 model.requests.stream()
                         .filter(request -> request.parameters().responseFormat() != null)
                         .count());
+    }
+
+    @Test
+    void reportOnlySchemaFailureIncludesMetadataValidationAndMalformedOutputExcerpt() throws Exception {
+        model.structuredResponse = "{\"summary\":\"wrong shape\"}";
+        var spec = spec(
+                Map.of(), new JobSpec.ExecutionPolicy(JobSpec.ExecutionPolicyPreset.REPORT_ONLY), synthesisSchema());
+
+        var thrown = assertThrows(ExecutionException.class, () -> runner.runAsync(
+                        "report-schema-invalid-output-final", spec, new RawMessagesConsole())
+                .get(5, TimeUnit.SECONDS));
+
+        var cause = rootCause(thrown);
+        assertTrue(cause.getMessage().contains("RESPONSE_SCHEMA_OUTPUT_INVALID"), cause.getMessage());
+        assertTrue(cause.getMessage().contains("schema=SlopCopFinalSynthesis"), cause.getMessage());
+        assertTrue(cause.getMessage().contains("validation=response.metadata is required"), cause.getMessage());
+        assertTrue(
+                cause.getMessage().contains("invalidOutputExcerpt={\"summary\":\"wrong shape\"}"), cause.getMessage());
+        assertEquals(
+                JobStatus.State.FAILED.name(),
+                requireNonNull(store.loadStatus("report-schema-invalid-output-final"))
+                        .state());
+    }
+
+    @Test
+    void schemaBackedDirectAnswerFailureTruncatesInvalidOutputExcerpt() throws Exception {
+        var longValue = "x".repeat(7_000);
+        model.structuredResponse = "{\"summary\":\"" + longValue + "\"}";
+        var spec = spec(Map.of("mode", "ASK"), null, synthesisSchema());
+
+        var thrown = assertThrows(ExecutionException.class, () -> runner.runAsync(
+                        "ask-schema-invalid-output-truncated", spec, new RawMessagesConsole())
+                .get(5, TimeUnit.SECONDS));
+
+        var cause = rootCause(thrown);
+        assertTrue(cause.getMessage().contains("RESPONSE_SCHEMA_OUTPUT_INVALID"), cause.getMessage());
+        assertTrue(cause.getMessage().contains("[truncated invalid response: "), cause.getMessage());
+        assertTrue(cause.getMessage().contains("chars omitted]"), cause.getMessage());
     }
 
     private static JobSpec spec(
@@ -274,6 +320,39 @@ class JobRunnerResponseSchemaTest {
                 .filter(request -> request.parameters().responseFormat() != null)
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private static Throwable rootCause(Throwable throwable) {
+        var cause = requireNonNull(throwable.getCause());
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return cause;
+    }
+
+    private static JobSpec.ResponseSchema synthesisSchema() throws Exception {
+        return new JobSpec.ResponseSchema(
+                "SlopCopFinalSynthesis",
+                Json.getMapper()
+                        .readTree(
+                                """
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metadata": {
+                                      "type": "object",
+                                      "properties": {
+                                        "scan_id": { "type": "string" }
+                                      },
+                                      "required": ["scan_id"],
+                                      "additionalProperties": false
+                                    },
+                                    "summary": { "type": "string" }
+                                  },
+                                  "required": ["metadata", "summary"],
+                                  "additionalProperties": false
+                                }
+                                """));
     }
 
     private static final class CapturingService extends TestService {
