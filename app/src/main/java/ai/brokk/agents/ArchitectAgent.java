@@ -892,11 +892,11 @@ public class ArchitectAgent {
             // Handle read-only custom agent requests in parallel
             if (!readOnlyCustomAgentReqs.isEmpty()) {
                 var customResult = parallelCustomAgent.execute(readOnlyCustomAgentReqs, tr);
+                architectMessages.addAll(customResult.toolExecutionMessages());
                 if (customResult.stopDetails().reason() == StopReason.LLM_ERROR) {
                     return resultWithMessages(
                             StopReason.LLM_ERROR, customResult.stopDetails().explanation());
                 }
-                architectMessages.addAll(customResult.toolExecutionMessages());
             }
 
             // code agent calls are done serially

@@ -148,6 +148,37 @@ class CustomAgentExecutorTest {
     }
 
     @Test
+    void schemaBackedExecutionAcceptsValidExplanationTextEnvelopeWithoutRewrite() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = Json.toJson(Map.of("explanation", "{\"summary\":\"from-envelope\"}"));
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals("{\"summary\":\"from-envelope\"}", result.stopDetails().explanation());
+        assertEquals(List.of("{\"summary\":\"from-envelope\"}"), io.outputs);
+        assertEquals(1, model.requests.size());
+    }
+
+    @Test
+    void schemaBackedExecutionAcceptsValidExplanationObjectEnvelopeWithoutRewrite() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = Json.toJson(Map.of("explanation", Map.of("summary", "from-object")));
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        var output = Json.getMapper().readTree(result.stopDetails().explanation());
+        assertEquals("from-object", output.get("summary").textValue());
+        assertEquals(List.of(result.stopDetails().explanation()), io.outputs);
+        assertEquals(1, model.requests.size());
+    }
+
+    @Test
     void schemaBackedExecutionDeterministicallyNormalizesTerminalJsonWithoutRewrite() throws Exception {
         setUpHarness(true);
         model.terminalAnswerText =
@@ -191,6 +222,39 @@ class CustomAgentExecutorTest {
     }
 
     @Test
+    void schemaBackedExecutionWrapsObjectWhenSchemaExpectsArray() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText =
+                """
+                {
+                  "role": "code-quality-comment-intent",
+                  "completion_reason": "done",
+                  "found": {
+                    "confidence": 1.0,
+                    "metric_value": 0,
+                    "path": "app.js",
+                    "metric_source": "reportCommentDensityForFiles"
+                  },
+                  "limits": ["only app.js reviewed"]
+                }
+                """
+                        .stripIndent();
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, specialistSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals(1, model.requests.size());
+        var output = Json.getMapper().readTree(result.stopDetails().explanation());
+        assertTrue(output.get("found").isArray());
+        assertEquals("0", output.get("found").get(0).get("metric_value").textValue());
+        assertEquals("high", output.get("found").get(0).get("confidence").textValue());
+        assertEquals("app.js", output.get("found").get(0).get("path").textValue());
+        assertEquals(List.of(result.stopDetails().explanation()), io.outputs);
+    }
+
+    @Test
     void schemaBackedExecutionStillRepairsInvalidTerminalJson() throws Exception {
         setUpHarness(true);
         model.terminalAnswerText = "{\"summary\":null}";
@@ -209,6 +273,40 @@ class CustomAgentExecutorTest {
                 model.requests.stream()
                         .filter(request -> request.parameters().responseFormat() != null)
                         .count());
+    }
+
+    @Test
+    void schemaBackedExecutionRepairsExtractedCandidateInsteadOfAnswerEnvelope() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = Json.toJson(Map.of("explanation", "{\"summary\":null}"));
+        model.structuredResponse = "{\"summary\":\"repaired\"}";
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals("{\"summary\":\"repaired\"}", result.stopDetails().explanation());
+        assertEquals(2, model.requests.size());
+        var repairRequestText = ((UserMessage) model.requests.get(1).messages().get(1)).singleText();
+        assertTrue(repairRequestText.contains("<custom_agent_final_notes>\n{\"summary\":null}"));
+        assertFalse(repairRequestText.contains("\"explanation\""));
+    }
+
+    @Test
+    void schemaBackedExecutionReportsMissingSchemaAnswerCandidate() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = " ";
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.LLM_ERROR, result.stopDetails().reason());
+        assertTrue(result.stopDetails().explanation().contains("RESPONSE_SCHEMA_OUTPUT_MISSING"));
+        assertTrue(result.stopDetails().explanation().contains("schema=StrictReport"));
+        assertTrue(io.outputs.isEmpty());
+        assertEquals(1, model.requests.size());
     }
 
     @Test

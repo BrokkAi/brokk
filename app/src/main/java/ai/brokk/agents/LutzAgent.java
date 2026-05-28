@@ -1176,6 +1176,7 @@ public class LutzAgent {
             // Handle read-only custom agent requests in parallel
             if (!readOnlyCustomAgentReqs.isEmpty()) {
                 var customResult = parallelCustomAgent.execute(readOnlyCustomAgentReqs, tr);
+                sessionMessages.addAll(customResult.toolExecutionMessages());
                 if (customResult.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
                     return new TurnOutcome.Final(agent.errorResult(
                             new TaskResult.StopDetails(
@@ -1183,7 +1184,6 @@ public class LutzAgent {
                                     customResult.stopDetails().explanation()),
                             context));
                 }
-                sessionMessages.addAll(customResult.toolExecutionMessages());
 
                 executedNonHygiene = true;
                 nonHygieneToolCalls.addAll(readOnlyCustomAgentReqs.stream()

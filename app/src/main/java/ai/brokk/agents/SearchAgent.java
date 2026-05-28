@@ -335,13 +335,13 @@ public class SearchAgent {
                 if (!readOnlyCustomAgentReqs.isEmpty()) {
                     readOnlyCustomAgentReqs.forEach(req -> metrics.recordToolCall(req.name()));
                     var customResult = parallelCustomAgent.execute(readOnlyCustomAgentReqs, toolRegistry);
+                    messages.addAll(customResult.toolExecutionMessages());
                     if (customResult.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
                         cancelOutstandingParallelFutures.run();
                         return errorResult(new TaskResult.StopDetails(
                                 TaskResult.StopReason.LLM_ERROR,
                                 customResult.stopDetails().explanation()));
                     }
-                    messages.addAll(customResult.toolExecutionMessages());
                 }
 
                 previousTurnAdditions = List.copyOf(additionsThisTurn);

@@ -60,6 +60,8 @@ public class CustomAgentExecutor {
 
     private record TerminalStopOutput(String llmText, TaskResult.StopDetails stopDetails) implements ToolOutput {}
 
+    private record SchemaCandidate(String source, String json) {}
+
     private record NormalizedCandidate(String json, List<String> changes) {}
 
     private static final Set<String> TERMINAL_TOOL_NAMES = Set.of("answer", "abortSearch");
@@ -237,7 +239,6 @@ public class CustomAgentExecutor {
                     }
                 }
                 llm.recordToolExecution(toolResult);
-                messages.add(toolResult.toMessage());
 
                 if (toolResult.result() instanceof WorkspaceTools.WorkspaceMutationOutput output) {
                     context = output.context();
@@ -262,6 +263,8 @@ public class CustomAgentExecutor {
                     }
                     return new TaskResult(context, tso.stopDetails());
                 }
+
+                messages.add(toolResult.toMessage());
             }
 
             previousTurnAdditions = List.copyOf(additionsThisTurn);
@@ -272,26 +275,51 @@ public class CustomAgentExecutor {
 
     private TaskResult structuredFinalAnswer(String taskInput, String finalNotes) throws InterruptedException {
         var schema = Objects.requireNonNull(responseSchema);
-        var directCandidate = extractTerminalSchemaCandidate(finalNotes);
-        var directValidationError = JobResponseSchemaSupport.validateOutput(schema, directCandidate);
-        if (directValidationError.isEmpty()) {
-            io.llmOutput(directCandidate, ChatMessageType.AI, LlmOutputMeta.newMessage());
-            return new TaskResult(context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, directCandidate));
+        var candidates = schemaCandidates(finalNotes);
+        if (candidates.isEmpty()) {
+            return new TaskResult(
+                    context,
+                    new TaskResult.StopDetails(
+                            TaskResult.StopReason.LLM_ERROR,
+                            "RESPONSE_SCHEMA_OUTPUT_MISSING: schema=%s candidateSource=none".formatted(schema.name())));
         }
-        var normalizedCandidate = deterministicNormalize(schema, directCandidate);
-        if (normalizedCandidate != null) {
-            var normalizedValidationError = JobResponseSchemaSupport.validateOutput(schema, normalizedCandidate.json());
-            if (normalizedValidationError.isEmpty()) {
-                logger.info(
-                        "Schema-aware custom-agent terminal output normalized deterministically for schema {}: {}",
-                        schema.name(),
-                        normalizedCandidate.changes());
-                io.llmOutput(normalizedCandidate.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
+
+        var validationErrors = new LinkedHashMap<String, String>();
+        for (var candidate : candidates) {
+            var validationError = JobResponseSchemaSupport.validateOutput(schema, candidate.json());
+            if (validationError.isEmpty()) {
+                io.llmOutput(candidate.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
                 return new TaskResult(
-                        context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, normalizedCandidate.json()));
+                        context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, candidate.json()));
+            }
+            validationErrors.put(candidate.source(), validationError.get());
+        }
+
+        var repairCandidates = repairCandidateOrder(candidates);
+        boolean deterministicRepairAttempted = false;
+        for (var candidate : repairCandidates) {
+            deterministicRepairAttempted = true;
+            var normalizedCandidate = deterministicNormalize(schema, candidate.json());
+            if (normalizedCandidate != null) {
+                var normalizedValidationError =
+                        JobResponseSchemaSupport.validateOutput(schema, normalizedCandidate.json());
+                if (normalizedValidationError.isEmpty()) {
+                    logger.info(
+                            "Schema-aware custom-agent terminal output normalized deterministically for schema {} from {}: {}",
+                            schema.name(),
+                            candidate.source(),
+                            normalizedCandidate.changes());
+                    io.llmOutput(normalizedCandidate.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
+                    return new TaskResult(
+                            context,
+                            new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, normalizedCandidate.json()));
+                }
             }
         }
 
+        var repairCandidate = repairCandidates.getFirst();
+        var initialValidationError =
+                validationErrors.getOrDefault(repairCandidate.source(), "unknown validation error");
         var structuredLlm = cm.getLlm(
                 new Llm.Options(model, agentDef.name() + " structured answer", TaskResult.Type.SEARCH).withEcho());
         structuredLlm.setOutput(io);
@@ -300,7 +328,7 @@ public class CustomAgentExecutor {
         var toc = WorkspacePrompts.formatToc(context).trim();
         var messages = List.<ChatMessage>of(
                 new SystemMessage(agentDef.systemPrompt()),
-                new UserMessage(formatStructuredFinalPrompt(taskInput, finalNotes, toc)));
+                new UserMessage(formatStructuredFinalPrompt(taskInput, repairCandidate.json(), toc)));
 
         String structuredText = "";
         for (int attempt = 1; attempt <= 2; attempt++) {
@@ -323,8 +351,9 @@ public class CustomAgentExecutor {
                                 TaskResult.StopReason.LLM_ERROR,
                                 repairFailureMessage(
                                         schema,
-                                        directValidationError.orElse("unknown validation error"),
-                                        normalizedCandidate != null,
+                                        repairCandidate.source(),
+                                        initialValidationError,
+                                        deterministicRepairAttempted,
                                         true,
                                         "LENGTH",
                                         structuredText)));
@@ -344,8 +373,9 @@ public class CustomAgentExecutor {
                                 TaskResult.StopReason.LLM_ERROR,
                                 repairFailureMessage(
                                         schema,
+                                        repairCandidate.source(),
                                         validationError.get(),
-                                        normalizedCandidate != null,
+                                        deterministicRepairAttempted,
                                         true,
                                         "complete",
                                         structuredText)));
@@ -355,7 +385,7 @@ public class CustomAgentExecutor {
                     new SystemMessage(agentDef.systemPrompt()),
                     new UserMessage(formatStructuredFinalRetryPrompt(
                             taskInput,
-                            finalNotes,
+                            repairCandidate.json(),
                             toc,
                             abbreviateInvalidOutput(structuredText),
                             validationError.get())));
@@ -364,17 +394,44 @@ public class CustomAgentExecutor {
         throw new IllegalStateException("unreachable structured answer retry state");
     }
 
-    private static String extractTerminalSchemaCandidate(String finalNotes) {
+    static List<SchemaCandidate> schemaCandidates(String finalNotes) {
+        var candidates = new ArrayList<SchemaCandidate>();
+        var raw = finalNotes.trim();
+        if (!raw.isBlank()) {
+            candidates.add(new SchemaCandidate("raw", raw));
+        }
+
         try {
             var node = Json.getMapper().readTree(finalNotes);
             var explanation = node.get("explanation");
             if (explanation != null && explanation.isTextual()) {
-                return explanation.asText().trim();
+                var text = explanation.asText().trim();
+                if (!text.isBlank()) {
+                    candidates.add(new SchemaCandidate("answer.explanation.text", text));
+                }
+            } else if (explanation != null && explanation.isObject()) {
+                candidates.add(new SchemaCandidate("answer.explanation.object", Json.toJson(explanation)));
             }
         } catch (Exception ignored) {
-            // Not an answer-tool envelope. Validate the raw text below.
+            // Not an answer-tool envelope. Validate the raw text above.
         }
-        return finalNotes.trim();
+
+        return candidates.stream().distinct().toList();
+    }
+
+    private static List<SchemaCandidate> repairCandidateOrder(List<SchemaCandidate> candidates) {
+        var extracted = candidates.stream()
+                .filter(candidate -> !"raw".equals(candidate.source()))
+                .toList();
+        if (extracted.isEmpty()) {
+            return candidates;
+        }
+
+        var ordered = new ArrayList<>(extracted);
+        candidates.stream()
+                .filter(candidate -> "raw".equals(candidate.source()))
+                .forEach(ordered::add);
+        return List.copyOf(ordered);
     }
 
     private static @Nullable NormalizedCandidate deterministicNormalize(
@@ -456,14 +513,10 @@ public class CustomAgentExecutor {
             return array;
         }
 
-        if (!value.isObject()) {
-            var array = Json.getMapper().createArrayNode();
-            array.add(items == null ? value : normalizeNode(value, items, path + "[0]", propertyName, changes));
-            changes.add(path + " scalar -> array");
-            return array;
-        }
-
-        return value;
+        var array = Json.getMapper().createArrayNode();
+        array.add(items == null ? value : normalizeNode(value, items, path + "[0]", propertyName, changes));
+        changes.add(path + " " + outputType(value) + " -> array");
+        return array;
     }
 
     private static JsonNode normalizeString(
@@ -584,14 +637,16 @@ public class CustomAgentExecutor {
 
     private static String repairFailureMessage(
             JobSpec.ResponseSchema schema,
+            String candidateSource,
             String validationError,
             boolean deterministicRepairAttempted,
             boolean llmRepairAttempted,
             String finishReason,
             String invalidOutput) {
-        return "RESPONSE_SCHEMA_OUTPUT_INVALID: schema=%s validation=%s deterministicRepairAttempted=%s llmRepairAttempted=%s finishReason=%s invalidOutputExcerpt=%s"
+        return "RESPONSE_SCHEMA_OUTPUT_INVALID: schema=%s candidateSource=%s validation=%s deterministicRepairAttempted=%s llmRepairAttempted=%s finishReason=%s invalidOutputExcerpt=%s"
                 .formatted(
                         schema.name(),
+                        candidateSource,
                         validationError,
                         deterministicRepairAttempted,
                         llmRepairAttempted,
@@ -741,6 +796,6 @@ public class CustomAgentExecutor {
         if (responseFormat == null) {
             io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
         }
-        return new TerminalStopOutput(details, stopDetails);
+        return new TerminalStopOutput(responseFormat == null ? details : explanation, stopDetails);
     }
 }
