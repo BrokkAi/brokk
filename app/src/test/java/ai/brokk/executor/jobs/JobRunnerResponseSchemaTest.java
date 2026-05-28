@@ -23,6 +23,7 @@ import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -187,12 +188,42 @@ class JobRunnerResponseSchemaTest {
     }
 
     @Test
-    void schemaBackedDirectAnswerInvalidOutputFailsJob() throws Exception {
+    void schemaBackedDirectAnswerInvalidOutputRetriesWithSchemaFeedback() throws Exception {
+        model.structuredResponses.add("{\"summary\":null}");
+        model.structuredResponses.add("{\"summary\":\"repaired\"}");
+        var spec = spec(Map.of("mode", "ASK"), null, ResponseSchemaFixtures.validResponseSchema());
+
+        runner.runAsync("ask-schema-invalid-output", spec, new RawMessagesConsole())
+                .get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                JobStatus.State.COMPLETED.name(),
+                requireNonNull(store.loadStatus("ask-schema-invalid-output")).state());
+        assertEquals(
+                2,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
+        var responseFormatRequests = model.requests.stream()
+                .filter(request -> request.parameters().responseFormat() != null)
+                .toList();
+        var retryRequestText = ((dev.langchain4j.data.message.UserMessage) responseFormatRequests
+                        .get(1)
+                        .messages()
+                        .get(responseFormatRequests.get(1).messages().size() - 1))
+                .singleText();
+        assertTrue(retryRequestText.contains("response.summary"));
+        assertTrue(retryRequestText.contains("<invalid_previous_response>"));
+        assertTrue(retryRequestText.contains("Include every required top-level field"));
+    }
+
+    @Test
+    void schemaBackedDirectAnswerInvalidOutputFailsAfterRepairAttempt() throws Exception {
         model.structuredResponse = "{\"summary\":null}";
         var spec = spec(Map.of("mode", "ASK"), null, ResponseSchemaFixtures.validResponseSchema());
 
         var thrown = assertThrows(ExecutionException.class, () -> runner.runAsync(
-                        "ask-schema-invalid-output", spec, new RawMessagesConsole())
+                        "ask-schema-invalid-output-final", spec, new RawMessagesConsole())
                 .get(5, TimeUnit.SECONDS));
 
         var cause = requireNonNull(thrown.getCause());
@@ -203,7 +234,13 @@ class JobRunnerResponseSchemaTest {
         assertTrue(cause.getMessage().contains("response.summary is required"), cause.getMessage());
         assertEquals(
                 JobStatus.State.FAILED.name(),
-                requireNonNull(store.loadStatus("ask-schema-invalid-output")).state());
+                requireNonNull(store.loadStatus("ask-schema-invalid-output-final"))
+                        .state());
+        assertEquals(
+                2,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
     }
 
     private static JobSpec spec(
@@ -228,7 +265,8 @@ class JobRunnerResponseSchemaTest {
                 false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
                 executionPolicy,
-                responseSchema);
+                responseSchema,
+                List.of());
     }
 
     private ChatRequest responseFormatRequest() {
@@ -261,6 +299,7 @@ class JobRunnerResponseSchemaTest {
 
     private static final class CapturingModel implements StreamingChatModel {
         private final CopyOnWriteArrayList<ChatRequest> requests = new CopyOnWriteArrayList<>();
+        private final ArrayDeque<String> structuredResponses = new ArrayDeque<>();
         private boolean throwOnResponseFormat;
         private String structuredResponse = "{\"summary\":\"ok\"}";
 
@@ -270,8 +309,11 @@ class JobRunnerResponseSchemaTest {
             if (throwOnResponseFormat && chatRequest.parameters().responseFormat() != null) {
                 throw new IllegalArgumentException("provider rejected response schema");
             }
+            var responseText = chatRequest.parameters().responseFormat() == null
+                    ? structuredResponse
+                    : structuredResponses.isEmpty() ? structuredResponse : structuredResponses.remove();
             handler.onCompleteResponse(ChatResponse.builder()
-                    .aiMessage(new AiMessage(structuredResponse))
+                    .aiMessage(new AiMessage(responseText))
                     .build());
         }
     }

@@ -10,10 +10,12 @@ import ai.brokk.ContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.ResponseSchemaFixtures;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
+import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -76,6 +78,34 @@ class CustomAgentExecutorTest {
     }
 
     @Test
+    void structuredFinalPromptKeepsRepairInstructionsStrictAndMinimal() {
+        var prompt = CustomAgentExecutor.formatStructuredFinalPrompt(
+                "Return a lane summary.",
+                "{\"limits\":\"only one file reviewed\"}",
+                "<workspace_toc>app.js</workspace_toc>");
+
+        assertTrue(prompt.contains("Return only the JSON object"));
+        assertTrue(prompt.contains("Do not include markdown, commentary, copied schema, or explanation"));
+        assertTrue(prompt.contains("Preserve all evidence from the candidate"));
+        assertTrue(prompt.contains("Only fix JSON shape/types to match the schema"));
+    }
+
+    @Test
+    void structuredFinalRetryPromptKeepsRepairInstructionsStrictAndMinimal() {
+        var prompt = CustomAgentExecutor.formatStructuredFinalRetryPrompt(
+                "Return a lane summary.",
+                "{\"limits\":\"only one file reviewed\"}",
+                "<workspace_toc>app.js</workspace_toc>",
+                "{\"limits\":\"only one file reviewed\"}",
+                "response.limits expected array, got string");
+
+        assertTrue(prompt.contains("Return only the JSON object"));
+        assertTrue(prompt.contains("Do not include markdown, commentary, copied schema, or explanation"));
+        assertTrue(prompt.contains("Preserve all evidence from the candidate"));
+        assertTrue(prompt.contains("Only fix JSON shape/types to match the schema"));
+    }
+
+    @Test
     void schemaBackedExecutionAppliesResponseFormatToFinalRequest() throws Exception {
         setUpHarness(true);
         var io = new RecordingConsoleIO();
@@ -89,7 +119,91 @@ class CustomAgentExecutorTest {
         assertEquals(2, model.requests.size());
         assertNull(model.requests.getFirst().parameters().responseFormat());
         assertTrue(model.requests.get(1).parameters().responseFormat() != null);
-        assertEquals(4096, model.requests.get(1).parameters().maxCompletionTokens());
+        assertEquals(192, model.requests.get(1).parameters().maxCompletionTokens());
+        assertEquals(
+                1,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
+    }
+
+    @Test
+    void schemaBackedExecutionAcceptsValidTerminalJsonWithoutRewrite() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = "{\"summary\":\"from-terminal\"}";
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals("{\"summary\":\"from-terminal\"}", result.stopDetails().explanation());
+        assertEquals(List.of("{\"summary\":\"from-terminal\"}"), io.outputs);
+        assertEquals(1, model.requests.size());
+        assertEquals(
+                0,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
+    }
+
+    @Test
+    void schemaBackedExecutionDeterministicallyNormalizesTerminalJsonWithoutRewrite() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText =
+                """
+                {
+                  "role": "code-quality-comment-intent",
+                  "completion_reason": "done",
+                  "found": [{
+                    "confidence": 1.0,
+                    "metric_value": 0,
+                    "path": "app.js",
+                    "metric_source": "reportCommentDensityForFiles",
+                    "extra": "drop me"
+                  }],
+                  "limits": "only app.js reviewed"
+                }
+                """
+                        .stripIndent();
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, specialistSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals(1, model.requests.size());
+        assertEquals(
+                0,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
+        var output = Json.getMapper().readTree(result.stopDetails().explanation());
+        assertEquals("0", output.get("found").get(0).get("metric_value").textValue());
+        assertEquals("high", output.get("found").get(0).get("confidence").textValue());
+        assertEquals("only app.js reviewed", output.get("limits").get(0).textValue());
+        assertEquals("app.js", output.get("found").get(0).get("path").textValue());
+        assertEquals(
+                "reportCommentDensityForFiles",
+                output.get("found").get(0).get("metric_source").textValue());
+        assertFalse(output.get("found").get(0).has("extra"));
+        assertEquals(List.of(result.stopDetails().explanation()), io.outputs);
+    }
+
+    @Test
+    void schemaBackedExecutionStillRepairsInvalidTerminalJson() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = "{\"summary\":null}";
+        model.structuredResponse = "{\"summary\":\"repaired\"}";
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        assertEquals("{\"summary\":\"repaired\"}", result.stopDetails().explanation());
+        assertEquals(List.of("{\"summary\":\"repaired\"}"), io.outputs);
+        assertEquals(2, model.requests.size());
         assertEquals(
                 1,
                 model.requests.stream()
@@ -171,8 +285,8 @@ class CustomAgentExecutorTest {
         var retryRequestText = ((UserMessage) model.requests.get(2).messages().get(1)).singleText();
         assertTrue(retryRequestText.contains("response.summary is required"));
         assertTrue(retryRequestText.contains("<invalid_previous_response>"));
-        assertEquals(4096, model.requests.get(1).parameters().maxCompletionTokens());
-        assertEquals(4096, model.requests.get(2).parameters().maxCompletionTokens());
+        assertEquals(192, model.requests.get(1).parameters().maxCompletionTokens());
+        assertEquals(192, model.requests.get(2).parameters().maxCompletionTokens());
     }
 
     @Test
@@ -207,7 +321,8 @@ class CustomAgentExecutorTest {
 
         assertEquals(TaskResult.StopReason.LLM_ERROR, result.stopDetails().reason());
         assertTrue(result.stopDetails().explanation().contains("RESPONSE_SCHEMA_OUTPUT_INVALID"));
-        assertTrue(result.stopDetails().explanation().contains("exceeded 4096 completion tokens"));
+        assertTrue(result.stopDetails().explanation().contains("finishReason=LENGTH"));
+        assertTrue(result.stopDetails().explanation().contains("schema=StrictReport"));
         assertTrue(io.outputs.isEmpty());
         assertEquals(2, model.requests.size());
         assertEquals(
@@ -215,7 +330,7 @@ class CustomAgentExecutorTest {
                 model.requests.stream()
                         .filter(request -> request.parameters().responseFormat() != null)
                         .count());
-        assertEquals(4096, model.requests.get(1).parameters().maxCompletionTokens());
+        assertEquals(192, model.requests.get(1).parameters().maxCompletionTokens());
     }
 
     @AfterEach
@@ -253,6 +368,42 @@ class CustomAgentExecutorTest {
                 "schema-agent", "desc", List.of("answer"), 1, "You are a custom test agent.", "project");
     }
 
+    private static JobSpec.ResponseSchema specialistSchema() throws Exception {
+        return new JobSpec.ResponseSchema(
+                "SlopCopSpecialist",
+                Json.getMapper()
+                        .readTree(
+                                """
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "role": { "type": "string" },
+                                    "completion_reason": { "type": "string" },
+                                    "found": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+                                          "metric_value": { "type": "string" },
+                                          "path": { "type": "string" },
+                                          "metric_source": { "type": "string" }
+                                        },
+                                        "required": ["confidence", "metric_value", "path", "metric_source"],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    "limits": {
+                                      "type": "array",
+                                      "items": { "type": "string" }
+                                    }
+                                  },
+                                  "required": ["role", "completion_reason", "found", "limits"],
+                                  "additionalProperties": false
+                                }
+                                """));
+    }
+
     private static final class CapturingService extends ai.brokk.testutil.TestService {
         private final StreamingChatModel model;
         private final boolean supportsJsonSchema;
@@ -282,6 +433,7 @@ class CustomAgentExecutorTest {
         private boolean throwOnResponseFormat;
         private boolean structuredLengthResponse;
         private String structuredResponse = "{\"summary\":\"structured\"}";
+        private String terminalAnswerText = "plain notes";
 
         @Override
         public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
@@ -307,7 +459,7 @@ class CustomAgentExecutorTest {
                     .aiMessage(AiMessage.from(ToolExecutionRequest.builder()
                             .id("answer-1")
                             .name("answer")
-                            .arguments(ai.brokk.util.Json.toJson(Map.of("explanation", "plain notes")))
+                            .arguments(ai.brokk.util.Json.toJson(Map.of("explanation", terminalAnswerText)))
                             .build()))
                     .build());
         }

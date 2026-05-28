@@ -1694,14 +1694,33 @@ public final class JobRunner {
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;
+        var activeMessages = messages;
+        var maxAttempts = responseSchema == null ? 1 : 2;
         try {
-            response = responseFormat == null
-                    ? llm.sendRequest(messages)
-                    : llm.sendRequest(
-                            messages,
-                            llm.requestOptions()
-                                    .withResponseFormat(responseFormat)
-                                    .withMaxAttempts(1));
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                response = responseFormat == null
+                        ? llm.sendRequest(activeMessages)
+                        : llm.sendRequest(
+                                activeMessages,
+                                llm.requestOptions()
+                                        .withResponseFormat(responseFormat)
+                                        .withMaxAttempts(1));
+                if (responseFormat != null && response.error() != null) {
+                    throw new RuntimeException(response.error());
+                }
+                if (responseSchema == null) {
+                    break;
+                }
+                var validationError = JobResponseSchemaSupport.validateOutput(responseSchema, response.text());
+                if (validationError.isEmpty()) {
+                    break;
+                }
+                if (attempt == maxAttempts) {
+                    throw new IllegalArgumentException("RESPONSE_SCHEMA_OUTPUT_INVALID: " + validationError.get());
+                }
+                activeMessages = directAnswerSchemaRepairMessages(
+                        messages, responseSchema, question, response.text(), validationError.get());
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
@@ -1709,15 +1728,6 @@ public final class JobRunner {
 
         // Determine stop details based on the response
         if (response != null) {
-            if (responseFormat != null && response.error() != null) {
-                throw new RuntimeException(response.error());
-            }
-            if (responseSchema != null) {
-                var validationError = JobResponseSchemaSupport.validateOutput(responseSchema, response.text());
-                if (validationError.isPresent()) {
-                    throw new IllegalArgumentException("RESPONSE_SCHEMA_OUTPUT_INVALID: " + validationError.get());
-                }
-            }
             stop = TaskResult.StopDetails.fromResponse(response);
         }
 
@@ -1725,6 +1735,52 @@ public final class JobRunner {
 
         ctx = ctx.addHistoryEntry(llmRawMessagesOrEmpty(), TaskResult.Type.ASK, model, question);
         return new TaskResult(ctx, stop);
+    }
+
+    private static List<ChatMessage> directAnswerSchemaRepairMessages(
+            List<ChatMessage> originalMessages,
+            JobSpec.ResponseSchema responseSchema,
+            String question,
+            String invalidOutput,
+            String validationError) {
+        var messages = new ArrayList<>(originalMessages);
+        messages.add(new UserMessage(
+                """
+                The previous response did not satisfy the required `%s` response schema.
+                Validation error: %s
+
+                <original_question>
+                %s
+                </original_question>
+
+                <invalid_previous_response>
+                %s
+                </invalid_previous_response>
+
+                Return only a complete JSON object matching the `%s` response schema.
+                Include every required top-level field and every required nested field.
+                If the schema expects an object, emit an object; if it expects an array, emit an array.
+                Use empty arrays for unavailable array evidence and concise strings for sparse required prose fields.
+                Do not return markdown, fenced JSON, explanations, or legacy component wrappers.
+                """
+                        .formatted(
+                                responseSchema.name(),
+                                validationError,
+                                question,
+                                abbreviateInvalidSchemaOutput(invalidOutput),
+                                responseSchema.name())));
+        return messages;
+    }
+
+    private static String abbreviateInvalidSchemaOutput(String invalidOutput) {
+        var maxChars = 6_000;
+        if (invalidOutput.length() <= maxChars) {
+            return invalidOutput;
+        }
+        return invalidOutput.substring(0, maxChars)
+                + "\n\n[truncated invalid response: "
+                + (invalidOutput.length() - maxChars)
+                + " chars omitted]";
     }
 
     private void runDirectAnswer(
@@ -1787,9 +1843,12 @@ public final class JobRunner {
     }
 
     private static ResponseSchemaRegistry responseSchemaRegistry(JobSpec spec) {
-        return spec.responseSchema() == null
-                ? ResponseSchemaRegistry.empty()
-                : ResponseSchemaRegistry.of(List.of(spec.responseSchema()));
+        var schemas = new ArrayList<JobSpec.ResponseSchema>();
+        if (spec.responseSchema() != null) {
+            schemas.add(spec.responseSchema());
+        }
+        schemas.addAll(spec.responseSchemas());
+        return ResponseSchemaRegistry.of(schemas);
     }
 
     private List<ChatMessage> llmRawMessagesOrEmpty() {

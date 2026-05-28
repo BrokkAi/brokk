@@ -20,6 +20,9 @@ import ai.brokk.tools.ToolOutput;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.Json;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -33,13 +36,17 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -49,11 +56,17 @@ import org.jetbrains.annotations.Nullable;
  * terminal detection) but parameterized by user-supplied configuration.
  */
 public class CustomAgentExecutor {
+    private static final Logger logger = LogManager.getLogger(CustomAgentExecutor.class);
+
     private record TerminalStopOutput(String llmText, TaskResult.StopDetails stopDetails) implements ToolOutput {}
+
+    private record NormalizedCandidate(String json, List<String> changes) {}
 
     private static final Set<String> TERMINAL_TOOL_NAMES = Set.of("answer", "abortSearch");
     private static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES = AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES;
-    private static final int STRUCTURED_FINAL_MAX_COMPLETION_TOKENS = 4096;
+    private static final int STRUCTURED_REPAIR_MIN_COMPLETION_TOKENS = 192;
+    private static final int STRUCTURED_REPAIR_MAX_COMPLETION_TOKENS = 1024;
+    private static final int STRUCTURED_REPAIR_TOKENS_PER_SCHEMA_NODE = 24;
     private static final int INVALID_PREVIOUS_RESPONSE_MAX_CHARS = 8000;
 
     private final IAppContextManager cm;
@@ -259,9 +272,30 @@ public class CustomAgentExecutor {
 
     private TaskResult structuredFinalAnswer(String taskInput, String finalNotes) throws InterruptedException {
         var schema = Objects.requireNonNull(responseSchema);
+        var directCandidate = extractTerminalSchemaCandidate(finalNotes);
+        var directValidationError = JobResponseSchemaSupport.validateOutput(schema, directCandidate);
+        if (directValidationError.isEmpty()) {
+            io.llmOutput(directCandidate, ChatMessageType.AI, LlmOutputMeta.newMessage());
+            return new TaskResult(context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, directCandidate));
+        }
+        var normalizedCandidate = deterministicNormalize(schema, directCandidate);
+        if (normalizedCandidate != null) {
+            var normalizedValidationError = JobResponseSchemaSupport.validateOutput(schema, normalizedCandidate.json());
+            if (normalizedValidationError.isEmpty()) {
+                logger.info(
+                        "Schema-aware custom-agent terminal output normalized deterministically for schema {}: {}",
+                        schema.name(),
+                        normalizedCandidate.changes());
+                io.llmOutput(normalizedCandidate.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
+                return new TaskResult(
+                        context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, normalizedCandidate.json()));
+            }
+        }
+
         var structuredLlm = cm.getLlm(
                 new Llm.Options(model, agentDef.name() + " structured answer", TaskResult.Type.SEARCH).withEcho());
         structuredLlm.setOutput(io);
+        var repairMaxCompletionTokens = repairMaxCompletionTokens(schema);
 
         var toc = WorkspacePrompts.formatToc(context).trim();
         var messages = List.<ChatMessage>of(
@@ -276,7 +310,7 @@ public class CustomAgentExecutor {
                             .requestOptions()
                             .withResponseFormat(responseFormat)
                             .withMaxAttempts(1)
-                            .withMaxCompletionTokens(STRUCTURED_FINAL_MAX_COMPLETION_TOKENS));
+                            .withMaxCompletionTokens(repairMaxCompletionTokens));
             if (response.error() != null) {
                 return new TaskResult(context, TaskResult.StopDetails.fromResponse(response));
             }
@@ -287,9 +321,13 @@ public class CustomAgentExecutor {
                         context,
                         new TaskResult.StopDetails(
                                 TaskResult.StopReason.LLM_ERROR,
-                                "RESPONSE_SCHEMA_OUTPUT_INVALID: structured response exceeded "
-                                        + STRUCTURED_FINAL_MAX_COMPLETION_TOKENS
-                                        + " completion tokens before producing valid JSON"));
+                                repairFailureMessage(
+                                        schema,
+                                        directValidationError.orElse("unknown validation error"),
+                                        normalizedCandidate != null,
+                                        true,
+                                        "LENGTH",
+                                        structuredText)));
             }
 
             var validationError = JobResponseSchemaSupport.validateOutput(schema, structuredText);
@@ -304,7 +342,13 @@ public class CustomAgentExecutor {
                         context,
                         new TaskResult.StopDetails(
                                 TaskResult.StopReason.LLM_ERROR,
-                                "RESPONSE_SCHEMA_OUTPUT_INVALID: " + validationError.get()));
+                                repairFailureMessage(
+                                        schema,
+                                        validationError.get(),
+                                        normalizedCandidate != null,
+                                        true,
+                                        "complete",
+                                        structuredText)));
             }
 
             messages = List.of(
@@ -318,6 +362,241 @@ public class CustomAgentExecutor {
         }
 
         throw new IllegalStateException("unreachable structured answer retry state");
+    }
+
+    private static String extractTerminalSchemaCandidate(String finalNotes) {
+        try {
+            var node = Json.getMapper().readTree(finalNotes);
+            var explanation = node.get("explanation");
+            if (explanation != null && explanation.isTextual()) {
+                return explanation.asText().trim();
+            }
+        } catch (Exception ignored) {
+            // Not an answer-tool envelope. Validate the raw text below.
+        }
+        return finalNotes.trim();
+    }
+
+    private static @Nullable NormalizedCandidate deterministicNormalize(
+            JobSpec.ResponseSchema schema, String candidate) {
+        try {
+            var root = Json.getMapper().readTree(candidate);
+            var changes = new ArrayList<String>();
+            var normalized = normalizeNode(root, schema.schema(), "response", "", changes);
+            if (changes.isEmpty()) {
+                return null;
+            }
+            return new NormalizedCandidate(Json.toJson(normalized), List.copyOf(changes));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static JsonNode normalizeNode(
+            JsonNode value, JsonNode schema, String path, String propertyName, List<String> changes) {
+        if (value.isNull()) {
+            return value;
+        }
+
+        return switch (schemaType(schema)) {
+            case "object" -> normalizeObject(value, schema, path, changes);
+            case "array" -> normalizeArray(value, schema, path, propertyName, changes);
+            case "string" -> normalizeString(value, schema, path, propertyName, changes);
+            default -> value;
+        };
+    }
+
+    private static JsonNode normalizeObject(JsonNode value, JsonNode schema, String path, List<String> changes) {
+        if (!value.isObject()) {
+            return value;
+        }
+
+        var object = (ObjectNode) value.deepCopy();
+        var properties = schema.get("properties");
+        if (properties != null && properties.isObject()) {
+            if (additionalPropertiesDisabled(schema) && allRequiredPropertiesPresent(object, schema)) {
+                var allowedNames = new HashSet<String>();
+                properties.properties().forEach(entry -> allowedNames.add(entry.getKey()));
+                var namesToRemove = new ArrayList<String>();
+                object.properties().forEach(entry -> {
+                    if (!allowedNames.contains(entry.getKey())) {
+                        namesToRemove.add(entry.getKey());
+                    }
+                });
+                namesToRemove.forEach(name -> {
+                    object.remove(name);
+                    changes.add(path + "." + name + " unknown property dropped");
+                });
+            }
+
+            properties.properties().forEach(entry -> {
+                var child = object.get(entry.getKey());
+                if (child != null) {
+                    object.set(
+                            entry.getKey(),
+                            normalizeNode(
+                                    child, entry.getValue(), path + "." + entry.getKey(), entry.getKey(), changes));
+                }
+            });
+        }
+        return object;
+    }
+
+    private static JsonNode normalizeArray(
+            JsonNode value, JsonNode schema, String path, String propertyName, List<String> changes) {
+        var items = schema.get("items");
+        if (value.isArray()) {
+            var array = Json.getMapper().createArrayNode();
+            for (int i = 0; i < value.size(); i++) {
+                array.add(
+                        items == null
+                                ? value.get(i)
+                                : normalizeNode(value.get(i), items, path + "[" + i + "]", propertyName, changes));
+            }
+            return array;
+        }
+
+        if (!value.isObject()) {
+            var array = Json.getMapper().createArrayNode();
+            array.add(items == null ? value : normalizeNode(value, items, path + "[0]", propertyName, changes));
+            changes.add(path + " scalar -> array");
+            return array;
+        }
+
+        return value;
+    }
+
+    private static JsonNode normalizeString(
+            JsonNode value, JsonNode schema, String path, String propertyName, List<String> changes) {
+        if (value.isTextual()) {
+            return value;
+        }
+
+        if (isConfidenceProperty(propertyName) && value.isNumber()) {
+            var confidence = confidenceLabel(value.doubleValue(), schema);
+            if (confidence != null) {
+                changes.add(path + " numeric confidence -> string enum");
+                return TextNode.valueOf(confidence);
+            }
+        }
+
+        if (value.isNumber() || value.isBoolean()) {
+            changes.add(path + " " + outputType(value) + " -> string");
+            return TextNode.valueOf(value.asText());
+        }
+
+        return value;
+    }
+
+    private static boolean isConfidenceProperty(String propertyName) {
+        return "confidence".equals(propertyName);
+    }
+
+    private static @Nullable String confidenceLabel(double value, JsonNode schema) {
+        var enumNode = schema.get("enum");
+        if (enumNode == null || !enumNode.isArray()) {
+            return null;
+        }
+        var labels = Json.stringArrayToSet(enumNode);
+        if (!labels.containsAll(Set.of("low", "medium", "high"))) {
+            return null;
+        }
+        if (Double.compare(value, 1.0) == 0) {
+            return "high";
+        }
+        if (Double.compare(value, 0.5) == 0) {
+            return "medium";
+        }
+        if (Double.compare(value, 0.0) == 0) {
+            return "low";
+        }
+        return null;
+    }
+
+    private static boolean allRequiredPropertiesPresent(ObjectNode value, JsonNode schema) {
+        var required = schema.get("required");
+        if (required == null || !required.isArray()) {
+            return true;
+        }
+        for (var requiredName : required) {
+            if (!requiredName.isTextual() || !value.hasNonNull(requiredName.textValue())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean additionalPropertiesDisabled(JsonNode schema) {
+        var additionalProperties = schema.get("additionalProperties");
+        return additionalProperties != null && additionalProperties.isBoolean() && !additionalProperties.booleanValue();
+    }
+
+    private static String schemaType(JsonNode schema) {
+        var type = schema.get("type");
+        return type != null && type.isTextual() ? type.textValue() : "";
+    }
+
+    private static String outputType(JsonNode value) {
+        if (value.isNumber()) {
+            return value.isIntegralNumber() ? "integer" : "number";
+        }
+        if (value.isBoolean()) {
+            return "boolean";
+        }
+        if (value.isArray()) {
+            return "array";
+        }
+        if (value.isObject()) {
+            return "object";
+        }
+        return value.getNodeType().name().toLowerCase(Locale.ROOT);
+    }
+
+    private static int repairMaxCompletionTokens(JobSpec.ResponseSchema schema) {
+        return Math.min(
+                STRUCTURED_REPAIR_MAX_COMPLETION_TOKENS,
+                Math.max(
+                        STRUCTURED_REPAIR_MIN_COMPLETION_TOKENS,
+                        countSchemaNodes(schema.schema()) * STRUCTURED_REPAIR_TOKENS_PER_SCHEMA_NODE));
+    }
+
+    private static int countSchemaNodes(JsonNode schema) {
+        var type = schemaType(schema);
+        return switch (type) {
+            case "object" -> {
+                var properties = schema.get("properties");
+                if (properties == null || !properties.isObject()) {
+                    yield 1;
+                }
+                var count = 1;
+                for (var entry : properties.properties()) {
+                    count += countSchemaNodes(entry.getValue());
+                }
+                yield count;
+            }
+            case "array" -> {
+                var items = schema.get("items");
+                yield items == null ? 1 : 1 + countSchemaNodes(items);
+            }
+            default -> 1;
+        };
+    }
+
+    private static String repairFailureMessage(
+            JobSpec.ResponseSchema schema,
+            String validationError,
+            boolean deterministicRepairAttempted,
+            boolean llmRepairAttempted,
+            String finishReason,
+            String invalidOutput) {
+        return "RESPONSE_SCHEMA_OUTPUT_INVALID: schema=%s validation=%s deterministicRepairAttempted=%s llmRepairAttempted=%s finishReason=%s invalidOutputExcerpt=%s"
+                .formatted(
+                        schema.name(),
+                        validationError,
+                        deterministicRepairAttempted,
+                        llmRepairAttempted,
+                        finishReason,
+                        abbreviateInvalidOutput(invalidOutput));
     }
 
     private static String abbreviateInvalidOutput(String invalidOutput) {
@@ -343,6 +622,10 @@ public class CustomAgentExecutor {
                 %s
 
                 Produce the final custom-agent result according to the supplied response schema.
+                Return only the JSON object.
+                Do not include markdown, commentary, copied schema, or explanation.
+                Preserve all evidence from the candidate.
+                Only fix JSON shape/types to match the schema.
                 """
                 .formatted(taskInput, finalNotes, toc);
     }
@@ -368,7 +651,10 @@ public class CustomAgentExecutor {
                 </invalid_previous_response>
 
                 Produce a corrected final custom-agent result according to the supplied response schema.
-                Do not change the evidence meaning. Convert incorrectly shaped fields to the schema shape.
+                Return only the JSON object.
+                Do not include markdown, commentary, copied schema, or explanation.
+                Preserve all evidence from the candidate.
+                Only fix JSON shape/types to match the schema.
                 """
                 .formatted(taskInput, finalNotes, toc, validationError, invalidOutput);
     }
