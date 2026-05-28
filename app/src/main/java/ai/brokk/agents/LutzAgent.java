@@ -19,6 +19,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.executor.agents.ParallelCustomAgent;
+import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcpclient.McpUtils;
@@ -131,6 +132,7 @@ public class LutzAgent {
     private final String goal;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchTools searchTools;
+    private final ResponseSchemaRegistry responseSchemaRegistry;
     private List<String> staticTools;
     private List<String> terminalTools;
     private Set<String> terminalToolNames;
@@ -221,7 +223,19 @@ public class LutzAgent {
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig) {
-        this(initialContext, goal, model, null, objective, scope, io, scanConfig);
+        this(initialContext, goal, model, null, objective, scope, io, scanConfig, ResponseSchemaRegistry.empty());
+    }
+
+    public LutzAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            ContextManager.TaskScope scope,
+            IConsoleIO io,
+            ScanConfig scanConfig,
+            ResponseSchemaRegistry responseSchemaRegistry) {
+        this(initialContext, goal, model, null, objective, scope, io, scanConfig, responseSchemaRegistry);
     }
 
     /**
@@ -241,11 +255,25 @@ public class LutzAgent {
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig) {
+        this(initialContext, goal, model, codeModel, objective, scope, io, scanConfig, ResponseSchemaRegistry.empty());
+    }
+
+    public LutzAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            @Nullable StreamingChatModel codeModel,
+            Objective objective,
+            ContextManager.TaskScope scope,
+            IConsoleIO io,
+            ScanConfig scanConfig,
+            ResponseSchemaRegistry responseSchemaRegistry) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
         this.codeModel = codeModel;
         this.scope = scope;
+        this.responseSchemaRegistry = responseSchemaRegistry;
 
         this.io = io;
         this.scanConfig = scanConfig;
@@ -820,8 +848,8 @@ public class LutzAgent {
         if (readOnly) {
             throw new IllegalStateException("LutzAgent.callCodeAgent invoked while read-only mode is active");
         }
-        ArchitectAgent architect =
-                new ArchitectAgent(cm, model, effectiveCodeModel(), instructions, scope, currentState.context());
+        ArchitectAgent architect = new ArchitectAgent(
+                cm, model, effectiveCodeModel(), instructions, scope, currentState.context(), responseSchemaRegistry);
 
         return architect.execute();
     }
@@ -875,7 +903,7 @@ public class LutzAgent {
 
             this.parallelSearch =
                     new ParallelSearch(context.forSearchAgent(), agent.goal, agent.delegatedSearchModel());
-            this.parallelCustomAgent = new ParallelCustomAgent(agent.cm, agent.model, agent.goal);
+            this.parallelCustomAgent = new ParallelCustomAgent(agent.cm, agent.model, agent.responseSchemaRegistry);
             this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch, parallelCustomAgent);
         }
 
@@ -1456,7 +1484,8 @@ public class LutzAgent {
                     agent.effectiveCodeModel(),
                     instructions,
                     agent.scope,
-                    agent.resetPinsToOriginal(context));
+                    agent.resetPinsToOriginal(context),
+                    agent.responseSchemaRegistry);
             var buildDetails = agent.cm.getProject().awaitBuildDetails();
             String verifyCommand = buildDetails.afterTaskListCommand();
             if (!verifyCommand.isBlank()) {

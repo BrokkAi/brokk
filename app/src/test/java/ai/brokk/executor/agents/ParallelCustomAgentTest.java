@@ -9,6 +9,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.executor.jobs.ResponseSchemaFixtures;
+import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
@@ -17,6 +18,7 @@ import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
@@ -25,6 +27,7 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.jetbrains.annotations.Nullable;
@@ -65,9 +68,8 @@ class ParallelCustomAgentTest {
                 .build();
     }
 
-    private static String schemaSource() {
-        return "Use this response schema for child reports:\n"
-                + Json.toJson(ResponseSchemaFixtures.validResponseSchemaMap());
+    private static ResponseSchemaRegistry schemaRegistry() {
+        return ResponseSchemaRegistry.of(List.of(ResponseSchemaFixtures.validResponseSchema()));
     }
 
     @Test
@@ -132,10 +134,22 @@ class ParallelCustomAgentTest {
     }
 
     @Test
+    void sequentialSchemaBackedAgentResolvesSchemaNameFromParentRegistry() throws Exception {
+        try (var harness = Harness.create(tempDir, true)) {
+            harness.cm().getAgentStore().save(agentDef(), "project");
+            var tools = new CustomAgentTools(harness.cm(), harness.model(), schemaRegistry());
+
+            var result = tools.callCustomAgentWithSchema("schema-agent", "Return a strict report.", "StrictReport");
+
+            assertEquals("{\"summary\":\"structured\"}", result);
+        }
+    }
+
+    @Test
     void parallelSchemaBackedAgentsReturnOneStructuredResultPerChild() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             harness.cm().getAgentStore().save(agentDef(), "project");
-            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaRegistry());
             var tr = harness.cm()
                     .getToolRegistry()
                     .builder()
@@ -157,10 +171,41 @@ class ParallelCustomAgentTest {
     }
 
     @Test
-    void parallelSchemaBackedAgentResolvesSchemaNameFromParentTask() throws Exception {
+    void parallelSchemaBackedAgentsCollectSiblingResultsAfterFatalChild() throws Exception {
+        try (var harness = Harness.create(tempDir, true)) {
+            var badAgentPrompt = "You are the bad schema test agent.";
+            var goodAgentPrompt = "You are the good schema test agent.";
+            harness.cm().getAgentStore().save(agentDef("bad-schema-agent", badAgentPrompt), "project");
+            harness.cm().getAgentStore().save(agentDef("good-schema-agent", goodAgentPrompt), "project");
+            harness.model().structuredResponsesBySystemPrompt.put(badAgentPrompt, "{\"summary\":null}");
+            harness.model().structuredResponsesBySystemPrompt.put(goodAgentPrompt, "{\"summary\":\"structured\"}");
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaRegistry());
+            var tr = harness.cm()
+                    .getToolRegistry()
+                    .builder()
+                    .register(parallelCustomAgent)
+                    .build();
+
+            var result = parallelCustomAgent.execute(
+                    List.of(
+                            schemaNameRequest("call-1", "bad-schema-agent"),
+                            schemaNameRequest("call-2", "good-schema-agent")),
+                    tr);
+
+            assertEquals(TaskResult.StopReason.LLM_ERROR, result.stopDetails().reason());
+            assertEquals(2, result.toolExecutionMessages().size());
+            assertTrue(result.toolExecutionMessages().getFirst().text().contains("RESPONSE_SCHEMA_OUTPUT_INVALID"));
+            assertEquals(
+                    "{\"summary\":\"structured\"}",
+                    result.toolExecutionMessages().get(1).text());
+        }
+    }
+
+    @Test
+    void parallelSchemaBackedAgentResolvesSchemaNameFromParentRegistry() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             harness.cm().getAgentStore().save(agentDef(), "project");
-            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaRegistry());
             var tr = harness.cm()
                     .getToolRegistry()
                     .builder()
@@ -182,7 +227,7 @@ class ParallelCustomAgentTest {
     void parallelSchemaBackedAgentRejectsBlankSchemaNameAsRequestError() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             harness.cm().getAgentStore().save(agentDef(), "project");
-            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaRegistry());
             var tr = harness.cm()
                     .getToolRegistry()
                     .builder()
@@ -211,10 +256,33 @@ class ParallelCustomAgentTest {
 
             assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
             assertEquals(1, result.toolExecutionMessages().size());
-            assertTrue(result.toolExecutionMessages()
-                    .getFirst()
-                    .text()
-                    .contains("responseSchemaName 'StrictReport' was not found in the parent task schemas"));
+            assertTrue(
+                    result.toolExecutionMessages()
+                            .getFirst()
+                            .text()
+                            .contains(
+                                    "responseSchemaName 'StrictReport' was not found in the parent task schemas. Available schemas: []"));
+        }
+    }
+
+    @Test
+    void parallelSchemaBackedAgentDoesNotScanPromptTextForSchemas() throws Exception {
+        try (var harness = Harness.create(tempDir, true)) {
+            harness.cm().getAgentStore().save(agentDef(), "project");
+            var promptWithSchema =
+                    "Schema in text only:\n" + Json.toJson(ResponseSchemaFixtures.validResponseSchemaMap());
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model());
+            var tr = harness.cm()
+                    .getToolRegistry()
+                    .builder()
+                    .register(parallelCustomAgent)
+                    .build();
+
+            assertTrue(promptWithSchema.contains("StrictReport"));
+            var result = parallelCustomAgent.execute(List.of(schemaNameRequest("call-1", "schema-agent")), tr);
+
+            assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+            assertTrue(result.toolExecutionMessages().getFirst().text().contains("Available schemas: []"));
         }
     }
 
@@ -222,7 +290,7 @@ class ParallelCustomAgentTest {
     void parallelSchemaBackedAgentUnsupportedModelIsHardFailure() throws Exception {
         try (var harness = Harness.create(tempDir, false)) {
             harness.cm().getAgentStore().save(agentDef(), "project");
-            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaSource());
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaRegistry());
             var tr = harness.cm()
                     .getToolRegistry()
                     .builder()
@@ -242,8 +310,11 @@ class ParallelCustomAgentTest {
     }
 
     private static AgentDefinition agentDef() {
-        return new AgentDefinition(
-                "schema-agent", "desc", List.of("answer"), 1, "You are a custom test agent.", "project");
+        return agentDef("schema-agent", "You are a custom test agent.");
+    }
+
+    private static AgentDefinition agentDef(String name, String systemPrompt) {
+        return new AgentDefinition(name, "desc", List.of("answer"), 1, systemPrompt, "project");
     }
 
     private record Harness(ContextManager cm, CapturingModel model) implements AutoCloseable {
@@ -301,9 +372,20 @@ class ParallelCustomAgentTest {
     }
 
     private static final class CapturingModel implements StreamingChatModel {
+        private final Map<String, String> structuredResponsesBySystemPrompt = new HashMap<>();
+
         @Override
         public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
             if (chatRequest.parameters().responseFormat() != null) {
+                if (chatRequest.messages().getFirst() instanceof SystemMessage systemMessage) {
+                    var configuredResponse = structuredResponsesBySystemPrompt.get(systemMessage.text());
+                    if (configuredResponse != null) {
+                        handler.onCompleteResponse(ChatResponse.builder()
+                                .aiMessage(new AiMessage(configuredResponse))
+                                .build());
+                        return;
+                    }
+                }
                 handler.onCompleteResponse(ChatResponse.builder()
                         .aiMessage(new AiMessage("{\"summary\":\"structured\"}"))
                         .build());

@@ -545,6 +545,7 @@ public final class JobRunner {
                         mode,
                         plannerModelNameForLog,
                         codeModelNameForLog);
+                var responseSchemaRegistry = responseSchemaRegistry(spec);
 
                 // Execute within submitLlmAction to honor cancellation semantics
                 cm.setAutoCommit(spec.autoCommit());
@@ -588,7 +589,10 @@ public final class JobRunner {
                                                             architectPlannerModel,
                                                             "plannerModel required for PLAN jobs"),
                                                     objectiveForMode(Mode.PLAN),
-                                                    scope);
+                                                    scope,
+                                                    cm.getIo(),
+                                                    LutzAgent.ScanConfig.defaults(),
+                                                    responseSchemaRegistry);
                                             if (readOnly) {
                                                 searchAgent.setReadOnly(true);
                                             }
@@ -631,7 +635,9 @@ public final class JobRunner {
                                                     architectGoal,
                                                     scope,
                                                     context,
-                                                    compressedHistory);
+                                                    compressedHistory,
+                                                    cm.getIo(),
+                                                    responseSchemaRegistry);
                                             architectAgent.setAlwaysDeferBuild(true);
                                             architectAgent.setBuildToolsEnabled(false);
                                             if (mode == Mode.LITE_PLAN) {
@@ -686,7 +692,10 @@ public final class JobRunner {
                                                         requireNonNull(
                                                                 askPlannerModel, "plannerModel required for ASK jobs"),
                                                         objectiveForMode(Mode.ASK),
-                                                        scope);
+                                                        scope,
+                                                        cm.getIo(),
+                                                        LutzAgent.ScanConfig.defaults(),
+                                                        responseSchemaRegistry);
                                                 if (readOnly) {
                                                     searchAgent.setReadOnly(true);
                                                 }
@@ -838,7 +847,8 @@ public final class JobRunner {
                                                     objectiveForMode(Mode.SEARCH),
                                                     scope,
                                                     cm.getIo(),
-                                                    scanConfig);
+                                                    scanConfig,
+                                                    responseSchemaRegistry);
                                             if (readOnly) {
                                                 searchAgent.setReadOnly(true);
                                             }
@@ -1774,6 +1784,12 @@ public final class JobRunner {
             throw new IllegalArgumentException(
                     "MODEL_UNSUPPORTED_RESPONSE_SCHEMA: " + cm.getService().nameOf(model));
         }
+    }
+
+    private static ResponseSchemaRegistry responseSchemaRegistry(JobSpec spec) {
+        return spec.responseSchema() == null
+                ? ResponseSchemaRegistry.empty()
+                : ResponseSchemaRegistry.of(List.of(spec.responseSchema()));
     }
 
     private List<ChatMessage> llmRawMessagesOrEmpty() {

@@ -22,6 +22,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.output.FinishReason;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -88,6 +89,7 @@ class CustomAgentExecutorTest {
         assertEquals(2, model.requests.size());
         assertNull(model.requests.getFirst().parameters().responseFormat());
         assertTrue(model.requests.get(1).parameters().responseFormat() != null);
+        assertEquals(4096, model.requests.get(1).parameters().maxCompletionTokens());
         assertEquals(
                 1,
                 model.requests.stream()
@@ -169,6 +171,8 @@ class CustomAgentExecutorTest {
         var retryRequestText = ((UserMessage) model.requests.get(2).messages().get(1)).singleText();
         assertTrue(retryRequestText.contains("response.summary is required"));
         assertTrue(retryRequestText.contains("<invalid_previous_response>"));
+        assertEquals(4096, model.requests.get(1).parameters().maxCompletionTokens());
+        assertEquals(4096, model.requests.get(2).parameters().maxCompletionTokens());
     }
 
     @Test
@@ -190,6 +194,28 @@ class CustomAgentExecutorTest {
                 model.requests.stream()
                         .filter(request -> request.parameters().responseFormat() != null)
                         .count());
+    }
+
+    @Test
+    void schemaBackedPartialFinalAnswerFailsWithoutRepairRetry() throws Exception {
+        setUpHarness(true);
+        model.structuredLengthResponse = true;
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.LLM_ERROR, result.stopDetails().reason());
+        assertTrue(result.stopDetails().explanation().contains("RESPONSE_SCHEMA_OUTPUT_INVALID"));
+        assertTrue(result.stopDetails().explanation().contains("exceeded 4096 completion tokens"));
+        assertTrue(io.outputs.isEmpty());
+        assertEquals(2, model.requests.size());
+        assertEquals(
+                1,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
+        assertEquals(4096, model.requests.get(1).parameters().maxCompletionTokens());
     }
 
     @AfterEach
@@ -254,6 +280,7 @@ class CustomAgentExecutorTest {
         private final CopyOnWriteArrayList<ChatRequest> requests = new CopyOnWriteArrayList<>();
         private final ArrayDeque<String> structuredResponses = new ArrayDeque<>();
         private boolean throwOnResponseFormat;
+        private boolean structuredLengthResponse;
         private String structuredResponse = "{\"summary\":\"structured\"}";
 
         @Override
@@ -262,6 +289,13 @@ class CustomAgentExecutorTest {
             if (chatRequest.parameters().responseFormat() != null) {
                 if (throwOnResponseFormat) {
                     throw new IllegalArgumentException("provider rejected response schema");
+                }
+                if (structuredLengthResponse) {
+                    handler.onCompleteResponse(ChatResponse.builder()
+                            .aiMessage(new AiMessage("{\"summary\":\"unterminated"))
+                            .finishReason(FinishReason.LENGTH)
+                            .build());
+                    return;
                 }
                 var responseText = structuredResponses.isEmpty() ? structuredResponse : structuredResponses.remove();
                 handler.onCompleteResponse(ChatResponse.builder()

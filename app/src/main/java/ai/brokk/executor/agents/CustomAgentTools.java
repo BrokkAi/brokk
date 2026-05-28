@@ -3,6 +3,7 @@ package ai.brokk.executor.agents;
 import ai.brokk.IAppContextManager;
 import ai.brokk.TaskResult;
 import ai.brokk.executor.jobs.JobSpec;
+import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
@@ -26,16 +27,17 @@ public class CustomAgentTools {
 
     private final IAppContextManager cm;
     private final StreamingChatModel model;
-    private final @Nullable String schemaSource;
+    private final ResponseSchemaRegistry responseSchemaRegistry;
 
     public CustomAgentTools(IAppContextManager cm, StreamingChatModel model) {
-        this(cm, model, null);
+        this(cm, model, ResponseSchemaRegistry.empty());
     }
 
-    public CustomAgentTools(IAppContextManager cm, StreamingChatModel model, @Nullable String schemaSource) {
+    public CustomAgentTools(
+            IAppContextManager cm, StreamingChatModel model, ResponseSchemaRegistry responseSchemaRegistry) {
         this.cm = cm;
         this.model = model;
-        this.schemaSource = schemaSource;
+        this.responseSchemaRegistry = responseSchemaRegistry;
     }
 
     @Tool(
@@ -61,11 +63,11 @@ public class CustomAgentTools {
     public String callCustomAgentWithSchema(
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
             @P("Complete task description for the agent") String task,
-            @P("Name of a response schema embedded in the parent task instructions") String responseSchemaName)
+            @P("Name of an available parent response schema") String responseSchemaName)
             throws InterruptedException {
         JobSpec.ResponseSchema resolvedSchema;
         try {
-            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, schemaSource);
+            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, responseSchemaRegistry);
         } catch (ToolRegistry.ToolValidationException e) {
             throw new ToolRegistry.ToolCallException(
                     ToolExecutionResult.Status.REQUEST_ERROR,

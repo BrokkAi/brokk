@@ -8,6 +8,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.executor.jobs.JobSpec;
+import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
@@ -40,16 +41,17 @@ public class ParallelCustomAgent {
 
     private final IAppContextManager cm;
     private final StreamingChatModel model;
-    private final @Nullable String schemaSource;
+    private final ResponseSchemaRegistry responseSchemaRegistry;
 
     public ParallelCustomAgent(IAppContextManager cm, StreamingChatModel model) {
-        this(cm, model, null);
+        this(cm, model, ResponseSchemaRegistry.empty());
     }
 
-    public ParallelCustomAgent(IAppContextManager cm, StreamingChatModel model, @Nullable String schemaSource) {
+    public ParallelCustomAgent(
+            IAppContextManager cm, StreamingChatModel model, ResponseSchemaRegistry responseSchemaRegistry) {
         this.cm = cm;
         this.model = model;
-        this.schemaSource = schemaSource;
+        this.responseSchemaRegistry = responseSchemaRegistry;
     }
 
     @Tool(
@@ -75,11 +77,11 @@ public class ParallelCustomAgent {
     public String callCustomAgentWithSchema(
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
             @P("Complete task description for the agent") String task,
-            @P("Name of a response schema embedded in the parent task instructions") String responseSchemaName)
+            @P("Name of an available parent response schema") String responseSchemaName)
             throws InterruptedException {
         JobSpec.ResponseSchema resolvedSchema;
         try {
-            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, schemaSource);
+            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, responseSchemaRegistry);
         } catch (ToolRegistry.ToolValidationException e) {
             throw new ToolRegistry.ToolCallException(
                     ToolExecutionResult.Status.REQUEST_ERROR,
@@ -176,12 +178,10 @@ public class ParallelCustomAgent {
                 toolExecutionMessages.add(outcome.toolResult().toMessage());
                 descriptions.add(outcome.agentName());
 
+                // Keep collecting sibling results after a fatal child result. Callers need the
+                // full batch of tool messages for attribution and retry diagnostics.
                 if (outcome.toolResult().status() == ToolExecutionResult.Status.FATAL && firstFatalMessage == null) {
                     firstFatalMessage = outcome.toolResult().resultText();
-                    for (int j = i + 1; j < batchSize; j++) {
-                        tasks.get(j).future().cancel(true);
-                    }
-                    break;
                 }
             } catch (InterruptedException e) {
                 interrupted = true;
@@ -233,7 +233,8 @@ public class ParallelCustomAgent {
             agentName = (String) parameters.getFirst();
             task = (String) parameters.get(1);
             if ("callCustomAgentWithSchema".equals(request.name())) {
-                responseSchema = CustomAgentResponseSchemaResolver.resolve((String) parameters.get(2), schemaSource);
+                responseSchema =
+                        CustomAgentResponseSchemaResolver.resolve((String) parameters.get(2), responseSchemaRegistry);
             }
         } catch (RuntimeException e) {
             var errorMessage = "Failed to parse custom agent arguments: " + e.getMessage();

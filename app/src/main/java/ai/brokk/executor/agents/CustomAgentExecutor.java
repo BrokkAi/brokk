@@ -53,6 +53,8 @@ public class CustomAgentExecutor {
 
     private static final Set<String> TERMINAL_TOOL_NAMES = Set.of("answer", "abortSearch");
     private static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES = AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES;
+    private static final int STRUCTURED_FINAL_MAX_COMPLETION_TOKENS = 4096;
+    private static final int INVALID_PREVIOUS_RESPONSE_MAX_CHARS = 8000;
 
     private final IAppContextManager cm;
     private final AgentDefinition agentDef;
@@ -273,12 +275,23 @@ public class CustomAgentExecutor {
                     structuredLlm
                             .requestOptions()
                             .withResponseFormat(responseFormat)
-                            .withMaxAttempts(1));
+                            .withMaxAttempts(1)
+                            .withMaxCompletionTokens(STRUCTURED_FINAL_MAX_COMPLETION_TOKENS));
             if (response.error() != null) {
                 return new TaskResult(context, TaskResult.StopDetails.fromResponse(response));
             }
 
             structuredText = response.text();
+            if (response.isPartial()) {
+                return new TaskResult(
+                        context,
+                        new TaskResult.StopDetails(
+                                TaskResult.StopReason.LLM_ERROR,
+                                "RESPONSE_SCHEMA_OUTPUT_INVALID: structured response exceeded "
+                                        + STRUCTURED_FINAL_MAX_COMPLETION_TOKENS
+                                        + " completion tokens before producing valid JSON"));
+            }
+
             var validationError = JobResponseSchemaSupport.validateOutput(schema, structuredText);
             if (validationError.isEmpty()) {
                 io.llmOutput(structuredText, ChatMessageType.AI, LlmOutputMeta.newMessage());
@@ -297,10 +310,24 @@ public class CustomAgentExecutor {
             messages = List.of(
                     new SystemMessage(agentDef.systemPrompt()),
                     new UserMessage(formatStructuredFinalRetryPrompt(
-                            taskInput, finalNotes, toc, structuredText, validationError.get())));
+                            taskInput,
+                            finalNotes,
+                            toc,
+                            abbreviateInvalidOutput(structuredText),
+                            validationError.get())));
         }
 
         throw new IllegalStateException("unreachable structured answer retry state");
+    }
+
+    private static String abbreviateInvalidOutput(String invalidOutput) {
+        if (invalidOutput.length() <= INVALID_PREVIOUS_RESPONSE_MAX_CHARS) {
+            return invalidOutput;
+        }
+        return invalidOutput.substring(0, INVALID_PREVIOUS_RESPONSE_MAX_CHARS)
+                + "\n\n[truncated invalid response: "
+                + (invalidOutput.length() - INVALID_PREVIOUS_RESPONSE_MAX_CHARS)
+                + " chars omitted]";
     }
 
     static String formatStructuredFinalPrompt(String taskInput, String finalNotes, String toc) {

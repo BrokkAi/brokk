@@ -11,6 +11,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.executor.agents.ParallelCustomAgent;
+import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
@@ -80,6 +81,7 @@ public class SearchAgent {
     private final Llm llm;
     private final SearchTools searchTools;
     private final Context initialContext;
+    private final ResponseSchemaRegistry responseSchemaRegistry;
 
     private final SearchMetrics metrics;
 
@@ -107,7 +109,17 @@ public class SearchAgent {
 
     public SearchAgent(
             Context initialContext, String goal, StreamingChatModel model, Objective objective, IConsoleIO io) {
-        this(initialContext, goal, model, objective, io, null);
+        this(initialContext, goal, model, objective, io, null, ResponseSchemaRegistry.empty());
+    }
+
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            IConsoleIO io,
+            ResponseSchemaRegistry responseSchemaRegistry) {
+        this(initialContext, goal, model, objective, io, null, responseSchemaRegistry);
     }
 
     SearchAgent(
@@ -117,6 +129,17 @@ public class SearchAgent {
             Objective objective,
             IConsoleIO io,
             @Nullable SearchMetrics metrics) {
+        this(initialContext, goal, model, objective, io, metrics, ResponseSchemaRegistry.empty());
+    }
+
+    SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            IConsoleIO io,
+            @Nullable SearchMetrics metrics,
+            ResponseSchemaRegistry responseSchemaRegistry) {
         if (objective != Objective.ANSWER_ONLY && objective != Objective.WORKSPACE_ONLY) {
             throw new IllegalArgumentException("SearchAgent only supports ANSWER_ONLY and WORKSPACE_ONLY objectives");
         }
@@ -131,6 +154,7 @@ public class SearchAgent {
                         ? SearchMetrics.tracking()
                         : SearchMetrics.noOp();
         this.initialContext = initialContext;
+        this.responseSchemaRegistry = responseSchemaRegistry;
         this.context = initialContext;
         this.llm = cm.getLlm(new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho());
         this.llm.setOutput(io);
@@ -165,7 +189,7 @@ public class SearchAgent {
 
     private TaskResult executeSearch() throws InterruptedException {
         var workspaceTools = new WorkspaceTools(context);
-        var parallelCustomAgent = new ParallelCustomAgent(cm, model, goal);
+        var parallelCustomAgent = new ParallelCustomAgent(cm, model, responseSchemaRegistry);
         var toolRegistry = cm.getToolRegistry()
                 .builder()
                 .register(searchTools)
