@@ -217,6 +217,13 @@ public class ParallelCustomAgent {
                                 e.getCause() != null ? e.getCause().getMessage() : "Unknown error"));
                 logger.debug(errorMessage, e);
                 var failure = ToolExecutionResult.requestError(task.request(), errorMessage);
+                maybeRecordArtifact(
+                        task.request(),
+                        UUID.randomUUID().toString(),
+                        extractStringArgument(task.request(), "agentName", "unknown"),
+                        extractStringArgument(task.request(), "responseSchemaName", ""),
+                        failure,
+                        0L);
                 toolExecutionMessages.add(failure.toMessage());
             }
         }
@@ -360,7 +367,7 @@ public class ParallelCustomAgent {
         } else if (result.status() == ToolExecutionResult.Status.FATAL
                 && resultText.contains("RESPONSE_SCHEMA_OUTPUT_INVALID")) {
             status = ChildAgentArtifact.STATUS_SCHEMA_INVALID;
-            validationError = extractDiagnosticValue(resultText, "validation");
+            validationError = extractSchemaValidationError(resultText);
             if (validationError == null) {
                 validationError = resultText.lines().findFirst().orElse("RESPONSE_SCHEMA_OUTPUT_INVALID");
             }
@@ -419,7 +426,7 @@ public class ParallelCustomAgent {
 
     private static @Nullable String extractDiagnosticValue(String text, String key) {
         var prefix = key + "=";
-        var start = text.indexOf(prefix);
+        var start = findDiagnosticKeyStart(text, key);
         if (start < 0) {
             return null;
         }
@@ -432,21 +439,56 @@ public class ParallelCustomAgent {
     }
 
     private static int nextDiagnosticKeyStart(String text, int valueStart) {
-        var keys = List.of(
-                "\nschema=",
-                "\nvalidation=",
-                "\nattempts=",
-                "\nfinishReason=",
-                "\ninitialInvalidOutputExcerpt=",
-                "\ninvalidOutputExcerpt=",
-                "\nfinalValidationError=",
-                "\nllmRepairAttempted=",
-                "\ndeterministicRepairAttempted=");
-        return keys.stream()
+        return diagnosticKeys().stream()
+                .flatMap(key -> List.of(" " + key + "=", "\n" + key + "=").stream())
                 .mapToInt(key -> text.indexOf(key, valueStart))
                 .filter(index -> index >= 0)
                 .min()
                 .orElse(-1);
+    }
+
+    private static int findDiagnosticKeyStart(String text, String key) {
+        var prefix = key + "=";
+        var start = text.indexOf(prefix);
+        while (start >= 0) {
+            if (start == 0 || Character.isWhitespace(text.charAt(start - 1))) {
+                return start;
+            }
+            start = text.indexOf(prefix, start + prefix.length());
+        }
+        return -1;
+    }
+
+    private static @Nullable String extractSchemaValidationError(String text) {
+        var finalValidation = extractDiagnosticValue(text, "finalValidation");
+        if (finalValidation != null && !finalValidation.isBlank() && !"null".equals(finalValidation)) {
+            return finalValidation;
+        }
+        var originalValidation = extractDiagnosticValue(text, "originalValidation");
+        if (originalValidation != null && !originalValidation.isBlank() && !"null".equals(originalValidation)) {
+            return originalValidation;
+        }
+        return extractDiagnosticValue(text, "validation");
+    }
+
+    private static List<String> diagnosticKeys() {
+        return List.of(
+                "schema",
+                "candidateSource",
+                "originalValidation",
+                "finalValidation",
+                "validation",
+                "attempts",
+                "finishReason",
+                "initialInvalidOutputExcerpt",
+                "originalOutputExcerpt",
+                "invalidOutputExcerpt",
+                "finalValidationError",
+                "llmRepairAttempted",
+                "deterministicRepairAttempted",
+                "deterministicChanges",
+                "salvageAttempted",
+                "salvageChanges");
     }
 
     private static String excerpt(String text) {

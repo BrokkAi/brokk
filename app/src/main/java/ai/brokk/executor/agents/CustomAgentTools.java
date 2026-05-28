@@ -167,7 +167,7 @@ public class CustomAgentTools {
                     responseSchemaName,
                     ChildAgentArtifact.STATUS_SCHEMA_INVALID,
                     null,
-                    extractDiagnosticValue(explanation, "validation"),
+                    extractSchemaValidationError(explanation),
                     Objects.requireNonNullElseGet(
                             extractDiagnosticValue(explanation, "invalidOutputExcerpt"), () -> excerpt(explanation)),
                     null,
@@ -231,7 +231,7 @@ public class CustomAgentTools {
 
     private static @Nullable String extractDiagnosticValue(String text, String key) {
         var prefix = key + "=";
-        var start = text.indexOf(prefix);
+        var start = findDiagnosticKeyStart(text, key);
         if (start < 0) {
             return null;
         }
@@ -244,21 +244,56 @@ public class CustomAgentTools {
     }
 
     private static int nextDiagnosticKeyStart(String text, int valueStart) {
-        var keys = List.of(
-                "\nschema=",
-                "\nvalidation=",
-                "\nattempts=",
-                "\nfinishReason=",
-                "\ninitialInvalidOutputExcerpt=",
-                "\ninvalidOutputExcerpt=",
-                "\nfinalValidationError=",
-                "\nllmRepairAttempted=",
-                "\ndeterministicRepairAttempted=");
-        return keys.stream()
+        return diagnosticKeys().stream()
+                .flatMap(key -> List.of(" " + key + "=", "\n" + key + "=").stream())
                 .mapToInt(key -> text.indexOf(key, valueStart))
                 .filter(index -> index >= 0)
                 .min()
                 .orElse(-1);
+    }
+
+    private static int findDiagnosticKeyStart(String text, String key) {
+        var prefix = key + "=";
+        var start = text.indexOf(prefix);
+        while (start >= 0) {
+            if (start == 0 || Character.isWhitespace(text.charAt(start - 1))) {
+                return start;
+            }
+            start = text.indexOf(prefix, start + prefix.length());
+        }
+        return -1;
+    }
+
+    private static @Nullable String extractSchemaValidationError(String text) {
+        var finalValidation = extractDiagnosticValue(text, "finalValidation");
+        if (finalValidation != null && !finalValidation.isBlank() && !"null".equals(finalValidation)) {
+            return finalValidation;
+        }
+        var originalValidation = extractDiagnosticValue(text, "originalValidation");
+        if (originalValidation != null && !originalValidation.isBlank() && !"null".equals(originalValidation)) {
+            return originalValidation;
+        }
+        return extractDiagnosticValue(text, "validation");
+    }
+
+    private static List<String> diagnosticKeys() {
+        return List.of(
+                "schema",
+                "candidateSource",
+                "originalValidation",
+                "finalValidation",
+                "validation",
+                "attempts",
+                "finishReason",
+                "initialInvalidOutputExcerpt",
+                "originalOutputExcerpt",
+                "invalidOutputExcerpt",
+                "finalValidationError",
+                "llmRepairAttempted",
+                "deterministicRepairAttempted",
+                "deterministicChanges",
+                "salvageAttempted",
+                "salvageChanges");
     }
 
     private static String excerpt(String text) {

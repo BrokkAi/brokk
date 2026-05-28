@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
+import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.executor.jobs.ChildAgentArtifact;
@@ -16,6 +17,7 @@ import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
+import ai.brokk.tools.ApprovalResult;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
@@ -255,6 +257,33 @@ class ParallelCustomAgentTest {
     }
 
     @Test
+    void parallelSchemaBackedAgentEmitsArtifactWhenOuterFutureFails() throws Exception {
+        try (var harness = Harness.create(tempDir, true, new ThrowingBeforeToolCallConsole())) {
+            var sink = new CapturingArtifactSink("parent-job-1");
+            var parallelCustomAgent = new ParallelCustomAgent(harness.cm(), harness.model(), schemaRegistry(), sink);
+            var tr = harness.cm()
+                    .getToolRegistry()
+                    .builder()
+                    .register(parallelCustomAgent)
+                    .build();
+
+            var result = parallelCustomAgent.execute(List.of(schemaNameRequest("call-1", "schema-agent")), tr);
+
+            assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+            assertEquals(1, result.toolExecutionMessages().size());
+            assertEquals(1, sink.artifacts().size());
+            var artifact = sink.artifacts().getFirst();
+            assertEquals("parent-job-1", artifact.parentJobId());
+            assertEquals("call-1", artifact.toolCallId());
+            assertEquals("schema-agent", artifact.agentName());
+            assertEquals("StrictReport", artifact.responseSchemaName());
+            assertEquals(ChildAgentArtifact.STATUS_FAILED, artifact.status());
+            assertNotNull(artifact.errorMessage());
+            assertTrue(artifact.errorMessage().contains("beforeToolCall failed"));
+        }
+    }
+
+    @Test
     void parallelSchemaBackedAgentResolvesSchemaNameFromParentRegistry() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             harness.cm().getAgentStore().save(agentDef(), "project");
@@ -372,6 +401,10 @@ class ParallelCustomAgentTest {
 
     private record Harness(ContextManager cm, CapturingModel model) implements AutoCloseable {
         static Harness create(Path tempDir, boolean supportsJsonSchema) throws Exception {
+            return create(tempDir, supportsJsonSchema, new NoOpConsoleIO());
+        }
+
+        static Harness create(Path tempDir, boolean supportsJsonSchema, IConsoleIO io) throws Exception {
             var workspaceDir = tempDir.resolve("workspace");
             Files.createDirectories(workspaceDir.resolve(".brokk/llm-history"));
             Files.writeString(workspaceDir.resolve(".brokk/project.properties"), "# test", StandardCharsets.UTF_8);
@@ -391,13 +424,20 @@ class ParallelCustomAgentTest {
                 }
             };
             var cm = new ContextManager(project, provider);
-            cm.createHeadless(true, new NoOpConsoleIO());
+            cm.createHeadless(true, io);
             return new Harness(cm, model);
         }
 
         @Override
         public void close() {
             cm.close();
+        }
+    }
+
+    private static final class ThrowingBeforeToolCallConsole extends NoOpConsoleIO {
+        @Override
+        public ApprovalResult beforeToolCall(ToolExecutionRequest request, boolean destructive) {
+            throw new IllegalStateException("beforeToolCall failed");
         }
     }
 
