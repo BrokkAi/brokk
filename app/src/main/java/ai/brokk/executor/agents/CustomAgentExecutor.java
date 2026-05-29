@@ -85,6 +85,58 @@ public class CustomAgentExecutor {
         }
     }
 
+    private static final class SchemaCandidateExtractor {
+        private SchemaCandidateExtractor() {}
+
+        private static List<SchemaCandidate> extract(String finalNotes) {
+            return schemaCandidates(finalNotes);
+        }
+
+        private static List<SchemaCandidate> repairOrder(List<SchemaCandidate> candidates) {
+            return repairCandidateOrder(candidates);
+        }
+    }
+
+    private static final class SchemaOutputNormalizer {
+        private SchemaOutputNormalizer() {}
+
+        private static @Nullable NormalizedCandidate deterministic(JobSpec.ResponseSchema schema, String candidate) {
+            return deterministicNormalize(schema, candidate);
+        }
+
+        private static @Nullable NormalizedCandidate salvage(JobSpec.ResponseSchema schema, String candidate) {
+            return salvageNormalize(schema, candidate);
+        }
+    }
+
+    private static final class SchemaRepairPrompts {
+        private SchemaRepairPrompts() {}
+
+        private static int maxCompletionTokens(JobSpec.ResponseSchema schema) {
+            return repairMaxCompletionTokens(schema);
+        }
+
+        private static String failureMessage(JobSpec.ResponseSchema schema, RepairTrace trace) {
+            return repairFailureMessage(schema, trace);
+        }
+
+        private static String initial(
+                String taskInput, String finalNotes, String toc, JsonNode schema, String validationError) {
+            return formatStructuredFinalPrompt(taskInput, finalNotes, toc, schema, validationError);
+        }
+
+        private static String retry(
+                String taskInput,
+                String finalNotes,
+                String toc,
+                JsonNode schema,
+                String previousRepairOutput,
+                String validationError) {
+            return formatStructuredFinalRetryPrompt(
+                    taskInput, finalNotes, toc, schema, previousRepairOutput, validationError);
+        }
+    }
+
     private static final Set<String> TERMINAL_TOOL_NAMES = Set.of("answer", "abortSearch");
     private static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES = AgentDefinition.PARALLEL_SAFE_SEARCH_TOOL_NAMES;
     private static final int STRUCTURED_REPAIR_MIN_COMPLETION_TOKENS = 192;
@@ -295,146 +347,183 @@ public class CustomAgentExecutor {
     }
 
     private TaskResult structuredFinalAnswer(String taskInput, String finalNotes) throws InterruptedException {
-        var schema = Objects.requireNonNull(responseSchema);
-        var candidates = schemaCandidates(finalNotes);
-        if (candidates.isEmpty()) {
+        return new SchemaFinalizer(taskInput, finalNotes).execute();
+    }
+
+    private final class SchemaFinalizer {
+        private final String taskInput;
+        private final String finalNotes;
+
+        private SchemaFinalizer(String taskInput, String finalNotes) {
+            this.taskInput = taskInput;
+            this.finalNotes = finalNotes;
+        }
+
+        private TaskResult execute() throws InterruptedException {
+            var schema = Objects.requireNonNull(responseSchema);
+            var candidates = SchemaCandidateExtractor.extract(finalNotes);
+            if (candidates.isEmpty()) {
+                return new TaskResult(
+                        context,
+                        new TaskResult.StopDetails(
+                                TaskResult.StopReason.LLM_ERROR,
+                                "RESPONSE_SCHEMA_OUTPUT_MISSING: schema=%s candidateSource=none"
+                                        .formatted(schema.name())));
+            }
+
+            var validationErrors = new LinkedHashMap<String, String>();
+            for (var candidate : candidates) {
+                var validationError = JobResponseSchemaSupport.validateOutput(schema, candidate.json());
+                if (validationError.isEmpty()) {
+                    io.llmOutput(candidate.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
+                    return new TaskResult(
+                            context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, candidate.json()));
+                }
+                validationErrors.put(candidate.source(), validationError.get());
+            }
+
+            var repairCandidates = SchemaCandidateExtractor.repairOrder(candidates);
+            boolean deterministicRepairAttempted = false;
+            NormalizedCandidate repairCandidateNormalization = null;
+            for (var candidate : repairCandidates) {
+                deterministicRepairAttempted = true;
+                var normalizedCandidate = SchemaOutputNormalizer.deterministic(schema, candidate.json());
+                if (normalizedCandidate != null) {
+                    if (candidate.equals(repairCandidates.getFirst())) {
+                        repairCandidateNormalization = normalizedCandidate;
+                    }
+                    var normalizedValidationError =
+                            JobResponseSchemaSupport.validateOutput(schema, normalizedCandidate.json());
+                    if (normalizedValidationError.isEmpty()) {
+                        logger.info(
+                                "Schema-aware custom-agent terminal output normalized deterministically for schema {} from {}: {}",
+                                schema.name(),
+                                candidate.source(),
+                                normalizedCandidate.changes());
+                        io.llmOutput(normalizedCandidate.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
+                        return new TaskResult(
+                                context,
+                                new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, normalizedCandidate.json()));
+                    }
+                }
+            }
+
+            return repairWithLlm(
+                    schema,
+                    repairCandidates.getFirst(),
+                    validationErrors,
+                    deterministicRepairAttempted,
+                    repairCandidateNormalization);
+        }
+
+        private TaskResult repairWithLlm(
+                JobSpec.ResponseSchema schema,
+                SchemaCandidate repairCandidate,
+                Map<String, String> validationErrors,
+                boolean deterministicRepairAttempted,
+                @Nullable NormalizedCandidate repairCandidateNormalization)
+                throws InterruptedException {
+            var initialValidationError =
+                    validationErrors.getOrDefault(repairCandidate.source(), "unknown validation error");
+            var trace = new RepairTrace(repairCandidate.source(), initialValidationError, repairCandidate.json());
+            trace.deterministicRepairAttempted = deterministicRepairAttempted;
+            if (repairCandidateNormalization != null) {
+                trace.deterministicChanges = repairCandidateNormalization.changes();
+                trace.failedRepairOutput = repairCandidateNormalization.json();
+                trace.finalValidationError = JobResponseSchemaSupport.validateOutput(
+                                schema, repairCandidateNormalization.json())
+                        .orElse(initialValidationError);
+            }
+            var structuredLlm = cm.getLlm(
+                    new Llm.Options(model, agentDef.name() + " structured answer", TaskResult.Type.SEARCH).withEcho());
+            structuredLlm.setOutput(io);
+            var repairMaxCompletionTokens = SchemaRepairPrompts.maxCompletionTokens(schema);
+
+            var toc = WorkspacePrompts.formatToc(context).trim();
+            var messages = List.<ChatMessage>of(
+                    new SystemMessage(agentDef.systemPrompt()),
+                    new UserMessage(SchemaRepairPrompts.initial(
+                            taskInput, repairCandidate.json(), toc, schema.schema(), initialValidationError)));
+
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                trace.llmRepairAttempted = true;
+                var response = structuredLlm.sendRequest(
+                        messages,
+                        structuredLlm
+                                .requestOptions()
+                                .withResponseFormat(responseFormat)
+                                .withMaxAttempts(1)
+                                .withMaxCompletionTokens(repairMaxCompletionTokens));
+                if (response.error() != null) {
+                    return new TaskResult(context, TaskResult.StopDetails.fromResponse(response));
+                }
+
+                var structuredText = response.text();
+                trace.failedRepairOutput = structuredText;
+                if (response.isPartial()) {
+                    trace.finishReason = "LENGTH";
+                    return repairFailure(schema, trace);
+                }
+
+                var validationError = JobResponseSchemaSupport.validateOutput(schema, structuredText);
+                if (validationError.isEmpty()) {
+                    io.llmOutput(structuredText, ChatMessageType.AI, LlmOutputMeta.newMessage());
+                    return new TaskResult(
+                            context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, structuredText));
+                }
+                trace.finalValidationError = validationError.get();
+
+                if (attempt == 2) {
+                    return salvageOrFail(schema, repairCandidate, trace, structuredText);
+                }
+
+                messages = List.of(
+                        new SystemMessage(agentDef.systemPrompt()),
+                        new UserMessage(SchemaRepairPrompts.retry(
+                                taskInput,
+                                repairCandidate.json(),
+                                toc,
+                                schema.schema(),
+                                abbreviateInvalidOutput(structuredText),
+                                validationError.get())));
+            }
+
+            throw new IllegalStateException("unreachable structured answer retry state");
+        }
+
+        private TaskResult salvageOrFail(
+                JobSpec.ResponseSchema schema,
+                SchemaCandidate repairCandidate,
+                RepairTrace trace,
+                String structuredText) {
+            var salvage = SchemaOutputNormalizer.salvage(schema, structuredText);
+            trace.salvageAttempted = true;
+            if (salvage != null) {
+                trace.salvageChanges = salvage.changes();
+                var salvageValidationError = JobResponseSchemaSupport.validateOutput(schema, salvage.json());
+                if (salvageValidationError.isEmpty()) {
+                    logger.info(
+                            "Schema-aware custom-agent repair output salvaged deterministically for schema {} from {}: {}",
+                            schema.name(),
+                            repairCandidate.source(),
+                            salvage.changes());
+                    io.llmOutput(salvage.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
+                    return new TaskResult(
+                            context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, salvage.json()));
+                }
+                trace.finalValidationError = salvageValidationError.orElse(trace.finalValidationError);
+                trace.failedRepairOutput = salvage.json();
+            }
+            trace.finishReason = "complete";
+            return repairFailure(schema, trace);
+        }
+
+        private TaskResult repairFailure(JobSpec.ResponseSchema schema, RepairTrace trace) {
             return new TaskResult(
                     context,
                     new TaskResult.StopDetails(
-                            TaskResult.StopReason.LLM_ERROR,
-                            "RESPONSE_SCHEMA_OUTPUT_MISSING: schema=%s candidateSource=none".formatted(schema.name())));
+                            TaskResult.StopReason.LLM_ERROR, SchemaRepairPrompts.failureMessage(schema, trace)));
         }
-
-        var validationErrors = new LinkedHashMap<String, String>();
-        for (var candidate : candidates) {
-            var validationError = JobResponseSchemaSupport.validateOutput(schema, candidate.json());
-            if (validationError.isEmpty()) {
-                io.llmOutput(candidate.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
-                return new TaskResult(
-                        context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, candidate.json()));
-            }
-            validationErrors.put(candidate.source(), validationError.get());
-        }
-
-        var repairCandidates = repairCandidateOrder(candidates);
-        boolean deterministicRepairAttempted = false;
-        NormalizedCandidate repairCandidateNormalization = null;
-        for (var candidate : repairCandidates) {
-            deterministicRepairAttempted = true;
-            var normalizedCandidate = deterministicNormalize(schema, candidate.json());
-            if (normalizedCandidate != null) {
-                if (candidate.equals(repairCandidates.getFirst())) {
-                    repairCandidateNormalization = normalizedCandidate;
-                }
-                var normalizedValidationError =
-                        JobResponseSchemaSupport.validateOutput(schema, normalizedCandidate.json());
-                if (normalizedValidationError.isEmpty()) {
-                    logger.info(
-                            "Schema-aware custom-agent terminal output normalized deterministically for schema {} from {}: {}",
-                            schema.name(),
-                            candidate.source(),
-                            normalizedCandidate.changes());
-                    io.llmOutput(normalizedCandidate.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
-                    return new TaskResult(
-                            context,
-                            new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, normalizedCandidate.json()));
-                }
-            }
-        }
-
-        var repairCandidate = repairCandidates.getFirst();
-        var initialValidationError =
-                validationErrors.getOrDefault(repairCandidate.source(), "unknown validation error");
-        var trace = new RepairTrace(repairCandidate.source(), initialValidationError, repairCandidate.json());
-        trace.deterministicRepairAttempted = deterministicRepairAttempted;
-        if (repairCandidateNormalization != null) {
-            trace.deterministicChanges = repairCandidateNormalization.changes();
-            trace.failedRepairOutput = repairCandidateNormalization.json();
-            trace.finalValidationError = JobResponseSchemaSupport.validateOutput(
-                            schema, repairCandidateNormalization.json())
-                    .orElse(initialValidationError);
-        }
-        var structuredLlm = cm.getLlm(
-                new Llm.Options(model, agentDef.name() + " structured answer", TaskResult.Type.SEARCH).withEcho());
-        structuredLlm.setOutput(io);
-        var repairMaxCompletionTokens = repairMaxCompletionTokens(schema);
-
-        var toc = WorkspacePrompts.formatToc(context).trim();
-        var messages = List.<ChatMessage>of(
-                new SystemMessage(agentDef.systemPrompt()),
-                new UserMessage(formatStructuredFinalPrompt(
-                        taskInput, repairCandidate.json(), toc, schema.schema(), initialValidationError)));
-
-        String structuredText = "";
-        for (int attempt = 1; attempt <= 2; attempt++) {
-            trace.llmRepairAttempted = true;
-            var response = structuredLlm.sendRequest(
-                    messages,
-                    structuredLlm
-                            .requestOptions()
-                            .withResponseFormat(responseFormat)
-                            .withMaxAttempts(1)
-                            .withMaxCompletionTokens(repairMaxCompletionTokens));
-            if (response.error() != null) {
-                return new TaskResult(context, TaskResult.StopDetails.fromResponse(response));
-            }
-
-            structuredText = response.text();
-            trace.failedRepairOutput = structuredText;
-            if (response.isPartial()) {
-                trace.finishReason = "LENGTH";
-                return new TaskResult(
-                        context,
-                        new TaskResult.StopDetails(
-                                TaskResult.StopReason.LLM_ERROR, repairFailureMessage(schema, trace)));
-            }
-
-            var validationError = JobResponseSchemaSupport.validateOutput(schema, structuredText);
-            if (validationError.isEmpty()) {
-                io.llmOutput(structuredText, ChatMessageType.AI, LlmOutputMeta.newMessage());
-                return new TaskResult(
-                        context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, structuredText));
-            }
-            trace.finalValidationError = validationError.get();
-
-            if (attempt == 2) {
-                var salvage = salvageNormalize(schema, structuredText);
-                trace.salvageAttempted = true;
-                if (salvage != null) {
-                    trace.salvageChanges = salvage.changes();
-                    var salvageValidationError = JobResponseSchemaSupport.validateOutput(schema, salvage.json());
-                    if (salvageValidationError.isEmpty()) {
-                        logger.info(
-                                "Schema-aware custom-agent repair output salvaged deterministically for schema {} from {}: {}",
-                                schema.name(),
-                                repairCandidate.source(),
-                                salvage.changes());
-                        io.llmOutput(salvage.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
-                        return new TaskResult(
-                                context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, salvage.json()));
-                    }
-                    trace.finalValidationError = salvageValidationError.orElse(trace.finalValidationError);
-                    trace.failedRepairOutput = salvage.json();
-                }
-                trace.finishReason = "complete";
-                return new TaskResult(
-                        context,
-                        new TaskResult.StopDetails(
-                                TaskResult.StopReason.LLM_ERROR, repairFailureMessage(schema, trace)));
-            }
-
-            messages = List.of(
-                    new SystemMessage(agentDef.systemPrompt()),
-                    new UserMessage(formatStructuredFinalRetryPrompt(
-                            taskInput,
-                            repairCandidate.json(),
-                            toc,
-                            schema.schema(),
-                            abbreviateInvalidOutput(structuredText),
-                            validationError.get())));
-        }
-
-        throw new IllegalStateException("unreachable structured answer retry state");
     }
 
     static List<SchemaCandidate> schemaCandidates(String finalNotes) {

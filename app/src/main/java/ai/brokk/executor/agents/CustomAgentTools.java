@@ -9,12 +9,9 @@ import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import org.apache.logging.log4j.LogManager;
@@ -89,19 +86,37 @@ public class CustomAgentTools {
             resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, responseSchemaRegistry);
         } catch (ToolRegistry.ToolValidationException e) {
             var errorMessage = Objects.requireNonNullElse(e.getMessage(), "Invalid responseSchemaName");
-            recordArtifact(
+            recordArtifact(ChildAgentArtifactFactory.genericFailure(
+                    childAgentArtifactSink.parentJobId(),
                     childRunId,
+                    null,
                     agentName,
                     responseSchemaName,
+                    cm.getService().nameOf(model),
+                    elapsedMs(startNanos),
                     ChildAgentArtifact.STATUS_FAILED,
-                    null,
-                    null,
-                    null,
-                    errorMessage,
-                    elapsedMs(startNanos));
+                    errorMessage));
             throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.REQUEST_ERROR, errorMessage);
         }
-        var result = executeCustomAgent(agentName, task, resolvedSchema);
+
+        TaskResult result;
+        try {
+            result = executeCustomAgent(agentName, task, resolvedSchema);
+        } catch (RuntimeException e) {
+            var errorMessage = "Error executing custom agent '%s': %s"
+                    .formatted(agentName, Objects.requireNonNullElse(e.getMessage(), "Unknown error"));
+            recordArtifact(ChildAgentArtifactFactory.genericFailure(
+                    childAgentArtifactSink.parentJobId(),
+                    childRunId,
+                    null,
+                    agentName,
+                    responseSchemaName,
+                    cm.getService().nameOf(model),
+                    elapsedMs(startNanos),
+                    ChildAgentArtifact.STATUS_FAILED,
+                    errorMessage));
+            throw e;
+        }
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
             recordFailureArtifact(
                     childRunId,
@@ -112,196 +127,51 @@ public class CustomAgentTools {
             throw new ToolRegistry.ToolCallException(
                     ToolExecutionResult.Status.FATAL, result.stopDetails().explanation());
         }
+
         var explanation = result.stopDetails().explanation();
-        recordSuccessArtifact(childRunId, agentName, responseSchemaName, explanation, elapsedMs(startNanos));
-        return explanation;
-    }
-
-    private void recordSuccessArtifact(
-            String childRunId, String agentName, String responseSchemaName, String explanation, long elapsedMs) {
-        try {
-            var parsed = Json.getMapper().readTree(explanation);
-            if (parsed.isObject()) {
-                recordArtifact(
-                        childRunId,
-                        agentName,
-                        responseSchemaName,
-                        ChildAgentArtifact.STATUS_SUCCESS,
-                        parsed,
-                        null,
-                        null,
-                        null,
-                        elapsedMs);
-            } else {
-                recordArtifact(
-                        childRunId,
-                        agentName,
-                        responseSchemaName,
-                        ChildAgentArtifact.STATUS_SCHEMA_INVALID,
-                        null,
-                        "validated child response was not a JSON object",
-                        excerpt(explanation),
-                        null,
-                        elapsedMs);
-            }
-        } catch (Exception e) {
-            recordArtifact(
-                    childRunId,
-                    agentName,
-                    responseSchemaName,
-                    ChildAgentArtifact.STATUS_SCHEMA_INVALID,
-                    null,
-                    "validated child response could not be parsed as JSON: " + e.getMessage(),
-                    excerpt(explanation),
-                    null,
-                    elapsedMs);
-        }
-    }
-
-    private void recordFailureArtifact(
-            String childRunId, String agentName, String responseSchemaName, String explanation, long elapsedMs) {
-        if (explanation.contains("RESPONSE_SCHEMA_OUTPUT_INVALID")) {
-            recordArtifact(
-                    childRunId,
-                    agentName,
-                    responseSchemaName,
-                    ChildAgentArtifact.STATUS_SCHEMA_INVALID,
-                    null,
-                    extractSchemaValidationError(explanation),
-                    Objects.requireNonNullElseGet(
-                            extractDiagnosticValue(explanation, "invalidOutputExcerpt"), () -> excerpt(explanation)),
-                    null,
-                    elapsedMs);
-            return;
-        }
-        recordArtifact(
-                childRunId,
-                agentName,
-                responseSchemaName,
-                statusForNonSchemaFailure(explanation),
-                null,
-                null,
-                null,
-                excerpt(explanation),
-                elapsedMs);
-    }
-
-    private void recordArtifact(
-            String childRunId,
-            String agentName,
-            String responseSchemaName,
-            String status,
-            @Nullable JsonNode validatedResponse,
-            @Nullable String validationError,
-            @Nullable String invalidOutputExcerpt,
-            @Nullable String errorMessage,
-            long elapsedMs) {
-        childAgentArtifactSink.record(new ChildAgentArtifact(
+        recordArtifact(ChildAgentArtifactFactory.successFromText(
                 childAgentArtifactSink.parentJobId(),
                 childRunId,
                 null,
                 agentName,
                 responseSchemaName,
-                status,
-                validatedResponse,
-                validationError,
-                invalidOutputExcerpt,
-                errorMessage,
-                elapsedMs,
                 cm.getService().nameOf(model),
-                null,
-                null,
-                null));
+                elapsedMs(startNanos),
+                explanation));
+        return explanation;
     }
 
-    private static String statusForNonSchemaFailure(String explanation) {
-        var lower = explanation.toLowerCase(Locale.ROOT);
-        if (lower.contains("cancel")) {
-            return ChildAgentArtifact.STATUS_CANCELLED;
-        }
-        if (lower.contains("timeout") || lower.contains("timed out")) {
-            return ChildAgentArtifact.STATUS_TIMEOUT;
-        }
-        return ChildAgentArtifact.STATUS_FAILED;
+    private void recordFailureArtifact(
+            String childRunId, String agentName, String responseSchemaName, String explanation, long elapsedMs) {
+        var artifact = explanation.contains("RESPONSE_SCHEMA_OUTPUT_INVALID")
+                ? ChildAgentArtifactFactory.schemaInvalidFromFailureText(
+                        childAgentArtifactSink.parentJobId(),
+                        childRunId,
+                        null,
+                        agentName,
+                        responseSchemaName,
+                        cm.getService().nameOf(model),
+                        elapsedMs,
+                        explanation)
+                : ChildAgentArtifactFactory.genericFailure(
+                        childAgentArtifactSink.parentJobId(),
+                        childRunId,
+                        null,
+                        agentName,
+                        responseSchemaName,
+                        cm.getService().nameOf(model),
+                        elapsedMs,
+                        ChildAgentArtifactFactory.statusForNonSchemaFailure(explanation),
+                        explanation);
+        recordArtifact(artifact);
+    }
+
+    private void recordArtifact(ChildAgentArtifact artifact) {
+        childAgentArtifactSink.record(artifact);
     }
 
     private static long elapsedMs(long startNanos) {
         return Math.max(0L, (System.nanoTime() - startNanos) / 1_000_000L);
-    }
-
-    private static @Nullable String extractDiagnosticValue(String text, String key) {
-        var prefix = key + "=";
-        var start = findDiagnosticKeyStart(text, key);
-        if (start < 0) {
-            return null;
-        }
-        var valueStart = start + prefix.length();
-        var nextKeyStart = nextDiagnosticKeyStart(text, valueStart);
-        if (nextKeyStart < 0) {
-            return text.substring(valueStart).strip();
-        }
-        return text.substring(valueStart, nextKeyStart).strip();
-    }
-
-    private static int nextDiagnosticKeyStart(String text, int valueStart) {
-        return diagnosticKeys().stream()
-                .flatMap(key -> List.of(" " + key + "=", "\n" + key + "=").stream())
-                .mapToInt(key -> text.indexOf(key, valueStart))
-                .filter(index -> index >= 0)
-                .min()
-                .orElse(-1);
-    }
-
-    private static int findDiagnosticKeyStart(String text, String key) {
-        var prefix = key + "=";
-        var start = text.indexOf(prefix);
-        while (start >= 0) {
-            if (start == 0 || Character.isWhitespace(text.charAt(start - 1))) {
-                return start;
-            }
-            start = text.indexOf(prefix, start + prefix.length());
-        }
-        return -1;
-    }
-
-    private static @Nullable String extractSchemaValidationError(String text) {
-        var finalValidation = extractDiagnosticValue(text, "finalValidation");
-        if (finalValidation != null && !finalValidation.isBlank() && !"null".equals(finalValidation)) {
-            return finalValidation;
-        }
-        var originalValidation = extractDiagnosticValue(text, "originalValidation");
-        if (originalValidation != null && !originalValidation.isBlank() && !"null".equals(originalValidation)) {
-            return originalValidation;
-        }
-        return extractDiagnosticValue(text, "validation");
-    }
-
-    private static List<String> diagnosticKeys() {
-        return List.of(
-                "schema",
-                "candidateSource",
-                "originalValidation",
-                "finalValidation",
-                "validation",
-                "attempts",
-                "finishReason",
-                "initialInvalidOutputExcerpt",
-                "originalOutputExcerpt",
-                "invalidOutputExcerpt",
-                "finalValidationError",
-                "llmRepairAttempted",
-                "deterministicRepairAttempted",
-                "deterministicChanges",
-                "salvageAttempted",
-                "salvageChanges");
-    }
-
-    private static String excerpt(String text) {
-        var normalized = text.strip();
-        if (normalized.length() <= 2_000) {
-            return normalized;
-        }
-        return normalized.substring(0, 2_000) + "...[truncated " + (normalized.length() - 2_000) + " chars]";
     }
 
     private TaskResult executeCustomAgent(
@@ -338,7 +208,7 @@ public class CustomAgentTools {
                 return explanation.asText();
             }
         } catch (Exception ignored) {
-            // Not JSON — return as-is
+            // Not JSON -- return as-is
         }
         return raw;
     }

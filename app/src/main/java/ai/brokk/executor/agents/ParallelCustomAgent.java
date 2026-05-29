@@ -7,14 +7,12 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.concurrent.LoggingFuture;
-import ai.brokk.executor.jobs.ChildAgentArtifact;
 import ai.brokk.executor.jobs.ChildAgentArtifactSink;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -23,7 +21,6 @@ import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -43,6 +40,12 @@ import org.jetbrains.annotations.Nullable;
 public class ParallelCustomAgent {
     private static final Logger logger = LogManager.getLogger(ParallelCustomAgent.class);
     public static final Set<String> TOOL_NAMES = Set.of("callCustomAgent", "callCustomAgentWithSchema");
+
+    private record ParsedCustomAgentRequest(
+            String agentName,
+            String task,
+            String responseSchemaName,
+            JobSpec.@Nullable ResponseSchema responseSchema) {}
 
     private final IAppContextManager cm;
     private final StreamingChatModel model;
@@ -249,19 +252,9 @@ public class ParallelCustomAgent {
         var childRunId = UUID.randomUUID().toString();
         var startNanos = System.nanoTime();
 
-        String agentName;
-        String task;
-        String responseSchemaName = "";
-        JobSpec.@Nullable ResponseSchema responseSchema = null;
+        ParsedCustomAgentRequest parsedRequest;
         try {
-            var validated = tr.validateTool(request);
-            var parameters = validated.parameters();
-            agentName = (String) parameters.getFirst();
-            task = (String) parameters.get(1);
-            if ("callCustomAgentWithSchema".equals(request.name())) {
-                responseSchemaName = (String) parameters.get(2);
-                responseSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, responseSchemaRegistry);
-            }
+            parsedRequest = parseCustomAgentRequest(request, tr);
         } catch (RuntimeException e) {
             var errorMessage = "Failed to parse custom agent arguments: " + e.getMessage();
             logger.debug(errorMessage, e);
@@ -270,7 +263,7 @@ public class ParallelCustomAgent {
                     request,
                     childRunId,
                     extractStringArgument(request, "agentName", "unknown"),
-                    extractStringArgument(request, "responseSchemaName", responseSchemaName),
+                    extractStringArgument(request, "responseSchemaName", ""),
                     failure,
                     elapsedMs(startNanos));
             taskIo.afterToolOutput(failure);
@@ -278,46 +271,78 @@ public class ParallelCustomAgent {
         }
 
         var agentStore = cm.getAgentStore();
-        var agentDef = agentStore.get(agentName).orElse(null);
+        var agentDef = agentStore.get(parsedRequest.agentName()).orElse(null);
         if (agentDef == null) {
             var errorMessage = "Custom agent not found: '%s'. Available agents: %s"
                     .formatted(
-                            agentName,
+                            parsedRequest.agentName(),
                             agentStore.list().stream()
                                     .map(AgentDefinition::name)
                                     .toList());
             var failure = ToolExecutionResult.requestError(request, errorMessage);
-            maybeRecordArtifact(request, childRunId, agentName, responseSchemaName, failure, elapsedMs(startNanos));
+            maybeRecordArtifact(
+                    request,
+                    childRunId,
+                    parsedRequest.agentName(),
+                    parsedRequest.responseSchemaName(),
+                    failure,
+                    elapsedMs(startNanos));
             taskIo.afterToolOutput(failure);
-            return new CustomAgentTaskResult(failure, agentName);
+            return new CustomAgentTaskResult(failure, parsedRequest.agentName());
         }
 
         logger.info(
                 "Invoking custom agent '{}' in parallel with model {}",
-                agentName,
+                parsedRequest.agentName(),
                 cm.getService().nameOf(model));
 
         try {
-            var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo, responseSchema);
-            var result = executor.executeInterruptibly(task);
-            var explanation = responseSchema == null
+            var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo, parsedRequest.responseSchema());
+            var result = executor.executeInterruptibly(parsedRequest.task());
+            var explanation = parsedRequest.responseSchema() == null
                     ? extractExplanation(result.stopDetails().explanation())
                     : result.stopDetails().explanation();
-            var toolResult = responseSchema == null
+            var toolResult = parsedRequest.responseSchema() == null
                     ? toToolExecutionResult(request, result.stopDetails(), explanation)
                     : toSchemaToolExecutionResult(request, result.stopDetails(), explanation);
-            maybeRecordArtifact(request, childRunId, agentName, responseSchemaName, toolResult, elapsedMs(startNanos));
+            maybeRecordArtifact(
+                    request,
+                    childRunId,
+                    parsedRequest.agentName(),
+                    parsedRequest.responseSchemaName(),
+                    toolResult,
+                    elapsedMs(startNanos));
             taskIo.afterToolOutput(toolResult);
-            return new CustomAgentTaskResult(toolResult, agentName);
+            return new CustomAgentTaskResult(toolResult, parsedRequest.agentName());
         } catch (RuntimeException e) {
             var errorMessage = "Error executing custom agent '%s': %s"
-                    .formatted(agentName, Objects.toString(e.getMessage(), "Unknown error"));
+                    .formatted(parsedRequest.agentName(), Objects.toString(e.getMessage(), "Unknown error"));
             logger.debug(errorMessage, e);
             var failure = ToolExecutionResult.requestError(request, errorMessage);
-            maybeRecordArtifact(request, childRunId, agentName, responseSchemaName, failure, elapsedMs(startNanos));
+            maybeRecordArtifact(
+                    request,
+                    childRunId,
+                    parsedRequest.agentName(),
+                    parsedRequest.responseSchemaName(),
+                    failure,
+                    elapsedMs(startNanos));
             taskIo.afterToolOutput(failure);
-            return new CustomAgentTaskResult(failure, agentName);
+            return new CustomAgentTaskResult(failure, parsedRequest.agentName());
         }
+    }
+
+    private ParsedCustomAgentRequest parseCustomAgentRequest(ToolExecutionRequest request, ToolRegistry tr) {
+        var validated = tr.validateTool(request);
+        var parameters = validated.parameters();
+        var agentName = (String) parameters.getFirst();
+        var task = (String) parameters.get(1);
+        if (!"callCustomAgentWithSchema".equals(request.name())) {
+            return new ParsedCustomAgentRequest(agentName, task, "", null);
+        }
+
+        var responseSchemaName = (String) parameters.get(2);
+        var responseSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, responseSchemaRegistry);
+        return new ParsedCustomAgentRequest(agentName, task, responseSchemaName, responseSchema);
     }
 
     private void maybeRecordArtifact(
@@ -330,81 +355,15 @@ public class ParallelCustomAgent {
         if (!"callCustomAgentWithSchema".equals(request.name())) {
             return;
         }
-        childAgentArtifactSink.record(
-                toArtifact(childRunId, request, agentName, responseSchemaName, result, elapsedMs));
-    }
-
-    private ChildAgentArtifact toArtifact(
-            String childRunId,
-            ToolExecutionRequest request,
-            String agentName,
-            String responseSchemaName,
-            ToolExecutionResult result,
-            long elapsedMs) {
-        var resultText = result.resultText();
-        JsonNode validatedResponse = null;
-        String validationError = null;
-        String invalidOutputExcerpt = null;
-        String errorMessage = null;
-        String status;
-
-        if (result.status() == ToolExecutionResult.Status.SUCCESS) {
-            try {
-                var parsed = Json.getMapper().readTree(resultText);
-                if (parsed.isObject()) {
-                    validatedResponse = parsed;
-                    status = ChildAgentArtifact.STATUS_SUCCESS;
-                } else {
-                    status = ChildAgentArtifact.STATUS_SCHEMA_INVALID;
-                    validationError = "validated child response was not a JSON object";
-                    invalidOutputExcerpt = excerpt(resultText);
-                }
-            } catch (Exception e) {
-                status = ChildAgentArtifact.STATUS_SCHEMA_INVALID;
-                validationError = "validated child response could not be parsed as JSON: " + e.getMessage();
-                invalidOutputExcerpt = excerpt(resultText);
-            }
-        } else if (result.status() == ToolExecutionResult.Status.FATAL
-                && resultText.contains("RESPONSE_SCHEMA_OUTPUT_INVALID")) {
-            status = ChildAgentArtifact.STATUS_SCHEMA_INVALID;
-            validationError = extractSchemaValidationError(resultText);
-            if (validationError == null) {
-                validationError = resultText.lines().findFirst().orElse("RESPONSE_SCHEMA_OUTPUT_INVALID");
-            }
-            invalidOutputExcerpt = Objects.requireNonNullElseGet(
-                    extractDiagnosticValue(resultText, "invalidOutputExcerpt"), () -> excerpt(resultText));
-        } else {
-            status = statusForNonSchemaFailure(resultText);
-            errorMessage = excerpt(resultText);
-        }
-
-        return new ChildAgentArtifact(
+        childAgentArtifactSink.record(ChildAgentArtifactFactory.fromToolResult(
                 childAgentArtifactSink.parentJobId(),
                 childRunId,
                 request.id(),
                 agentName,
                 responseSchemaName,
-                status,
-                validatedResponse,
-                validationError,
-                invalidOutputExcerpt,
-                errorMessage,
-                elapsedMs,
                 cm.getService().nameOf(model),
-                null,
-                null,
-                null);
-    }
-
-    private static String statusForNonSchemaFailure(String resultText) {
-        var lower = resultText.toLowerCase(Locale.ROOT);
-        if (lower.contains("cancel")) {
-            return ChildAgentArtifact.STATUS_CANCELLED;
-        }
-        if (lower.contains("timeout") || lower.contains("timed out")) {
-            return ChildAgentArtifact.STATUS_TIMEOUT;
-        }
-        return ChildAgentArtifact.STATUS_FAILED;
+                elapsedMs,
+                result));
     }
 
     private static long elapsedMs(long startNanos) {
@@ -422,81 +381,6 @@ public class ParallelCustomAgent {
             // Fall through to fallback.
         }
         return fallback;
-    }
-
-    private static @Nullable String extractDiagnosticValue(String text, String key) {
-        var prefix = key + "=";
-        var start = findDiagnosticKeyStart(text, key);
-        if (start < 0) {
-            return null;
-        }
-        var valueStart = start + prefix.length();
-        var nextKeyStart = nextDiagnosticKeyStart(text, valueStart);
-        if (nextKeyStart < 0) {
-            return text.substring(valueStart).strip();
-        }
-        return text.substring(valueStart, nextKeyStart).strip();
-    }
-
-    private static int nextDiagnosticKeyStart(String text, int valueStart) {
-        return diagnosticKeys().stream()
-                .flatMap(key -> List.of(" " + key + "=", "\n" + key + "=").stream())
-                .mapToInt(key -> text.indexOf(key, valueStart))
-                .filter(index -> index >= 0)
-                .min()
-                .orElse(-1);
-    }
-
-    private static int findDiagnosticKeyStart(String text, String key) {
-        var prefix = key + "=";
-        var start = text.indexOf(prefix);
-        while (start >= 0) {
-            if (start == 0 || Character.isWhitespace(text.charAt(start - 1))) {
-                return start;
-            }
-            start = text.indexOf(prefix, start + prefix.length());
-        }
-        return -1;
-    }
-
-    private static @Nullable String extractSchemaValidationError(String text) {
-        var finalValidation = extractDiagnosticValue(text, "finalValidation");
-        if (finalValidation != null && !finalValidation.isBlank() && !"null".equals(finalValidation)) {
-            return finalValidation;
-        }
-        var originalValidation = extractDiagnosticValue(text, "originalValidation");
-        if (originalValidation != null && !originalValidation.isBlank() && !"null".equals(originalValidation)) {
-            return originalValidation;
-        }
-        return extractDiagnosticValue(text, "validation");
-    }
-
-    private static List<String> diagnosticKeys() {
-        return List.of(
-                "schema",
-                "candidateSource",
-                "originalValidation",
-                "finalValidation",
-                "validation",
-                "attempts",
-                "finishReason",
-                "initialInvalidOutputExcerpt",
-                "originalOutputExcerpt",
-                "invalidOutputExcerpt",
-                "finalValidationError",
-                "llmRepairAttempted",
-                "deterministicRepairAttempted",
-                "deterministicChanges",
-                "salvageAttempted",
-                "salvageChanges");
-    }
-
-    private static String excerpt(String text) {
-        var normalized = text.strip();
-        if (normalized.length() <= 2_000) {
-            return normalized;
-        }
-        return normalized.substring(0, 2_000) + "...[truncated " + (normalized.length() - 2_000) + " chars]";
     }
 
     private static String extractExplanation(String raw) {

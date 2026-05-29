@@ -153,6 +153,28 @@ class ParallelCustomAgentTest {
     }
 
     @Test
+    void sequentialSchemaBackedAgentEmitsArtifactWhenLaunchFails() throws Exception {
+        try (var harness = Harness.create(tempDir, true)) {
+            var sink = new CapturingArtifactSink("parent-job-1");
+            var tools = new CustomAgentTools(harness.cm(), harness.model(), schemaRegistry(), sink);
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> tools.callCustomAgentWithSchema(
+                            "missing-schema-agent", "Return a strict report.", "StrictReport"));
+
+            assertEquals(1, sink.artifacts().size());
+            var artifact = sink.artifacts().getFirst();
+            assertEquals("parent-job-1", artifact.parentJobId());
+            assertEquals("missing-schema-agent", artifact.agentName());
+            assertEquals("StrictReport", artifact.responseSchemaName());
+            assertEquals(ChildAgentArtifact.STATUS_FAILED, artifact.status());
+            assertNotNull(artifact.errorMessage());
+            assertTrue(artifact.errorMessage().contains("Custom agent not found"));
+        }
+    }
+
+    @Test
     void parallelSchemaBackedAgentsReturnOneStructuredResultPerChild() throws Exception {
         try (var harness = Harness.create(tempDir, true)) {
             harness.cm().getAgentStore().save(agentDef(), "project");
