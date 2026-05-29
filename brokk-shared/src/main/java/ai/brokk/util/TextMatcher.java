@@ -19,11 +19,80 @@ public sealed interface TextMatcher permits TextMatcher.Literal, TextMatcher.Reg
         if (isLiteralPattern(pattern)) {
             return Literal.create(pattern, flags);
         }
+        validateSafeRegex(pattern);
         try {
             return new Regex(pattern, Pattern.compile(pattern, flags));
         } catch (PatternSyntaxException e) {
             return Literal.create(pattern, flags);
         }
+    }
+
+    static void validateSafeRegex(String pattern) {
+        if (containsBackreference(pattern)) {
+            throw new IllegalArgumentException(
+                    "regex backreferences are not supported in file-content search because they can cause excessive backtracking");
+        }
+        if (containsNestedUnboundedQuantifier(pattern)) {
+            throw new IllegalArgumentException(
+                    "nested unbounded regex quantifiers are not supported in file-content search because they can cause excessive backtracking");
+        }
+    }
+
+    private static boolean containsBackreference(String pattern) {
+        for (int i = 0; i + 1 < pattern.length(); i++) {
+            if (pattern.charAt(i) != '\\') {
+                continue;
+            }
+            char next = pattern.charAt(i + 1);
+            if (next >= '1' && next <= '9') {
+                return true;
+            }
+            if (next == 'k' && i + 2 < pattern.length() && pattern.charAt(i + 2) == '<') {
+                return true;
+            }
+            if (next == '\\') {
+                i++;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsNestedUnboundedQuantifier(String pattern) {
+        int groupStart = -1;
+        boolean groupHasUnboundedQuantifier = false;
+        boolean escaped = false;
+        for (int i = 0; i < pattern.length(); i++) {
+            char current = pattern.charAt(i);
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (current == '\\') {
+                escaped = true;
+                continue;
+            }
+            if (current == '(' && groupStart < 0) {
+                groupStart = i;
+                groupHasUnboundedQuantifier = false;
+                continue;
+            }
+            if (groupStart < 0) {
+                continue;
+            }
+            if (current == '*' || current == '+') {
+                groupHasUnboundedQuantifier = true;
+                continue;
+            }
+            if (current == ')' && i + 1 < pattern.length()) {
+                char next = pattern.charAt(i + 1);
+                if (groupHasUnboundedQuantifier && (next == '*' || next == '+')) {
+                    return true;
+                }
+                groupStart = -1;
+                groupHasUnboundedQuantifier = false;
+            }
+        }
+        return false;
     }
 
     static boolean isLiteralPattern(String pattern) {

@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -163,6 +164,68 @@ class JobStoreTest {
         assertTrue(loadedSpec.isReportOnly());
         assertEquals(sessionId.toString(), loadedSpec.tags().get("session_id"));
         assertNull(loadedSpec.tags().get("github_token"));
+    }
+
+    @Test
+    void childAgentArtifacts_appendAndReadJsonl(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var result = store.createOrGetJob("idem-key-child-artifacts", JobSpec.of("test task", DEFAULT_PLANNER_MODEL));
+        var response = com.fasterxml.jackson.databind.json.JsonMapper.builder()
+                .build()
+                .readTree("{\"summary\":\"structured\"}");
+        var success = new ChildAgentArtifact(
+                result.jobId(),
+                "child-1",
+                "call-1",
+                "schema-agent",
+                "StrictReport",
+                ChildAgentArtifact.STATUS_SUCCESS,
+                response,
+                null,
+                null,
+                null,
+                12L,
+                "stub-model",
+                null,
+                null,
+                null);
+        var invalid = new ChildAgentArtifact(
+                result.jobId(),
+                "child-2",
+                "call-2",
+                "schema-agent",
+                "StrictReport",
+                ChildAgentArtifact.STATUS_SCHEMA_INVALID,
+                null,
+                "response.summary is required",
+                "{}",
+                null,
+                4L,
+                "stub-model",
+                null,
+                null,
+                null);
+
+        store.appendChildAgentArtifact(result.jobId(), success);
+        store.appendChildAgentArtifact(result.jobId(), invalid);
+
+        var artifacts = store.readChildAgentArtifacts(result.jobId());
+        assertEquals(2, artifacts.size());
+        assertEquals("child-1", artifacts.get(0).childRunId());
+        assertEquals(
+                "structured",
+                artifacts.get(0).validatedResponse().get("summary").asText());
+        assertEquals("child-2", artifacts.get(1).childRunId());
+        assertEquals("response.summary is required", artifacts.get(1).validationError());
+    }
+
+    @Test
+    void childAgentArtifacts_missingFileReturnsEmpty(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var result =
+                store.createOrGetJob("idem-key-no-child-artifacts", JobSpec.of("test task", DEFAULT_PLANNER_MODEL));
+
+        assertEquals(List.of(), store.readChildAgentArtifacts(result.jobId()));
     }
 
     @Test

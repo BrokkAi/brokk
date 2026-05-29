@@ -608,24 +608,32 @@ public class Llm {
     }
 
     public RequestOptions requestOptions() {
-        return new RequestOptions(null, ToolContext.empty(), MAX_ATTEMPTS);
+        return new RequestOptions(null, ToolContext.empty(), MAX_ATTEMPTS, null);
     }
 
     /**
      * Per-call options for a single sendRequest invocation. Controls structured output, tool usage, and retry count.
      * Build via the static factory methods or the constructor.
      */
-    public record RequestOptions(@Nullable ResponseFormat responseFormat, ToolContext toolContext, int maxAttempts) {
+    public record RequestOptions(
+            @Nullable ResponseFormat responseFormat,
+            ToolContext toolContext,
+            int maxAttempts,
+            @Nullable Integer maxCompletionTokens) {
         public RequestOptions withResponseFormat(@Nullable ResponseFormat responseFormat) {
-            return new RequestOptions(responseFormat, toolContext, maxAttempts);
+            return new RequestOptions(responseFormat, toolContext, maxAttempts, maxCompletionTokens);
         }
 
         public RequestOptions withToolContext(ToolContext toolContext) {
-            return new RequestOptions(responseFormat, toolContext, maxAttempts);
+            return new RequestOptions(responseFormat, toolContext, maxAttempts, maxCompletionTokens);
         }
 
         public RequestOptions withMaxAttempts(int maxAttempts) {
-            return new RequestOptions(responseFormat, toolContext, maxAttempts);
+            return new RequestOptions(responseFormat, toolContext, maxAttempts, maxCompletionTokens);
+        }
+
+        public RequestOptions withMaxCompletionTokens(@Nullable Integer maxCompletionTokens) {
+            return new RequestOptions(responseFormat, toolContext, maxAttempts, maxCompletionTokens);
         }
     }
 
@@ -926,6 +934,9 @@ public class Llm {
 
         if (options.responseFormat() != null) {
             builder.responseFormat(options.responseFormat());
+        }
+        if (options.maxCompletionTokens() != null) {
+            builder.maxCompletionTokens(options.maxCompletionTokens());
         }
 
         return builder;

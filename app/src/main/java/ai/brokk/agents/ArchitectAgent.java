@@ -19,6 +19,8 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.executor.agents.ParallelCustomAgent;
+import ai.brokk.executor.jobs.ChildAgentArtifactSink;
+import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
@@ -101,6 +103,8 @@ public class ArchitectAgent {
     private final String goal;
     // scope is explicit so we can use its changed-files-tracking feature w/ Code Agent's results
     private final ContextManager.TaskScope scope;
+    private final ResponseSchemaRegistry responseSchemaRegistry;
+    private final ChildAgentArtifactSink childAgentArtifactSink;
     // Local working context snapshot for this agent
     private Context context;
     // History of this agent's interactions
@@ -215,12 +219,80 @@ public class ArchitectAgent {
             Context initialContext,
             @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture,
             IConsoleIO io) {
+        this(
+                contextManager,
+                planningModel,
+                codeModel,
+                goal,
+                scope,
+                initialContext,
+                compressedHistoryFuture,
+                io,
+                ResponseSchemaRegistry.empty());
+    }
+
+    public ArchitectAgent(
+            IAppContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            ResponseSchemaRegistry responseSchemaRegistry) {
+        this(
+                contextManager,
+                planningModel,
+                codeModel,
+                goal,
+                scope,
+                initialContext,
+                null,
+                contextManager.getIo(),
+                responseSchemaRegistry);
+    }
+
+    public ArchitectAgent(
+            IAppContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture,
+            IConsoleIO io,
+            ResponseSchemaRegistry responseSchemaRegistry) {
+        this(
+                contextManager,
+                planningModel,
+                codeModel,
+                goal,
+                scope,
+                initialContext,
+                compressedHistoryFuture,
+                io,
+                responseSchemaRegistry,
+                ChildAgentArtifactSink.noop());
+    }
+
+    public ArchitectAgent(
+            IAppContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture,
+            IConsoleIO io,
+            ResponseSchemaRegistry responseSchemaRegistry,
+            ChildAgentArtifactSink childAgentArtifactSink) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
         this.goal = goal;
         this.io = io;
         this.scope = scope;
+        this.responseSchemaRegistry = responseSchemaRegistry;
+        this.childAgentArtifactSink = childAgentArtifactSink;
         this.context = initialContext;
         this.compressedHistoryFuture = compressedHistoryFuture;
         this.verifyCommand = null;
@@ -847,11 +919,11 @@ public class ArchitectAgent {
             // Handle read-only custom agent requests in parallel
             if (!readOnlyCustomAgentReqs.isEmpty()) {
                 var customResult = parallelCustomAgent.execute(readOnlyCustomAgentReqs, tr);
+                architectMessages.addAll(customResult.toolExecutionMessages());
                 if (customResult.stopDetails().reason() == StopReason.LLM_ERROR) {
                     return resultWithMessages(
                             StopReason.LLM_ERROR, customResult.stopDetails().explanation());
                 }
-                architectMessages.addAll(customResult.toolExecutionMessages());
             }
 
             // code agent calls are done serially
@@ -929,7 +1001,8 @@ public class ArchitectAgent {
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
             ParallelSearch parallelSearch = new ParallelSearch(context.forSearchAgent(), goal, delegatedSearchModel());
-            ParallelCustomAgent parallelCustomAgent = new ParallelCustomAgent(cm, planningModel, goal);
+            ParallelCustomAgent parallelCustomAgent =
+                    new ParallelCustomAgent(cm, planningModel, responseSchemaRegistry, childAgentArtifactSink);
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))

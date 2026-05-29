@@ -1,5 +1,7 @@
 package ai.brokk.executor.jobs;
 
+import ai.brokk.util.Json;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ResponseFormatType;
@@ -15,6 +17,7 @@ import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -70,6 +73,27 @@ public final class JobResponseSchemaSupport {
                 .type(ResponseFormatType.JSON)
                 .jsonSchema(schema)
                 .build();
+    }
+
+    public static Optional<String> validateOutput(JobSpec.ResponseSchema responseSchema, @Nullable String output) {
+        if (output == null || output.isBlank()) {
+            return Optional.of("response is empty");
+        }
+
+        JsonNode root;
+        try {
+            root = Json.getMapper().readTree(output);
+        } catch (JsonProcessingException e) {
+            return Optional.of("response is not valid JSON: " + e.getOriginalMessage());
+        }
+
+        try {
+            validateOutputNode(root, responseSchema.schema(), "response");
+            return Optional.empty();
+        } catch (IllegalArgumentException e) {
+            return Optional.of(
+                    Objects.requireNonNullElse(e.getMessage(), e.getClass().getSimpleName()));
+        }
     }
 
     private static JsonSchemaElement toElement(JsonNode node, String path, Limits limits) {
@@ -213,6 +237,131 @@ public final class JobResponseSchemaSupport {
                 .description(description(node, path))
                 .enumValues(values)
                 .build();
+    }
+
+    private static void validateOutputNode(JsonNode value, JsonNode schema, String path) {
+        if (value.isNull()) {
+            throw new IllegalArgumentException(path + " expected " + typeOf(schema) + ", got null");
+        }
+
+        switch (typeOf(schema)) {
+            case "object" -> validateOutputObject(value, schema, path);
+            case "array" -> validateOutputArray(value, schema, path);
+            case "string" -> validateOutputString(value, schema, path);
+            case "integer" -> {
+                if (!value.isIntegralNumber()) {
+                    throw new IllegalArgumentException(path + " expected integer, got " + outputTypeOf(value));
+                }
+            }
+            case "number" -> {
+                if (!value.isNumber()) {
+                    throw new IllegalArgumentException(path + " expected number, got " + outputTypeOf(value));
+                }
+            }
+            case "boolean" -> {
+                if (!value.isBoolean()) {
+                    throw new IllegalArgumentException(path + " expected boolean, got " + outputTypeOf(value));
+                }
+            }
+            default -> throw new IllegalArgumentException(path + " has unsupported schema type: " + typeOf(schema));
+        }
+    }
+
+    private static void validateOutputObject(JsonNode value, JsonNode schema, String path) {
+        if (!value.isObject()) {
+            throw new IllegalArgumentException(path + " expected object, got " + outputTypeOf(value));
+        }
+
+        var properties = schema.get("properties");
+        if (properties != null && !properties.isObject()) {
+            throw new IllegalArgumentException(path + " schema properties must be an object");
+        }
+
+        for (var requiredName : required(schema, path + " schema")) {
+            var child = value.get(requiredName);
+            if (child == null || child.isNull()) {
+                throw new IllegalArgumentException(path + "." + requiredName + " is required");
+            }
+        }
+
+        if (properties != null) {
+            var propertyNames = new HashSet<String>();
+            properties.properties().forEach(entry -> propertyNames.add(entry.getKey()));
+            if (additionalPropertiesDisabled(schema)) {
+                value.properties().forEach(entry -> {
+                    if (!propertyNames.contains(entry.getKey())) {
+                        throw new IllegalArgumentException(path + "." + entry.getKey() + " is not allowed");
+                    }
+                });
+            }
+            properties.properties().forEach(entry -> {
+                var child = value.get(entry.getKey());
+                if (child != null) {
+                    validateOutputNode(child, entry.getValue(), path + "." + entry.getKey());
+                }
+            });
+        } else if (additionalPropertiesDisabled(schema) && value.size() > 0) {
+            throw new IllegalArgumentException(path + " does not allow properties");
+        }
+    }
+
+    private static void validateOutputArray(JsonNode value, JsonNode schema, String path) {
+        if (!value.isArray()) {
+            throw new IllegalArgumentException(path + " expected array, got " + outputTypeOf(value));
+        }
+        var items = schema.get("items");
+        if (items == null) {
+            throw new IllegalArgumentException(path + " schema items is required");
+        }
+        for (int i = 0; i < value.size(); i++) {
+            validateOutputNode(value.get(i), items, path + "[" + i + "]");
+        }
+    }
+
+    private static void validateOutputString(JsonNode value, JsonNode schema, String path) {
+        if (!value.isTextual()) {
+            throw new IllegalArgumentException(path + " expected string, got " + outputTypeOf(value));
+        }
+        var enumNode = schema.get("enum");
+        if (enumNode != null) {
+            for (var enumValue : enumNode) {
+                if (enumValue.isTextual() && enumValue.textValue().equals(value.textValue())) {
+                    return;
+                }
+            }
+            throw new IllegalArgumentException(path + " has value outside enum");
+        }
+    }
+
+    private static boolean additionalPropertiesDisabled(JsonNode schema) {
+        var additionalProperties = schema.get("additionalProperties");
+        return additionalProperties == null
+                || (additionalProperties.isBoolean() && !additionalProperties.booleanValue());
+    }
+
+    private static String outputTypeOf(JsonNode value) {
+        if (value.isNull()) {
+            return "null";
+        }
+        if (value.isObject()) {
+            return "object";
+        }
+        if (value.isArray()) {
+            return "array";
+        }
+        if (value.isTextual()) {
+            return "string";
+        }
+        if (value.isIntegralNumber()) {
+            return "integer";
+        }
+        if (value.isNumber()) {
+            return "number";
+        }
+        if (value.isBoolean()) {
+            return "boolean";
+        }
+        return value.getNodeType().name().toLowerCase(Locale.ROOT);
     }
 
     private static List<String> required(JsonNode node, String path) {

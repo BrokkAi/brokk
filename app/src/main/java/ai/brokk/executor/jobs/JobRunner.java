@@ -24,6 +24,7 @@ import ai.brokk.issues.GitHubIssueService;
 import ai.brokk.issues.IssueHeader;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Json;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ReviewParser;
 import dev.langchain4j.data.message.ChatMessage;
@@ -31,7 +32,6 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -546,6 +546,8 @@ public final class JobRunner {
                         mode,
                         plannerModelNameForLog,
                         codeModelNameForLog);
+                var responseSchemaRegistry = responseSchemaRegistry(spec);
+                var childAgentArtifactSink = new JobChildAgentArtifactSink(store, jobId);
 
                 // Execute within submitLlmAction to honor cancellation semantics
                 cm.setAutoCommit(spec.autoCommit());
@@ -589,7 +591,11 @@ public final class JobRunner {
                                                             architectPlannerModel,
                                                             "plannerModel required for PLAN jobs"),
                                                     objectiveForMode(Mode.PLAN),
-                                                    scope);
+                                                    scope,
+                                                    cm.getIo(),
+                                                    LutzAgent.ScanConfig.defaults(),
+                                                    responseSchemaRegistry,
+                                                    childAgentArtifactSink);
                                             if (readOnly) {
                                                 searchAgent.setReadOnly(true);
                                             }
@@ -632,7 +638,10 @@ public final class JobRunner {
                                                     architectGoal,
                                                     scope,
                                                     context,
-                                                    compressedHistory);
+                                                    compressedHistory,
+                                                    cm.getIo(),
+                                                    responseSchemaRegistry,
+                                                    childAgentArtifactSink);
                                             architectAgent.setAlwaysDeferBuild(true);
                                             architectAgent.setBuildToolsEnabled(false);
                                             if (mode == Mode.LITE_PLAN) {
@@ -665,7 +674,7 @@ public final class JobRunner {
                                                             askPlannerModel,
                                                             "plannerModel required for REPORT_ONLY jobs"),
                                                     spec.taskInput(),
-                                                    responseFormatOrNull(spec),
+                                                    spec.responseSchema(),
                                                     finalStopReason);
                                         }
                                     }
@@ -687,7 +696,11 @@ public final class JobRunner {
                                                         requireNonNull(
                                                                 askPlannerModel, "plannerModel required for ASK jobs"),
                                                         objectiveForMode(Mode.ASK),
-                                                        scope);
+                                                        scope,
+                                                        cm.getIo(),
+                                                        LutzAgent.ScanConfig.defaults(),
+                                                        responseSchemaRegistry,
+                                                        childAgentArtifactSink);
                                                 if (readOnly) {
                                                     searchAgent.setReadOnly(true);
                                                 }
@@ -797,7 +810,7 @@ public final class JobRunner {
                                                     context,
                                                     requireNonNull(askPlannerModel),
                                                     spec.taskInput(),
-                                                    responseFormatOrNull(spec),
+                                                    spec.responseSchema(),
                                                     finalStopReason);
                                         }
                                     }
@@ -817,18 +830,18 @@ public final class JobRunner {
                                                             trimmedScanModel, spec.reasoningLevel(), spec.temperature())
                                                     : defaultScanModel(spec);
 
-                                            var responseFormat = responseFormatOrNull(spec);
-                                            var finalAnswerModel = responseFormat == null
+                                            var responseSchema = spec.responseSchema();
+                                            var finalAnswerModel = responseSchema == null
                                                     ? null
                                                     : resolveModelOrThrow(
                                                             spec.plannerModel(),
                                                             spec.reasoningLevel(),
                                                             spec.temperature());
-                                            if (responseFormat != null) {
+                                            if (responseSchema != null) {
                                                 ensureResponseSchemaSupported(requireNonNull(finalAnswerModel));
                                             }
 
-                                            var scanConfig = responseFormat == null
+                                            var scanConfig = responseSchema == null
                                                     ? LutzAgent.ScanConfig.withModel(scanModelToUse)
                                                     : new LutzAgent.ScanConfig(true, scanModelToUse, false, true);
                                             var searchAgent = new LutzAgent(
@@ -839,11 +852,13 @@ public final class JobRunner {
                                                     objectiveForMode(Mode.SEARCH),
                                                     scope,
                                                     cm.getIo(),
-                                                    scanConfig);
+                                                    scanConfig,
+                                                    responseSchemaRegistry,
+                                                    childAgentArtifactSink);
                                             if (readOnly) {
                                                 searchAgent.setReadOnly(true);
                                             }
-                                            if (responseFormat == null) {
+                                            if (responseSchema == null) {
                                                 var result = searchAgent.execute();
                                                 scope.append(result);
                                                 finalStopReason.set(result.stopDetails()
@@ -858,7 +873,7 @@ public final class JobRunner {
                                                         context,
                                                         requireNonNull(finalAnswerModel),
                                                         spec.taskInput(),
-                                                        responseFormat,
+                                                        responseSchema,
                                                         finalStopReason);
                                             }
                                         }
@@ -1668,8 +1683,9 @@ public final class JobRunner {
      * @return a TaskResult suitable for appending to a TaskScope
      */
     private TaskResult askUsingPlannerModel(
-            Context ctx, StreamingChatModel model, String question, @Nullable ResponseFormat responseFormat) {
-        if (responseFormat != null) {
+            Context ctx, StreamingChatModel model, String question, @Nullable JobSpec.ResponseSchema responseSchema) {
+        var responseFormat = responseSchema == null ? null : JobResponseSchemaSupport.toResponseFormat(responseSchema);
+        if (responseSchema != null) {
             ensureResponseSchemaSupported(model);
         }
 
@@ -1684,14 +1700,44 @@ public final class JobRunner {
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;
+        var activeMessages = messages;
+        var maxAttempts = responseSchema == null ? 1 : 2;
+        JobLevelSchemaRepairTrace schemaRepairTrace = null;
         try {
-            response = responseFormat == null
-                    ? llm.sendRequest(messages)
-                    : llm.sendRequest(
-                            messages,
-                            llm.requestOptions()
-                                    .withResponseFormat(responseFormat)
-                                    .withMaxAttempts(1));
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                response = responseFormat == null
+                        ? llm.sendRequest(activeMessages)
+                        : llm.sendRequest(
+                                activeMessages,
+                                llm.requestOptions()
+                                        .withResponseFormat(responseFormat)
+                                        .withMaxAttempts(1));
+                if (responseFormat != null && response.error() != null) {
+                    throw new RuntimeException(response.error());
+                }
+                if (responseSchema == null) {
+                    break;
+                }
+                var validationError = JobResponseSchemaSupport.validateOutput(responseSchema, response.text());
+                if (validationError.isEmpty()) {
+                    break;
+                }
+                if (schemaRepairTrace == null) {
+                    schemaRepairTrace = new JobLevelSchemaRepairTrace(
+                            responseSchema.name(), validationError.get(), response.text());
+                }
+                schemaRepairTrace.attempts = attempt;
+                schemaRepairTrace.finalValidationError = validationError.get();
+                schemaRepairTrace.invalidOutput = response.text();
+                schemaRepairTrace.finishReason = finishReason(response);
+                if (attempt == maxAttempts) {
+                    var message = schemaRepairTrace.failureMessage();
+                    logger.warn("Job-level response schema repair failed: {}", message);
+                    throw new IllegalArgumentException(message);
+                }
+                activeMessages = directAnswerSchemaRepairMessages(
+                        messages, responseSchema, question, response.text(), validationError.get());
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
@@ -1699,9 +1745,6 @@ public final class JobRunner {
 
         // Determine stop details based on the response
         if (response != null) {
-            if (responseFormat != null && response.error() != null) {
-                throw new RuntimeException(response.error());
-            }
             stop = TaskResult.StopDetails.fromResponse(response);
         }
 
@@ -1711,6 +1754,97 @@ public final class JobRunner {
         return new TaskResult(ctx, stop);
     }
 
+    private static final class JobLevelSchemaRepairTrace {
+        private final String schemaName;
+        private final String originalValidationError;
+        private final String initialInvalidOutput;
+        private int attempts;
+        private String finalValidationError;
+        private String finishReason = "unknown";
+        private String invalidOutput;
+
+        private JobLevelSchemaRepairTrace(
+                String schemaName, String originalValidationError, String initialInvalidOutput) {
+            this.schemaName = schemaName;
+            this.originalValidationError = originalValidationError;
+            this.initialInvalidOutput = initialInvalidOutput;
+            this.finalValidationError = originalValidationError;
+            this.invalidOutput = initialInvalidOutput;
+        }
+
+        private String failureMessage() {
+            return "RESPONSE_SCHEMA_OUTPUT_INVALID: schema=%s validation=%s originalValidation=%s attempts=%d finishReason=%s initialInvalidOutputExcerpt=%s invalidOutputExcerpt=%s"
+                    .formatted(
+                            schemaName,
+                            finalValidationError,
+                            originalValidationError,
+                            attempts,
+                            finishReason,
+                            abbreviateInvalidSchemaOutput(initialInvalidOutput),
+                            abbreviateInvalidSchemaOutput(invalidOutput));
+        }
+    }
+
+    private static String finishReason(Llm.StreamingResult response) {
+        var originalResponse = response.originalResponse();
+        if (originalResponse == null || originalResponse.finishReason() == null) {
+            return "unknown";
+        }
+        return originalResponse.finishReason().name();
+    }
+
+    private static List<ChatMessage> directAnswerSchemaRepairMessages(
+            List<ChatMessage> originalMessages,
+            JobSpec.ResponseSchema responseSchema,
+            String question,
+            String invalidOutput,
+            String validationError) {
+        var messages = new ArrayList<>(originalMessages);
+        messages.add(new UserMessage(
+                """
+                The previous response did not satisfy the required `%s` response schema.
+                Validation error: %s
+
+                <original_question>
+                %s
+                </original_question>
+
+                <invalid_previous_response>
+                %s
+                </invalid_previous_response>
+
+                <response_schema>
+                %s
+                </response_schema>
+
+                Return only a complete JSON object matching the `%s` response schema.
+                Include every required top-level field and every required nested field from the schema.
+                If the schema requires `metadata`, the root object must include `metadata`.
+                If the schema expects an object, emit an object; if it expects an array, emit an array.
+                Use empty arrays for unavailable array evidence and concise strings for sparse required prose fields.
+                Do not return markdown, fenced JSON, explanations, or legacy component wrappers.
+                """
+                        .formatted(
+                                responseSchema.name(),
+                                validationError,
+                                question,
+                                abbreviateInvalidSchemaOutput(invalidOutput),
+                                abbreviateInvalidSchemaOutput(Json.toJson(responseSchema.schema())),
+                                responseSchema.name())));
+        return messages;
+    }
+
+    private static String abbreviateInvalidSchemaOutput(String invalidOutput) {
+        var maxChars = 6_000;
+        if (invalidOutput.length() <= maxChars) {
+            return invalidOutput;
+        }
+        return invalidOutput.substring(0, maxChars)
+                + "\n\n[truncated invalid response: "
+                + (invalidOutput.length() - maxChars)
+                + " chars omitted]";
+    }
+
     private void runDirectAnswer(
             String jobId,
             String label,
@@ -1718,10 +1852,11 @@ public final class JobRunner {
             Context context,
             StreamingChatModel model,
             String question,
-            @Nullable ResponseFormat responseFormat,
+            @Nullable JobSpec.ResponseSchema responseSchema,
             AtomicReference<String> finalStopReason) {
+        var responseFormat = responseSchema == null ? null : JobResponseSchemaSupport.toResponseFormat(responseSchema);
         try {
-            var result = askUsingPlannerModel(context, model, question, responseFormat);
+            var result = askUsingPlannerModel(context, model, question, responseSchema);
             finalStopReason.set(result.stopDetails().reason().name());
             scope.append(result);
         } catch (Throwable t) {
@@ -1762,15 +1897,20 @@ public final class JobRunner {
         }
     }
 
-    private static @Nullable ResponseFormat responseFormatOrNull(JobSpec spec) {
-        return spec.responseSchema() == null ? null : JobResponseSchemaSupport.toResponseFormat(spec.responseSchema());
-    }
-
     private void ensureResponseSchemaSupported(StreamingChatModel model) {
         if (!cm.getService().supportsJsonSchema(model)) {
             throw new IllegalArgumentException(
                     "MODEL_UNSUPPORTED_RESPONSE_SCHEMA: " + cm.getService().nameOf(model));
         }
+    }
+
+    private static ResponseSchemaRegistry responseSchemaRegistry(JobSpec spec) {
+        var schemas = new ArrayList<JobSpec.ResponseSchema>();
+        if (spec.responseSchema() != null) {
+            schemas.add(spec.responseSchema());
+        }
+        schemas.addAll(spec.responseSchemas());
+        return ResponseSchemaRegistry.of(schemas);
     }
 
     private List<ChatMessage> llmRawMessagesOrEmpty() {

@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -116,6 +117,11 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             return;
         }
 
+        if (path.equals("/v1/jobs/" + jobId + "/result") && method.equals("GET")) {
+            handleGetJobResult(exchange, jobId);
+            return;
+        }
+
         if (path.equals("/v1/jobs/" + jobId + "/events") && method.equals("GET")) {
             handleGetJobEvents(exchange, jobId);
             return;
@@ -178,6 +184,9 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         var parsedResponseSchema = parseResponseSchema(exchange, request.responseSchema());
         if (parsedResponseSchema.invalid()) return;
         var responseSchema = parsedResponseSchema.responseSchema();
+        var parsedResponseSchemas = parseResponseSchemas(exchange, request.responseSchemas());
+        if (parsedResponseSchemas.invalid()) return;
+        var responseSchemas = parsedResponseSchemas.responseSchemas();
 
         // If an agent is specified, validate it exists and route to SEARCH mode with an instruction
         String effectiveTaskInput = request.taskInput();
@@ -198,8 +207,20 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                     exchange, "responseSchema is only supported for REPORT_ONLY, ASK, and SEARCH jobs");
             return;
         }
+        if (!responseSchemas.isEmpty() && !allowsResponseSchema(executionPolicy, tags)) {
+            RouterUtil.sendValidationError(
+                    exchange, "responseSchemas is only supported for REPORT_ONLY, ASK, and SEARCH jobs");
+            return;
+        }
         if (responseSchema != null) {
             var responseSchemaError = JobResponseSchemaSupport.validate(responseSchema);
+            if (responseSchemaError.isPresent()) {
+                RouterUtil.sendValidationError(exchange, responseSchemaError.get());
+                return;
+            }
+        }
+        for (var schema : responseSchemas) {
+            var responseSchemaError = JobResponseSchemaSupport.validate(schema);
             if (responseSchemaError.isPresent()) {
                 RouterUtil.sendValidationError(exchange, responseSchemaError.get());
                 return;
@@ -234,7 +255,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 skipVerificationFlag,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
                 executionPolicy,
-                responseSchema);
+                responseSchema,
+                responseSchemas);
 
         if (awaitHeadlessInitOrRespond(exchange, null)) return;
 
@@ -319,6 +341,21 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             SimpleHttpServer.sendJsonResponse(
                     exchange, 500, ErrorPayload.internalError("Failed to resolve session", e));
         }
+    }
+
+    private void handleGetJobResult(HttpExchange exchange, String jobId) throws IOException {
+        var status = jobStore.loadStatus(jobId);
+        if (status == null) {
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Job not found: " + jobId));
+            return;
+        }
+        var response = new LinkedHashMap<String, Object>();
+        response.put("jobId", jobId);
+        response.put("state", status.state());
+        response.put("terminal", status.terminal());
+        response.put("childAgentArtifacts", jobStore.readChildAgentArtifacts(jobId));
+        SimpleHttpServer.sendJsonResponse(exchange, 200, response);
     }
 
     private void handlePostIssueJob(HttpExchange exchange) throws IOException {
@@ -683,6 +720,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
 
     private record ParsedResponseSchema(JobSpec.@Nullable ResponseSchema responseSchema, boolean invalid) {}
 
+    private record ParsedResponseSchemas(List<JobSpec.ResponseSchema> responseSchemas, boolean invalid) {}
+
     private static ParsedResponseSchema parseResponseSchema(HttpExchange exchange, @Nullable JsonNode rawResponseSchema)
             throws IOException {
         if (rawResponseSchema == null || rawResponseSchema.isNull()) {
@@ -694,6 +733,27 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         } catch (JsonProcessingException | IllegalArgumentException e) {
             RouterUtil.sendValidationError(exchange, "Invalid responseSchema");
             return new ParsedResponseSchema(null, true);
+        }
+    }
+
+    private static ParsedResponseSchemas parseResponseSchemas(
+            HttpExchange exchange, @Nullable JsonNode rawResponseSchemas) throws IOException {
+        if (rawResponseSchemas == null || rawResponseSchemas.isNull()) {
+            return new ParsedResponseSchemas(List.of(), false);
+        }
+        if (!rawResponseSchemas.isArray()) {
+            RouterUtil.sendValidationError(exchange, "responseSchemas must be an array");
+            return new ParsedResponseSchemas(List.of(), true);
+        }
+        try {
+            var responseSchemas = new ArrayList<JobSpec.ResponseSchema>();
+            for (var rawSchema : rawResponseSchemas) {
+                responseSchemas.add(OBJECT_MAPPER.treeToValue(rawSchema, JobSpec.ResponseSchema.class));
+            }
+            return new ParsedResponseSchemas(List.copyOf(responseSchemas), false);
+        } catch (JsonProcessingException | IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, "Invalid responseSchemas");
+            return new ParsedResponseSchemas(List.of(), true);
         }
     }
 
@@ -797,7 +857,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             JobSpec.@Nullable ExecutionPolicy executionPolicy,
             JobSpec.@Nullable ExecutionPolicy jobPolicy,
             @Nullable String agent,
-            @JsonProperty("responseSchema") @Nullable JsonNode responseSchema) {}
+            @JsonProperty("responseSchema") @Nullable JsonNode responseSchema,
+            @JsonProperty("responseSchemas") @Nullable JsonNode responseSchemas) {}
 
     private record ContextPayload(@Nullable List<String> text) {}
 

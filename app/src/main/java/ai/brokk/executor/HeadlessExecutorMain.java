@@ -560,6 +560,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/jobs                     - create and start a job");
             System.out.println("    POST /v1/jobs/pr-review           - create a PR review job");
             System.out.println("    GET  /v1/jobs/{jobId}             - get job status");
+            System.out.println("    GET  /v1/jobs/{jobId}/result      - get job result and child artifacts");
             System.out.println("    GET  /v1/jobs/{jobId}/events      - stream job execution events");
             System.out.println("    POST /v1/jobs/{jobId}/cancel      - cancel job execution");
             System.out.println("    GET  /v1/jobs/{jobId}/diff        - get git diff for job");

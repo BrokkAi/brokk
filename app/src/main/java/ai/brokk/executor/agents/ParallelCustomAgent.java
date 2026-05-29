@@ -7,7 +7,9 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.concurrent.LoggingFuture;
+import ai.brokk.executor.jobs.ChildAgentArtifactSink;
 import ai.brokk.executor.jobs.JobSpec;
+import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
@@ -21,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,18 +41,35 @@ public class ParallelCustomAgent {
     private static final Logger logger = LogManager.getLogger(ParallelCustomAgent.class);
     public static final Set<String> TOOL_NAMES = Set.of("callCustomAgent", "callCustomAgentWithSchema");
 
+    private record ParsedCustomAgentRequest(
+            String agentName,
+            String task,
+            String responseSchemaName,
+            JobSpec.@Nullable ResponseSchema responseSchema) {}
+
     private final IAppContextManager cm;
     private final StreamingChatModel model;
-    private final @Nullable String schemaSource;
+    private final ResponseSchemaRegistry responseSchemaRegistry;
+    private final ChildAgentArtifactSink childAgentArtifactSink;
 
     public ParallelCustomAgent(IAppContextManager cm, StreamingChatModel model) {
-        this(cm, model, null);
+        this(cm, model, ResponseSchemaRegistry.empty());
     }
 
-    public ParallelCustomAgent(IAppContextManager cm, StreamingChatModel model, @Nullable String schemaSource) {
+    public ParallelCustomAgent(
+            IAppContextManager cm, StreamingChatModel model, ResponseSchemaRegistry responseSchemaRegistry) {
+        this(cm, model, responseSchemaRegistry, ChildAgentArtifactSink.noop());
+    }
+
+    public ParallelCustomAgent(
+            IAppContextManager cm,
+            StreamingChatModel model,
+            ResponseSchemaRegistry responseSchemaRegistry,
+            ChildAgentArtifactSink childAgentArtifactSink) {
         this.cm = cm;
         this.model = model;
-        this.schemaSource = schemaSource;
+        this.responseSchemaRegistry = responseSchemaRegistry;
+        this.childAgentArtifactSink = childAgentArtifactSink;
     }
 
     @Tool(
@@ -71,15 +91,16 @@ public class ParallelCustomAgent {
             """
             Invoke a custom agent by name and require its final answer to match a JSON response schema.
             Use this when the caller needs a typed child-agent result instead of Markdown findings.
-            The agent still uses its normal tools to gather context, then produces one schema-constrained final result.""")
+            The agent still uses its normal tools to gather context, then produces one schema-constrained final result.
+            Summarize child dispatch outcomes in your final answer; do not reconstruct or relay the child JSON.""")
     public String callCustomAgentWithSchema(
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
             @P("Complete task description for the agent") String task,
-            @P("Name of a response schema embedded in the parent task instructions") String responseSchemaName)
+            @P("Name of an available parent response schema") String responseSchemaName)
             throws InterruptedException {
         JobSpec.ResponseSchema resolvedSchema;
         try {
-            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, schemaSource);
+            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, responseSchemaRegistry);
         } catch (ToolRegistry.ToolValidationException e) {
             throw new ToolRegistry.ToolCallException(
                     ToolExecutionResult.Status.REQUEST_ERROR,
@@ -176,12 +197,10 @@ public class ParallelCustomAgent {
                 toolExecutionMessages.add(outcome.toolResult().toMessage());
                 descriptions.add(outcome.agentName());
 
+                // Keep collecting sibling results after a fatal child result. Callers need the
+                // full batch of tool messages for attribution and retry diagnostics.
                 if (outcome.toolResult().status() == ToolExecutionResult.Status.FATAL && firstFatalMessage == null) {
                     firstFatalMessage = outcome.toolResult().resultText();
-                    for (int j = i + 1; j < batchSize; j++) {
-                        tasks.get(j).future().cancel(true);
-                    }
-                    break;
                 }
             } catch (InterruptedException e) {
                 interrupted = true;
@@ -201,6 +220,13 @@ public class ParallelCustomAgent {
                                 e.getCause() != null ? e.getCause().getMessage() : "Unknown error"));
                 logger.debug(errorMessage, e);
                 var failure = ToolExecutionResult.requestError(task.request(), errorMessage);
+                maybeRecordArtifact(
+                        task.request(),
+                        UUID.randomUUID().toString(),
+                        extractStringArgument(task.request(), "agentName", "unknown"),
+                        extractStringArgument(task.request(), "responseSchemaName", ""),
+                        failure,
+                        0L);
                 toolExecutionMessages.add(failure.toMessage());
             }
         }
@@ -223,64 +249,138 @@ public class ParallelCustomAgent {
     private CustomAgentTaskResult executeCustomAgentRequest(
             ToolExecutionRequest request, ToolRegistry tr, IConsoleIO taskIo) throws InterruptedException {
         taskIo.beforeToolCall(request, false);
+        var childRunId = UUID.randomUUID().toString();
+        var startNanos = System.nanoTime();
 
-        String agentName;
-        String task;
-        JobSpec.@Nullable ResponseSchema responseSchema = null;
+        ParsedCustomAgentRequest parsedRequest;
         try {
-            var validated = tr.validateTool(request);
-            var parameters = validated.parameters();
-            agentName = (String) parameters.getFirst();
-            task = (String) parameters.get(1);
-            if ("callCustomAgentWithSchema".equals(request.name())) {
-                responseSchema = CustomAgentResponseSchemaResolver.resolve((String) parameters.get(2), schemaSource);
-            }
+            parsedRequest = parseCustomAgentRequest(request, tr);
         } catch (RuntimeException e) {
             var errorMessage = "Failed to parse custom agent arguments: " + e.getMessage();
             logger.debug(errorMessage, e);
             var failure = ToolExecutionResult.requestError(request, errorMessage);
+            maybeRecordArtifact(
+                    request,
+                    childRunId,
+                    extractStringArgument(request, "agentName", "unknown"),
+                    extractStringArgument(request, "responseSchemaName", ""),
+                    failure,
+                    elapsedMs(startNanos));
             taskIo.afterToolOutput(failure);
             return new CustomAgentTaskResult(failure, "unknown");
         }
 
         var agentStore = cm.getAgentStore();
-        var agentDef = agentStore.get(agentName).orElse(null);
+        var agentDef = agentStore.get(parsedRequest.agentName()).orElse(null);
         if (agentDef == null) {
             var errorMessage = "Custom agent not found: '%s'. Available agents: %s"
                     .formatted(
-                            agentName,
+                            parsedRequest.agentName(),
                             agentStore.list().stream()
                                     .map(AgentDefinition::name)
                                     .toList());
             var failure = ToolExecutionResult.requestError(request, errorMessage);
+            maybeRecordArtifact(
+                    request,
+                    childRunId,
+                    parsedRequest.agentName(),
+                    parsedRequest.responseSchemaName(),
+                    failure,
+                    elapsedMs(startNanos));
             taskIo.afterToolOutput(failure);
-            return new CustomAgentTaskResult(failure, agentName);
+            return new CustomAgentTaskResult(failure, parsedRequest.agentName());
         }
 
         logger.info(
                 "Invoking custom agent '{}' in parallel with model {}",
-                agentName,
+                parsedRequest.agentName(),
                 cm.getService().nameOf(model));
 
         try {
-            var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo, responseSchema);
-            var result = executor.executeInterruptibly(task);
-            var explanation = responseSchema == null
+            var executor = new CustomAgentExecutor(cm, agentDef, model, taskIo, parsedRequest.responseSchema());
+            var result = executor.executeInterruptibly(parsedRequest.task());
+            var explanation = parsedRequest.responseSchema() == null
                     ? extractExplanation(result.stopDetails().explanation())
                     : result.stopDetails().explanation();
-            var toolResult = responseSchema == null
+            var toolResult = parsedRequest.responseSchema() == null
                     ? toToolExecutionResult(request, result.stopDetails(), explanation)
                     : toSchemaToolExecutionResult(request, result.stopDetails(), explanation);
+            maybeRecordArtifact(
+                    request,
+                    childRunId,
+                    parsedRequest.agentName(),
+                    parsedRequest.responseSchemaName(),
+                    toolResult,
+                    elapsedMs(startNanos));
             taskIo.afterToolOutput(toolResult);
-            return new CustomAgentTaskResult(toolResult, agentName);
+            return new CustomAgentTaskResult(toolResult, parsedRequest.agentName());
         } catch (RuntimeException e) {
             var errorMessage = "Error executing custom agent '%s': %s"
-                    .formatted(agentName, Objects.toString(e.getMessage(), "Unknown error"));
+                    .formatted(parsedRequest.agentName(), Objects.toString(e.getMessage(), "Unknown error"));
             logger.debug(errorMessage, e);
             var failure = ToolExecutionResult.requestError(request, errorMessage);
+            maybeRecordArtifact(
+                    request,
+                    childRunId,
+                    parsedRequest.agentName(),
+                    parsedRequest.responseSchemaName(),
+                    failure,
+                    elapsedMs(startNanos));
             taskIo.afterToolOutput(failure);
-            return new CustomAgentTaskResult(failure, agentName);
+            return new CustomAgentTaskResult(failure, parsedRequest.agentName());
         }
+    }
+
+    private ParsedCustomAgentRequest parseCustomAgentRequest(ToolExecutionRequest request, ToolRegistry tr) {
+        var validated = tr.validateTool(request);
+        var parameters = validated.parameters();
+        var agentName = (String) parameters.getFirst();
+        var task = (String) parameters.get(1);
+        if (!"callCustomAgentWithSchema".equals(request.name())) {
+            return new ParsedCustomAgentRequest(agentName, task, "", null);
+        }
+
+        var responseSchemaName = (String) parameters.get(2);
+        var responseSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, responseSchemaRegistry);
+        return new ParsedCustomAgentRequest(agentName, task, responseSchemaName, responseSchema);
+    }
+
+    private void maybeRecordArtifact(
+            ToolExecutionRequest request,
+            String childRunId,
+            String agentName,
+            String responseSchemaName,
+            ToolExecutionResult result,
+            long elapsedMs) {
+        if (!"callCustomAgentWithSchema".equals(request.name())) {
+            return;
+        }
+        childAgentArtifactSink.record(ChildAgentArtifactFactory.fromToolResult(
+                childAgentArtifactSink.parentJobId(),
+                childRunId,
+                request.id(),
+                agentName,
+                responseSchemaName,
+                cm.getService().nameOf(model),
+                elapsedMs,
+                result));
+    }
+
+    private static long elapsedMs(long startNanos) {
+        return Math.max(0L, (System.nanoTime() - startNanos) / 1_000_000L);
+    }
+
+    private static String extractStringArgument(ToolExecutionRequest request, String key, String fallback) {
+        try {
+            var node = Json.getMapper().readTree(request.arguments());
+            var value = node.get(key);
+            if (value != null && value.isTextual()) {
+                return value.asText();
+            }
+        } catch (Exception ignored) {
+            // Fall through to fallback.
+        }
+        return fallback;
     }
 
     private static String extractExplanation(String raw) {

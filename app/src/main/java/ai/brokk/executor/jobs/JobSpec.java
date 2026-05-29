@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -34,7 +35,8 @@ public record JobSpec(
         @JsonProperty("skipVerification") boolean skipVerification,
         @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts,
         @JsonProperty("executionPolicy") @Nullable ExecutionPolicy executionPolicy,
-        @JsonProperty("responseSchema") @Nullable ResponseSchema responseSchema) {
+        @JsonProperty("responseSchema") @Nullable ResponseSchema responseSchema,
+        @JsonProperty("responseSchemas") List<ResponseSchema> responseSchemas) {
 
     public static final int DEFAULT_MAX_ISSUE_FIX_ATTEMPTS = 20;
 
@@ -103,6 +105,7 @@ public record JobSpec(
                 skipVerification,
                 maxIssueFixAttempts,
                 null,
+                null,
                 null);
     }
 
@@ -143,6 +146,7 @@ public record JobSpec(
                 skipVerification,
                 maxIssueFixAttempts,
                 executionPolicy,
+                null,
                 null);
     }
 
@@ -165,7 +169,8 @@ public record JobSpec(
             @JsonProperty("skipVerification") boolean skipVerification,
             @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts,
             @JsonProperty("executionPolicy") @Nullable ExecutionPolicy executionPolicy,
-            @JsonProperty("responseSchema") @Nullable ResponseSchema responseSchema) {
+            @JsonProperty("responseSchema") @Nullable ResponseSchema responseSchema,
+            @JsonProperty("responseSchemas") @Nullable List<ResponseSchema> responseSchemas) {
         this.taskInput = taskInput;
         this.autoCommit = autoCommit;
         this.autoCompress = autoCompress;
@@ -184,6 +189,49 @@ public record JobSpec(
         this.maxIssueFixAttempts = maxIssueFixAttempts;
         this.executionPolicy = executionPolicy;
         this.responseSchema = responseSchema;
+        this.responseSchemas = responseSchemas == null ? List.of() : List.copyOf(responseSchemas);
+    }
+
+    /** Backward-compatible constructor for callers that do not specify child response schemas. */
+    public JobSpec(
+            String taskInput,
+            boolean autoCommit,
+            boolean autoCompress,
+            String plannerModel,
+            @Nullable String scanModel,
+            @Nullable String codeModel,
+            boolean preScan,
+            @Nullable Map<String, String> tags,
+            @Nullable String sourceBranch,
+            @Nullable String targetBranch,
+            @Nullable String reasoningLevel,
+            @Nullable String reasoningLevelCode,
+            @Nullable Double temperature,
+            @Nullable Double temperatureCode,
+            boolean skipVerification,
+            @Nullable Integer maxIssueFixAttempts,
+            @Nullable ExecutionPolicy executionPolicy,
+            @Nullable ResponseSchema responseSchema) {
+        this(
+                taskInput,
+                autoCommit,
+                autoCompress,
+                plannerModel,
+                scanModel,
+                codeModel,
+                preScan,
+                tags,
+                sourceBranch,
+                targetBranch,
+                reasoningLevel,
+                reasoningLevelCode,
+                temperature,
+                temperatureCode,
+                skipVerification,
+                maxIssueFixAttempts,
+                executionPolicy,
+                responseSchema,
+                null);
     }
 
     public Map<String, String> redactedTags() {
@@ -215,7 +263,8 @@ public record JobSpec(
                 skipVerification,
                 maxIssueFixAttempts,
                 executionPolicy,
-                responseSchema);
+                responseSchema,
+                responseSchemas);
     }
 
     public JobSpec withRedactedTags() {

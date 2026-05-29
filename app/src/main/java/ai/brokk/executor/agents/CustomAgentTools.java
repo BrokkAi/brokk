@@ -2,7 +2,10 @@ package ai.brokk.executor.agents;
 
 import ai.brokk.IAppContextManager;
 import ai.brokk.TaskResult;
+import ai.brokk.executor.jobs.ChildAgentArtifact;
+import ai.brokk.executor.jobs.ChildAgentArtifactSink;
 import ai.brokk.executor.jobs.JobSpec;
+import ai.brokk.executor.jobs.ResponseSchemaRegistry;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
@@ -10,6 +13,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.Objects;
+import java.util.UUID;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -26,16 +30,27 @@ public class CustomAgentTools {
 
     private final IAppContextManager cm;
     private final StreamingChatModel model;
-    private final @Nullable String schemaSource;
+    private final ResponseSchemaRegistry responseSchemaRegistry;
+    private final ChildAgentArtifactSink childAgentArtifactSink;
 
     public CustomAgentTools(IAppContextManager cm, StreamingChatModel model) {
-        this(cm, model, null);
+        this(cm, model, ResponseSchemaRegistry.empty());
     }
 
-    public CustomAgentTools(IAppContextManager cm, StreamingChatModel model, @Nullable String schemaSource) {
+    public CustomAgentTools(
+            IAppContextManager cm, StreamingChatModel model, ResponseSchemaRegistry responseSchemaRegistry) {
+        this(cm, model, responseSchemaRegistry, ChildAgentArtifactSink.noop());
+    }
+
+    public CustomAgentTools(
+            IAppContextManager cm,
+            StreamingChatModel model,
+            ResponseSchemaRegistry responseSchemaRegistry,
+            ChildAgentArtifactSink childAgentArtifactSink) {
         this.cm = cm;
         this.model = model;
-        this.schemaSource = schemaSource;
+        this.responseSchemaRegistry = responseSchemaRegistry;
+        this.childAgentArtifactSink = childAgentArtifactSink;
     }
 
     @Tool(
@@ -57,26 +72,106 @@ public class CustomAgentTools {
             """
             Invoke a custom agent by name and require its final answer to match a JSON response schema.
             Use this when the caller needs a typed child-agent result instead of Markdown findings.
-            The agent still uses its normal tools to gather context, then produces one schema-constrained final result.""")
+            The agent still uses its normal tools to gather context, then produces one schema-constrained final result.
+            Summarize child dispatch outcomes in your final answer; do not reconstruct or relay the child JSON.""")
     public String callCustomAgentWithSchema(
             @P("Name of the custom agent to invoke (e.g., 'security-auditor')") String agentName,
             @P("Complete task description for the agent") String task,
-            @P("Name of a response schema embedded in the parent task instructions") String responseSchemaName)
+            @P("Name of an available parent response schema") String responseSchemaName)
             throws InterruptedException {
+        var childRunId = UUID.randomUUID().toString();
+        var startNanos = System.nanoTime();
         JobSpec.ResponseSchema resolvedSchema;
         try {
-            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, schemaSource);
+            resolvedSchema = CustomAgentResponseSchemaResolver.resolve(responseSchemaName, responseSchemaRegistry);
         } catch (ToolRegistry.ToolValidationException e) {
-            throw new ToolRegistry.ToolCallException(
-                    ToolExecutionResult.Status.REQUEST_ERROR,
-                    Objects.requireNonNullElse(e.getMessage(), "Invalid responseSchemaName"));
+            var errorMessage = Objects.requireNonNullElse(e.getMessage(), "Invalid responseSchemaName");
+            recordArtifact(ChildAgentArtifactFactory.genericFailure(
+                    childAgentArtifactSink.parentJobId(),
+                    childRunId,
+                    null,
+                    agentName,
+                    responseSchemaName,
+                    cm.getService().nameOf(model),
+                    elapsedMs(startNanos),
+                    ChildAgentArtifact.STATUS_FAILED,
+                    errorMessage));
+            throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.REQUEST_ERROR, errorMessage);
         }
-        var result = executeCustomAgent(agentName, task, resolvedSchema);
+
+        TaskResult result;
+        try {
+            result = executeCustomAgent(agentName, task, resolvedSchema);
+        } catch (RuntimeException e) {
+            var errorMessage = "Error executing custom agent '%s': %s"
+                    .formatted(agentName, Objects.requireNonNullElse(e.getMessage(), "Unknown error"));
+            recordArtifact(ChildAgentArtifactFactory.genericFailure(
+                    childAgentArtifactSink.parentJobId(),
+                    childRunId,
+                    null,
+                    agentName,
+                    responseSchemaName,
+                    cm.getService().nameOf(model),
+                    elapsedMs(startNanos),
+                    ChildAgentArtifact.STATUS_FAILED,
+                    errorMessage));
+            throw e;
+        }
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            recordFailureArtifact(
+                    childRunId,
+                    agentName,
+                    responseSchemaName,
+                    result.stopDetails().explanation(),
+                    elapsedMs(startNanos));
             throw new ToolRegistry.ToolCallException(
                     ToolExecutionResult.Status.FATAL, result.stopDetails().explanation());
         }
-        return result.stopDetails().explanation();
+
+        var explanation = result.stopDetails().explanation();
+        recordArtifact(ChildAgentArtifactFactory.successFromText(
+                childAgentArtifactSink.parentJobId(),
+                childRunId,
+                null,
+                agentName,
+                responseSchemaName,
+                cm.getService().nameOf(model),
+                elapsedMs(startNanos),
+                explanation));
+        return explanation;
+    }
+
+    private void recordFailureArtifact(
+            String childRunId, String agentName, String responseSchemaName, String explanation, long elapsedMs) {
+        var artifact = explanation.contains("RESPONSE_SCHEMA_OUTPUT_INVALID")
+                ? ChildAgentArtifactFactory.schemaInvalidFromFailureText(
+                        childAgentArtifactSink.parentJobId(),
+                        childRunId,
+                        null,
+                        agentName,
+                        responseSchemaName,
+                        cm.getService().nameOf(model),
+                        elapsedMs,
+                        explanation)
+                : ChildAgentArtifactFactory.genericFailure(
+                        childAgentArtifactSink.parentJobId(),
+                        childRunId,
+                        null,
+                        agentName,
+                        responseSchemaName,
+                        cm.getService().nameOf(model),
+                        elapsedMs,
+                        ChildAgentArtifactFactory.statusForNonSchemaFailure(explanation),
+                        explanation);
+        recordArtifact(artifact);
+    }
+
+    private void recordArtifact(ChildAgentArtifact artifact) {
+        childAgentArtifactSink.record(artifact);
+    }
+
+    private static long elapsedMs(long startNanos) {
+        return Math.max(0L, (System.nanoTime() - startNanos) / 1_000_000L);
     }
 
     private TaskResult executeCustomAgent(
@@ -113,7 +208,7 @@ public class CustomAgentTools {
                 return explanation.asText();
             }
         } catch (Exception ignored) {
-            // Not JSON — return as-is
+            // Not JSON -- return as-is
         }
         return raw;
     }
