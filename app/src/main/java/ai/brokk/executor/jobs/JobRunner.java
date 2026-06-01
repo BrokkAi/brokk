@@ -1703,6 +1703,7 @@ public final class JobRunner {
         var activeMessages = messages;
         var maxAttempts = responseSchema == null ? 1 : 2;
         JobLevelSchemaRepairTrace schemaRepairTrace = null;
+        String coercedOutput = null;
         try {
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 response = responseFormat == null
@@ -1718,17 +1719,29 @@ public final class JobRunner {
                 if (responseSchema == null) {
                     break;
                 }
-                var validationError = JobResponseSchemaSupport.validateOutput(responseSchema, response.text());
+                var output = response.text();
+                var validationError = JobResponseSchemaSupport.validateOutput(responseSchema, output);
                 if (validationError.isEmpty()) {
                     break;
                 }
+                var coercion = JobResponseSchemaSupport.coerceValidOutput(responseSchema, output);
+                if (coercion.isPresent()) {
+                    var coerced = coercion.get();
+                    coercedOutput = coerced.json();
+                    logger.info(
+                            "Job-level response schema output coerced deterministically: schema={} paths={}",
+                            responseSchema.name(),
+                            coerced.changes());
+                    cm.getIo().llmOutput(coercedOutput, ChatMessageType.AI, LlmOutputMeta.newMessage());
+                    break;
+                }
                 if (schemaRepairTrace == null) {
-                    schemaRepairTrace = new JobLevelSchemaRepairTrace(
-                            responseSchema.name(), validationError.get(), response.text());
+                    schemaRepairTrace =
+                            new JobLevelSchemaRepairTrace(responseSchema.name(), validationError.get(), output);
                 }
                 schemaRepairTrace.attempts = attempt;
                 schemaRepairTrace.finalValidationError = validationError.get();
-                schemaRepairTrace.invalidOutput = response.text();
+                schemaRepairTrace.invalidOutput = output;
                 schemaRepairTrace.finishReason = finishReason(response);
                 if (attempt == maxAttempts) {
                     var message = schemaRepairTrace.failureMessage();
@@ -1736,7 +1749,7 @@ public final class JobRunner {
                     throw new IllegalArgumentException(message);
                 }
                 activeMessages = directAnswerSchemaRepairMessages(
-                        messages, responseSchema, question, response.text(), validationError.get());
+                        messages, responseSchema, question, output, validationError.get());
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -1745,7 +1758,9 @@ public final class JobRunner {
 
         // Determine stop details based on the response
         if (response != null) {
-            stop = TaskResult.StopDetails.fromResponse(response);
+            stop = coercedOutput == null
+                    ? TaskResult.StopDetails.fromResponse(response)
+                    : new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, coercedOutput);
         }
 
         requireNonNull(stop);

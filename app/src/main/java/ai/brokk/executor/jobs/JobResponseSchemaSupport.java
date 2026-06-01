@@ -3,6 +3,8 @@ package ai.brokk.executor.jobs;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ResponseFormatType;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
@@ -35,6 +37,8 @@ public final class JobResponseSchemaSupport {
     private static final Set<String> ARRAY_KEYS = Set.of("type", "description", "items");
     private static final Set<String> STRING_KEYS = Set.of("type", "description", "enum");
     private static final Set<String> SCALAR_KEYS = Set.of("type", "description");
+
+    public record CoercedOutput(String json, List<String> changes) {}
 
     private JobResponseSchemaSupport() {}
 
@@ -94,6 +98,38 @@ public final class JobResponseSchemaSupport {
             return Optional.of(
                     Objects.requireNonNullElse(e.getMessage(), e.getClass().getSimpleName()));
         }
+    }
+
+    public static Optional<CoercedOutput> coerceOutput(JobSpec.ResponseSchema responseSchema, @Nullable String output) {
+        if (output == null || output.isBlank()) {
+            return Optional.empty();
+        }
+
+        JsonNode root;
+        try {
+            root = Json.getMapper().readTree(output);
+        } catch (JsonProcessingException e) {
+            return Optional.empty();
+        }
+
+        var changes = new ArrayList<String>();
+        var coerced = coerceOutputNode(root, responseSchema.schema(), "response", changes);
+        if (changes.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new CoercedOutput(Json.toJson(coerced), List.copyOf(changes)));
+    }
+
+    public static Optional<CoercedOutput> coerceValidOutput(
+            JobSpec.ResponseSchema responseSchema, @Nullable String output) {
+        var coerced = coerceOutput(responseSchema, output);
+        if (coerced.isEmpty()) {
+            return Optional.empty();
+        }
+        if (validateOutput(responseSchema, coerced.get().json()).isPresent()) {
+            return Optional.empty();
+        }
+        return coerced;
     }
 
     private static JsonSchemaElement toElement(JsonNode node, String path, Limits limits) {
@@ -331,6 +367,101 @@ public final class JobResponseSchemaSupport {
             }
             throw new IllegalArgumentException(path + " has value outside enum");
         }
+    }
+
+    private static JsonNode coerceOutputNode(JsonNode value, JsonNode schema, String path, List<String> changes) {
+        if (value.isNull()) {
+            return value;
+        }
+
+        return switch (typeOf(schema)) {
+            case "object" -> coerceOutputObject(value, schema, path, changes);
+            case "array" -> coerceOutputArray(value, schema, path, changes);
+            case "string" -> coerceOutputString(value, schema, path, changes);
+            default -> value;
+        };
+    }
+
+    private static JsonNode coerceOutputObject(JsonNode value, JsonNode schema, String path, List<String> changes) {
+        if (!value.isObject()) {
+            return value;
+        }
+
+        var properties = schema.get("properties");
+        if (properties == null || !properties.isObject()) {
+            return value;
+        }
+
+        var object = (ObjectNode) value.deepCopy();
+        properties.properties().forEach(entry -> {
+            var child = object.get(entry.getKey());
+            if (child != null) {
+                object.set(
+                        entry.getKey(),
+                        coerceOutputNode(child, entry.getValue(), path + "." + entry.getKey(), changes));
+            }
+        });
+        return object;
+    }
+
+    private static JsonNode coerceOutputArray(JsonNode value, JsonNode schema, String path, List<String> changes) {
+        if (!value.isArray()) {
+            return value;
+        }
+
+        var items = schema.get("items");
+        if (items == null) {
+            return value;
+        }
+
+        var array = Json.getMapper().createArrayNode();
+        for (int i = 0; i < value.size(); i++) {
+            array.add(coerceOutputNode(value.get(i), items, path + "[" + i + "]", changes));
+        }
+        return array;
+    }
+
+    private static JsonNode coerceOutputString(JsonNode value, JsonNode schema, String path, List<String> changes) {
+        if (schema.get("enum") != null || value.isTextual() || value.isNull()) {
+            return value;
+        }
+
+        if (value.isArray()) {
+            var arrayString = arrayToString(value);
+            if (arrayString.isPresent()) {
+                changes.add(path + " array -> string");
+                return TextNode.valueOf(arrayString.get());
+            }
+        }
+
+        if (value.isNumber() || value.isBoolean()) {
+            changes.add(path + " " + outputTypeOf(value) + " -> string");
+            return TextNode.valueOf(value.asText());
+        }
+
+        return value;
+    }
+
+    private static Optional<String> arrayToString(JsonNode value) {
+        var lines = new ArrayList<String>();
+        for (var element : value) {
+            var line = nodeToString(element);
+            if (line.isEmpty()) {
+                return Optional.empty();
+            }
+            lines.add(line.get());
+        }
+        return Optional.of(String.join("\n", lines));
+    }
+
+    private static Optional<String> nodeToString(JsonNode value) {
+        if (value.isTextual()) {
+            return Optional.of(value.textValue());
+        }
+        if (value.isNumber() || value.isBoolean()) {
+            return Optional.of(value.asText());
+        }
+        return Optional.empty();
     }
 
     private static boolean additionalPropertiesDisabled(JsonNode schema) {
