@@ -175,6 +175,7 @@ class JobsRouterValidationTest {
         assertEquals(jobId, payload.get("jobId").asText());
         assertEquals("COMPLETED", payload.get("state").asText());
         assertTrue(payload.get("terminal").asBoolean());
+        assertEquals("done", payload.get("result").get("answer").asText());
         var artifact = payload.get("childAgentArtifacts").get(0);
         assertEquals("schema-agent", artifact.get("agentName").asText());
         assertEquals("success", artifact.get("status").asText());

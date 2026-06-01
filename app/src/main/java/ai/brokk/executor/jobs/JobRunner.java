@@ -27,6 +27,7 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ReviewParser;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -435,6 +436,7 @@ public final class JobRunner {
 
                 var completed = new AtomicInteger(0);
                 var finalStopReason = new AtomicReference<String>();
+                var finalJobResult = new AtomicReference<@Nullable Object>();
 
                 var rawCodeModelName = spec.codeModel() != null
                         ? spec.codeModel()
@@ -675,7 +677,8 @@ public final class JobRunner {
                                                             "plannerModel required for REPORT_ONLY jobs"),
                                                     spec.taskInput(),
                                                     spec.responseSchema(),
-                                                    finalStopReason);
+                                                    finalStopReason,
+                                                    finalJobResult);
                                         }
                                     }
                                     case ASK -> {
@@ -811,7 +814,8 @@ public final class JobRunner {
                                                     requireNonNull(askPlannerModel),
                                                     spec.taskInput(),
                                                     spec.responseSchema(),
-                                                    finalStopReason);
+                                                    finalStopReason,
+                                                    finalJobResult);
                                         }
                                     }
                                     case SEARCH -> {
@@ -874,7 +878,8 @@ public final class JobRunner {
                                                         requireNonNull(finalAnswerModel),
                                                         spec.taskInput(),
                                                         responseSchema,
-                                                        finalStopReason);
+                                                        finalStopReason,
+                                                        finalJobResult);
                                             }
                                         }
                                     }
@@ -1388,7 +1393,7 @@ public final class JobRunner {
                         current = current.cancelled();
                         logger.info("Job {} marked as CANCELLED", jobId);
                     } else {
-                        current = current.completed(null);
+                        current = current.completed(finalJobResult.get());
                         logger.info("Job {} completed successfully", jobId);
                     }
                     store.updateStatus(jobId, enrichStatusMetadata(jobId, current, spec, finalStopReason.get()));
@@ -1695,7 +1700,8 @@ public final class JobRunner {
         List<ChatMessage> messages;
         messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
         // Create an LLM instance for the planner model and route output to the ContextManager IO
-        var llm = cm.getLlm(new Llm.Options(model, question, TaskResult.Type.ASK).withEcho());
+        var options = new Llm.Options(model, question, TaskResult.Type.ASK);
+        var llm = cm.getLlm(responseSchema == null ? options.withEcho() : options);
         llm.setOutput(cm.getIo());
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
@@ -1703,7 +1709,7 @@ public final class JobRunner {
         var activeMessages = messages;
         var maxAttempts = responseSchema == null ? 1 : 2;
         JobLevelSchemaRepairTrace schemaRepairTrace = null;
-        String coercedOutput = null;
+        String canonicalOutput = null;
         try {
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 response = responseFormat == null
@@ -1722,17 +1728,17 @@ public final class JobRunner {
                 var output = response.text();
                 var validationError = JobResponseSchemaSupport.validateOutput(responseSchema, output);
                 if (validationError.isEmpty()) {
+                    canonicalOutput = output;
                     break;
                 }
                 var coercion = JobResponseSchemaSupport.coerceValidOutput(responseSchema, output);
                 if (coercion.isPresent()) {
                     var coerced = coercion.get();
-                    coercedOutput = coerced.json();
+                    canonicalOutput = coerced.json();
                     logger.info(
                             "Job-level response schema output coerced deterministically: schema={} paths={}",
                             responseSchema.name(),
                             coerced.changes());
-                    cm.getIo().llmOutput(coercedOutput, ChatMessageType.AI, LlmOutputMeta.newMessage());
                     break;
                 }
                 if (schemaRepairTrace == null) {
@@ -1758,14 +1764,21 @@ public final class JobRunner {
 
         // Determine stop details based on the response
         if (response != null) {
-            stop = coercedOutput == null
-                    ? TaskResult.StopDetails.fromResponse(response)
-                    : new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, coercedOutput);
+            if (responseSchema == null) {
+                stop = TaskResult.StopDetails.fromResponse(response);
+            } else {
+                requireNonNull(canonicalOutput);
+                cm.getIo().llmOutput(canonicalOutput, ChatMessageType.AI, LlmOutputMeta.newMessage());
+                stop = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, canonicalOutput);
+            }
         }
 
         requireNonNull(stop);
 
-        ctx = ctx.addHistoryEntry(llmRawMessagesOrEmpty(), TaskResult.Type.ASK, model, question);
+        var historyMessages = responseSchema == null
+                ? llmRawMessagesOrEmpty()
+                : List.<ChatMessage>of(AiMessage.from(stop.explanation()));
+        ctx = ctx.addHistoryEntry(historyMessages, TaskResult.Type.ASK, model, question);
         return new TaskResult(ctx, stop);
     }
 
@@ -1868,11 +1881,15 @@ public final class JobRunner {
             StreamingChatModel model,
             String question,
             @Nullable JobSpec.ResponseSchema responseSchema,
-            AtomicReference<String> finalStopReason) {
+            AtomicReference<String> finalStopReason,
+            AtomicReference<@Nullable Object> finalJobResult) {
         var responseFormat = responseSchema == null ? null : JobResponseSchemaSupport.toResponseFormat(responseSchema);
         try {
             var result = askUsingPlannerModel(context, model, question, responseSchema);
             finalStopReason.set(result.stopDetails().reason().name());
+            if (responseSchema != null && result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                finalJobResult.set(Map.of("answer", result.stopDetails().explanation()));
+            }
             scope.append(result);
         } catch (Throwable t) {
             logger.error("{} direct-answer failed for job {}: {}", label, jobId, t.getMessage(), t);

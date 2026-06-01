@@ -354,6 +354,9 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         response.put("jobId", jobId);
         response.put("state", status.state());
         response.put("terminal", status.terminal());
+        if (status.result() != null) {
+            response.put("result", status.result());
+        }
         response.put("childAgentArtifacts", jobStore.readChildAgentArtifacts(jobId));
         SimpleHttpServer.sendJsonResponse(exchange, 200, response);
     }
