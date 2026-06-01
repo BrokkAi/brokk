@@ -186,6 +186,27 @@ class CustomAgentExecutorTest {
     }
 
     @Test
+    void schemaBackedExecutionCoercesArrayValuedTerminalStringFieldWithoutRewrite() throws Exception {
+        setUpHarness(true);
+        model.terminalAnswerText = "{\"summary\":[\"one\",\"two\"]}";
+        var io = new RecordingConsoleIO();
+        var executor = new CustomAgentExecutor(cm, agentDef(), model, io, ResponseSchemaFixtures.validResponseSchema());
+
+        var result = executor.executeInterruptibly("Return a strict report.");
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+        var output = Json.getMapper().readTree(result.stopDetails().explanation());
+        assertEquals("one\ntwo", output.get("summary").textValue());
+        assertEquals(List.of(result.stopDetails().explanation()), io.outputs);
+        assertEquals(1, model.requests.size());
+        assertEquals(
+                0,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
+    }
+
+    @Test
     void schemaBackedExecutionAcceptsValidExplanationTextEnvelopeWithoutRewrite() throws Exception {
         setUpHarness(true);
         model.terminalAnswerText = Json.toJson(Map.of("explanation", "{\"summary\":\"from-envelope\"}"));

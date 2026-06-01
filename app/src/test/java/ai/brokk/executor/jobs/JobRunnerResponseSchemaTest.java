@@ -221,6 +221,24 @@ class JobRunnerResponseSchemaTest {
     }
 
     @Test
+    void schemaBackedDirectAnswerCoercesArrayValuedStringFieldWithoutRetry() throws Exception {
+        model.structuredResponse = "{\"findings\":[\"one\",\"two\"],\"observations\":[\"kept\"]}";
+        var spec = spec(Map.of("mode", "ASK"), null, narrativeSchema());
+
+        runner.runAsync("ask-schema-coerced-string", spec, new RawMessagesConsole())
+                .get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                JobStatus.State.COMPLETED.name(),
+                requireNonNull(store.loadStatus("ask-schema-coerced-string")).state());
+        assertEquals(
+                1,
+                model.requests.stream()
+                        .filter(request -> request.parameters().responseFormat() != null)
+                        .count());
+    }
+
+    @Test
     void schemaBackedDirectAnswerInvalidOutputFailsAfterRepairAttempt() throws Exception {
         model.structuredResponse = "{\"summary\":null}";
         var spec = spec(Map.of("mode", "ASK"), null, ResponseSchemaFixtures.validResponseSchema());
@@ -350,6 +368,27 @@ class JobRunnerResponseSchemaTest {
                                     "summary": { "type": "string" }
                                   },
                                   "required": ["metadata", "summary"],
+                                  "additionalProperties": false
+                                }
+                                """));
+    }
+
+    private static JobSpec.ResponseSchema narrativeSchema() throws Exception {
+        return new JobSpec.ResponseSchema(
+                "SlopCopSynthesisNarrative",
+                Json.getMapper()
+                        .readTree(
+                                """
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "findings": { "type": "string" },
+                                    "observations": {
+                                      "type": "array",
+                                      "items": { "type": "string" }
+                                    }
+                                  },
+                                  "required": ["findings", "observations"],
                                   "additionalProperties": false
                                 }
                                 """));

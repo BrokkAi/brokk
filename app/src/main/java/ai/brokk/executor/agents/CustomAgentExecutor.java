@@ -379,6 +379,11 @@ public class CustomAgentExecutor {
                     return new TaskResult(
                             context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, candidate.json()));
                 }
+                var coercedResult =
+                        coerceSuccessfulOutput(schema, candidate.json(), candidate.source(), "terminal output");
+                if (coercedResult != null) {
+                    return coercedResult;
+                }
                 validationErrors.put(candidate.source(), validationError.get());
             }
 
@@ -404,6 +409,11 @@ public class CustomAgentExecutor {
                         return new TaskResult(
                                 context,
                                 new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, normalizedCandidate.json()));
+                    }
+                    var coercedResult = coerceSuccessfulOutput(
+                            schema, normalizedCandidate.json(), candidate.source(), "normalized terminal output");
+                    if (coercedResult != null) {
+                        return coercedResult;
                     }
                 }
             }
@@ -471,6 +481,11 @@ public class CustomAgentExecutor {
                     return new TaskResult(
                             context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, structuredText));
                 }
+                var coercedResult =
+                        coerceSuccessfulOutput(schema, structuredText, repairCandidate.source(), "repair output");
+                if (coercedResult != null) {
+                    return coercedResult;
+                }
                 trace.finalValidationError = validationError.get();
 
                 if (attempt == 2) {
@@ -511,6 +526,11 @@ public class CustomAgentExecutor {
                     return new TaskResult(
                             context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, salvage.json()));
                 }
+                var coercedResult =
+                        coerceSuccessfulOutput(schema, salvage.json(), repairCandidate.source(), "salvage output");
+                if (coercedResult != null) {
+                    return coercedResult;
+                }
                 trace.finalValidationError = salvageValidationError.orElse(trace.finalValidationError);
                 trace.failedRepairOutput = salvage.json();
             }
@@ -523,6 +543,22 @@ public class CustomAgentExecutor {
                     context,
                     new TaskResult.StopDetails(
                             TaskResult.StopReason.LLM_ERROR, SchemaRepairPrompts.failureMessage(schema, trace)));
+        }
+
+        private @Nullable TaskResult coerceSuccessfulOutput(
+                JobSpec.ResponseSchema schema, String output, String source, String outputKind) {
+            var coerced = coerceSchemaOutput(schema, output);
+            if (coerced == null) {
+                return null;
+            }
+            logger.info(
+                    "Schema-aware custom-agent {} coerced deterministically for schema {} from {}: {}",
+                    outputKind,
+                    schema.name(),
+                    source,
+                    coerced.changes());
+            io.llmOutput(coerced.json(), ChatMessageType.AI, LlmOutputMeta.newMessage());
+            return new TaskResult(context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, coerced.json()));
         }
     }
 
@@ -588,6 +624,14 @@ public class CustomAgentExecutor {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static @Nullable NormalizedCandidate coerceSchemaOutput(JobSpec.ResponseSchema schema, String candidate) {
+        var coerced = JobResponseSchemaSupport.coerceValidOutput(schema, candidate);
+        if (coerced.isEmpty()) {
+            return null;
+        }
+        return new NormalizedCandidate(coerced.get().json(), coerced.get().changes());
     }
 
     private static JsonNode normalizeNode(
