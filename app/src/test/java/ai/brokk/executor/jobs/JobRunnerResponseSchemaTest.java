@@ -2,6 +2,7 @@ package ai.brokk.executor.jobs;
 
 import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -225,17 +226,35 @@ class JobRunnerResponseSchemaTest {
         model.structuredResponse = "{\"findings\":[\"one\",\"two\"],\"observations\":[\"kept\"]}";
         var spec = spec(Map.of("mode", "ASK"), null, narrativeSchema());
 
-        runner.runAsync("ask-schema-coerced-string", spec, new RawMessagesConsole())
-                .get(5, TimeUnit.SECONDS);
+        runner.runAsync("ask-schema-coerced-string", spec).get(5, TimeUnit.SECONDS);
 
-        assertEquals(
-                JobStatus.State.COMPLETED.name(),
-                requireNonNull(store.loadStatus("ask-schema-coerced-string")).state());
+        var status = requireNonNull(store.loadStatus("ask-schema-coerced-string"));
+        assertEquals(JobStatus.State.COMPLETED.name(), status.state());
         assertEquals(
                 1,
                 model.requests.stream()
                         .filter(request -> request.parameters().responseFormat() != null)
                         .count());
+
+        var result = Json.getMapper().convertValue(status.result(), Map.class);
+        var answer = requireNonNull((String) result.get("answer"));
+        var answerJson = Json.getMapper().readTree(answer);
+        assertEquals("one\ntwo", answerJson.get("findings").asText());
+        assertEquals("kept", answerJson.get("observations").get(0).asText());
+        assertFalse(answer.contains("\"findings\":[\"one\",\"two\"]"));
+
+        var tokenEvents = store.readEvents("ask-schema-coerced-string", -1, 0).stream()
+                .filter(event -> event.type().equals("LLM_TOKEN"))
+                .toList();
+        assertEquals(1, tokenEvents.size());
+        var tokenData = Json.getMapper().convertValue(tokenEvents.getFirst().data(), Map.class);
+        assertEquals(answer, tokenData.get("token"));
+
+        var taskHistory = cm.liveContext().getTaskHistory();
+        assertEquals(1, taskHistory.size());
+        var historyText = requireNonNull(taskHistory.getFirst().mopMarkdown());
+        assertTrue(historyText.contains("\"findings\" : \"one\\ntwo\""), historyText);
+        assertFalse(historyText.contains("\"findings\" : [ \"one\", \"two\" ]"), historyText);
     }
 
     @Test
