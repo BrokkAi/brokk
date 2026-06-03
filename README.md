@@ -195,6 +195,53 @@ To test pre-release features using the staging environment, you can configure Br
 3. Obtain an API key from the staging dashboard: https://brokk-frontend-staging.up.railway.app/dashboard
 4. Restart Brokk and use the new staging key.
 
+## Running with Local LLM Proxy
+
+You can run Brokk with a local LiteLLM proxy to use your own API keys or custom model endpoints. This is useful for development, testing, or when you want to manage your own LLM provider connections.
+
+### Setting Up LiteLLM Proxy Locally
+
+1. **Configure and start LiteLLM**:
+
+   Follow the [LiteLLM Docker Quick Start guide](https://docs.litellm.ai/docs/proxy/docker_quick_start) for detailed instructions. Brokk assumes `localhost:4000`
+
+**Configure LiteLLM without a master key**:
+
+   - Do NOT set a `master_key` in the `general_settings` section (or keep it commented out)
+   - Define your model mappings in the `model_list` section
+   - Set your API keys in the `environment_variables` section or pass them as environment variables to Docker
+
+**Configure the system model**:
+
+   Brokk uses `gpt-5.4-nano` by default for some internal system functions (lightweight tasks like parsing, validation, etc.). Two options:
+
+    - **Option A**: Map `gpt-5.4-nano` in your LiteLLM config to a model you have (any provider -- does not need to be OpenAI if you don't have it)
+    - **Option B**: Modify the model name in code by updating the `ModelProperties` class in the Brokk source
+
+   Example minimal config:
+   ```yaml
+   model_list:
+     - model_name: gpt-5.4-nano
+       litellm_params:
+         model: gpt-4o-nano
+         api_key: os.environ/OPENAI_API_KEY
+
+   environment_variables:
+     OPENAI_API_KEY: "your-key-here"
+   ```
+
+2. **Configure Brokk to use localhost**:
+
+   Open the `brokk.properties` file in the Brokk global configuration directory (same location as the Staging section above) and set:
+   ```properties
+   llmProxySetting=LOCALHOST
+   ```
+
+3. **Restart and update model settings in Brokk**:
+
+   - Open Settings in the Brokk app
+   - Configure your favorite models and role assignments to those advertised by your LiteLLM proxy
+
 ## Community & Social
 
 - Discord: https://discord.com/invite/qYQ2Zg2PX7
