@@ -104,7 +104,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
     @Override
     public float getUserBalance() throws IOException {
-        if (MainProject.isCustomProvider() || MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
+        if (MainProject.isCustomProvider() || MainProject.isLocalhost()) {
             return Float.MAX_VALUE; // unlimited for custom/localhost endpoints
         }
         return getUserBalance(MainProject.getBrokkKey());
@@ -357,7 +357,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         infoTarget.clear();
 
         String baseUrl = MainProject.getProxyUrl();
-        boolean isBrokk = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST;
+        boolean isBrokk = !MainProject.isLocalhost();
         boolean isFreeTierOnly = false;
 
         String url = baseUrl + "/model/info";
@@ -596,7 +596,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     public void sendFeedback(
             String category, String feedbackText, boolean includeDebugLog, @Nullable File screenshotFile)
             throws IOException {
-        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
+        if (MainProject.isLocalhost()) {
             log.debug("Feedback submission skipped in localhost mode");
             return;
         }
@@ -675,7 +675,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
      */
     @Override
     public JsonNode reportClientException(JsonNode exceptionReport) throws IOException {
-        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
+        if (MainProject.isLocalhost()) {
             log.debug("Exception reporting skipped in localhost mode");
             return objectMapper.createObjectNode();
         }
@@ -1064,7 +1064,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             var builder = new Request.Builder();
             var setting = MainProject.getProxySetting();
             String authHeader;
-            if (setting == MainProject.LlmProxySetting.LOCALHOST) {
+            if (MainProject.isLocalhost()) {
                 authHeader = "Bearer dummy-key";
             } else if (setting == MainProject.LlmProxySetting.CUSTOM) {
                 String apiKey = MainProject.getCustomEndpointApiKey();

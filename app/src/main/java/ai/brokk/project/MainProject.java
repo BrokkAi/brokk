@@ -964,6 +964,10 @@ public final class MainProject extends AbstractProject {
         return getProxySetting() == LlmProxySetting.CUSTOM;
     }
 
+    public static boolean isLocalhost() {
+        return getProxySetting() == LlmProxySetting.LOCALHOST;
+    }
+
     public static String getCustomEndpointUrl() {
         var props = loadGlobalProperties();
         return props.getProperty(CUSTOM_ENDPOINT_URL_KEY, "http://localhost:11434/v1");
