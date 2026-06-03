@@ -104,8 +104,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
     @Override
     public float getUserBalance() throws IOException {
-        if (MainProject.isCustomProvider()) {
-            return Float.MAX_VALUE; // unlimited for custom endpoints
+        if (MainProject.isCustomProvider() || MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
+            return Float.MAX_VALUE; // unlimited for custom/localhost endpoints
         }
         return getUserBalance(MainProject.getBrokkKey());
     }
@@ -596,6 +596,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     public void sendFeedback(
             String category, String feedbackText, boolean includeDebugLog, @Nullable File screenshotFile)
             throws IOException {
+        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
+            log.debug("Feedback submission skipped in localhost mode");
+            return;
+        }
         var kp = parseKey(MainProject.getBrokkKey());
 
         // Resolve version and environment, defaulting to "Unknown" if blank/null
@@ -671,6 +675,11 @@ public class Service extends AbstractService implements ExceptionReporter.Report
      */
     @Override
     public JsonNode reportClientException(JsonNode exceptionReport) throws IOException {
+        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
+            log.debug("Exception reporting skipped in localhost mode");
+            return objectMapper.createObjectNode();
+        }
+
         String brokkKey = MainProject.getBrokkKey();
 
         RequestBody body = RequestBody.create(exceptionReport.toString(), MediaType.parse("application/json"));
