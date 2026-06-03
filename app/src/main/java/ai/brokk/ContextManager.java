@@ -411,7 +411,7 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
         var fileWatchListener = createFileWatchListener();
         watchService.addListener(fileWatchListener);
 
-        this.sessionsSyncActive = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST
+        this.sessionsSyncActive = !MainProject.isLocalhost()
                 && MainProject.getProxySetting() != MainProject.LlmProxySetting.CUSTOM
                 && !MainProject.getBrokkKey().isBlank()
                 && !project.getRemoteProjectName().isBlank();
