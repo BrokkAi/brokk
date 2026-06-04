@@ -1,9 +1,10 @@
-name: Daily Performance Test
+name: Manual Analyzer Performance Test
 
 on:
-  schedule:
-    - cron: '0 3 * * *' # Run daily at 3 AM UTC
-  workflow_dispatch: # Allow manual triggering
+  # Keep a manual trigger during the bifrost benchmark handoff tracked in
+  # BrokkAi/bifrost#170. Remove this workflow entirely once the replacement
+  # signal is trusted.
+  workflow_dispatch:
 
 jobs:
   performance-test:

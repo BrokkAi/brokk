@@ -118,7 +118,7 @@ def generate_markdown_report(base_avg: Dict[str, float], head_avg: Dict[str, flo
     base_sha = os.environ.get("BASE_SHA_SHORT", "BASE")
 
     lines: List[str] = []
-    lines.append(":rocket: **Daily Performance Report**")
+    lines.append(":rocket: **Analyzer Performance Report**")
     lines.append("")
     lines.append(f"Comparison between `master@{head_sha}` and `master@{base_sha}`.")
     lines.append("")
@@ -151,7 +151,7 @@ def generate_blockkit_report(base_avg: Dict[str, float], head_avg: Dict[str, flo
     blocks = []
     blocks.append({
         "type": "header",
-        "text": {"type": "plain_text", "text": "Daily Performance Report"}
+        "text": {"type": "plain_text", "text": "Analyzer Performance Report"}
     })
     blocks.append({
         "type": "context",
