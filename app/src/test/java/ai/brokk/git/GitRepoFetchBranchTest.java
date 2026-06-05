@@ -27,7 +27,10 @@ public class GitRepoFetchBranchTest {
     @BeforeEach
     void setUp() throws Exception {
         // Initialize remote repository (non-bare to allow commits)
-        remoteGit = Git.init().setDirectory(remoteDir.toFile()).call();
+        remoteGit = Git.init()
+                .setInitialBranch("master")
+                .setDirectory(remoteDir.toFile())
+                .call();
 
         // Configure user for commits in remote
         remoteGit.getRepository().getConfig().setString("user", null, "name", "Remote User");

@@ -29,10 +29,17 @@ public class GitRepoAuthenticationTest {
     @BeforeEach
     void setUp() throws Exception {
         // Initialize bare remote repository
-        remoteGit = Git.init().setDirectory(remoteDir.toFile()).setBare(true).call();
+        remoteGit = Git.init()
+                .setInitialBranch("master")
+                .setDirectory(remoteDir.toFile())
+                .setBare(true)
+                .call();
 
         // Create a local repository to set up some content
-        try (var localGit = Git.init().setDirectory(tempDir.toFile()).call()) {
+        try (var localGit = Git.init()
+                .setInitialBranch("master")
+                .setDirectory(tempDir.toFile())
+                .call()) {
             // Configure user for commits
             localGit.getRepository().getConfig().setString("user", null, "name", "Test User");
             localGit.getRepository().getConfig().setString("user", null, "email", "test@example.com");
