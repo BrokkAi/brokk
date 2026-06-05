@@ -23,10 +23,14 @@ public final class Content {
     @JsonProperty
     private final ImageUrl imageUrl;
 
+    @JsonProperty
+    private final CacheControl cacheControl;
+
     public Content(Builder builder) {
         this.type = builder.type;
         this.text = builder.text;
         this.imageUrl = builder.imageUrl;
+        this.cacheControl = builder.cacheControl;
     }
 
     public ContentType type() {
@@ -41,6 +45,10 @@ public final class Content {
         return imageUrl;
     }
 
+    public CacheControl cacheControl() {
+        return cacheControl;
+    }
+
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
@@ -50,7 +58,8 @@ public final class Content {
     private boolean equalTo(Content another) {
         return Objects.equals(type, another.type)
                 && Objects.equals(text, another.text)
-                && Objects.equals(imageUrl, another.imageUrl);
+                && Objects.equals(imageUrl, another.imageUrl)
+                && Objects.equals(cacheControl, another.cacheControl);
     }
 
     @Override
@@ -59,12 +68,14 @@ public final class Content {
         h += (h << 5) + Objects.hashCode(type);
         h += (h << 5) + Objects.hashCode(text);
         h += (h << 5) + Objects.hashCode(imageUrl);
+        h += (h << 5) + Objects.hashCode(cacheControl);
         return h;
     }
 
     @Override
     public String toString() {
-        return "Content{" + "type=" + type + ", text=" + text + ", imageUrl=" + imageUrl + "}";
+        return "Content{" + "type=" + type + ", text=" + text + ", imageUrl=" + imageUrl + ", cacheControl="
+                + cacheControl + "}";
     }
 
     public static Builder builder() {
@@ -79,6 +90,7 @@ public final class Content {
         private ContentType type;
         private String text;
         private ImageUrl imageUrl;
+        private CacheControl cacheControl;
 
         public Builder type(ContentType type) {
             this.type = type;
@@ -92,6 +104,11 @@ public final class Content {
 
         public Builder imageUrl(ImageUrl imageUrl) {
             this.imageUrl = imageUrl;
+            return this;
+        }
+
+        public Builder cacheControl(CacheControl cacheControl) {
+            this.cacheControl = cacheControl;
             return this;
         }
 

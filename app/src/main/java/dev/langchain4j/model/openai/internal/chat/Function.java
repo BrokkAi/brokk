@@ -28,11 +28,15 @@ public class Function {
     @JsonProperty
     private final Map<String, Object> parameters;
 
+    @JsonProperty
+    private final CacheControl cacheControl;
+
     public Function(Builder builder) {
         this.name = builder.name;
         this.description = builder.description;
         this.strict = builder.strict;
         this.parameters = builder.parameters;
+        this.cacheControl = builder.cacheControl;
     }
 
     public String name() {
@@ -51,6 +55,10 @@ public class Function {
         return parameters;
     }
 
+    public CacheControl cacheControl() {
+        return cacheControl;
+    }
+
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
@@ -61,7 +69,8 @@ public class Function {
         return Objects.equals(name, another.name)
                 && Objects.equals(description, another.description)
                 && Objects.equals(strict, another.strict)
-                && Objects.equals(parameters, another.parameters);
+                && Objects.equals(parameters, another.parameters)
+                && Objects.equals(cacheControl, another.cacheControl);
     }
 
     @Override
@@ -71,6 +80,7 @@ public class Function {
         h += (h << 5) + Objects.hashCode(description);
         h += (h << 5) + Objects.hashCode(strict);
         h += (h << 5) + Objects.hashCode(parameters);
+        h += (h << 5) + Objects.hashCode(cacheControl);
         return h;
     }
 
@@ -81,6 +91,7 @@ public class Function {
                 + ", description=" + description
                 + ", strict=" + strict
                 + ", parameters=" + parameters
+                + ", cacheControl=" + cacheControl
                 + "}";
     }
 
@@ -97,6 +108,7 @@ public class Function {
         private String description;
         private Boolean strict;
         private Map<String, Object> parameters = new HashMap<>();
+        private CacheControl cacheControl;
 
         public Builder name(String name) {
             this.name = name;
@@ -115,6 +127,11 @@ public class Function {
 
         public Builder parameters(Map<String, Object> parameters) {
             this.parameters = parameters;
+            return this;
+        }
+
+        public Builder cacheControl(CacheControl cacheControl) {
+            this.cacheControl = cacheControl;
             return this;
         }
 

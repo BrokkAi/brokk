@@ -24,7 +24,10 @@ public class GitRepoMergeConflictTest {
     @BeforeEach
     void setUp() throws Exception {
         // Initialize git repository
-        git = Git.init().setDirectory(tempDir.toFile()).call();
+        git = Git.init()
+                .setInitialBranch("master")
+                .setDirectory(tempDir.toFile())
+                .call();
         gitRepo = new GitRepo(tempDir);
 
         // Configure user for commits
