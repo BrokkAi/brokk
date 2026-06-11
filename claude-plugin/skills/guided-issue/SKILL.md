@@ -72,8 +72,8 @@ gh issue view <number>
 
 ## Step 2 -- Diagnose
 
-1. Call `activate_workspace` with the current project path so Brokk tools
-   work.
+1. Confirm Brokk is analyzing this project with `get_active_workspace`;
+   call `activate_workspace` with the project path only if it differs.
 
 2. Fetch structured issue details:
    ```bash
@@ -82,8 +82,8 @@ gh issue view <number>
 
 3. If the `Agent` tool is available, spawn an `brokk:issue-diagnostician`
    agent, passing it the full issue text (title, body, comments, labels).
-   If the `Agent` tool is NOT available, use the embedded
-   `issue-diagnostician` prompt at the end of this document and perform
+   If the `Agent` tool is NOT available, use the `issue-diagnostician`
+   agent definition in this plugin's `agents/` directory and perform
    the diagnostic analysis yourself using Brokk MCP tools.
 
 4. Present the diagnosis to the user.
@@ -99,9 +99,9 @@ gh issue view <number>
 
 1. If the `Agent` tool is available, spawn an `brokk:issue-planner` agent,
    passing it the diagnosis from Step 2 and the original issue details.
-   If the `Agent` tool is NOT available, use the embedded `issue-planner`
-   prompt at the end of this document and produce the implementation plan
-   yourself using Brokk MCP tools.
+   If the `Agent` tool is NOT available, use the `issue-planner` agent
+   definition in this plugin's `agents/` directory and produce the
+   implementation plan yourself using Brokk MCP tools.
 
 2. Present the plan to the user.
 
@@ -128,7 +128,8 @@ gh issue view <number>
    git checkout -b brokk/issue-<number>-<slug>
    ```
 
-3. Call `activate_workspace` again with the current project path.
+3. If you entered a worktree, call `activate_workspace` with the worktree
+   path so Brokk tools analyze the branch copy.
 
 4. Execute each step of the plan in order, using Write, Edit, and Bash
    tools to make code changes.
@@ -164,8 +165,8 @@ gh issue view <number>
    names listed below as `subagent_type`.
 
    If the `Agent` tool is NOT available, execute each reviewer's analysis
-   yourself sequentially using the embedded reviewer prompts at the end of
-   this document.
+   yourself sequentially using the corresponding agent definitions in
+   this plugin's `agents/` directory.
 
    Each reviewer prompt must include the diff text, changed-file list,
    and the original issue title for context.

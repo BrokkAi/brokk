@@ -34,24 +34,29 @@ Brokk MCP tools (bifrost):
   neighboring utilities before checking concrete method bodies
 - `get_symbol_sources` -- read the bodies of candidate existing
   implementations to confirm they actually duplicate the new code
-- `get_symbol_locations` -- combined with `Grep` for the short name,
-  trace whether callers of similar code elsewhere already use a shared
-  helper that this PR should also use
+- `scan_usages` -- check whether callers of similar code elsewhere
+  already use a shared helper that this PR should also use (requires a
+  fully qualified name; use `search_symbols` first)
+- `report_structural_clone_smells` -- run directly on the PR's changed
+  files (plus candidate neighbors) to detect duplicated implementation
+  patterns via token/AST similarity
 - `most_relevant_files` -- seed with the new files to discover related
   utility/helper files that might already contain the needed
   functionality
+- `search_file_contents` / `find_files_containing` -- search for key
+  string literals, algorithm patterns, or logic fragments from the new
+  code to find existing implementations
+- `find_filenames` -- enumerate utility/helper files by name pattern
+  (e.g. `**/*Util*.java`, `**/helpers/**`)
+- `search_git_commit_messages` / `get_git_log` -- find when an existing
+  implementation was introduced and the history of a candidate helper
 
 Built-in tools:
-- `Grep` -- search for key string literals, algorithm patterns, or logic
-  fragments from the new code to find existing implementations
-- `Glob` -- enumerate utility/helper files by name pattern (e.g.
-  `**/*Util*.java`, `**/helpers/**`)
 - `Read` -- read full file contents when a candidate match needs deeper
   inspection
 - `Bash` -- read-only investigations: `git log -p -S '<distinctive
-  literal>'` to find when an existing implementation was introduced,
-  `git log -- <candidate>` for the history of a candidate helper. You
-  are read-only; do not run mutating commands
+  literal>'` when you need patch-level history. You are read-only; do
+  not run mutating commands
 
 ## Output format
 

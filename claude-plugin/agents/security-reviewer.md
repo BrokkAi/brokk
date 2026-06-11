@@ -41,24 +41,29 @@ Brokk MCP tools (bifrost):
   diff
 - `get_summaries` -- understand the API surface of security-related
   classes to check if the PR bypasses existing safeguards
-- `get_symbol_locations` -- confirm where a security-relevant symbol is
-  defined; combine with `Grep` for the short name to trace data flow
-  from user inputs to dangerous sinks (bifrost has no caller-graph tool)
+- `scan_usages` -- trace data flow from user inputs to dangerous sinks:
+  find every caller and reference of a security-relevant symbol
+  (requires a fully qualified name; use `search_symbols` first)
+- `search_file_contents` -- search for sink names (SQL execution,
+  `Runtime.exec`, `eval`, file APIs, network calls) and check whether a
+  known-safe pattern exists elsewhere that was NOT followed in this PR
+- `get_file_contents` -- read full lockfile or manifest contents when a
+  new dependency is introduced; `jq` queries JSON manifests like
+  `package-lock.json` directly
+- `report_secret_like_code` -- heuristic scan for secret-looking
+  strings in the current branch and full git history
+- `search_git_commit_messages` / `get_git_log` / `get_commit_diff` --
+  find when a sensitive string or dependency was introduced and what
+  else changed with it
 
 Built-in tools:
-- `Grep` -- trace data flow by searching for sink names (SQL execution,
-  `Runtime.exec`, `eval`, file APIs, network calls), and find whether a
-  known-safe pattern exists elsewhere that was NOT followed in this PR
 - `Glob` -- enumerate config files, secrets-manifest patterns
   (`*.env*`, `**/*secret*`), or build files that may declare new
   dependencies
-- `Read` -- read full lockfile or manifest contents when a new
-  dependency is introduced
 - `Bash` -- read-only investigations: `git log -p -S '<sensitive
-  string>'` to find when a credential was introduced, `git blame` for
-  line provenance, dependency-version checks (`cat package-lock.json |
-  jq`, `mvn dependency:tree`, etc.). You are read-only; do not run
-  mutating commands
+  string>'` for line provenance, `git blame`, dependency-version checks
+  (`mvn dependency:tree`, `npm ls`, etc.). You are read-only; do not
+  run mutating commands
 
 ## Output format
 

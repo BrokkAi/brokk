@@ -17,7 +17,9 @@ claude --plugin-dir ./claude-plugin
 
 ## Prerequisites
 
-[uv](https://docs.astral.sh/uv/) must be installed. The plugin runs `uvx brokk bifrost`, which fetches the `brokk` package from PyPI and downloads the [bifrost](https://github.com/BrokkAi/bifrost) native MCP server (currently pinned to v0.1.3) on first use. Bifrost ships native binaries for arm64 macOS, x86_64/aarch64 Linux, and x86_64/aarch64 Windows; Intel macOS is not supported.
+[uv](https://docs.astral.sh/uv/) must be installed. The plugin runs `uvx brokk mcp`, which fetches the `brokk` package from PyPI and downloads the latest release of the [bifrost](https://github.com/BrokkAi/bifrost) native MCP server on first use. Bifrost ships native binaries for arm64 macOS, x86_64/aarch64 Linux, and x86_64/aarch64 Windows; Intel macOS is not supported.
+
+By default `uvx brokk mcp` serves bifrost's full tool set (symbol navigation, workspace management, text search, git history, structured data, and code-quality analysis). Pass `--server <profile>` (e.g. `--server core` for just symbol + workspace tools) to expose a smaller subset.
 
 ## Skills
 

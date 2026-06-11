@@ -100,13 +100,14 @@ git log "$DEFAULT_BRANCH"..HEAD --oneline
 
 ### Preparation
 
-1. Call `activate_workspace` with the current project path so Brokk tools work.
+1. Confirm Brokk is analyzing this project with `get_active_workspace`;
+   call `activate_workspace` with the project path only if it differs.
 2. Parse the diff to build a list of **changed files**, grouped into
    categories: source, test, infrastructure/config, documentation.
 3. Note the total lines added and removed.
 4. If the diff exceeds 2000 lines, summarize it by file and pass only the
-   relevant file subset to each reviewer. Instruct reviewers to use the
-   built-in `Read` tool for raw file contents and Brokk's
+   relevant file subset to each reviewer. Instruct reviewers to use
+   Brokk's `get_file_contents` for raw file contents and
    `get_symbol_sources` for specific method or class bodies.
 
 Store the PR title, PR body (description), diff text, and changed-file list --
@@ -119,9 +120,9 @@ If the `Agent` tool is available, spawn all specialist reviewers in a
 listed below as the `subagent_type`.
 
 If the `Agent` tool is NOT available, execute each reviewer's analysis
-yourself sequentially using the embedded reviewer prompts at the end of
-this document. For each reviewer, adopt its perspective and use Brokk MCP
-tools as instructed in its prompt.
+yourself sequentially using the corresponding agent definitions in this
+plugin's `agents/` directory. For each reviewer, adopt its perspective
+and use Brokk MCP tools as instructed in its prompt.
 
 Each reviewer prompt MUST include:
 
@@ -241,14 +242,12 @@ To show the code context, use Brokk tools based on what the finding references:
 
 - If the finding references a specific method or class: use
   `get_symbol_sources` (with optional `kind_filter`) to show the full body
-- If the finding references a class-level concern: use `get_summaries` or
-  `get_symbol_summaries` to show structure without bodies
-- If the finding references a file: use the built-in `Read` tool for raw
+- If the finding references a class-level concern: use `get_summaries`
+  to show structure without bodies
+- If the finding references a file: use `get_file_contents` for raw
   contents, or `list_symbols` for a declaration-level overview
-- To trace callers, use `get_symbol_locations` to confirm the symbol's
-  definition, then the built-in `Grep` tool (or Bash `grep -rn`) for the
-  short name across the project -- bifrost does not expose a caller-graph
-  tool
+- To trace callers, use `scan_usages` with the fully qualified name
+  (run `search_symbols` first if you only have a short name)
 
 After showing the finding and its code context, include the recommendation:
 
@@ -323,15 +322,15 @@ Then move to the next finding.
 
 If the user wants more context, ask what they'd like to see:
 
-1. **Callers/usages** -- Use `get_symbol_locations` to confirm the symbol,
-   then `Grep` (or Bash `grep -rn`) for its short name to trace callers
-2. **Class structure** -- Use `get_summaries` or `get_symbol_summaries` to
-   see the full class API
+1. **Callers/usages** -- Use `scan_usages` with the fully qualified name
+   to trace callers and references
+2. **Class structure** -- Use `get_summaries` to see the full class API
 3. **Related files** -- Use `most_relevant_files` (seeded with the flagged
-   file) for ranked related-file discovery, or `Grep` for arbitrary text
-4. **Full file** -- Use the built-in `Read` tool to see the complete file
-5. **Git history** -- Use Bash `git log -- <path>` to see recent changes
-   to the file
+   file) for ranked related-file discovery, or `search_file_contents` for
+   arbitrary text
+4. **Full file** -- Use `get_file_contents` to see the complete file
+5. **Git history** -- Use `get_git_log` with the file path to see recent
+   changes to the file
 
 After showing the requested context, return to the action menu for this
 same finding.
