@@ -43,38 +43,39 @@ Brokk MCP tools (bifrost):
   classes relevant to the issue (use `kind_filter` to disambiguate)
 - `get_summaries` -- get API-level and package-level summaries of files,
   classes, and packages related to the issue
-- `get_symbol_locations` -- confirm where a symbol is defined; combine
-  with `Grep` for the short name to trace usages and call chains across
-  the codebase (bifrost does not expose a caller-graph tool)
+- `scan_usages` -- trace usages and call chains across the codebase
+  (requires fully qualified names; use `search_symbols` first)
+- `search_file_contents` / `find_files_containing` -- search for error
+  messages, configuration keys, log strings, or other non-symbol
+  patterns mentioned in the issue
+- `find_filenames` -- locate files by name when the issue references
+  specific files or patterns
 - `most_relevant_files` -- expand from a known affected file to other
   files most likely related (ranked by git history co-change and
   imports)
+- `get_git_log` / `search_git_commit_messages` / `get_commit_diff` --
+  recent commits to a file, commits matching a theme, and what a
+  specific commit changed
+- `get_file_contents` -- read raw file contents (configs, build files,
+  etc.)
 
 Built-in tools:
-- `Grep` -- search for error messages, configuration keys, log strings,
-  or other non-symbol patterns mentioned in the issue
-- `Glob` -- locate files by name when the issue references specific
-  files or patterns
-- `Read` -- read raw file contents (configs, build files, etc.) that
-  bifrost does not index
-- `Bash` -- read-only investigations: `git log -- <path>` for recent
-  commits to a file, `git blame` for line-level history, `git log -S` /
-  `-G` to find when an identifier was introduced or changed, `gh issue
-  view` / `gh pr view` to fetch related GitHub items. You are read-only;
-  do not run mutating commands
+- `Bash` -- read-only investigations: `git blame` for line-level
+  history, `git log -S` / `-G` to find when an identifier was
+  introduced or changed, `gh issue view` / `gh pr view` to fetch
+  related GitHub items. You are read-only; do not run mutating commands
 
 ## Strategy
 
 1. Start by extracting keywords, class names, error messages, and file
    references from the issue text.
-2. Use `search_symbols` for code identifiers and `Grep` for non-symbol
-   text (error messages, config keys) to locate relevant code.
+2. Use `search_symbols` for code identifiers and `search_file_contents`
+   for non-symbol text (error messages, config keys) to locate relevant
+   code.
 3. Use `get_symbol_sources` and `get_summaries` to understand the
    implementation.
-4. Use `get_symbol_locations` plus `Grep` on the short name to trace
-   data flow and call chains.
-5. Use `Bash` with `git log -- <path>` to check recent changes to the
-   affected files.
+4. Use `scan_usages` to trace data flow and call chains.
+5. Use `get_git_log` to check recent changes to the affected files.
 6. Synthesize your findings into the structured output below.
 
 ## Output format

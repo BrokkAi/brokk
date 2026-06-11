@@ -40,33 +40,33 @@ Brokk MCP tools (bifrost):
   that are relevant (use `kind_filter` to disambiguate)
 - `get_summaries` -- get API-level and package-level summaries of files,
   classes, or directories related to the issue
-- `get_symbol_locations` -- confirm where a symbol is defined; combine
-  with `Grep` on the short name when you need to understand how
-  something is called or consumed
+- `scan_usages` -- understand how something is called or consumed
+  (requires fully qualified names; use `search_symbols` first)
+- `search_file_contents` / `find_files_containing` -- search for
+  non-symbol patterns, error messages, or keywords mentioned in the
+  draft
+- `find_filenames` -- locate files by name when the draft references
+  specific files
+- `get_file_contents` -- read raw file contents (configs, build files)
+- `get_git_log` -- recent changes to the affected area
 
 Built-in tools:
-- `Grep` -- search for non-symbol patterns, error messages, or keywords
-  mentioned in the draft
-- `Glob` -- locate files by name when the draft references specific
-  files
-- `Read` -- read raw file contents (configs, build files) that bifrost
-  does not index
-- `Bash` -- read-only investigations: `git log -- <path>` for recent
-  changes to the affected area, `gh issue list --search '<keyword>'`
-  and `gh pr list --search '<keyword>'` to find related GitHub items
-  to cross-reference. You are read-only; do not run mutating commands
+- `Bash` -- read-only investigations: `gh issue list --search
+  '<keyword>'` and `gh pr list --search '<keyword>'` to find related
+  GitHub items to cross-reference. You are read-only; do not run
+  mutating commands
 
 ## Strategy
 
 1. Extract keywords, class names, feature areas, and technical terms
    from the draft title and description.
-2. Use `search_symbols` for code identifiers and `Grep` for non-symbol
-   text to locate relevant code.
+2. Use `search_symbols` for code identifiers and `search_file_contents`
+   for non-symbol text to locate relevant code.
 3. Use `get_summaries` to understand the structure of related classes.
 4. Use `get_symbol_sources` for key methods or classes that the issue
    would affect.
-5. Combine `get_symbol_locations` with `Grep` on the short name if you
-   need to understand how something is called or consumed.
+5. Use `scan_usages` if you need to understand how something is called
+   or consumed.
 6. Synthesize into an enhanced issue body.
 
 ## Output format

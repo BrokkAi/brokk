@@ -41,23 +41,26 @@ Brokk MCP tools (bifrost):
 - `get_symbol_sources` -- read specific methods or classes to evaluate
   complexity and abstraction level (use the optional `kind_filter` to
   disambiguate when a name resolves in multiple kinds)
-- `get_symbol_locations` -- confirm a symbol's defining file and line
-  range; combine with `Grep` for the short name to assess coupling by
-  finding callers (bifrost does not expose a caller-graph tool)
+- `scan_usages` -- assess coupling by finding every caller and reference
+  of a symbol (requires a fully qualified name; use `search_symbols`
+  first)
+- `get_symbol_ancestors` -- inspect a class's inheritance chain when
+  evaluating whether an abstraction is placed at the right level
+- `report_long_method_and_god_object_smells` /
+  `compute_cognitive_complexity` -- run on changed files to quantify
+  god-class growth and method complexity instead of eyeballing it
 - `most_relevant_files` -- discover files most related to the changed
   set (ranked by git history co-change and import graph)
+- `list_files` / `find_filenames` -- check directory structure and
+  whether new files are placed in the right location
+- `get_git_log` / `search_git_commit_messages` -- see how an
+  abstraction evolved and when a design pattern was introduced
 
 Built-in tools:
-- `Glob` -- check directory structure and whether new files are placed in
-  the right location (and as a generic file-by-name finder)
-- `Grep` -- find call sites of a known symbol or scan for related
-  patterns across the codebase
-- `Read` -- read raw file contents for non-source files (configs, build
-  files, generated code)
-- `Bash` -- read-only investigations: `git log -- <path>` and
-  `git blame` to see how an abstraction evolved, `git log -S '<symbol>'`
-  to find when a design pattern was introduced. You are read-only; do
-  not run mutating commands
+- `Read` -- read raw file contents when needed
+- `Bash` -- read-only investigations: `git blame` and
+  `git log -S '<symbol>'` for line-level provenance. You are read-only;
+  do not run mutating commands
 
 ## Output format
 

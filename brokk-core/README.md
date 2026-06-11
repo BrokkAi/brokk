@@ -2,26 +2,9 @@
 
 Standalone MCP server providing code intelligence tools via tree-sitter analysis. No LLM dependencies -- pure structural analysis of source code.
 
-This is the MCP server used by the [Brokk Claude Code plugin](../claude-plugin/README.md). Tool definitions are the source of truth in [`BrokkCoreMcpServer.toolSpecifications()`](src/main/java/ai/brokk/mcpserver/BrokkCoreMcpServer.java).
+Tool definitions are the source of truth in [`BrokkCoreMcpServer.toolSpecifications()`](src/main/java/ai/brokk/mcpserver/BrokkCoreMcpServer.java).
 
-## Quick start
-
-The server is launched via `uvx brokk mcp-core`. The Claude Code plugin configures this automatically in `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "brokk": {
-      "command": "uvx",
-      "args": ["brokk", "mcp-core"],
-      "startup_timeout_sec": 60,
-      "tool_timeout_sec": 300
-    }
-  }
-}
-```
-
-**Prerequisite**: [uv](https://docs.astral.sh/uv/) must be installed. The `uvx` command fetches the `brokk` package from PyPI automatically.
+> **Note**: The [Brokk Claude Code plugin](../claude-plugin/README.md) no longer uses this server. It now runs the [bifrost](https://github.com/BrokkAi/bifrost) native MCP server via `uvx brokk mcp` (the old `uvx brokk mcp-core` entry point has been removed). This module remains the reference implementation that bifrost's code-quality tools match byte-for-byte.
 
 ## Tool reference
 

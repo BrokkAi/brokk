@@ -38,8 +38,9 @@ No parameters.
 
 ## Tips
 
-- Always call `activate_workspace` before using any other Brokk tools when
-  starting work on a new project or switching repositories.
+- A workspace is already active at server startup (the directory the
+  server was launched from), so `activate_workspace` is only needed to
+  switch to a different repo, checkout, or worktree.
 - The server automatically resolves the given path upward to the nearest
   `.git` root, so you can pass a subdirectory path; the path must be absolute.
 - Use `get_active_workspace` to confirm which project root is currently active.

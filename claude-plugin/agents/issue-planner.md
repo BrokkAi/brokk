@@ -40,21 +40,22 @@ Brokk MCP tools (bifrost):
 - `get_summaries` -- understand the API surface to ensure your plan is
   compatible with existing interfaces, and the package structure so new
   files or edits land in the right place
-- `get_symbol_locations` -- combined with `Grep` for the short name,
-  check that your planned changes won't break callers
+- `scan_usages` -- check that your planned changes won't break callers
+  (requires fully qualified names; use `search_symbols` first). Pass
+  `include_tests: true` to find tests that cover the affected code
 - `most_relevant_files` -- discover related modules and tests by
   seeding with the affected files
+- `search_file_contents` -- find existing patterns to follow (tests,
+  similar features, string-literal markers, error-handling idioms)
+- `find_filenames` -- locate test files, configuration files, or
+  related modules by name pattern
+- `get_file_contents` -- read raw file contents (build files, configs,
+  generated code)
+- `get_git_log` -- prior changes to the same area
 
 Built-in tools:
-- `Grep` -- find existing patterns to follow (tests, similar features,
-  string-literal markers, error-handling idioms)
-- `Glob` -- locate test files, configuration files, or related modules
-  by name pattern
-- `Read` -- read raw file contents (build files, configs, generated
-  code) that bifrost does not index
-- `Bash` -- read-only investigations: `git log -- <path>` for prior
-  changes to the same area, `git blame` to see who introduced an
-  existing pattern. You are read-only; do not run mutating commands
+- `Bash` -- read-only investigations: `git blame` to see who introduced
+  an existing pattern. You are read-only; do not run mutating commands
 
 ## Strategy
 

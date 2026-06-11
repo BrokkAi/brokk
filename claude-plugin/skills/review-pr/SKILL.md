@@ -81,13 +81,14 @@ git log "$DEFAULT_BRANCH"..HEAD --oneline
 
 ### Preparation
 
-1. Call `activate_workspace` with the current project path so Brokk tools work.
+1. Confirm Brokk is analyzing this project with `get_active_workspace`;
+   call `activate_workspace` with the project path only if it differs.
 2. Parse the diff to build a list of **changed files**, grouped into
    categories: source, test, infrastructure/config, documentation.
 3. Note the total lines added and removed.
 4. If the diff exceeds 2000 lines, summarize it by file and pass only the
-   relevant file subset to each reviewer. Instruct reviewers to use the
-   built-in `Read` tool for raw file contents and Brokk's
+   relevant file subset to each reviewer. Instruct reviewers to use
+   Brokk's `get_file_contents` for raw file contents and
    `get_symbol_sources` for specific method or class bodies.
 
 Store the PR title, PR body (description), diff text, and changed-file list --
@@ -104,9 +105,9 @@ If the `Agent` tool is available, spawn all specialist reviewers in a
 listed below as the `subagent_type`.
 
 If the `Agent` tool is NOT available, execute each reviewer's analysis
-yourself sequentially using the embedded reviewer prompts at the end of
-this document. For each reviewer, adopt its perspective and use Brokk MCP
-tools as instructed in its prompt.
+yourself sequentially using the corresponding agent definitions in this
+plugin's `agents/` directory. For each reviewer, adopt its perspective
+and use Brokk MCP tools as instructed in its prompt.
 
 Each reviewer prompt MUST include:
 

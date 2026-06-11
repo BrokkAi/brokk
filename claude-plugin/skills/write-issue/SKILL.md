@@ -46,8 +46,8 @@ has provided both a title and a description.
 
 ## Step 3 -- Enhance with Code Context
 
-1. Call `activate_workspace` with the current project path so Brokk
-   tools work.
+1. Confirm Brokk is analyzing this project with `get_active_workspace`;
+   call `activate_workspace` with the project path only if it differs.
 
 2. If the `Agent` tool is available, spawn a `brokk:issue-enhancer`
    agent, passing it the draft title and description. Do NOT use
@@ -61,7 +61,7 @@ has provided both a title and a description.
    - Extract keywords, class names, and technical terms from the draft.
    - Use `search_symbols` to locate matching symbols by name. For
      non-symbol text (string literals, error messages, configs), use
-     the built-in `Grep` tool.
+     `search_file_contents`.
    - Use `get_summaries` for an API overview and `get_symbol_sources`
      to read the affected method or class bodies.
    - Enhance the description with:

@@ -41,21 +41,22 @@ Brokk MCP tools (bifrost):
   assess whether the changes are consistent
 - `search_symbols` -- find related symbols (e.g., siblings of a refactored
   method that should also have been updated)
-- `get_symbol_locations` -- combined with `Grep` for the short name,
-  verify that all callers of modified methods or interfaces were updated
-  (catch incomplete refactors). Bifrost does not expose a caller-graph
-  tool, so the grep step is required
+- `scan_usages` -- verify that ALL callers of modified methods or
+  interfaces were updated (catch incomplete refactors). Requires fully
+  qualified names; use `search_symbols` first. Pass
+  `include_tests: true` to also find affected tests
+- `find_filenames` -- look for corresponding test files for changed
+  source files (e.g., `**/*Test*`, `**/test_*.py`)
+- `search_file_contents` -- find similar patterns and test references
+- `get_file_contents` -- read raw file contents for non-source files
+  (configs, build files)
+- `search_git_commit_messages` / `get_git_log` / `get_commit_diff` --
+  find prior commits on the same theme and inspect related history
 
 Built-in tools:
-- `Glob` -- look for corresponding test files for changed source files
-  (e.g., `**/*Test*`, `**/test_*.py`)
-- `Grep` -- find call sites, similar patterns, and test references
-- `Read` -- read raw file contents for non-source files (configs, build
-  files) that bifrost does not index
-- `Bash` -- read-only investigations: `git log <base>..HEAD` and
-  `git log -p -- <file>` for related history, `git log --grep='pattern'`
-  to find prior commits on the same theme, `gh pr view <number>` to
-  fetch related PRs. You are read-only; do not run mutating commands
+- `Bash` -- read-only investigations: `git log <base>..HEAD` for branch
+  history, `gh pr view <number>` to fetch related PRs. You are
+  read-only; do not run mutating commands
 
 ## Output format
 

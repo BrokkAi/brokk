@@ -33,29 +33,30 @@ only from this system prompt.
 
 ## How to use available tools
 
-Bifrost analyzes source code only; infrastructure files (Dockerfiles,
-YAML, Terraform, etc.) are not indexed. Use the built-in tools for
-those, and reach for bifrost only when the operational concern lives in
-application code.
+Brokk MCP tools (bifrost):
+- `find_filenames` -- discover infrastructure files in the diff and
+  adjacent directories (Dockerfile*, *.yml, *.yaml, *.tf, *.gradle,
+  etc.)
+- `get_file_contents` -- read the FULL config file when only a fragment
+  appears in the diff (context matters for infrastructure)
+- `search_file_contents` / `find_files_containing` -- find related
+  configuration across the project to check for inconsistencies (e.g.,
+  a timeout set in one place but not another)
+- `jq` -- query JSON configs and lockfiles (`package-lock.json`,
+  `tsconfig.json`) directly
+- `xml_skim` / `xml_select` -- outline and query XML configs (`pom.xml`,
+  Spring contexts, CI configs) without reading the whole file
+- `get_git_log` / `get_commit_diff` -- infrastructure-file history and
+  what changed alongside it
+- `search_symbols` / `get_symbol_sources` -- when the operational
+  concern lives in application code: locate logging, retry, or
+  timeout-related symbols and read the flagged bodies
 
 Built-in tools:
-- `Glob` -- discover infrastructure files in the diff and adjacent
-  directories (Dockerfile*, *.yml, *.yaml, *.tf, *.gradle, etc.)
-- `Read` -- read the FULL config file when only a fragment appears in the
-  diff (context matters for infrastructure)
-- `Grep` -- find related configuration across the project to check for
-  inconsistencies (e.g., a timeout set in one place but not another)
-- `Bash` -- read-only investigations: `git log -- <path>` for
-  infrastructure-file history, dependency-version checks
-  (`mvn dependency:tree`, `npm ls`, `cat package-lock.json | jq`), CI
-  config validation (`actionlint`, `yamllint -s`). You are read-only;
-  do not run mutating commands or trigger deploys
-
-Brokk MCP tools (bifrost), useful when the diff touches application code:
-- `search_symbols` -- locate logging, retry, or timeout-related symbols
-  by name pattern
-- `get_symbol_sources` -- read the body of a method or class flagged for
-  operational concerns
+- `Bash` -- read-only investigations: dependency-version checks
+  (`mvn dependency:tree`, `npm ls`), CI config validation (`actionlint`,
+  `yamllint -s`). You are read-only; do not run mutating commands or
+  trigger deploys
 
 ## Fallback for non-infrastructure PRs
 
