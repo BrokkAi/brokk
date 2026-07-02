@@ -35,6 +35,7 @@ import org.jetbrains.annotations.Nullable;
 public class Service extends AbstractService implements ExceptionReporter.ReportingService {
 
     private static final Logger log = LogManager.getLogger(Service.class);
+    private final @Nullable String initializationErrorMessage;
 
     // Share OkHttpClient across instances for efficiency
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -63,13 +64,17 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         var tempModelLocations = new ConcurrentHashMap<String, String>();
         var tempModelInfoMap = new ConcurrentHashMap<String, Map<String, Object>>();
 
+        @Nullable String initError = null;
         try {
             fetchAvailableModels(policy, tempModelLocations, tempModelInfoMap);
         } catch (IOException e) {
             LogManager.getLogger(Service.class)
                     .error("Failed to connect to LiteLLM at {} or parse response: {}", proxyUrl, e.getMessage(), e);
+            initError = "Could not connect to the model proxy at " + proxyUrl
+                    + ". Start the proxy or choose a custom endpoint in Settings.";
             // tempModelLocations and tempModelInfoMap will be cleared by fetchAvailableModels in this case
         }
+        this.initializationErrorMessage = initError;
 
         if (tempModelLocations.isEmpty()) {
             LogManager.getLogger(Service.class).warn("No chat models available");
@@ -100,6 +105,11 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 sttModel = new OpenAIStt(sttModelName);
             }
         }
+    }
+
+    @Override
+    public Optional<String> getInitializationErrorMessage() {
+        return Optional.ofNullable(initializationErrorMessage);
     }
 
     @Override
@@ -242,12 +252,25 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
     @Blocking
     public static void validateKey(String key) throws IOException {
+        if (MainProject.isLocalhost() || MainProject.isCustomProvider()) {
+            return;
+        }
         parseKey(key);
         getUserBalance(key);
     }
 
     @Blocking
     public static BrokkAuthValidation validateBrokkAuth(@Nullable String key) {
+        if (MainProject.isLocalhost() || MainProject.isCustomProvider()) {
+            return new BrokkAuthValidation(
+                    BrokkAuthValidation.State.FREE_USER,
+                    true,
+                    false,
+                    false,
+                    0f,
+                    "Brokk authentication is not required for local or custom proxy modes.");
+        }
+
         if (key == null || key.isBlank()) {
             return new BrokkAuthValidation(
                     BrokkAuthValidation.State.MISSING_KEY, false, false, false, 0f, "No Brokk API key configured.");

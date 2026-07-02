@@ -15,7 +15,6 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.MenuBar;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.dialogs.AboutDialog;
-import ai.brokk.gui.dialogs.BrokkKeyDialog;
 import ai.brokk.gui.dialogs.OpenProjectDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
 import ai.brokk.gui.theme.GuiTheme;
@@ -33,6 +32,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Security;
@@ -98,10 +98,7 @@ public class Brokk {
     private static final SystemScaleProvider systemScaleProvider = new SystemScaleProviderImpl();
 
     // Helper record for argument parsing result
-    private record ParsedArgs(boolean noProjectFlag, boolean noKeyFlag, @Nullable String projectPathArg) {}
-
-    // Helper record for key validation result
-    private record KeyValidationResult(boolean isValid, @Nullable Path dialogProjectPath) {}
+    private record ParsedArgs(boolean noProjectFlag, @Nullable String projectPathArg) {}
 
     static {
         // Suppress java-diff-utils JUL warnings
@@ -273,86 +270,132 @@ public class Brokk {
 
     private static ParsedArgs parseArguments(String[] args) {
         boolean noProjectFlag = false;
-        boolean noKeyFlag = false;
         String projectPathArg = null;
         for (String arg : args) {
             if (arg.equals("--no-project")) {
                 noProjectFlag = true;
-            } else if (arg.equals("--no-key")) {
-                noKeyFlag = true;
             } else if (!arg.startsWith("--")) {
                 projectPathArg = arg;
             }
         }
-        return new ParsedArgs(noProjectFlag, noKeyFlag, projectPathArg);
+        return new ParsedArgs(noProjectFlag, projectPathArg);
     }
 
-    private static KeyValidationResult performKeyValidationLoop(boolean noKeyFlag) {
-        @Nullable String errorMessage = null;
-
-        // 1 – silent validation for an already-persisted key (unless --no-key).
-        if (!noKeyFlag) {
-            var existingKey = MainProject.getBrokkKey();
-            if (!existingKey.isEmpty()) {
-                var outcome = blockingValidateKey(existingKey);
-                if (outcome == ValidationOutcome.VALID) {
-                    return new KeyValidationResult(true, null);
-                }
-                errorMessage = outcome.message;
-            }
+    private static boolean ensureSupportedProxySettingSelected() {
+        if (!MainProject.needsProxySettingSelection()) {
+            return true;
         }
 
-        // 2 – interactive loop until we have a valid key.
+        SwingUtil.runOnEdt(Brokk::hideSplashScreen);
         while (true) {
-            SwingUtil.runOnEdt(Brokk::hideSplashScreen);
-
-            var key = MainProject.getBrokkKey();
-            var error = errorMessage;
-            String newKey = SwingUtil.runOnEdt(() -> BrokkKeyDialog.showDialog(null, key, error), null);
-            if (newKey == null) { // user cancelled
-                logger.info("Key entry dialog cancelled; shutting down.");
-                return new KeyValidationResult(false, null);
+            int choice = requireNonNull(SwingUtil.runOnEdt(Brokk::showProxySelectionDialog, -1));
+            if (choice == 0) {
+                MainProject.setLlmProxySetting(MainProject.LlmProxySetting.LOCALHOST);
+                return true;
             }
-
-            // BrokkKeyDialog has already validated and persisted the key.
-            return new KeyValidationResult(true, null);
+            if (choice == 1 && configureCustomEndpoint()) {
+                MainProject.setLlmProxySetting(MainProject.LlmProxySetting.CUSTOM);
+                return true;
+            }
+            if (choice < 0) {
+                logger.info("Proxy selection cancelled; shutting down.");
+                return false;
+            }
         }
     }
 
-    /**
-     * Validates the key in a background thread to keep the EDT responsive.
-     * Blocks the calling thread until validation completes.
-     */
-    private static ValidationOutcome blockingValidateKey(String key) {
-        var future = LoggingFuture.supplyAsync(() -> {
-            try {
-                Service.validateKey(key);
-                return ValidationOutcome.VALID;
-            } catch (IOException e) {
-                logger.warn("Network error validating existing Brokk key.", e);
-                return ValidationOutcome.NETWORK_ERROR;
-            } catch (IllegalArgumentException e) {
-                logger.warn("Existing Brokk key is invalid: {}", e.getMessage());
-                return ValidationOutcome.INVALID;
-            } catch (Throwable t) {
-                logger.error("Unexpected error validating Brokk key.", t);
-                return new ValidationOutcome("Unexpected error: " + t.getMessage());
-            }
-        });
+    private static int showProxySelectionDialog() {
+        assert SwingUtilities.isEventDispatchThread();
+        var message =
+                """
+                Choose how Brokk should connect to models.
 
-        return future.join();
+                Brokk and Staging proxy modes are no longer supported.
+                """;
+        Object[] options = {"Localhost LiteLLM", "Custom Endpoint"};
+        return JOptionPane.showOptionDialog(
+                null,
+                message,
+                "Choose Model Proxy",
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                options,
+                options[0]);
     }
 
-    private static class ValidationOutcome {
-        static final ValidationOutcome VALID = new ValidationOutcome(null);
-        static final ValidationOutcome INVALID = new ValidationOutcome(BrokkKeyDialog.ERROR_INVALID_KEY);
-        static final ValidationOutcome NETWORK_ERROR = new ValidationOutcome(BrokkKeyDialog.ERROR_NETWORK);
+    private static boolean configureCustomEndpoint() {
+        return Boolean.TRUE.equals(SwingUtil.runOnEdt(
+                () -> {
+                    var urlField = new JTextField(MainProject.getCustomEndpointUrl(), 28);
+                    var apiKeyField = new JPasswordField(MainProject.getCustomEndpointApiKey(), 28);
+                    var modelField = new JTextField(MainProject.getCustomEndpointModel(), 28);
+                    var panel = new JPanel(new GridBagLayout());
+                    var gbc = new GridBagConstraints();
+                    gbc.insets = new Insets(4, 4, 4, 4);
+                    gbc.anchor = GridBagConstraints.WEST;
+                    gbc.fill = GridBagConstraints.HORIZONTAL;
+                    gbc.gridx = 0;
+                    gbc.gridy = 0;
+                    panel.add(new JLabel("URL:"), gbc);
+                    gbc.gridx = 1;
+                    gbc.weightx = 1.0;
+                    panel.add(urlField, gbc);
+                    gbc.gridx = 0;
+                    gbc.gridy = 1;
+                    gbc.weightx = 0;
+                    panel.add(new JLabel("API Key:"), gbc);
+                    gbc.gridx = 1;
+                    gbc.weightx = 1.0;
+                    panel.add(apiKeyField, gbc);
+                    gbc.gridx = 0;
+                    gbc.gridy = 2;
+                    gbc.weightx = 0;
+                    panel.add(new JLabel("Model:"), gbc);
+                    gbc.gridx = 1;
+                    gbc.weightx = 1.0;
+                    panel.add(modelField, gbc);
 
-        final @Nullable String message;
+                    while (true) {
+                        int result = JOptionPane.showConfirmDialog(
+                                null, panel, "Custom OpenAI-Compatible Endpoint", JOptionPane.OK_CANCEL_OPTION);
+                        if (result != JOptionPane.OK_OPTION) {
+                            return false;
+                        }
 
-        ValidationOutcome(@Nullable String message) {
-            this.message = message;
-        }
+                        String url = urlField.getText().trim();
+                        if (url.isBlank()) {
+                            JOptionPane.showMessageDialog(
+                                    null,
+                                    "Custom endpoint URL must not be blank.",
+                                    "Invalid Custom Endpoint",
+                                    JOptionPane.ERROR_MESSAGE);
+                            continue;
+                        }
+                        try {
+                            var uri = URI.create(url);
+                            if (uri.getScheme() == null || !uri.getScheme().matches("https?")) {
+                                throw new IllegalArgumentException("scheme must be http or https");
+                            }
+                            if (uri.getHost() == null || uri.getHost().isBlank()) {
+                                throw new IllegalArgumentException("host must not be blank");
+                            }
+                        } catch (IllegalArgumentException e) {
+                            JOptionPane.showMessageDialog(
+                                    null,
+                                    "Invalid custom endpoint URL: " + e.getMessage(),
+                                    "Invalid Custom Endpoint",
+                                    JOptionPane.ERROR_MESSAGE);
+                            continue;
+                        }
+
+                        MainProject.setCustomEndpointUrl(url);
+                        MainProject.setCustomEndpointApiKey(new String(apiKeyField.getPassword()));
+                        MainProject.setCustomEndpointModel(modelField.getText());
+                        return true;
+                    }
+                },
+                false));
     }
 
     private static List<Path> determineInitialProjectsToOpen(
@@ -541,15 +584,11 @@ public class Brokk {
         // run this after we show the splash screen, it's expensive
         Thread.ofPlatform().start(Messages::init);
 
-        KeyValidationResult keyResult = performKeyValidationLoop(parsedArgs.noKeyFlag);
-        Path dialogProjectPathFromKey = keyResult.dialogProjectPath();
-
-        if (!keyResult.isValid()) {
-            System.exit(0); // User cancelled key dialog or validation failed critically
+        if (!ensureSupportedProxySettingSelected()) {
+            System.exit(0);
         }
-        // dialogProjectPathFromKey is already set above
 
-        List<Path> projectsToAttemptOpen = determineInitialProjectsToOpen(parsedArgs, dialogProjectPathFromKey);
+        List<Path> projectsToAttemptOpen = determineInitialProjectsToOpen(parsedArgs, null);
 
         boolean successfulOpenOccurred = attemptOpenProjects(projectsToAttemptOpen);
 

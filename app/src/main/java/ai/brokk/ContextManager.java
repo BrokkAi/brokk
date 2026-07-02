@@ -2944,6 +2944,7 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
         initializeCurrentSessionAndHistory(createNewSession);
 
         checkBalanceAndNotify();
+        notifyServiceInitializationIssueAsync();
     }
 
     @Override
@@ -3006,6 +3007,16 @@ public class ContextManager implements IAppContextManager, AutoCloseable {
             } catch (IOException e) {
                 logger.error("Failed to check user balance", e);
             }
+        });
+    }
+
+    private void notifyServiceInitializationIssueAsync() {
+        submitBackgroundTask("Checking model proxy", () -> {
+            serviceProvider
+                    .get()
+                    .getInitializationErrorMessage()
+                    .ifPresent(message -> io.showNotification(IConsoleIO.NotificationRole.ERROR, message));
+            return null;
         });
     }
 

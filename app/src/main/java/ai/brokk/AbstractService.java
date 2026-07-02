@@ -111,6 +111,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         void reinit(IProject project);
     }
 
+    public Optional<String> getInitializationErrorMessage() {
+        return Optional.empty();
+    }
+
     // Helper record to store model name and reasoning level for checking
     @Immutable
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {

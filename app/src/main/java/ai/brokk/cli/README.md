@@ -70,7 +70,7 @@ These variables configure the connection to Brokk's inference services.
 | Variable | Description |
 | :--- | :--- |
 | `BROKK_API_KEY` | Your Brokk API key. |
-| `BROKK_PROXY` | Proxy setting (`BROKK`, `LOCALHOST`, or `STAGING`). |
+| `BROKK_PROXY` | Proxy setting (`LOCALHOST` or `CUSTOM`). |
 | `BROKK_FAVORITE_MODELS` | JSON array of favorite model configurations. |
 
 ## Context Management

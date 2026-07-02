@@ -143,7 +143,7 @@ public final class HeadlessExecutorMain {
         System.out.println("  --auth-token <token>       Authentication token (required)");
         System.out.println("  --workspace-dir <path>     Path to workspace directory (required)");
         System.out.println("  --brokk-api-key <key>      Brokk API key override (optional)");
-        System.out.println("  --proxy-setting <setting>  LLM proxy: BROKK, LOCALHOST, STAGING (optional)");
+        System.out.println("  --proxy-setting <setting>  LLM proxy: LOCALHOST or CUSTOM (optional)");
         System.out.println(
                 "  --vendor <vendor>          Other-models vendor: Default, Anthropic, Gemini, OpenAI, OpenAI - Codex (optional)");
         System.out.println("  --debug-log-path <path>    Debug log file path (optional; env BROKK_DEBUG_LOG_PATH)");

@@ -114,6 +114,11 @@ public final class CliArgParser {
         var proxySettingStr = getConfigValue(parsedArgs, "proxy-setting", "PROXY_SETTING");
         if (proxySettingStr != null) {
             var proxySetting = MainProject.LlmProxySetting.valueOf(proxySettingStr.toUpperCase(Locale.ROOT));
+            if (proxySetting != MainProject.LlmProxySetting.LOCALHOST
+                    && proxySetting != MainProject.LlmProxySetting.CUSTOM) {
+                logger.warn("Proxy setting {} is no longer supported; using LOCALHOST", proxySetting);
+                proxySetting = MainProject.LlmProxySetting.LOCALHOST;
+            }
             MainProject.setHeadlessProxySettingOverride(proxySetting);
             logger.info("Using proxy setting: {}", proxySetting);
         }

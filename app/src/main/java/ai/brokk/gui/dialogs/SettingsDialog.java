@@ -21,7 +21,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.io.IOException;
 import java.util.List;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -249,8 +248,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         }
 
         MainProject.LlmProxySetting newProxySetting = MainProject.getProxySetting();
-        if (oldProxySetting != newProxySetting
-                && newProxySetting != MainProject.LlmProxySetting.STAGING) { // STAGING is non-interactive
+        if (oldProxySetting != newProxySetting) {
             proxySettingsChanged = true;
         }
 
@@ -566,7 +564,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             // Load global settings (file I/O)
             var jvmSettings = MainProject.getJvmMemorySettings();
             var apiKey = MainProject.getBrokkKey();
-            var balanceResult = loadAccountBalanceWithPaidStatus(apiKey); // network I/O
+            var balanceResult = loadAccountBalanceWithPaidStatus();
             var models = MainProject.loadFavoriteModels(); // file I/O
 
             // If empty, create default and save
@@ -614,28 +612,11 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         private record BalanceResult(String displayString, boolean isPaid) {}
 
         /**
-         * Loads account balance via network call and determines paid status.
-         * Uses the backend's `is_subscribed` attribute to determine subscription status.
-         * Safe to call off EDT.
+         * Keeps the old settings data shape without calling the retired account service.
          */
         @Blocking
-        private static BalanceResult loadAccountBalanceWithPaidStatus(String apiKey) {
-            if (apiKey.isBlank()) {
-                return new BalanceResult("No API key configured", false);
-            }
-
-            try {
-                var balanceInfo = Service.getBalanceInfo(apiKey);
-                String displayString = String.format("$%.2f", balanceInfo.balance());
-                // Use backend's is_subscribed flag to determine paid status
-                boolean isPaid = balanceInfo.isSubscribed();
-                return new BalanceResult(displayString, isPaid);
-            } catch (IllegalArgumentException e) {
-                return new BalanceResult("Invalid API key format", false);
-            } catch (IOException e) {
-                logger.warn("Failed to load account balance", e);
-                return new BalanceResult("Error loading balance: " + e.getMessage(), false);
-            }
+        private static BalanceResult loadAccountBalanceWithPaidStatus() {
+            return new BalanceResult("N/A", false);
         }
     }
 }

@@ -36,7 +36,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>Replaces the three-layer stack (Python ACP bridge -> HTTP -> HeadlessExecutorMain)
  * with a single Java process that speaks ACP natively over stdio.
  *
- * <p>Usage: {@code java AcpServerMain --workspace-dir /path/to/repo [--vendor X] [--brokk-api-key KEY] [--proxy-setting BROKK|LOCALHOST|STAGING]}
+ * <p>Usage: {@code java AcpServerMain --workspace-dir /path/to/repo [--vendor X] [--brokk-api-key KEY] [--proxy-setting LOCALHOST|CUSTOM]}
  */
 public final class AcpServerMain {
     private static final Logger logger = LogManager.getLogger(AcpServerMain.class);
@@ -74,7 +74,7 @@ public final class AcpServerMain {
                 System.err.println("  --workspace-dir <path>     Path to workspace directory (required)");
                 System.err.println(
                         "  --brokk-api-key <key>      Brokk API key override (optional, prefer env BROKK_API_KEY)");
-                System.err.println("  --proxy-setting <setting>  LLM proxy: BROKK, LOCALHOST, STAGING (optional)");
+                System.err.println("  --proxy-setting <setting>  LLM proxy: LOCALHOST or CUSTOM (optional)");
                 System.err.println("  --vendor <vendor>          Model vendor preference (optional)");
                 System.exit(0);
             }

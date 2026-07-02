@@ -929,22 +929,40 @@ public final class MainProject extends AbstractProject {
         // Check headless executor override first (process-scoped)
         LlmProxySetting override = headlessProxySettingOverride;
         if (override != null) {
-            return override;
+            return normalizeProxySetting(override);
         }
         // Fall back to global properties
         var props = loadGlobalProperties();
-        String val = props.getProperty(LLM_PROXY_SETTING_KEY, LlmProxySetting.BROKK.name());
+        String val = props.getProperty(LLM_PROXY_SETTING_KEY, LlmProxySetting.LOCALHOST.name());
         try {
-            return LlmProxySetting.valueOf(val);
+            return normalizeProxySetting(LlmProxySetting.valueOf(val));
         } catch (IllegalArgumentException e) {
-            return LlmProxySetting.BROKK;
+            return LlmProxySetting.LOCALHOST;
         }
     }
 
     public static void setLlmProxySetting(LlmProxySetting setting) {
         var props = loadGlobalProperties();
-        props.setProperty(LLM_PROXY_SETTING_KEY, setting.name());
+        props.setProperty(LLM_PROXY_SETTING_KEY, normalizeProxySetting(setting).name());
         saveGlobalProperties(props);
+    }
+
+    public static boolean needsProxySettingSelection() {
+        var props = loadGlobalProperties();
+        String val = props.getProperty(LLM_PROXY_SETTING_KEY, "");
+        if (val.isBlank()) {
+            return true;
+        }
+        try {
+            var setting = LlmProxySetting.valueOf(val);
+            return setting != LlmProxySetting.LOCALHOST && setting != LlmProxySetting.CUSTOM;
+        } catch (IllegalArgumentException e) {
+            return true;
+        }
+    }
+
+    private static LlmProxySetting normalizeProxySetting(LlmProxySetting setting) {
+        return setting == LlmProxySetting.CUSTOM ? LlmProxySetting.CUSTOM : LlmProxySetting.LOCALHOST;
     }
 
     /**
@@ -956,8 +974,10 @@ public final class MainProject extends AbstractProject {
      * @param setting the proxy setting override, or null to clear the override
      */
     public static void setHeadlessProxySettingOverride(@Nullable LlmProxySetting setting) {
-        headlessProxySettingOverride = setting;
-        logger.debug("Set headless proxy setting override: {}", setting != null ? setting.name() : "(cleared)");
+        headlessProxySettingOverride = setting != null ? normalizeProxySetting(setting) : null;
+        logger.debug(
+                "Set headless proxy setting override: {}",
+                headlessProxySettingOverride != null ? headlessProxySettingOverride.name() : "(cleared)");
     }
 
     public static boolean isCustomProvider() {
@@ -1654,7 +1674,8 @@ public final class MainProject extends AbstractProject {
             } else {
                 props.setProperty("brokkApiKey", brokkApiKey.trim());
             }
-            props.setProperty(LLM_PROXY_SETTING_KEY, proxySetting.name());
+            props.setProperty(
+                    LLM_PROXY_SETTING_KEY, normalizeProxySetting(proxySetting).name());
             if (!customEndpointUrl.isBlank()) {
                 props.setProperty(CUSTOM_ENDPOINT_URL_KEY, customEndpointUrl.trim());
             }

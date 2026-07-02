@@ -180,21 +180,6 @@ These are optional companion projects, not the main desktop app install path:
 
 - [Claude Code plugin](claude-plugin/README.md): adds Brokk-powered semantic code intelligence to Claude Code.
 
-## Staging Environment
-
-To test pre-release features using the staging environment, you can configure Brokk to use the staging LLM proxy:
-
-1. Open the `brokk.properties` file in the Brokk global configuration directory:
-   - **Windows**: `%APPDATA%/Brokk` (fallback: `~/AppData/Roaming/Brokk`)
-   - **macOS**: `~/Library/Application Support/Brokk`
-   - **Linux**: `$XDG_CONFIG_HOME/Brokk` (fallback: `~/.config/Brokk`)
-2. Add or update the following key in the file:
-   ```properties
-   llmProxySetting=STAGING
-   ```
-3. Obtain an API key from the staging dashboard: https://brokk-frontend-staging.up.railway.app/dashboard
-4. Restart Brokk and use the new staging key.
-
 ## Running with Local LLM Proxy
 
 You can run Brokk with a local LiteLLM proxy to use your own API keys or custom model endpoints. This is useful for development, testing, or when you want to manage your own LLM provider connections.
@@ -232,7 +217,11 @@ You can run Brokk with a local LiteLLM proxy to use your own API keys or custom 
 
 2. **Configure Brokk to use localhost**:
 
-   Open the `brokk.properties` file in the Brokk global configuration directory (same location as the Staging section above) and set:
+   Open the `brokk.properties` file in the Brokk global configuration directory and set:
+   - **Windows**: `%APPDATA%/Brokk` (fallback: `~/AppData/Roaming/Brokk`)
+   - **macOS**: `~/Library/Application Support/Brokk`
+   - **Linux**: `$XDG_CONFIG_HOME/Brokk` (fallback: `~/.config/Brokk`)
+
    ```properties
    llmProxySetting=LOCALHOST
    ```

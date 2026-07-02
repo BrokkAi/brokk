@@ -81,4 +81,35 @@ class MainProjectGlobalConfigDirCacheTest {
         assertEquals(
                 "theme2", props.getProperty("theme"), "Theme should have been updated in the original cached path");
     }
+
+    @Test
+    void proxySettingSelectionOnlyAcceptsLocalhostAndCustom(@TempDir Path tempDir) throws IOException {
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", tempDir.toString());
+
+        assertTrue(MainProject.needsProxySettingSelection());
+        assertEquals(MainProject.LlmProxySetting.LOCALHOST, MainProject.getProxySetting());
+
+        MainProject.setLlmProxySetting(MainProject.LlmProxySetting.LOCALHOST);
+        assertFalse(MainProject.needsProxySettingSelection());
+        assertEquals(MainProject.LlmProxySetting.LOCALHOST, MainProject.getProxySetting());
+
+        MainProject.setLlmProxySetting(MainProject.LlmProxySetting.CUSTOM);
+        assertFalse(MainProject.needsProxySettingSelection());
+        assertEquals(MainProject.LlmProxySetting.CUSTOM, MainProject.getProxySetting());
+
+        var propertiesFile = tempDir.resolve(
+                        "brokk-test-" + ProcessHandle.current().pid())
+                .resolve("Brokk")
+                .resolve("brokk.properties");
+        Files.writeString(propertiesFile, "llmProxySetting=BROKK\n");
+        MainProject.resetGlobalConfigCachesForTests();
+        assertTrue(MainProject.needsProxySettingSelection());
+        assertEquals(MainProject.LlmProxySetting.LOCALHOST, MainProject.getProxySetting());
+
+        Files.writeString(propertiesFile, "llmProxySetting=STAGING\n");
+        MainProject.resetGlobalConfigCachesForTests();
+        assertTrue(MainProject.needsProxySettingSelection());
+        assertEquals(MainProject.LlmProxySetting.LOCALHOST, MainProject.getProxySetting());
+    }
 }

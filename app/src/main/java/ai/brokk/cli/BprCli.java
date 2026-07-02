@@ -194,7 +194,7 @@ public final class BprCli implements Callable<Integer> {
     @CommandLine.Option(
             names = "--proxy",
             description =
-                    "LLM proxy setting override: BROKK, LOCALHOST, or STAGING (uses BROKK_PROXY env var if not specified).")
+                    "LLM proxy setting override: LOCALHOST or CUSTOM (uses BROKK_PROXY env var if not specified).")
     @Nullable
     private String proxySetting;
 
@@ -303,11 +303,15 @@ public final class BprCli implements Callable<Integer> {
         if (effectiveProxy != null && !effectiveProxy.isBlank()) {
             try {
                 var setting = MainProject.LlmProxySetting.valueOf(effectiveProxy.toUpperCase(Locale.ROOT));
+                if (setting != MainProject.LlmProxySetting.LOCALHOST && setting != MainProject.LlmProxySetting.CUSTOM) {
+                    System.err.println(
+                            "Unsupported proxy setting: " + effectiveProxy + ". Valid values: LOCALHOST, CUSTOM");
+                    return 1;
+                }
                 MainProject.setHeadlessProxySettingOverride(setting);
                 logger.info("Using CLI-specified proxy setting: {}", setting);
             } catch (IllegalArgumentException e) {
-                System.err.println(
-                        "Unknown proxy setting: " + effectiveProxy + ". Valid values: BROKK, LOCALHOST, STAGING");
+                System.err.println("Unknown proxy setting: " + effectiveProxy + ". Valid values: LOCALHOST, CUSTOM");
                 return 1;
             }
         }

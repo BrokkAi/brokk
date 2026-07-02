@@ -2,14 +2,12 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.SwingUtil.ThemedIcon;
-import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.McpToolTable;
 import ai.brokk.gui.components.SpinnerIconUtil;
@@ -22,7 +20,6 @@ import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.mcpclient.McpServer;
 import ai.brokk.mcpclient.McpUtils;
 import ai.brokk.mcpclient.StdioMcpServer;
-import ai.brokk.openai.OpenAiOAuthService;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
@@ -32,7 +29,6 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -43,7 +39,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -68,13 +63,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private final SettingsDialog parentDialog; // To access project for data retention refresh
 
     // Service controls
-    private JTextField brokkKeyField = new JTextField();
-    private JTextField balanceField = new JTextField();
-    private BrowserLabel signupLabel = new BrowserLabel("", "");
-
-    @Nullable
-    private JRadioButton brokkProxyRadio; // may be null when STAGING
-
     @Nullable
     private JRadioButton localhostProxyRadio;
 
@@ -96,10 +84,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JCheckBox restrictToOauthCheckbox = new JCheckBox("Show only OAuth-compatible models");
 
     // Connections section: paid-only components and upgrade link
-    private JPanel connectionsPaidPanel = new JPanel();
-    private BrowserLabel providerKeysLabel = new BrowserLabel("", "");
-    private BrowserLabel upgradeLabel = new BrowserLabel("", "");
-
     // Appearance controls (kept in Global)
     private JComboBox<String> themeCombo = new JComboBox<>();
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
@@ -149,17 +133,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         setEnabled(true);
 
-        // Service
-        brokkKeyField.setText(data.brokkApiKey());
-        balanceField.setText(data.accountBalance());
-        updateSignupLabelVisibility();
-
-        if (brokkProxyRadio != null && localhostProxyRadio != null) {
+        if (localhostProxyRadio != null) {
             var currentProxy = MainProject.getProxySetting();
             if (currentProxy == MainProject.LlmProxySetting.CUSTOM && customEndpointRadio != null) {
                 customEndpointRadio.setSelected(true);
-            } else if (currentProxy == MainProject.LlmProxySetting.BROKK) {
-                brokkProxyRadio.setSelected(true);
             } else {
                 localhostProxyRadio.setSelected(true);
             }
@@ -171,10 +148,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         if (customEndpointFieldsPanel != null) {
             customEndpointFieldsPanel.setVisible(customEndpointRadio != null && customEndpointRadio.isSelected());
         }
-
-        // OpenAI connection UI and subscription gating
-        updateOpenAiConnectionUi();
-        updateConnectionsUiForSubscriptionStatus(data.isPaidSubscriber());
 
         // Appearance
         String currentTheme = MainProject.getTheme();
@@ -283,228 +256,91 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.anchor = GridBagConstraints.WEST;
         int row = 0;
 
-        // Row: Brokk Key
+        // Row: LLM Proxy
         gbc.gridx = 0;
         gbc.gridy = row;
         gbc.weightx = 0;
         gbc.fill = GridBagConstraints.NONE;
-        servicePanel.add(new JLabel("Brokk Key:"), gbc);
-
-        brokkKeyField = new JTextField(20);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        servicePanel.add(brokkKeyField, gbc);
-
-        // Row: Balance
-        gbc.gridx = 0;
-        gbc.gridy = ++row;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        servicePanel.add(new JLabel("Balance:"), gbc);
-
-        this.balanceField = new JTextField("Loading...");
-        this.balanceField.setEditable(false);
-        this.balanceField.setColumns(8);
-        var balanceDisplayPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        balanceDisplayPanel.add(this.balanceField);
-        var topUpUrl = Service.TOP_UP_URL;
-        var topUpLabel = new BrowserLabel(topUpUrl, "Top Up");
-        balanceDisplayPanel.add(topUpLabel);
-
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        servicePanel.add(balanceDisplayPanel, gbc);
-
-        // Row: Signup label
-        var signupUrl = "https://brokk.ai";
-        this.signupLabel = new BrowserLabel(signupUrl, "Sign up or get your key at " + signupUrl);
-        this.signupLabel.setFont(this.signupLabel.getFont().deriveFont(Font.ITALIC));
-        gbc.gridx = 1;
-        gbc.gridy = ++row;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(2, 5, 8, 5);
-        servicePanel.add(this.signupLabel, gbc);
-        gbc.insets = new Insets(2, 5, 2, 5);
-
-        // Row: LLM Proxy
-        gbc.gridx = 0;
-        gbc.gridy = ++row;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
         servicePanel.add(new JLabel("LLM Proxy:"), gbc);
 
-        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.STAGING) {
-            var proxyInfoLabel = new JLabel(
-                    "Proxy has been set to STAGING in ~/.brokk/brokk.properties. Changing it back must be done in the same place.");
-            proxyInfoLabel.setFont(proxyInfoLabel.getFont().deriveFont(Font.ITALIC));
-            gbc.gridx = 1;
-            gbc.weightx = 1.0;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            servicePanel.add(proxyInfoLabel, gbc);
-        } else {
-            brokkProxyRadio = new JRadioButton("Brokk");
-            localhostProxyRadio = new JRadioButton("Localhost");
-            customEndpointRadio = new JRadioButton("Custom Endpoint");
-            var proxyGroup = new ButtonGroup();
-            proxyGroup.add(brokkProxyRadio);
-            proxyGroup.add(localhostProxyRadio);
-            proxyGroup.add(customEndpointRadio);
-
-            gbc.gridx = 1;
-            gbc.weightx = 1.0;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            servicePanel.add(brokkProxyRadio, gbc);
-
-            gbc.gridy = ++row;
-            servicePanel.add(localhostProxyRadio, gbc);
-
-            var proxyInfoLabel = new JLabel("Brokk will look for a litellm proxy on localhost:4000");
-            proxyInfoLabel.setFont(proxyInfoLabel.getFont().deriveFont(Font.ITALIC));
-            gbc.insets = new Insets(0, 25, 2, 5);
-            gbc.gridy = ++row;
-            servicePanel.add(proxyInfoLabel, gbc);
-            gbc.insets = new Insets(2, 5, 2, 5);
-
-            gbc.gridy = ++row;
-            servicePanel.add(customEndpointRadio, gbc);
-
-            // Custom endpoint configuration fields (shown/hidden based on radio selection)
-            customEndpointFieldsPanel = new JPanel(new GridBagLayout());
-            var ceGbc = new GridBagConstraints();
-            ceGbc.insets = new Insets(2, 25, 2, 5);
-            ceGbc.anchor = GridBagConstraints.WEST;
-            ceGbc.fill = GridBagConstraints.HORIZONTAL;
-
-            ceGbc.gridx = 0;
-            ceGbc.gridy = 0;
-            ceGbc.weightx = 0;
-            customEndpointFieldsPanel.add(new JLabel("URL:"), ceGbc);
-            ceGbc.gridx = 1;
-            ceGbc.weightx = 1.0;
-            customEndpointUrlField.setToolTipText("e.g. http://localhost:11434/v1 for Ollama");
-            customEndpointFieldsPanel.add(customEndpointUrlField, ceGbc);
-
-            ceGbc.gridx = 0;
-            ceGbc.gridy = 1;
-            ceGbc.weightx = 0;
-            customEndpointFieldsPanel.add(new JLabel("API Key:"), ceGbc);
-            ceGbc.gridx = 1;
-            ceGbc.weightx = 1.0;
-            customEndpointApiKeyField.setToolTipText("Leave blank for local models that don't require auth");
-            customEndpointFieldsPanel.add(customEndpointApiKeyField, ceGbc);
-
-            ceGbc.gridx = 0;
-            ceGbc.gridy = 2;
-            ceGbc.weightx = 0;
-            customEndpointFieldsPanel.add(new JLabel("Model:"), ceGbc);
-            ceGbc.gridx = 1;
-            ceGbc.weightx = 1.0;
-            customEndpointModelField.setToolTipText(
-                    "Model name (e.g. llama3, codellama). Leave blank for auto-discovery via /v1/models");
-            customEndpointFieldsPanel.add(customEndpointModelField, ceGbc);
-
-            gbc.gridy = ++row;
-            gbc.insets = new Insets(0, 5, 2, 5);
-            servicePanel.add(customEndpointFieldsPanel, gbc);
-
-            // Toggle visibility of custom endpoint fields based on radio selection
-            var localFieldsPanel = requireNonNull(customEndpointFieldsPanel);
-            Runnable updateCustomFieldsVisibility = () -> {
-                boolean show = customEndpointRadio != null && customEndpointRadio.isSelected();
-                localFieldsPanel.setVisible(show);
-                localFieldsPanel.revalidate();
-            };
-            if (brokkProxyRadio != null) {
-                brokkProxyRadio.addActionListener(e -> updateCustomFieldsVisibility.run());
-            }
-            if (localhostProxyRadio != null) {
-                localhostProxyRadio.addActionListener(e -> updateCustomFieldsVisibility.run());
-            }
-            customEndpointRadio.addActionListener(e -> updateCustomFieldsVisibility.run());
-
-            var restartLabel = new JLabel("Restart required after changing proxy settings");
-            restartLabel.setFont(restartLabel.getFont().deriveFont(Font.ITALIC));
-            gbc.gridy = ++row;
-            gbc.insets = new Insets(2, 5, 2, 5);
-            servicePanel.add(restartLabel, gbc);
-
-            // Set initial visibility
-            updateCustomFieldsVisibility.run();
-        }
-
-        // Connections section
-        gbc.gridx = 0;
-        gbc.gridy = ++row;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        gbc.insets = new Insets(15, 5, 2, 5);
-        var connectionsLabel = new JLabel("Your Subscriptions:");
-        connectionsLabel.setToolTipText(
-                "Connect your own LLM subscriptions to use their credits instead of Brokk credits.");
-        servicePanel.add(connectionsLabel, gbc);
-
-        // Paid-only panel containing OpenAI connection and provider keys
-        connectionsPaidPanel = new JPanel(new GridBagLayout());
-        var paidGbc = new GridBagConstraints();
-        paidGbc.insets = new Insets(0, 0, 2, 0);
-        paidGbc.anchor = GridBagConstraints.WEST;
-        paidGbc.fill = GridBagConstraints.HORIZONTAL;
-        paidGbc.weightx = 1.0;
-        paidGbc.gridx = 0;
-        paidGbc.gridy = 0;
-
-        // OpenAI connection row
-        openAiStatusLabel = new JLabel();
-        openAiStatusLabel.setToolTipText("Link your ChatGPT Plus or Pro subscription to use your own credits.");
-        var openAiPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        openAiPanel.add(openAiStatusLabel);
-
-        openAiConnectButton = new MaterialButton("Connect");
-        openAiConnectButton.addActionListener(e -> OpenAiOAuthService.startAuthorization(openAiConnectButton));
-        openAiPanel.add(openAiConnectButton);
-
-        openAiDisconnectButton = new MaterialButton("Disconnect");
-        openAiDisconnectButton.addActionListener(e -> disconnectOpenAi());
-        openAiPanel.add(openAiDisconnectButton);
-
-        connectionsPaidPanel.add(openAiPanel, paidGbc);
-
-        restrictToOauthCheckbox = new JCheckBox("Show only OAuth-compatible models");
-        restrictToOauthCheckbox.setToolTipText(
-                "When connected via ChatGPT OAuth, hide non-OAuth models from selectors. "
-                        + "Disable to also see API-key models alongside OAuth models.");
-        restrictToOauthCheckbox.setSelected(MainProject.isRestrictToOauthModelsWhenConnected());
-        restrictToOauthCheckbox.addActionListener(e -> {
-            MainProject.setRestrictToOauthModelsWhenConnected(restrictToOauthCheckbox.isSelected());
-            chrome.getContextManager().reloadService();
-        });
-        paidGbc.gridy = 1;
-        connectionsPaidPanel.add(restrictToOauthCheckbox, paidGbc);
-
-        var providerKeysUrl = joinUrl(MainProject.getFrontendUrl(), "/dashboard/provider-keys");
-        providerKeysLabel = new BrowserLabel(providerKeysUrl, "Set LLM Provider API Keys");
-        providerKeysLabel.setToolTipText(
-                "Configure your own provider API keys for Brokk to use in upstream LLM requests.");
-        paidGbc.gridy = 2;
-        connectionsPaidPanel.add(providerKeysLabel, paidGbc);
+        localhostProxyRadio = new JRadioButton("Localhost LiteLLM");
+        customEndpointRadio = new JRadioButton("Custom Endpoint");
+        var proxyGroup = new ButtonGroup();
+        proxyGroup.add(localhostProxyRadio);
+        proxyGroup.add(customEndpointRadio);
 
         gbc.gridx = 1;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(15, 5, 2, 5);
-        servicePanel.add(connectionsPaidPanel, gbc);
+        servicePanel.add(localhostProxyRadio, gbc);
 
-        // Upgrade label for non-paid users
-        var upgradeUrl = joinUrl(MainProject.getFrontendUrl(), "/dashboard/billing");
-        upgradeLabel = new BrowserLabel(upgradeUrl, "Upgrade to access provider connections");
-        upgradeLabel.setVisible(false);
+        var proxyInfoLabel = new JLabel("Brokk will look for a LiteLLM proxy on localhost:4000");
+        proxyInfoLabel.setFont(proxyInfoLabel.getFont().deriveFont(Font.ITALIC));
+        gbc.insets = new Insets(0, 25, 2, 5);
+        gbc.gridy = ++row;
+        servicePanel.add(proxyInfoLabel, gbc);
+        gbc.insets = new Insets(2, 5, 2, 5);
+
+        gbc.gridy = ++row;
+        servicePanel.add(customEndpointRadio, gbc);
+
+        // Custom endpoint configuration fields (shown/hidden based on radio selection)
+        customEndpointFieldsPanel = new JPanel(new GridBagLayout());
+        var ceGbc = new GridBagConstraints();
+        ceGbc.insets = new Insets(2, 25, 2, 5);
+        ceGbc.anchor = GridBagConstraints.WEST;
+        ceGbc.fill = GridBagConstraints.HORIZONTAL;
+
+        ceGbc.gridx = 0;
+        ceGbc.gridy = 0;
+        ceGbc.weightx = 0;
+        customEndpointFieldsPanel.add(new JLabel("URL:"), ceGbc);
+        ceGbc.gridx = 1;
+        ceGbc.weightx = 1.0;
+        customEndpointUrlField.setToolTipText("e.g. http://localhost:11434/v1 for Ollama");
+        customEndpointFieldsPanel.add(customEndpointUrlField, ceGbc);
+
+        ceGbc.gridx = 0;
+        ceGbc.gridy = 1;
+        ceGbc.weightx = 0;
+        customEndpointFieldsPanel.add(new JLabel("API Key:"), ceGbc);
+        ceGbc.gridx = 1;
+        ceGbc.weightx = 1.0;
+        customEndpointApiKeyField.setToolTipText("Leave blank for local models that don't require auth");
+        customEndpointFieldsPanel.add(customEndpointApiKeyField, ceGbc);
+
+        ceGbc.gridx = 0;
+        ceGbc.gridy = 2;
+        ceGbc.weightx = 0;
+        customEndpointFieldsPanel.add(new JLabel("Model:"), ceGbc);
+        ceGbc.gridx = 1;
+        ceGbc.weightx = 1.0;
+        customEndpointModelField.setToolTipText(
+                "Model name (e.g. llama3, codellama). Leave blank for auto-discovery via /v1/models");
+        customEndpointFieldsPanel.add(customEndpointModelField, ceGbc);
+
+        gbc.gridy = ++row;
+        gbc.insets = new Insets(0, 5, 2, 5);
+        servicePanel.add(customEndpointFieldsPanel, gbc);
+
+        // Toggle visibility of custom endpoint fields based on radio selection
+        var localFieldsPanel = requireNonNull(customEndpointFieldsPanel);
+        Runnable updateCustomFieldsVisibility = () -> {
+            boolean show = customEndpointRadio != null && customEndpointRadio.isSelected();
+            localFieldsPanel.setVisible(show);
+            localFieldsPanel.revalidate();
+        };
+        localhostProxyRadio.addActionListener(e -> updateCustomFieldsVisibility.run());
+        customEndpointRadio.addActionListener(e -> updateCustomFieldsVisibility.run());
+
+        var restartLabel = new JLabel("Restart required after changing proxy settings");
+        restartLabel.setFont(restartLabel.getFont().deriveFont(Font.ITALIC));
         gbc.gridy = ++row;
         gbc.insets = new Insets(2, 5, 2, 5);
-        servicePanel.add(upgradeLabel, gbc);
+        servicePanel.add(restartLabel, gbc);
+
+        // Set initial visibility
+        updateCustomFieldsVisibility.run();
 
         // Vertical filler to push content up
         gbc.gridx = 0;
@@ -515,12 +351,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         servicePanel.add(Box.createVerticalGlue(), gbc);
 
         return servicePanel;
-    }
-
-    private void updateSignupLabelVisibility() {
-        String currentPersistedKey = MainProject.getBrokkKey();
-        boolean keyIsEffectivelyPresent = !currentPersistedKey.trim().isEmpty();
-        this.signupLabel.setVisible(!keyIsEffectivelyPresent);
     }
 
     private JPanel createAppearancePanel() {
@@ -1180,25 +1010,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
      * Apply the global settings managed by this panel (service, appearance, layout, diff view, MCP, GitHub).
      */
     public boolean applySettings() {
-        // Validate API key
         String currentBrokkKeyInSettings = MainProject.getBrokkKey();
-        String newBrokkKeyFromField = brokkKeyField.getText().trim();
+        String newBrokkKeyFromField = currentBrokkKeyInSettings;
         boolean keyStateChangedInUI = !newBrokkKeyFromField.equals(currentBrokkKeyInSettings);
-
-        if (keyStateChangedInUI && !newBrokkKeyFromField.isEmpty()) {
-            try {
-                Service.validateKey(newBrokkKeyFromField);
-            } catch (IllegalArgumentException ex) {
-                JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
-                return false;
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Network error: " + ex.getMessage() + ". Key saved, but validation failed.",
-                        "Network Error",
-                        JOptionPane.WARNING_MESSAGE);
-            }
-        }
 
         // Validate UI Scale and compute new preference
         String oldUiScalePref = MainProject.getUiScalePref();
@@ -1236,14 +1050,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Service settings
         MainProject.LlmProxySetting proxySetting;
-        if (brokkProxyRadio == null) {
-            proxySetting = MainProject.getProxySetting();
-        } else if (customEndpointRadio != null && customEndpointRadio.isSelected()) {
+        if (customEndpointRadio != null && customEndpointRadio.isSelected()) {
             proxySetting = MainProject.LlmProxySetting.CUSTOM;
         } else {
-            proxySetting = brokkProxyRadio.isSelected()
-                    ? MainProject.LlmProxySetting.BROKK
-                    : MainProject.LlmProxySetting.LOCALHOST;
+            proxySetting = MainProject.LlmProxySetting.LOCALHOST;
         }
 
         // Validate custom endpoint URL when CUSTOM is selected
@@ -1334,21 +1144,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         logger.debug("Applied global settings (service + appearance + MCP + GitHub) successfully");
         return true;
-    }
-
-    private void refreshBalanceDisplay() {
-        this.balanceField.setText("Loading...");
-        var contextManager = chrome.getContextManager();
-        var models = contextManager.getService();
-        contextManager.submitBackgroundTask("Refreshing user balance", () -> {
-            try {
-                float balance = models.getUserBalance();
-                SwingUtilities.invokeLater(() -> this.balanceField.setText(String.format("$%.2f", balance)));
-            } catch (IOException e) {
-                logger.debug("Failed to refresh user balance", e);
-                SwingUtilities.invokeLater(() -> this.balanceField.setText("Error"));
-            }
-        });
     }
 
     @Override
@@ -2406,60 +2201,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         restrictToOauthCheckbox.setSelected(MainProject.isRestrictToOauthModelsWhenConnected());
     }
 
-    /**
-     * Updates the visibility of provider key controls based on subscription status.
-     * OpenAI connection controls are always visible. Paid subscribers also see provider keys.
-     * Non-paid users see an upgrade link instead.
-     */
-    private void updateConnectionsUiForSubscriptionStatus(boolean isPaid) {
-        connectionsPaidPanel.setVisible(true);
-        providerKeysLabel.setVisible(isPaid);
-        upgradeLabel.setVisible(!isPaid);
-        revalidate();
-        repaint();
-    }
-
-    private void disconnectOpenAi() {
-        String brokkKey = MainProject.getBrokkKey();
-        if (brokkKey.isBlank()) {
-            MaterialOptionPane.showConfirmDialog(
-                    this,
-                    "Brokk API key is not configured. Please set your Brokk key first.",
-                    "Cannot Disconnect",
-                    JOptionPane.DEFAULT_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        chrome.getContextManager().submitBackgroundTask("Disconnecting OpenAI", () -> {
-            String error = Service.disconnectCodexOauth();
-            var restoredVendor =
-                    error == null ? MainProject.setOpenAiCodexOauthConnected(false) : Optional.<String>empty();
-            SwingUtil.runOnEdt(() -> {
-                if (error == null) {
-                    String message = "Successfully disconnected from OpenAI."
-                            + restoredVendor
-                                    .map(vendor -> String.format(
-                                            "%n%n%s", MainProject.formatCodexDisconnectVendorRestoreMessage(vendor)))
-                                    .orElse("");
-                    MaterialOptionPane.showConfirmDialog(
-                            SettingsGlobalPanel.this,
-                            message,
-                            "OpenAI Disconnected",
-                            JOptionPane.DEFAULT_OPTION,
-                            JOptionPane.INFORMATION_MESSAGE);
-                } else {
-                    MaterialOptionPane.showConfirmDialog(
-                            SettingsGlobalPanel.this,
-                            "Failed to disconnect from OpenAI: " + error,
-                            "Disconnect Error",
-                            JOptionPane.DEFAULT_OPTION,
-                            JOptionPane.ERROR_MESSAGE);
-                }
-            });
-        });
-    }
-
     // SettingsChangeListener implementation
     @Override
     public void gitHubTokenChanged() {
@@ -2681,16 +2422,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         };
     }
 
-    private static String joinUrl(String base, String path) {
-        if (base.endsWith("/") && path.startsWith("/")) {
-            return base + path.substring(1);
-        } else if (!base.endsWith("/") && !path.startsWith("/")) {
-            return base + "/" + path;
-        } else {
-            return base + path;
-        }
-    }
-
     /**
      * SwingWorker to save global settings to disk on a background thread,
      * then trigger UI updates on EDT after successful save.
@@ -2790,8 +2521,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
 
             if (keyStateChangedInUI) {
-                refreshBalanceDisplay();
-                updateSignupLabelVisibility();
                 parentDialog.triggerDataRetentionPolicyRefresh();
                 try {
                     chrome.getContextManager().reloadService();
