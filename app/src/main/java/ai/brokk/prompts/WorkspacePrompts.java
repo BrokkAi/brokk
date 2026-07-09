@@ -34,7 +34,6 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Encapsulates workspace-related prompt construction. Extracted from CodePrompts to centralize workspace rendering.
- *
  * The helpers always:
  * - combine summary fragments into a single api_summaries block,
  * - append an AiMessage acknowledgment,
@@ -193,7 +192,6 @@ public final class WorkspacePrompts {
 
     /**
      * Unified workspace table of contents.
-     *
      * Shows:
      *   - READ ONLY fragments (if any)
      *   - All EDITABLE fragments in a single section
@@ -256,10 +254,8 @@ public final class WorkspacePrompts {
     }
 
     /**
-     * All fragments in the order they were added ({@code ctx.allFragments()}), wrapped in a single
-     * {@code <workspace>} block, with the style guide from the context.
-     *
-     * Special fragments are always moved to the end of the list.
+     * All fragments in the order they were added ({@code ctx.allFragments()}), split into individual messages.
+     * Pinned items are emitted first, then non-pinned items.
      */
     @Blocking
     public static List<ChatMessage> getMessagesInAddedOrder(Context ctx, Set<SpecialTextType> suppressedTypes) {
@@ -277,29 +273,108 @@ public final class WorkspacePrompts {
             return List.of();
         }
 
-        var rendered = formatWithPolicy(allFragments, suppressedTypes);
-        if (rendered.text.isEmpty() && rendered.images.isEmpty() && styleGuide.isBlank()) {
-            return List.of();
-        }
+        var messages = new ArrayList<ChatMessage>();
 
-        var allContents = new ArrayList<Content>();
-        var workspaceBuilder = new StringBuilder();
-
-        workspaceBuilder.append("<workspace>\n");
-        workspaceBuilder.append(rendered.text);
-        workspaceBuilder.append("\n</workspace>");
-
+        // style guide and other static content up front for caching
         if (!styleGuide.isBlank()) {
-            workspaceBuilder.append("<project_guide>\n");
-            workspaceBuilder.append(styleGuide.trim());
-            workspaceBuilder.append("\n</project_guide>\n\n");
+            messages.add(new UserMessage("<project_guide>\n%s\n</project_guide>".formatted(styleGuide.trim())));
         }
 
-        allContents.add(new TextContent(workspaceBuilder.toString()));
-        allContents.addAll(rendered.images);
+        int lastContiguousPinnedUserMessageIndex = messages.size() - 1;
 
-        var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
+        boolean inContiguousPinnedRun = true;
+        for (var cf : allFragments) {
+            int beforeCount = messages.size();
+            addFragmentMessage(messages, cf, suppressedTypes);
+            int afterCount = messages.size();
+
+            boolean isPinned = ctx.isPinned(cf) && !isSpecial(cf);
+            if (inContiguousPinnedRun && isPinned) {
+                // If any messages were actually added for this fragment, the last one is our current candidate
+                if (afterCount > beforeCount) {
+                    var lastAdded = messages.getLast();
+                    if (lastAdded instanceof UserMessage) {
+                        lastContiguousPinnedUserMessageIndex = messages.size() - 1;
+                    }
+                }
+            } else if (afterCount > beforeCount) {
+                // We added something that wasn't pinned, or we were already out of the run
+                inContiguousPinnedRun = false;
+            }
+        }
+
+        if (lastContiguousPinnedUserMessageIndex != -1) {
+            var msg = messages.get(lastContiguousPinnedUserMessageIndex);
+            if (msg instanceof UserMessage um) {
+                var contents = um.contents();
+                if (!contents.isEmpty()) {
+                    var newContents = new ArrayList<>(contents);
+                    int lastIndex = newContents.size() - 1;
+                    var lastContent = newContents.get(lastIndex);
+                    if (lastContent instanceof TextContent tc) {
+                        newContents.set(lastIndex, TextContent.withCacheControl(tc, "ephemeral"));
+                    } else if (lastContent instanceof ImageContent ic) {
+                        newContents.set(lastIndex, ImageContent.withCacheControl(ic, "ephemeral"));
+                    }
+                    messages.set(lastContiguousPinnedUserMessageIndex, new UserMessage(um.name(), newContents));
+                }
+            }
+        }
+
+        messages.add(AiMessage.from("Thank you for providing these Workspace contents."));
+
+        return List.copyOf(messages);
+    }
+
+    private static void addFragmentMessage(
+            List<ChatMessage> messages, ContextFragment cf, Set<SpecialTextType> suppressedTypes) {
+        if (isSuppressed(cf, suppressedTypes)) {
+            return;
+        }
+
+        if (cf.isText()) {
+            messages.add(new UserMessage(cf.format().trim()));
+        } else {
+            var contents = new ArrayList<Content>();
+            contents.add(new TextContent(cf.description().join()));
+            try {
+                var imageContent = processImageContent(cf);
+                if (imageContent != null) {
+                    contents.add(imageContent);
+                }
+            } catch (IOException | UncheckedIOException e) {
+                logger.error(
+                        "Failed to process image fragment {} for LLM message",
+                        cf.description().join(),
+                        e);
+                contents.add(new TextContent("[Error processing image: %s - %s]"
+                        .formatted(cf.description().join(), e.getMessage())));
+            }
+            messages.add(new UserMessage(contents));
+        }
+    }
+
+    private static boolean isSuppressed(ContextFragment cf, Set<SpecialTextType> suppressedTypes) {
+        if (cf instanceof ContextFragments.StringFragment sf) {
+            return sf.specialType().isPresent()
+                    && suppressedTypes.contains(sf.specialType().get());
+        }
+        return false;
+    }
+
+    private static @Nullable ImageContent processImageContent(ContextFragment cf) throws IOException {
+        var cv = cf.imageBytes();
+        if (cv != null) {
+            var bytes = cv.join();
+            if (bytes != null) {
+                var converted = ImageUtil.bytesToImage(bytes);
+                if (converted != null) {
+                    var l4jImage = ImageUtil.toL4JImage(converted);
+                    return ImageContent.from(l4jImage);
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -476,7 +551,6 @@ public final class WorkspacePrompts {
 
     /**
      * Renders readonly fragments into a RenderedContent with combined summary fragments.
-     *
      * Always partitions readonly fragments into SummaryFragments and others:
      * - Non-summary fragments are formatted with the viewing policy
      * - Summary fragments are combined into a single <api_summaries> block
@@ -531,13 +605,11 @@ public final class WorkspacePrompts {
         var imageList = new ArrayList<ImageContent>();
 
         for (var cf : fragments) {
+            if (isSuppressed(cf, suppressedTypes)) {
+                continue;
+            }
+
             if (cf.isText()) {
-                if (cf instanceof ContextFragments.StringFragment sf) {
-                    if (sf.specialType().isPresent()
-                            && suppressedTypes.contains(sf.specialType().get())) {
-                        continue;
-                    }
-                }
                 textBuilder.append(cf.format()).append("\n\n");
                 continue;
             }
@@ -546,16 +618,9 @@ public final class WorkspacePrompts {
                             || cf instanceof ContextFragments.AnonymousImageFragment
                     : cf;
             try {
-                var cv = cf.imageBytes();
-                if (cv != null) {
-                    var bytes = cv.join();
-                    if (bytes != null) { // NOT gratuitous
-                        var converted = ImageUtil.bytesToImage(bytes);
-                        if (converted != null) {
-                            var l4jImage = ImageUtil.toL4JImage(converted);
-                            imageList.add(ImageContent.from(l4jImage));
-                        }
-                    }
+                var imageContent = processImageContent(cf);
+                if (imageContent != null) {
+                    imageList.add(imageContent);
                 }
                 textBuilder.append(cf.text().join()).append("\n\n");
             } catch (IOException | UncheckedIOException e) {

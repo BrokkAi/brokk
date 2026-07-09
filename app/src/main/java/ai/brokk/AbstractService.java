@@ -102,7 +102,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return true;
         }
         var name = nameOf(model);
-        return (name.startsWith("gpt") || name.startsWith("gemini") || name.startsWith("deepseek"));
+        return (name.startsWith("claude")
+                || name.startsWith("gpt")
+                || name.startsWith("gemini")
+                || name.startsWith("deepseek"));
     }
 
     public interface Provider {
