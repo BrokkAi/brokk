@@ -378,6 +378,30 @@ class CodeAgentTest {
                 "Retry prompt should contain target_file tag for " + file);
     }
 
+    @Test
+    void testApplyPhase_finalApplyFailureLabelsMissingFilename() {
+        var blockWithoutFilename = new EditBlock.SearchReplaceBlock(null, "old text", "new text");
+        var cs = createConversationState(List.of(new AiMessage("Previous attempt")), new UserMessage("req"));
+        var es = new CodeAgent.EditState(
+                0,
+                CodeAgent.MAX_APPLY_FAILURES - 1,
+                0,
+                0,
+                "",
+                new HashSet<>(),
+                new HashMap<>(),
+                Collections.emptyMap(),
+                false);
+
+        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(blockWithoutFilename)), null);
+
+        assertInstanceOf(CodeAgent.Step.Fatal.class, result);
+        var fatalStep = (CodeAgent.Step.Fatal) result;
+        assertEquals(TaskResult.StopReason.APPLY_ERROR, fatalStep.stopDetails().reason());
+        assertTrue(fatalStep.stopDetails().explanation().contains("<missing filename>"));
+        assertFalse(fatalStep.stopDetails().explanation().contains("to null"));
+    }
+
     // A-5: applyPhase - large affected files get SEARCH target reminder instead of full-file replacement reminder
     @Test
     void testApplyPhase_showsSearchTargetReminderForLargeAffectedFiles() throws IOException {

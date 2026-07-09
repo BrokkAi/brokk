@@ -1233,6 +1233,7 @@ public class CodeAgent {
                 if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES) {
                     var files = failedResults.stream()
                             .map(b -> b.block().rawFileName())
+                            .map(filename -> filename == null || filename.isBlank() ? "<missing filename>" : filename)
                             .collect(Collectors.joining(","));
                     var detailMsg = "Apply failed %d consecutive times; unable to apply %d blocks to %s"
                             .formatted(updatedConsecutiveApplyFailures, failedResults.size(), files);

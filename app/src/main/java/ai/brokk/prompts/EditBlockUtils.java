@@ -105,6 +105,24 @@ public final class EditBlockUtils {
         return s.isBlank() ? null : s;
     }
 
+    private static List<String> filenameCandidates(String line) {
+        String candidate = stripFilename(line);
+        int fenceIndex = line.lastIndexOf(DEFAULT_FENCE.getFirst());
+        if (fenceIndex < 0 || fenceIndex + DEFAULT_FENCE.getFirst().length() >= line.length()) {
+            return candidate == null ? List.of() : List.of(candidate);
+        }
+
+        String afterFence = line.substring(fenceIndex + DEFAULT_FENCE.getFirst().length());
+        String inlineCandidate = stripFilename(afterFence);
+        if (candidate == null) {
+            return inlineCandidate == null ? List.of() : List.of(inlineCandidate);
+        }
+        if (inlineCandidate == null || candidate.equals(inlineCandidate)) {
+            return List.of(candidate);
+        }
+        return List.of(candidate, inlineCandidate);
+    }
+
     /**
      * Scanning for a filename up to 3 lines above the HEAD block index. If none found, fallback to currentFilename if
      * it's not null.
@@ -132,9 +150,7 @@ public final class EditBlockUtils {
 
         for (int i = headIndex - 1; i >= start; i--) {
             String rawLine = lines[i];
-            String s = rawLine.trim();
-            String candidate = stripFilename(s);
-            if (candidate != null && !candidate.isBlank()) {
+            for (String candidate : filenameCandidates(rawLine)) {
                 if (projectFiles.stream().anyMatch(f -> f.toString().equals(candidate))) {
                     return candidate;
                 }

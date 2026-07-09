@@ -81,6 +81,33 @@ class EditBlockParserTest {
     }
 
     @Test
+    void testParseEditBlockWithFilenameInInlineFenceAfterProse() {
+        var filename = "streams/src/main/java/org/apache/kafka/streams/state/StateSerdes.java";
+        String input =
+                """
+                I'll update it now. ```%s
+                <<<<<<< SEARCH
+                old line
+                =======
+                new line
+                >>>>>>> REPLACE
+                ```
+                """
+                        .formatted(filename);
+        Path root = Path.of("/tmp/brokk-test-root").toAbsolutePath().normalize();
+        Set<ProjectFile> projectFiles = Set.of(new ProjectFile(root, filename));
+
+        var result = EditBlockParser.instance.parseEditBlocks(input, projectFiles);
+
+        assertNull(result.parseError());
+        assertEquals(1, result.blocks().size());
+        var block = result.blocks().getFirst();
+        assertEquals(filename, block.rawFileName());
+        assertEquals("old line\n", block.beforeText());
+        assertEquals("new line\n", block.afterText());
+    }
+
+    @Test
     void testParseMultipleValidEditBlocks() {
         String input =
                 """

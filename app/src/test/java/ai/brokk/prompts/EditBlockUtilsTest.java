@@ -70,6 +70,36 @@ class EditBlockUtilsTest {
     }
 
     @Test
+    void findFilenameNearby_recoversExactProjectPathFromInlineFence() {
+        var filename = "streams/src/main/java/org/apache/kafka/streams/state/StateSerdes.java";
+        var filepath = Path.of(filename);
+        var lines = new String[] {
+            "I'll update it now. ```" + filename, "<<<<<<< SEARCH",
+        };
+        int headIndex = 1;
+        Set<ProjectFile> projectFiles = Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), filepath));
+
+        var result = EditBlockUtils.findFilenameNearby(lines, headIndex, projectFiles, null);
+
+        assertEquals(filename, result.replace(File.separator, "/"));
+    }
+
+    @Test
+    void findFilenameNearby_doesNotRecoverInlineFenceWithoutExactProjectPath() {
+        var filename = "streams/src/main/java/org/apache/kafka/streams/state/StateSerdes.java";
+        var lines = new String[] {
+            "I'll update it now. ```" + filename, "<<<<<<< SEARCH",
+        };
+        Set<ProjectFile> projectFiles = Set.of(new ProjectFile(
+                Path.of(System.getProperty("user.dir")),
+                Path.of("streams/src/main/java/org/apache/kafka/streams/state/Other.java")));
+
+        var result = EditBlockUtils.findFilenameNearby(lines, 1, projectFiles, null);
+
+        assertNull(result);
+    }
+
+    @Test
     void stripFilename_removesMixedDecorations() {
         var line = " // `app/src/Language.java`: ";
         var stripped = EditBlockUtils.stripFilename(line);
