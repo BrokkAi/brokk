@@ -41,7 +41,10 @@ class GitDependencyAutoUpdateTest {
         Files.createDirectories(tempRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR));
 
         remoteRepoDir = Files.createTempDirectory("brokk-git-remote-");
-        remoteGit = Git.init().setDirectory(remoteRepoDir.toFile()).call();
+        remoteGit = Git.init()
+                .setInitialBranch("master")
+                .setDirectory(remoteRepoDir.toFile())
+                .call();
 
         // Initial commit in the remote repository
         Files.writeString(remoteRepoDir.resolve("file1.txt"), "v1");

@@ -59,7 +59,10 @@ class PrReviewServiceTest {
 
         try {
             // Initialize git repository
-            git = Git.init().setDirectory(tempDir.toFile()).call();
+            git = Git.init()
+                    .setInitialBranch("master")
+                    .setDirectory(tempDir.toFile())
+                    .call();
 
             // Configure user for commits
             git.getRepository().getConfig().setString("user", null, "name", "Test User");
